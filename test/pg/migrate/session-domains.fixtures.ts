@@ -10,7 +10,7 @@ import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Logic } from "#compiler/public/compute.ts"
-import { contract, pg } from "#compiler/public/fields.ts"
+import { contract, int4, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	contained,
@@ -77,7 +77,7 @@ const writerOf = (base: ReturnType<typeof firstBase>) => {
 }
 
 /** The marks, keyed by `k`, mutable inside the notes' unit: what a note of a negative key is held to. */
-const Mark = relation("Mark", { k: pg.integer }, ["k"])
+const Mark = relation("Mark", { k: int4 }, ["k"])
 
 const wordsKey = Symbol("Words")
 /**
@@ -88,13 +88,13 @@ const wordsKey = Symbol("Words")
  * (physical/ddl/deltas.ts sessionDeltaOf).
  */
 const firstBase = (name: string) => {
-	const Words = contract<typeof wordsKey>()("Words", pg.integer, (x) => Logic.ge(x, 0))
-	const Note = relation("Note", { k: pg.integer, n: Words }, ["k"])
+	const Words = contract<typeof wordsKey>()("Words", int4, (x) => Logic.ge(x, 0))
+	const Note = relation("Note", { k: int4, n: Words }, ["k"])
 	return schema(
 		name,
 		[Note, Mark],
 		[
-			unit("Notes", { k: pg.integer }),
+			unit("Notes", { k: int4 }),
 			mutable(Note),
 			mutable(Mark),
 			contained(
@@ -128,12 +128,12 @@ const secondOf =
 	(name: string): Version => {
 		switch (change) {
 			case "tightened": {
-				const Words = contract<typeof wordsKey2>()("Words", pg.integer, (x) => Logic.ge(x, 1))
-				const Note = relation("Note", { k: pg.integer, n: Words }, ["k"])
+				const Words = contract<typeof wordsKey2>()("Words", int4, (x) => Logic.ge(x, 1))
+				const Note = relation("Note", { k: int4, n: Words }, ["k"])
 				const base = schema(
 					name,
 					[Note, Mark],
-					[unit("Notes", { k: pg.integer }), mutable(Note), mutable(Mark)]
+					[unit("Notes", { k: int4 }), mutable(Note), mutable(Mark)]
 				)
 				return {
 					schema: base,
@@ -141,12 +141,12 @@ const secondOf =
 				}
 			}
 			case "retyped": {
-				const Words = contract<typeof wordsKey3>()("Words", pg.bigint, (x) => Logic.ge(x, 0n))
-				const Note = relation("Note", { k: pg.integer, n: Words }, ["k"])
+				const Words = contract<typeof wordsKey3>()("Words", int8, (x) => Logic.ge(x, 0n))
+				const Note = relation("Note", { k: int4, n: Words }, ["k"])
 				const base = schema(
 					name,
 					[Note, Mark],
-					[unit("Notes", { k: pg.integer }), mutable(Note), mutable(Mark)]
+					[unit("Notes", { k: int4 }), mutable(Note), mutable(Mark)]
 				)
 				return {
 					schema: base,
@@ -154,11 +154,11 @@ const secondOf =
 				}
 			}
 			case "dropped": {
-				const Note = relation("Note", { k: pg.integer }, ["k"])
+				const Note = relation("Note", { k: int4 }, ["k"])
 				const base = schema(
 					name,
 					[Note, Mark],
-					[unit("Notes", { k: pg.integer }), mutable(Note), mutable(Mark)]
+					[unit("Notes", { k: int4 }), mutable(Note), mutable(Mark)]
 				)
 				return {
 					schema: base,

@@ -1,7 +1,7 @@
 import { isPlainRecord } from "#compiler/core/record.ts"
 import { validateText } from "#compiler/core/text.ts"
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 import { describeFault } from "#compiler/scalar/values/fault.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { isVector, Vector } from "#compiler/scalar/values/vector.ts"
@@ -41,7 +41,7 @@ export const untypedLiteral = (value: unknown, label: string): LiteralDesc => {
 		case "undefined":
 			break
 	}
-	if (value instanceof Decimal || value instanceof Money) {
+	if (value instanceof Numeric || value instanceof Money) {
 		return value
 	}
 	if (isVector(value)) {
@@ -68,6 +68,6 @@ export const untypedLiteral = (value: unknown, label: string): LiteralDesc => {
 	}
 	throw malformed(
 		label,
-		"a literal: a number, bigint, boolean, string, Decimal, Money, Vector or span"
+		"a literal: a number, bigint, boolean, string, Numeric, Money, Vector or range"
 	)
 }

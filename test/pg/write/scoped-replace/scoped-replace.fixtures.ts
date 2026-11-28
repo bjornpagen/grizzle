@@ -14,17 +14,17 @@ import {
 	type OpenedDb
 } from "#bench/write/support/writes.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { mutable, relation, schema, unit } from "#compiler/public/schema.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { writeAuditViolations } from "#test/support/write-audit.ts"
 
 /** A fact of a scope: its scope `s`, its key `a` within it, and its payload `c`. */
-const R = relation("R", { s: pg.bigint, a: pg.bigint, c: pg.bigint }, ["s", "a"])
+const R = relation("R", { s: int8, a: int8, c: int8 }, ["s", "a"])
 
 /** R in the unit of its scope, mutable, so a put of it is a pair or an upsert and a deletion of it is served. */
-const build = (name: string) => schema(name, [R], [unit("Scope", { s: pg.bigint }), mutable(R)])
+const build = (name: string) => schema(name, [R], [unit("Scope", { s: int8 }), mutable(R)])
 
 type Schema = ReturnType<typeof build>
 
@@ -76,7 +76,7 @@ const outsideRows = (s: Schema) =>
 		const { s: at, a, c } = v(R, "stored")
 		return r
 			.match(R, { s: at, a, c })
-			.where(r.eq(at, r.param("scope", pg.bigint)))
+			.where(r.eq(at, r.param("scope", int8)))
 			.where(r.not(r.relation("rows", R), { s: at, a }))
 			.find({ s: at, a, c })
 	})

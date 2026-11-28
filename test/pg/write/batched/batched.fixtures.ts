@@ -23,7 +23,7 @@ import {
 } from "#bench/write/support/writes.ts"
 import type { Param } from "#compiler/core/wire.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { key, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -41,14 +41,14 @@ const Text = str.bytes(512, str.regex("^.*$", "su"))
  * Nodes of documents, wide as edullm's qti.node is: keyed (doc, path, at), and by `seq` alone, a second key, so its
  * insert arbitrates every key and reads its met rows through the met window (sql/ast.ts FromSource `metRows`).
  */
-const Wide = relation(
-	"Wide",
-	{ doc: pg.bigint, path: Text, at: pg.bigint, seq: pg.bigint, body: Text },
-	["doc", "path", "at"]
-)
+const Wide = relation("Wide", { doc: int8, path: Text, at: int8, seq: int8, body: Text }, [
+	"doc",
+	"path",
+	"at"
+])
 
 /** A note a call writes first, in a stratum of its own before the insert (ChangeSet.sequence). */
-const Note = relation("Note", { id: pg.bigint }, ["id"])
+const Note = relation("Note", { id: int8 }, ["id"])
 
 const build = (name: string) => schema(name, [Note, Wide], [key(on(Wide, "seq"))])
 

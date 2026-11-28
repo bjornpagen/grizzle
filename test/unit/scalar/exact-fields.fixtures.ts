@@ -5,7 +5,7 @@ import { bigint } from "@bjornpagen/testing/values"
 import { int8Max } from "#compiler/ir/carriers.ts"
 import type { ExactValueCarrier } from "#compiler/ir/scalar.ts"
 import { Num } from "#compiler/public/compute.ts"
-import { exactInteger, exactMoney, Money, pg } from "#compiler/public/fields.ts"
+import { exactInteger, exactMoney, Money, int4, int8, money } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { key, on, relation, schema, unit } from "#compiler/public/schema.ts"
 import { numericMaxIntegerDigits } from "#compiler/scalar/values/fault.ts"
@@ -152,11 +152,11 @@ export const placements = [
 
 /** A relation holding an exact field `x` of `carrier` beside `id`, keyed by `id`. */
 const holding = (carrier: ExactValueCarrier) =>
-	relation("Holding", { id: pg.integer, x: exactFields[carrier] }, ["id"])
+	relation("Holding", { id: int4, x: exactFields[carrier] }, ["id"])
 
 /** A relation holding an exact field `x` of `carrier` beside `id`, keyed by `x`. */
 const keyedByExact = (carrier: ExactValueCarrier) =>
-	relation("Holding", { id: pg.integer, x: exactFields[carrier] }, ["x"])
+	relation("Holding", { id: int4, x: exactFields[carrier] }, ["x"])
 
 /** The schema of a placement of an exact field of `carrier` that a relation declares. */
 export const declaredSchema = (
@@ -176,14 +176,10 @@ export const declaredSchema = (
 }
 
 /** The plain fields a derived head computes an exact value of `carrier` from: two bigints, or two amounts. */
-const Plain = relation(
-	"Plain",
-	{ id: pg.integer, a: pg.bigint, b: pg.bigint, m: pg.money, n: pg.money },
-	["id"]
-)
+const Plain = relation("Plain", { id: int4, a: int8, b: int8, m: money, n: money }, ["id"])
 
 /** The plain schema, the level a derived relation over Plain extends: Plain in a unit of its id. */
-const PlainSchema = schema("Exact", [Plain], [unit("Plains", { id: pg.integer })])
+const PlainSchema = schema("Exact", [Plain], [unit("Plains", { id: int4 })])
 
 /**
  * A level extending PlainSchema with a stored derived relation `Summed`, keyed by `id`, whose head `x` is `carrier`'s exact
@@ -222,16 +218,16 @@ export const keyFaultOf: {
 } = {
 	exactInteger: {
 		type: "an exact integer",
-		precision: "pg.numeric(p, 0), an integer of at most p digits read as a bigint, or pg.bigint"
+		precision: "numeric(p, 0), an integer of at most p digits read as a bigint, or int8"
 	},
 	exactMoney: {
 		type: "exact money",
-		precision: "pg.numeric(p, 2), or pg.money, a signed 64-bit count of cents"
+		precision: "numeric(p, 2), or money, a signed 64-bit count of cents"
 	}
 }
 
 /** The precision the refusal of a key over an exact field of `carrier` names: its fix. */
 export const precisionFix: { readonly [C in ExactValueCarrier]: string } = {
-	exactInteger: "declare its precision: pg.numeric(p, 0)",
-	exactMoney: "declare its precision: pg.numeric(p, 2)"
+	exactInteger: "declare its precision: numeric(p, 0)",
+	exactMoney: "declare its precision: numeric(p, 2)"
 }

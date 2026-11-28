@@ -16,7 +16,7 @@ import { catchCompileError } from "#compiler/core/canonical.ts"
 import { type CompileReasonTag, isCompileError } from "#compiler/core/errors.ts"
 import type { Built } from "#compiler/core/phantom.ts"
 import { descText } from "#compiler/ir/desc.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int8 } from "#compiler/public/fields.ts"
 import {
 	queryOver as query,
 	type QueryValue,
@@ -323,7 +323,7 @@ const positions = [
 	{
 		kind: "inner",
 		name: "a pointIn point",
-		live: ({ vars: b }) => computeCore.lower(b["during"], pg.bigint),
+		live: ({ vars: b }) => computeCore.lower(b["during"], int8),
 		build: (arg) => bookings((r, a, b) => r.pointIn(arg({ r, vars: b }), a["during"]))
 	},
 	{

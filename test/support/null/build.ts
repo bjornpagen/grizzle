@@ -3,14 +3,19 @@ import { Array as Arr, String as Str } from "effect"
 import type { ColumnRef } from "#compiler/ir/expr.ts"
 import {
 	accumulated,
-	Bits,
-	bits,
+	Bit,
+	bit,
 	closedId,
-	Decimal,
+	Numeric,
 	drawn,
 	natural,
-	pg,
-	span
+	range,
+	bool,
+	float4,
+	float8,
+	int4,
+	int8,
+	numeric
 } from "#compiler/public/fields.ts"
 import { closed, relation, type RelationName } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -47,7 +52,7 @@ const handlesOf = (n: number, h: (code: number) => string): NonEmptyReadonlyArra
 ]
 
 /** A numeric(3, 1) of `tenths` tenths. */
-export const decimalOf = (tenths: number): Decimal => Decimal.of(tenthsText(tenths))
+export const decimalOf = (tenths: number): Numeric => Numeric.of(tenthsText(tenths))
 
 /** The world's rosters and closed relations, each holding the rows the world draws: Succ a flag's flag. */
 export const closedOf = (w: World) => {
@@ -58,12 +63,12 @@ export const closedOf = (w: World) => {
 		{
 			kind: closedId(Kind),
 			flag: closedId(Flag),
-			n: pg.integer,
-			d: pg.numeric(3, 1),
+			n: int4,
+			d: numeric(3, 1),
 			t: Wild,
-			b: pg.boolean,
-			x: pg["double precision"],
-			y: pg.real
+			b: bool,
+			x: float8,
+			y: float4
 		},
 		["kind"],
 		Arr.flatMap(w.pick, (payload, kind) =>
@@ -85,7 +90,7 @@ export const closedOf = (w: World) => {
 	)
 	const Wt = closed.relation(
 		"Wt",
-		{ flag: closedId(Flag), w: pg.integer },
+		{ flag: closedId(Flag), w: int4 },
 		["flag"],
 		Arr.flatMap(w.weight, (weight, flag) =>
 			weight === undefined ? [] : [{ flag: flagOf(flag), w: weight }]
@@ -131,18 +136,18 @@ interface ClosedReads {
 
 /** The fields of every open relation's row (language.ts Item), under the world's rosters. */
 export const itemFields = (c: Closed) => ({
-	id: pg.integer,
+	id: int4,
 	kind: closedId(c.Kind),
 	flag: closedId(c.Flag),
-	flags: bits(c.Flag),
-	n: pg.integer,
-	m: pg.integer,
-	d: pg.numeric(3, 1),
+	flags: bit(c.Flag),
+	n: int4,
+	m: int4,
+	d: numeric(3, 1),
 	t: Wild,
-	b: pg.boolean,
-	x: pg["double precision"],
-	y: pg.real,
-	s: span(pg.integer)
+	b: bool,
+	x: float8,
+	y: float4,
+	s: range(int4)
 })
 
 /** An open relation of the row fields. */
@@ -151,19 +156,17 @@ export const itemRelation = <const N extends string>(c: Closed, name: RelationNa
 
 /** The family a fold's step reads: owners counting their members, each member a row with its owner and slot. */
 export const foldRelations = (c: Closed) => ({
-	Owner: relation(
-		"Owner",
-		{ id: pg.integer, members: drawn(natural), total: accumulated(pg.integer, 0) },
-		["id"]
-	),
+	Owner: relation("Owner", { id: int4, members: drawn(natural), total: accumulated(int4, 0) }, [
+		"id"
+	]),
 	Member: relation(
 		"Member",
 		{
 			...itemFields(c),
-			owner: pg.integer,
+			owner: int4,
 			at: drawn(natural),
-			before: accumulated(pg.integer, 0),
-			after: accumulated(pg.integer, 0)
+			before: accumulated(int4, 0),
+			after: accumulated(int4, 0)
 		},
 		["id"]
 	)
@@ -174,7 +177,7 @@ export const itemFact = (c: Closed, item: Item, id: number) => ({
 	id,
 	kind: kindOf(item.kind),
 	flag: flagOf(item.flag),
-	flags: Bits.of(c.Flag, Arr.map(item.flags, flagOf)),
+	flags: Bit.of(c.Flag, Arr.map(item.flags, flagOf)),
 	n: item.n,
 	m: item.m,
 	d: decimalOf(item.d),
@@ -189,23 +192,23 @@ export const itemFact = (c: Closed, item: Item, id: number) => ({
 export const storedField = (c: Closed, sort: StoredSort): FieldBase => {
 	switch (sort) {
 		case "int":
-			return pg.integer
+			return int4
 		case "big":
-			return pg.bigint
+			return int8
 		case "num":
-			return pg.numeric(3, 1)
+			return numeric(3, 1)
 		case "text":
 			return Wild
 		case "code":
 			return closedId(c.Flag)
 		case "set":
-			return bits(c.Flag)
+			return bit(c.Flag)
 		case "bool":
-			return pg.boolean
+			return bool
 		case "f8":
-			return pg["double precision"]
+			return float8
 		case "f4":
-			return pg.real
+			return float4
 	}
 }
 
@@ -213,23 +216,23 @@ export const storedField = (c: Closed, sort: StoredSort): FieldBase => {
 const literalTerm = (c: Closed, literal: Literal): unknown => {
 	switch (literal.sort) {
 		case "int":
-			return C.literal(pg.integer, literal.value)
+			return C.literal(int4, literal.value)
 		case "big":
-			return C.literal(pg.bigint, BigInt(literal.value))
+			return C.literal(int8, BigInt(literal.value))
 		case "num":
-			return C.literal(pg.numeric(3, 1), decimalOf(literal.tenths))
+			return C.literal(numeric(3, 1), decimalOf(literal.tenths))
 		case "text":
 			return C.literal(Wild, literal.value)
 		case "code":
 			return c.Flag.handle(flagOf(literal.code))
 		case "set":
-			return C.literal(bits(c.Flag), Bits.of(c.Flag, Arr.map(literal.codes, flagOf)))
+			return C.literal(bit(c.Flag), Bit.of(c.Flag, Arr.map(literal.codes, flagOf)))
 		case "bool":
-			return C.literal(pg.boolean, literal.value)
+			return C.literal(bool, literal.value)
 		case "f8":
-			return C.literal(pg["double precision"], literal.value)
+			return C.literal(float8, literal.value)
 		case "f4":
-			return C.literal(pg.real, literal.value)
+			return C.literal(float4, literal.value)
 	}
 }
 
@@ -281,7 +284,7 @@ export const buildTerm = (c: Closed, row: Row, term: NullTerm): unknown => {
 		case "farith":
 			return C[term.op](b(term.a), b(term.b))
 		case "tofloat":
-			return C.cast(b(term.e), pg["double precision"])
+			return C.cast(b(term.e), float8)
 		case "unary":
 			return C[term.op](b(term.a))
 		case "extremum":
@@ -299,11 +302,11 @@ export const buildTerm = (c: Closed, row: Row, term: NullTerm): unknown => {
 		case "narrow":
 			return C.when(
 				C.within(b(term.e), BigInt(-narrowBound), BigInt(narrowBound)),
-				(x: unknown) => C.cast(x, pg.integer),
+				(x: unknown) => C.cast(x, int4),
 				b(term.o)
 			)
 		case "widen":
-			return C.cast(b(term.e), pg.bigint)
+			return C.cast(b(term.e), int8)
 		case "concat":
 			return C.concat(b(term.a), b(term.b))
 		case "charLength":
@@ -317,7 +320,7 @@ export const buildTerm = (c: Closed, row: Row, term: NullTerm): unknown => {
 		case "settest":
 			return C[term.op](b(term.a), b(term.b))
 		case "endpoint":
-			return C[term.op](row["s"], pg.integer)
+			return C[term.op](row["s"], int4)
 	}
 }
 
@@ -378,7 +381,7 @@ export const hostColumns = (item: Item, id: number): ((ref: ColumnRef) => SqlVal
 	return (ref) => columns.get(ref.name)
 }
 
-/** A numeric's tenths from its one text, as Decimal and PostgreSQL write it: [-]digits[.digits], one fraction digit at most. */
+/** A numeric's tenths from its one text, as Numeric and PostgreSQL write it: [-]digits[.digits], one fraction digit at most. */
 const tenthsOf = (text: string): bigint => {
 	const negative = Str.startsWith("-")(text)
 	const [whole, fraction = ""] = Str.split(".")(negative ? Str.slice(1)(text) : text)
@@ -405,7 +408,7 @@ export const fromHost = (sort: Sort, value: unknown): Val | null => {
 		case "big":
 			return typeof value === "bigint" ? value : undefinedValue(sort, value)
 		case "num":
-			return value instanceof Decimal ? tenthsOf(value.toString()) : undefinedValue(sort, value)
+			return value instanceof Numeric ? tenthsOf(value.toString()) : undefinedValue(sort, value)
 		case "text":
 			return typeof value === "string" ? value : undefinedValue(sort, value)
 		case "code":
@@ -460,7 +463,7 @@ export const fromDelivered = (sort: Sort, value: unknown): Val | null => {
 		case "big":
 			return typeof value === "bigint" ? value : undefinedValue(sort, value)
 		case "num":
-			return value instanceof Decimal ? tenthsOf(value.toString()) : undefinedValue(sort, value)
+			return value instanceof Numeric ? tenthsOf(value.toString()) : undefinedValue(sort, value)
 		case "text":
 			return typeof value === "string" ? value : undefinedValue(sort, value)
 		case "code":

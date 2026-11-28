@@ -1,10 +1,10 @@
 /** What the properties of relparam.test.ts read: its spaces, models and helpers. */
 
 import { int, weighted } from "@bjornpagen/testing/gen"
-import { pg } from "#compiler/public/fields.ts"
+import { bool, int8, numeric } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
@@ -13,7 +13,7 @@ import { descOf } from "#test/support/unit/write/changeset/fixtures.ts"
 
 export const Item = relation(
 	"Item",
-	{ id: pg.bigint, label: str.regex("^.*$", "su"), price: pg.numeric(10, 2), live: pg.boolean },
+	{ id: int8, label: str.regex("^.*$", "su"), price: numeric(10, 2), live: bool },
 	["id"]
 )
 
@@ -23,7 +23,7 @@ export const Shop = schema("Shop", [Item], [])
 export const fact = (i: number) => ({
 	id: BigInt(i),
 	label: `item "${i}", {a\\b}`,
-	price: Decimal.of(`${i % 1000}.25`),
+	price: Numeric.of(`${i % 1000}.25`),
 	live: i % 2 === 0
 })
 

@@ -384,10 +384,10 @@ export const loginAdmissionRefusesEachLoginAtItsFirstRoleBreakingALoginRuleByTha
 			{
 				file: "packages/engine/src/scalar/literal.ts",
 				original:
-					'return typeof value === "bigint" ? Result.ok(value) : Result.err("integerType")\n\t\tcase "numeric":\n\t\t\tif (typeof value === "number") {\n\t\t\t\treturn Result.err("decimalNumber")\n\t\t\t}\n\t\t\treturn Decimal.parse(value)',
+					'return typeof value === "bigint" ? Result.ok(value) : Result.err("integerType")\n\t\tcase "numeric":\n\t\t\tif (typeof value === "number") {\n\t\t\t\treturn Result.err("decimalNumber")\n\t\t\t}\n\t\t\treturn Numeric.parse(value)',
 				replacement:
-					'if (typeof value === "number") {     return Result.err("decimalNumber")    }    return Decimal.parse(value)   case "numeric":    return typeof value === "bigint" ? Result.ok(value) : Result.err("integerType")',
-				why: 'Operator mutant 74ae3ef517 at packages/engine/src/scalar/literal.ts:83 in hostLiteral: `return typeof value === "bigint" ? Result.ok(value) : Result.err("integerType")   case "numeric":    if (typeof value === "number") {     return Result.err("decimalNumber")    }    return Decimal.parse(value)` becomes `if (typeof value === "number") {     return Result.err("decimalNumber")    }    return Decimal.parse(value)   case "numeric":    return typeof value === "bigint" ? Result.ok(value) : Result.err("integerType")`; the property fails (the census, lane TESTPOLICY2).'
+					'if (typeof value === "number") {     return Result.err("decimalNumber")    }    return Numeric.parse(value)   case "numeric":    return typeof value === "bigint" ? Result.ok(value) : Result.err("integerType")',
+				why: 'Operator mutant 74ae3ef517 at packages/engine/src/scalar/literal.ts:83 in hostLiteral: `return typeof value === "bigint" ? Result.ok(value) : Result.err("integerType")   case "numeric":    if (typeof value === "number") {     return Result.err("decimalNumber")    }    return Numeric.parse(value)` becomes `if (typeof value === "number") {     return Result.err("decimalNumber")    }    return Numeric.parse(value)   case "numeric":    return typeof value === "bigint" ? Result.ok(value) : Result.err("integerType")`; the property fails (the census, lane TESTPOLICY2).'
 			}
 		]
 	})

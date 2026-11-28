@@ -101,9 +101,9 @@ const fields: Readonly<Record<string, FieldDecl<object>>> = {
 	kinds: caller({ kind: "bits", roster: "Kind" }),
 	budget: caller(budget),
 	title: caller(textDesc("^[A-Za-z ]{1,80}$", "u")),
-	priority: caller({ kind: "pg", type: "integer" }),
+	priority: caller({ kind: "pg", type: "int4" }),
 	twice: {
-		type: { kind: "pg", type: "bigint" },
+		type: { kind: "pg", type: "int8" },
 		writing: {
 			kind: "generated",
 			expr: {
@@ -116,9 +116,9 @@ const fields: Readonly<Record<string, FieldDecl<object>>> = {
 			}
 		}
 	},
-	at: { type: { kind: "pg", type: "integer" }, writing: { kind: "drawn" } },
-	running: { type: { kind: "pg", type: "bigint" }, writing: { kind: "accumulated", start: 0n } },
-	window: caller({ kind: "span", endpoint: { kind: "pg", type: "bigint" }, width: 86_400n }),
+	at: { type: { kind: "pg", type: "int4" }, writing: { kind: "drawn" } },
+	running: { type: { kind: "pg", type: "int8" }, writing: { kind: "accumulated", start: 0n } },
+	window: caller({ kind: "span", endpoint: { kind: "pg", type: "int8" }, width: 86_400n }),
 	embedding: caller({ kind: "vector", dimensions: 3 }),
 	cost: caller({ kind: "pg", type: "money" })
 }
@@ -229,7 +229,7 @@ export const rule: RuleDesc = {
 		nan: {
 			kind: "literal",
 			value: { float: "NaN" },
-			type: { kind: "pg", type: "double precision" }
+			type: { kind: "pg", type: "float8" }
 		},
 		price: {
 			kind: "literal",
@@ -467,7 +467,7 @@ const plan: RelationDesc = {
 	name: "Plan",
 	fields: {
 		tier: { kind: "closedId", roster: "Tier", only: undefined },
-		seats: { kind: "pg", type: "integer" },
+		seats: { kind: "pg", type: "int4" },
 		price: { kind: "numeric", precision: 10, scale: 2 }
 	},
 	key: ["tier"],
@@ -535,7 +535,7 @@ const current: QueryDesc = versioned(
 		where: [
 			{
 				kind: "pointIn",
-				point: { kind: "param", name: "now", type: { kind: "pg", type: "bigint" } },
+				point: { kind: "param", name: "now", type: { kind: "pg", type: "int8" } },
 				span: { kind: "var", var: "v2" }
 			}
 		],
@@ -1356,7 +1356,7 @@ const exprGen = (depth: number): Gen<ExprDesc> => {
 		map(text(1), (name): ExprDesc => ({
 			kind: "param",
 			name,
-			type: { kind: "pg", type: "integer" }
+			type: { kind: "pg", type: "int4" }
 		})),
 		map(literal, (value): ExprDesc => ({ kind: "literal", value }))
 	]
@@ -1400,7 +1400,7 @@ export const exprsGen = exprGen(4)
 
 /**
  * Every literal of a generated expression travels in its identity text tagged by its carrier: a bigint as ~n:, a
- * Decimal as ~d:, Money (the owned value or its text) as ~m:, a Vector as ~v:, each with its exact payload; a string
+ * Numeric as ~d:, Money (the owned value or its text) as ~m:, a Vector as ~v:, each with its exact payload; a string
  * whose first character is a tilde with the tilde doubled; and nothing as null.
  */
 export type TagFeature = "~n" | "~d" | "~m" | "~v" | "an escaped tilde" | "an owned value kept"
@@ -1467,7 +1467,7 @@ const leastFloat32 = 2 ** binary32LeastExponent
 /** A vector component a float32 holds, nonzero. */
 const nonzeroComponent: Gen<number> = oneOf([float(-4, -leastFloat32), float(leastFloat32, 4)])
 
-/** A literal of an owned value: a Decimal, a Money or a Vector. */
+/** A literal of an owned value: a Numeric, a Money or a Vector. */
 export const ownedGen: Gen<ExprDesc> = map(
 	(source) =>
 		[

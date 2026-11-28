@@ -57,7 +57,7 @@ const schemaOf = (
 		closed.ordered(roster, spelled),
 		closedRelation(
 			"Weight",
-			{ kind: { kind: "closedId", roster, only: undefined }, w: { kind: "pg", type: "integer" } },
+			{ kind: { kind: "closedId", roster, only: undefined }, w: { kind: "pg", type: "int4" } },
 			["kind"],
 			Arr.map(spelled, (handle, code) => ({
 				kind: handle,

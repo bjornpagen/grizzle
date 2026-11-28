@@ -4,7 +4,7 @@ import { shuffled, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
-import { bits, closedId, pg } from "#compiler/public/fields.ts"
+import { bit, closedId, int4 } from "#compiler/public/fields.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -30,7 +30,7 @@ const fresh = "d"
 /** The schema over the roster spelled `spelled`, code order kept: a relation holding one code of it and a set of it. */
 const schemaOf = (spelled: ReadonlyArray<string>) => {
 	const Kind = closed.ordered("Kind", spelled)
-	const T = relation("T", { id: pg.integer, k: closedId(Kind), s: bits(Kind) }, ["id"])
+	const T = relation("T", { id: int4, k: closedId(Kind), s: bit(Kind) }, ["id"])
 	return schema("Renamed", [Kind, T], [])
 }
 

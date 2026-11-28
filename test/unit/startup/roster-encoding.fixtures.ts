@@ -5,7 +5,7 @@ import { array, constant, element, type Gen, int, weighted } from "@bjornpagen/t
 import { Array as Arr, String as Str } from "effect"
 import { canonicalTextOf } from "#compiler/core/canonical.ts"
 import { compileLaws } from "#compiler/laws/model/model.ts"
-import { closedId, pg } from "#compiler/public/fields.ts"
+import { closedId, int4 } from "#compiler/public/fields.ts"
 import { closed, key, on, relation, schema, select } from "#compiler/public/schema.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
@@ -79,11 +79,11 @@ export const encodedAt = (guard: Guard, size: number): number => {
 	const Kind = closed.ordered("Kind", handles)
 	const Weight = closed.relation(
 		"Weight",
-		{ kind: closedId(Kind), weight: pg.integer },
+		{ kind: closedId(Kind), weight: int4 },
 		["kind"],
 		Arr.map(handles, (kind, weight) => ({ kind, weight }))
 	)
-	const T = relation("T", { id: Id, kind: closedId(Kind), n: pg.integer, a: Id }, ["id"])
+	const T = relation("T", { id: Id, kind: closedId(Kind), n: int4, a: Id }, ["id"])
 	const first = handleAt(0)
 	const S = schema(
 		"Encoded",

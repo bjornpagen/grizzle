@@ -6,7 +6,7 @@ import { contractParser } from "#adapter/public/contract.ts"
 import { rowEvaluator } from "#adapter/public/host.ts"
 import { Logic, Num, Text } from "#compiler/public/compute.ts"
 import { relation } from "#compiler/public/dynamic.ts"
-import { contract, pg } from "#compiler/public/fields.ts"
+import { contract, int8 } from "#compiler/public/fields.ts"
 import { schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 
@@ -17,7 +17,7 @@ const handleKey = Symbol("Handle")
  * A sitting's key as qti-pie declares it (its ledger's keys.ts SittingKey), the contract metis's essay binding reads a
  * sitting's stage by: any nonnegative bigint, its base int8.
  */
-const SittingKey = contract<typeof sittingKeyKey>()("SittingKey", pg.bigint, (k) =>
+const SittingKey = contract<typeof sittingKeyKey>()("SittingKey", int8, (k) =>
 	Num.within(k, 0n, 2n ** 63n - 1n)
 )
 

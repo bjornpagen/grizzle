@@ -2,7 +2,7 @@
 
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order } from "effect"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, derived, on, relation, schema, unit } from "#compiler/public/schema.ts"
 import { type QueryValue, queryOver, varsOver } from "#compiler/query/build/query.ts"
@@ -11,20 +11,17 @@ import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write
 import type { DeltaValue } from "#compiler/write/delta/source.ts"
 
 /** An attempt of a child, its `n`th, under the child's unit, as edullm's Attempt is a snapshot of an item session. */
-export const Attempt = relation("Attempt", { child: pg.integer, n: pg.integer }, ["child", "n"])
+export const Attempt = relation("Attempt", { child: int4, n: int4 }, ["child", "n"])
 
 /** An attempt's grade, the sidecar a grading stratum writes, as edullm's ProcessedAttempt is. */
-export const Graded = relation("Graded", { child: pg.integer, n: pg.integer, score: pg.integer }, [
-	"child",
-	"n"
-])
+export const Graded = relation("Graded", { child: int4, n: int4, score: int4 }, ["child", "n"])
 
 const base = (name: string) =>
 	schema(
 		name,
 		[Attempt, Graded],
 		[
-			unit("Learner", { child: pg.integer }),
+			unit("Learner", { child: int4 }),
 			contained(on(Graded, "child", "n"), on(Attempt, "child", "n"))
 		]
 	)

@@ -6,7 +6,7 @@ import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
 import { type PlanNode, planNodes, scannedRows } from "#bench/harness/explain.ts"
 import type { BenchSession } from "#bench/harness/session.ts"
-import { natural, pg } from "#compiler/public/fields.ts"
+import { natural, int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import {
@@ -25,17 +25,13 @@ import { namesOf } from "#test/support/kernel/naming.ts"
 import type { RolledBack } from "#test/support/substrate/substrate.ts"
 
 /** The left side's rows, a few keys and a count each. */
-const Asked = relation("Asked", { k1: pg.integer, k2: pg.integer, v: natural }, ["k1", "k2"])
+const Asked = relation("Asked", { k1: int4, k2: int4, v: natural }, ["k1", "k2"])
 
 /** A large store of facts by key, several at each key. */
-const Held = relation("Held", { k1: pg.integer, k2: pg.integer, x: pg.integer }, ["k1", "k2", "x"])
+const Held = relation("Held", { k1: int4, k2: int4, x: int4 }, ["k1", "k2", "x"])
 
 /** A second store, joined to the first by the key. */
-const Marked = relation("Marked", { k1: pg.integer, k2: pg.integer, y: pg.integer }, [
-	"k1",
-	"k2",
-	"y"
-])
+const Marked = relation("Marked", { k1: int4, k2: int4, y: int4 }, ["k1", "k2", "y"])
 
 const Stored = schema("ExistenceWitness", [Asked, Held, Marked], [])
 

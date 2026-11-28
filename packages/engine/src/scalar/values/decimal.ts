@@ -114,26 +114,26 @@ const exponentAt = (
 	return Result.ok({ value: negative ? -magnitude : magnitude, end })
 }
 
-/** A finite Decimal: what `isFinite` proves, its parts the one form of a finite value. */
-export type FiniteDecimal = Decimal & { readonly parts: FiniteParts }
+/** A finite Numeric: what `isFinite` proves, its parts the one form of a finite value. */
+export type FiniteDecimal = Numeric & { readonly parts: FiniteParts }
 
 const finiteParts = (negative: boolean, coefficient: bigint, minScale: number): FiniteParts =>
 	Object.freeze({ kind: "finite", negative: negative && coefficient !== 0n, coefficient, minScale })
 
-/** What a Decimal's parse answers for an input it could not read: no Decimal. */
+/** What a Numeric's parse answers for an input it could not read: no Numeric. */
 const notDecimal = (): ValueFault => "decimalType"
 
 /** The refusal of an IR decimal value whose payload could not be read. */
-const unrevived = (): CompileError => faultError("decimalType", SourceLoc("Decimal value", []))
+const unrevived = (): CompileError => faultError("decimalType", SourceLoc("Numeric value", []))
 
 /** The key the one mint takes, which no other module holds. */
-const minting: unique symbol = Symbol("Decimal")
+const minting: unique symbol = Symbol("Numeric")
 
 /**
- * The owned exact Decimal carrier of pg.numeric: a numeric value and nothing else. 1, 1.0 and 1.00
- * are one Decimal, written "1".
+ * The owned exact Numeric carrier of numeric: a numeric value and nothing else. 1, 1.0 and 1.00
+ * are one Numeric, written "1".
  *
- * A Decimal is NaN, +Infinity, -Infinity, or a finite value in its one form (ir/decimal.ts FiniteParts):
+ * A Numeric is NaN, +Infinity, -Infinity, or a finite value in its one form (ir/decimal.ts FiniteParts):
  * `(-1)^negative * coefficient / 10^minScale`, where minScale is the least scale that writes the value exactly and zero
  * is never negative. It has no display scale. Every constructor, the decoder of PostgreSQL's output included, yields
  * that form, so two Decimals are `equals` exactly when their parts, their texts and their canonical payloads are
@@ -143,7 +143,7 @@ const minting: unique symbol = Symbol("Decimal")
  * Value limits are PostgreSQL's numeric format: at most numericMaxIntegerDigits digits before the decimal point (an
  * int16 weight in base 10000) and at most numericMaxFractionDigits past it (NUMERIC_DSCALE_MAX). Admission is by value:
  * a written scale above numericMaxFractionDigits whose value's minScale fits is admitted as its value, which is never
- * sent as written. Every Decimal satisfies the limits.
+ * sent as written. Every Numeric satisfies the limits.
  *
  * Declared precision and scale coerce as PostgreSQL's apply_typmod does: round half away from zero to the declared
  * scale, then refuse a value whose rounded magnitude needs more integer digits than precision minus scale, so rounding
@@ -154,21 +154,21 @@ const minting: unique symbol = Symbol("Decimal")
  * Reading numeric_out text (fromOutput) and writing it (toString) are per-row hot paths: fromOutput scans code units in
  * place and allocates only the digit text BigInt reads, the value, and a slice when the text ends in fractional zeros.
  */
-export class Decimal implements Canonicalizable {
+export class Numeric implements Canonicalizable {
 	readonly parts: DecimalParts
 	/** numeric_out of trim_scale(value): the value's one text, written at construction. */
 	readonly text: string
-	/** The brand `instanceof Decimal` reads: installed only by the constructor, which only this module can call. */
+	/** The brand `instanceof Numeric` reads: installed only by the constructor, which only this module can call. */
 	readonly #minted = true
 
 	/**
 	 * The one mint. It refuses a call without the module's key, so a JavaScript caller that reaches past the private
-	 * constructor, a subclass's `super` included, makes no Decimal: every Decimal is one of the checked constructors'
+	 * constructor, a subclass's `super` included, makes no Numeric: every Numeric is one of the checked constructors'
 	 * below, its text derived from its parts.
 	 */
 	private constructor(key: typeof minting, parts: DecimalParts, text: string) {
 		if (key !== minting) {
-			throw faultError("decimalType", SourceLoc("Decimal constructor", []))
+			throw faultError("decimalType", SourceLoc("Numeric constructor", []))
 		}
 		this.parts = parts
 		this.text = text
@@ -176,10 +176,10 @@ export class Decimal implements Canonicalizable {
 	}
 
 	/**
-	 * A Decimal is exactly what this module minted: `instanceof` reads the private brand, which no object built on
-	 * Decimal.prototype and no proxy holds, so a forged Decimal is never mistaken for one and runs no code of its own.
+	 * A Numeric is exactly what this module minted: `instanceof` reads the private brand, which no object built on
+	 * Numeric.prototype and no proxy holds, so a forged Numeric is never mistaken for one and runs no code of its own.
 	 */
-	static [Symbol.hasInstance](value: unknown): value is Decimal {
+	static [Symbol.hasInstance](value: unknown): value is Numeric {
 		return typeof value === "object" && value !== null && #minted in value
 	}
 
@@ -192,31 +192,31 @@ export class Decimal implements Canonicalizable {
 		negative: boolean,
 		digits: string,
 		exponent: number
-	): Result.Result<Decimal, ValueFault> {
+	): Result.Result<Numeric, ValueFault> {
 		if (exponent >= 0) {
 			if (digits.length + exponent > numericMaxIntegerDigits) {
 				return Result.err("decimalRange")
 			}
 			const text = digits + "0".repeat(exponent)
 			const parts = finiteParts(negative, BigInt(digits) * pow10(exponent), 0)
-			return Result.ok(new Decimal(minting, parts, negative ? `-${text}` : text))
+			return Result.ok(new Numeric(minting, parts, negative ? `-${text}` : text))
 		}
 		const minScale = -exponent
 		if (minScale > numericMaxFractionDigits || digits.length - minScale > numericMaxIntegerDigits) {
 			return Result.err("decimalRange")
 		}
 		const parts = finiteParts(negative, BigInt(digits), minScale)
-		return Result.ok(new Decimal(minting, parts, finiteDigitsText(negative, digits, minScale)))
+		return Result.ok(new Numeric(minting, parts, finiteDigitsText(negative, digits, minScale)))
 	}
 
-	static readonly nan: Decimal = new Decimal(minting, nanParts, "NaN")
-	static readonly infinity: Decimal = new Decimal(minting, infinityParts, "Infinity")
-	static readonly negativeInfinity: Decimal = new Decimal(
+	static readonly nan: Numeric = new Numeric(minting, nanParts, "NaN")
+	static readonly infinity: Numeric = new Numeric(minting, infinityParts, "Infinity")
+	static readonly negativeInfinity: Numeric = new Numeric(
 		minting,
 		negativeInfinityParts,
 		"-Infinity"
 	)
-	static readonly zero: Decimal = new Decimal(minting, finiteParts(false, 0n, 0), "0")
+	static readonly zero: Numeric = new Numeric(minting, finiteParts(false, 0n, 0), "0")
 
 	/**
 	 * Any (negative, coefficient, scale) in, the one form out: trailing zeros of the coefficient are divided away. Refused
@@ -226,7 +226,7 @@ export class Decimal implements Canonicalizable {
 		negative: boolean,
 		coefficient: bigint,
 		scale: number
-	): Result.Result<Decimal, ValueFault> {
+	): Result.Result<Numeric, ValueFault> {
 		if (typeof negative !== "boolean" || typeof coefficient !== "bigint" || coefficient < 0n) {
 			return Result.err("decimalType")
 		}
@@ -234,12 +234,12 @@ export class Decimal implements Canonicalizable {
 			return Result.err("decimalType")
 		}
 		if (coefficient === 0n) {
-			return Result.ok(Decimal.zero)
+			return Result.ok(Numeric.zero)
 		}
 		const digits = coefficient.toString()
 		const end = zerosDropped(digits, 0, digits.length)
 		const dropped = Math.min(digits.length - end, scale)
-		return Decimal.#fromSignificant(
+		return Numeric.#fromSignificant(
 			negative,
 			digits.slice(0, digits.length - dropped),
 			dropped - scale
@@ -247,16 +247,16 @@ export class Decimal implements Canonicalizable {
 	}
 
 	/**
-	 * The Decimal of an IR decimal value (ir/decimal.ts DecimalValue): a Decimal as it is, and any other value revived from
+	 * The Numeric of an IR decimal value (ir/decimal.ts DecimalValue): a Numeric as it is, and any other value revived from
 	 * its canonical payload, which must be exactly a value's one text (fromCanonical). Its parts and its payload are the
-	 * caller's, so neither is believed: the Decimal is minted from the checked text alone, and a payload that is no one
+	 * caller's, so neither is believed: the Numeric is minted from the checked text alone, and a payload that is no one
 	 * text is refused with CompileError MalformedDescription.
 	 */
-	static fromValue(value: DecimalValue): Decimal {
-		if (value instanceof Decimal) {
+	static fromValue(value: DecimalValue): Numeric {
+		if (value instanceof Numeric) {
 			return value
 		}
-		const revived = hostRead(unrevived, () => Decimal.fromCanonical(decimalPayload(value)))
+		const revived = hostRead(unrevived, () => Numeric.fromCanonical(decimalPayload(value)))
 		if (!revived.ok) {
 			throw revived.error
 		}
@@ -268,7 +268,7 @@ export class Decimal implements Canonicalizable {
 	 * at most int8Digits digits and a numeric holds far more before its decimal point. A money amount's exact value
 	 * (money.ts toDecimal), in its one form.
 	 */
-	static fromMinorUnits(minorUnits: bigint): Decimal {
+	static fromMinorUnits(minorUnits: bigint): Numeric {
 		const negative = minorUnits < 0n
 		let coefficient = negative ? -minorUnits : minorUnits
 		let minScale = moneyFractionDigits
@@ -277,41 +277,41 @@ export class Decimal implements Canonicalizable {
 			minScale--
 		}
 		const parts = finiteParts(negative, coefficient, minScale)
-		return new Decimal(
+		return new Numeric(
 			minting,
 			parts,
 			finiteDigitsText(parts.negative, coefficient.toString(), minScale)
 		)
 	}
 
-	/** An integer Decimal. */
-	static fromBigInt(value: bigint): Result.Result<Decimal, ValueFault> {
+	/** An integer Numeric. */
+	static fromBigInt(value: bigint): Result.Result<Numeric, ValueFault> {
 		if (typeof value !== "bigint") {
 			return Result.err("decimalType")
 		}
-		return Decimal.fromParts(value < 0n, value < 0n ? -value : value, 0)
+		return Numeric.fromParts(value < 0n, value < 0n ? -value : value, 0)
 	}
 
 	/**
 	 * Parses an exact decimal literal. The grammar is PostgreSQL's numeric input restricted to its exact decimal
 	 * spellings: an optional sign, digits with an optional fraction (".5" and "5." included), and an optional
 	 * exponent; or exactly NaN, Infinity, +Infinity or -Infinity. Whitespace, digit-group underscores, non-decimal
-	 * prefixes and the "inf" abbreviation are refused. Every accepted text means one value, and the Decimal is that
-	 * value in its one form: "1.50", "1.5E0" and "15e-1" are one Decimal, written "1.5". Its text is written from the
+	 * prefixes and the "inf" abbreviation are refused. Every accepted text means one value, and the Numeric is that
+	 * value in its one form: "1.50", "1.5E0" and "15e-1" are one Numeric, written "1.5". Its text is written from the
 	 * significant digits the input already holds, with no bigint-to-decimal conversion.
 	 */
-	static fromString(text: string): Result.Result<Decimal, ValueFault> {
+	static fromString(text: string): Result.Result<Numeric, ValueFault> {
 		if (typeof text !== "string") {
 			return Result.err("decimalType")
 		}
 		switch (text) {
 			case "NaN":
-				return Result.ok(Decimal.nan)
+				return Result.ok(Numeric.nan)
 			case "Infinity":
 			case "+Infinity":
-				return Result.ok(Decimal.infinity)
+				return Result.ok(Numeric.infinity)
 			case "-Infinity":
-				return Result.ok(Decimal.negativeInfinity)
+				return Result.ok(Numeric.negativeInfinity)
 		}
 		const negative = text.startsWith("-")
 		const intStart = negative || text.startsWith("+") ? 1 : 0
@@ -340,37 +340,37 @@ export class Decimal implements Canonicalizable {
 			lead++
 		}
 		if (lead === all.length) {
-			return Result.ok(Decimal.zero)
+			return Result.ok(Numeric.zero)
 		}
 		const end = zerosDropped(all, lead, all.length)
 		const exponent = written.value.value - fractionLength + (all.length - end)
-		return Decimal.#fromSignificant(negative, all.slice(lead, end), exponent)
+		return Numeric.#fromSignificant(negative, all.slice(lead, end), exponent)
 	}
 
 	/**
-	 * The Decimal whose numeric_out text is `text`, trusted: a column's output, NaN, Infinity, -Infinity, or an optional
+	 * The Numeric whose numeric_out text is `text`, trusted: a column's output, NaN, Infinity, -Infinity, or an optional
 	 * minus sign, integer digits and an optional fraction. Nothing is checked. Trailing fractional zeros, and a then bare
 	 * point, are dropped; the rest is the text, so a padded spelling decodes to its value's one form.
 	 */
-	static fromOutput(text: string): Decimal {
+	static fromOutput(text: string): Numeric {
 		switch (text) {
 			case "NaN":
-				return Decimal.nan
+				return Numeric.nan
 			case "Infinity":
-				return Decimal.infinity
+				return Numeric.infinity
 			case "-Infinity":
-				return Decimal.negativeInfinity
+				return Numeric.negativeInfinity
 		}
 		const negative = text.startsWith("-")
 		const start = negative ? 1 : 0
 		const point = text.indexOf(".", start)
 		if (point < 0) {
-			return new Decimal(minting, finiteParts(negative, BigInt(text.slice(start)), 0), text)
+			return new Numeric(minting, finiteParts(negative, BigInt(text.slice(start)), 0), text)
 		}
 		const end = zerosDropped(text, point + 1, text.length)
 		if (end === point + 1) {
 			const integer = text.slice(0, point)
-			return new Decimal(
+			return new Numeric(
 				minting,
 				finiteParts(negative, BigInt(text.slice(start, point)), 0),
 				integer
@@ -378,58 +378,58 @@ export class Decimal implements Canonicalizable {
 		}
 		const coefficient = BigInt(text.slice(start, point) + text.slice(point + 1, end))
 		const parts = finiteParts(negative, coefficient, end - point - 1)
-		return new Decimal(minting, parts, end === text.length ? text : text.slice(0, end))
+		return new Numeric(minting, parts, end === text.length ? text : text.slice(0, end))
 	}
 
 	/**
-	 * The literal boundary: a Decimal as is, a bigint, or an exact decimal string. A
+	 * The literal boundary: a Numeric as is, a bigint, or an exact decimal string. A
 	 * JavaScript number is refused, because it has already rounded to binary64. Reading the caller's value can run its
 	 * code (instanceof runs a proxy's getPrototypeOf trap), so it is read once through hostRead, and a value whose
-	 * reading throws is refused as no Decimal; `admit` and `of` read through here.
+	 * reading throws is refused as no Numeric; `admit` and `of` read through here.
 	 */
-	static parse(input: unknown): Result.Result<Decimal, ValueFault> {
-		return hostRead(notDecimal, (): Result.Result<Decimal, ValueFault> => {
-			if (input instanceof Decimal) {
+	static parse(input: unknown): Result.Result<Numeric, ValueFault> {
+		return hostRead(notDecimal, (): Result.Result<Numeric, ValueFault> => {
+			if (input instanceof Numeric) {
 				return Result.ok(input)
 			}
 			if (typeof input === "bigint") {
-				return Decimal.fromBigInt(input)
+				return Numeric.fromBigInt(input)
 			}
 			if (typeof input === "string") {
-				return Decimal.fromString(input)
+				return Numeric.fromString(input)
 			}
 			return Result.err(typeof input === "number" ? "decimalNumber" : "decimalType")
 		})
 	}
 
 	/** The builders' throwing convenience: `parse`, raising CompileError MalformedDescription. */
-	static of(input: Decimal | bigint | string): Decimal {
-		return Decimal.admit(input)
+	static of(input: Numeric | bigint | string): Numeric {
+		return Numeric.admit(input)
 	}
 
 	/**
 	 * The admission core `of` runs, for what a JavaScript caller may pass: `parse`, raising CompileError
 	 * MalformedDescription.
 	 */
-	static admit(input: unknown): Decimal {
-		const parsed = Decimal.parse(input)
+	static admit(input: unknown): Numeric {
+		const parsed = Numeric.parse(input)
 		if (!parsed.ok) {
-			throw faultError(parsed.error, SourceLoc("Decimal literal", []))
+			throw faultError(parsed.error, SourceLoc("Numeric literal", []))
 		}
 		return parsed.value
 	}
 
 	/** The reviver for the canonical tag "d": exactly the one text `toString` writes, and nothing else. */
-	static fromCanonical(payload: string): Result.Result<Decimal, CompileError> {
-		const parsed = Decimal.fromString(payload)
+	static fromCanonical(payload: string): Result.Result<Numeric, CompileError> {
+		const parsed = Numeric.fromString(payload)
 		if (!parsed.ok) {
-			return Result.err(faultError(parsed.error, SourceLoc("canonical Decimal", [])))
+			return Result.err(faultError(parsed.error, SourceLoc("canonical Numeric", [])))
 		}
 		if (parsed.value.text !== payload) {
 			return Result.err(
 				malformedDescription(
-					SourceLoc("canonical Decimal", []),
-					"the one text of a Decimal, numeric_out of trim_scale(value)"
+					SourceLoc("canonical Numeric", []),
+					"the one text of a Numeric, numeric_out of trim_scale(value)"
 				)
 			)
 		}
@@ -461,12 +461,12 @@ export class Decimal implements Canonicalizable {
 	 * PostgreSQL's numeric comparison (cmp_numerics): -Infinity < every finite value < +Infinity < NaN, NaN = NaN,
 	 * and finite values by value.
 	 */
-	compare(that: Decimal): -1 | 0 | 1 {
+	compare(that: Numeric): -1 | 0 | 1 {
 		return compareDecimal(this, that)
 	}
 
 	/** Numeric equality, which for the one form is identity of the texts. */
-	equals(that: Decimal): boolean {
+	equals(that: Numeric): boolean {
 		return this.text === that.text
 	}
 
@@ -488,7 +488,7 @@ const kindRank = (parts: DecimalParts): 0 | 1 | 2 | 3 => {
 	}
 }
 
-export const compareDecimal = (a: Decimal, b: Decimal): -1 | 0 | 1 => {
+export const compareDecimal = (a: Numeric, b: Numeric): -1 | 0 | 1 => {
 	const x = a.parts
 	const y = b.parts
 	if (x.kind !== "finite" || y.kind !== "finite") {
@@ -509,7 +509,7 @@ export const compareDecimal = (a: Decimal, b: Decimal): -1 | 0 | 1 => {
 }
 
 /**
- * A finite Decimal as a signed integer count of 10^-scale units, rounded half away from zero: round(d * 10^scale).
+ * A finite Numeric as a signed integer count of 10^-scale units, rounded half away from zero: round(d * 10^scale).
  * `scale` may be negative. This is the rounding of PostgreSQL's round_var and of its numeric-to-integer casts.
  */
 export const roundedUnits = (d: FiniteDecimal, scale: number): bigint => {
@@ -550,7 +550,7 @@ const withinPrecision = (units: bigint, precision: number): boolean =>
  * A special value at a typmod: NaN where its column holds it, at every scale but 0, and refused (numericNaN) at an
  * integer typmod (isIntegerTypmod), which no bigint spells; an infinity nowhere (numericInfinity, apply_typmod_special).
  */
-const special = (d: Decimal, typmod: NumericTypmod): Result.Result<Decimal, ValueFault> =>
+const special = (d: Numeric, typmod: NumericTypmod): Result.Result<Numeric, ValueFault> =>
 	!d.isNaN()
 		? Result.err("numericInfinity")
 		: isIntegerTypmod(typmod)
@@ -561,14 +561,14 @@ const special = (d: Decimal, typmod: NumericTypmod): Result.Result<Decimal, Valu
  * The value a numeric(p, s) column stores for `d`, as apply_typmod and apply_typmod_special compute it, in its one
  * form: NaN unchanged, but refused at scale 0 (numericNaN), whose column holds integers alone (isIntegerTypmod); infinity refused (numericInfinity); otherwise rounded half away from zero to scale
  * s, and refused when the rounded magnitude is at least 10^(p - s) (numericOverflow, SQLSTATE 22003 in PostgreSQL).
- * Without a typmod, a computed numeric's, the value is numeric's own, which every Decimal already is. This is
+ * Without a typmod, a computed numeric's, the value is numeric's own, which every Numeric already is. This is
  * PostgreSQL's coercion of a value it computes or a literal it casts; a caller's value is parsed exactly instead
  * (parseNumeric).
  */
 export const normalizeNumeric = (
-	d: Decimal,
+	d: Numeric,
 	typmod: NumericTypmod | undefined
-): Result.Result<Decimal, ValueFault> => {
+): Result.Result<Numeric, ValueFault> => {
 	if (typmod === undefined) {
 		return Result.ok(d)
 	}
@@ -582,8 +582,8 @@ export const normalizeNumeric = (
 		return Result.err("numericOverflow")
 	}
 	return scale >= 0
-		? Decimal.fromParts(units < 0n, magnitude, scale)
-		: Decimal.fromParts(units < 0n, magnitude * pow10(-scale), 0)
+		? Numeric.fromParts(units < 0n, magnitude, scale)
+		: Numeric.fromParts(units < 0n, magnitude * pow10(-scale), 0)
 }
 
 /**
@@ -609,12 +609,12 @@ const exactUnits = (d: FiniteDecimal, scale: number): bigint | undefined => {
  * holds it unchanged; never rounded. NaN passes, but is refused at scale 0 (numericNaN); infinity is refused (numericInfinity), a value of more fractional digits
  * than s, or at a negative s no multiple of 10^-s, is refused (numericScale) where PostgreSQL's coercion would round it
  * (normalizeNumeric), and one of 10^(p - s) or more in magnitude is refused (numericOverflow). Without a typmod every
- * Decimal is numeric's own value.
+ * Numeric is numeric's own value.
  */
 export const parseNumeric = (
-	d: Decimal,
+	d: Numeric,
 	typmod: NumericTypmod | undefined
-): Result.Result<Decimal, ValueFault> => {
+): Result.Result<Numeric, ValueFault> => {
 	if (typmod === undefined) {
 		return Result.ok(d)
 	}
@@ -629,15 +629,15 @@ export const parseNumeric = (
 }
 
 /**
- * A value of numeric of no typmod within `bound` (ir/scalar.ts NumericBound), a computed numeric's or pg.numeric's at
+ * A value of numeric of no typmod within `bound` (ir/scalar.ts NumericBound), a computed numeric's or numeric's at
  * numeric's own limits: itself, NaN and the infinities among them, as numeric of no typmod holds them, and a finite
  * value of at most bound.scale fraction digits below 10^bound.digits in magnitude; any other refused (numericBound),
- * never rounded. Every Decimal is within numeric's own limits, so pg.numeric's bound admits each as it is.
+ * never rounded. Every Numeric is within numeric's own limits, so numeric's bound admits each as it is.
  */
 export const withinBound = (
-	d: Decimal,
+	d: Numeric,
 	bound: NumericBound
-): Result.Result<Decimal, ValueFault> => {
+): Result.Result<Numeric, ValueFault> => {
 	const p = d.parts
 	if (p.kind !== "finite" || p.coefficient === 0n) {
 		return Result.ok(d)
@@ -649,10 +649,10 @@ export const withinBound = (
 }
 
 /**
- * A computed numeric's bound as a JavaScript caller or a Description states it (pg.numeric.within(digits, scale),
+ * A computed numeric's bound as a JavaScript caller or a Description states it (numeric.within(digits, scale),
  * ir/desc.ts FieldDesc computedNumeric): both integers, its scale 0..numericMaxFractionDigits and its digits
  * -numericMaxFractionDigits..numericMaxIntegerDigits, as numeric's own format bounds a value, and narrower than
- * numeric's own limits, which pg.numeric is: what the bound refuses, or none.
+ * numeric's own limits, which numeric is: what the bound refuses, or none.
  */
 export const numericBoundRefusal = (digits: unknown, scale: unknown): string | undefined =>
 	!isInteger(digits) ||
@@ -663,11 +663,11 @@ export const numericBoundRefusal = (digits: unknown, scale: unknown): string | u
 	digits > numericMaxIntegerDigits
 		? `a computed numeric's bound: integer digits -${numericMaxFractionDigits}..${numericMaxIntegerDigits} and a scale 0..${numericMaxFractionDigits}`
 		: digits === numericMaxIntegerDigits && scale === numericMaxFractionDigits
-			? "a bound narrower than numeric's own limits, which pg.numeric holds"
+			? "a bound narrower than numeric's own limits, which numeric holds"
 			: undefined
 
-/** The bigint a finite integer Decimal is; undefined for NaN, an infinity and a value with a fraction. */
-export const integerOfDecimal = (d: Decimal): bigint | undefined => {
+/** The bigint a finite integer Numeric is; undefined for NaN, an infinity and a value with a fraction. */
+export const integerOfDecimal = (d: Numeric): bigint | undefined => {
 	const p = d.parts
 	return p.kind === "finite" && p.minScale === 0
 		? p.negative
@@ -678,7 +678,7 @@ export const integerOfDecimal = (d: Decimal): bigint | undefined => {
 
 /**
  * An integer at an integer typmod (isIntegerTypmod), numeric(p, 0), as its column holds it: the bigint itself, below
- * 10^p in magnitude, or refused past it (numericOverflow), as parseNumeric and normalizeNumeric refuse a Decimal. No
+ * 10^p in magnitude, or refused past it (numericOverflow), as parseNumeric and normalizeNumeric refuse a Numeric. No
  * bigint has a fraction to round or a NaN to refuse, so a caller's parse and PostgreSQL's coercion of a value it
  * computes are one.
  */

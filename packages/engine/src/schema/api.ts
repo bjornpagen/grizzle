@@ -309,7 +309,7 @@ type ClosedFieldsCheck<Fields> = [
 	}[keyof Fields]
 ] extends [never]
 	? unknown
-	: Refusal<"a closed relation's field is a closed id, or a value of a type that is no span, set, vector, bytes, exact value or variant, and no field grizzle or PostgreSQL writes">
+	: Refusal<"a closed relation's field is a closed id, or a value of a type that is no range, set, vector, bytea, exact value or variant, and no field grizzle or PostgreSQL writes">
 
 /**
  * closed.ordered(name, handles): a roster whose order means something, the handles it introduces, each once, in
@@ -948,7 +948,7 @@ export const context = <
 /**
  * A context its server attests: a source of at most one fact, matched as a context is, whose fact the server states
  * where it opens a Db (Db.open's `attested`, an HTTP handler's `attest` of its request), never a token's claim and
- * never a client's input: `attested("Origin", { address: pg.inet })` for the address a request reached the server
+ * never a client's input: `attested("Origin", { address: inet })` for the address a request reached the server
  * from, as the server's edge reports it.
  */
 export const attested = <

@@ -164,7 +164,7 @@ export const exactMidpoint = (f: number, g: number): readonly [bigint, bigint] =
 }
 
 /** The exact decimal text of n / d, d a product of powers of two and five. */
-export const decimalText = (n: bigint, d: bigint): string => {
+export const numericText = (n: bigint, d: bigint): string => {
 	let digits = 0
 	let unit = 1n
 	while (unit % d !== 0n) {

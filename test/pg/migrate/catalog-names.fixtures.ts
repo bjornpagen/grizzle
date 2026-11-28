@@ -4,7 +4,17 @@ import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { boolean, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record as Rec } from "effect"
-import { closedId, pg, span } from "#compiler/public/fields.ts"
+import {
+	closedId,
+	range,
+	bool,
+	float4,
+	float8,
+	int4,
+	int8,
+	money,
+	numeric
+} from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, login, mutable, on, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -103,16 +113,16 @@ export const versionOf = (names: Names, name: string): Version => {
 		{
 			id: Id,
 			note: str.regex("^.*$", "su"),
-			amount: contractDescriptor(names.contract.declared, pg.bigint, (amount: unknown) =>
+			amount: contractDescriptor(names.contract.declared, int8, (amount: unknown) =>
 				computeCore.ge(amount, 0n)
 			),
-			price: pg.money,
-			cost: pg.numeric(12, 2),
-			ratio: pg.real,
-			exact: pg["double precision"],
-			flag: pg.boolean,
+			price: money,
+			cost: numeric(12, 2),
+			ratio: float4,
+			exact: float8,
+			flag: bool,
 			kind: closedId(Kind),
-			during: span(pg.integer)
+			during: range(int4)
 		},
 		["id"],
 		[]

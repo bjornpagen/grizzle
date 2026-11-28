@@ -1,15 +1,16 @@
 import { nonEmpty } from "@bjornpagen/testing/assert"
 import { boolean, type Gen, int, map, oneOf, option, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Record as Rec } from "effect"
-import { bits, pg } from "#compiler/public/fields.ts"
+import { bit, int4, int8, numeric, vector } from "#compiler/public/fields.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { AnyRoster } from "#compiler/types/schema/relation.ts"
 import { Id } from "#test/support/ids.ts"
+import { plainDescriptors } from "#test/support/unit/scalar/support.ts"
 import { bareContract, rawClosedId, rawSpan, regex } from "#test/support/unit/schema/support.ts"
 
 /**
- * A field type as a caller declares it, drawn over a box its bounds define: every member of `pg` that is a descriptor by
- * itself, numeric over the whole typmod box, uuid, a refined text of a drawn character class and length or the
+ * A field type as a caller declares it, drawn over a box its bounds define: every one of PostgreSQL's plain types that is a
+ * descriptor by itself, numeric over the whole typmod box, uuid, a refined text of a drawn character class and length or the
  * wildcard, a contract over a drawn base, a span over an integer type with or without a width, a closed id or a set
  * over one of the caller's rosters, and a vector of any admitted dimension count. A suite builds the descriptor with
  * `fieldOf` and states its own model of the sketch.
@@ -18,10 +19,10 @@ import { bareContract, rawClosedId, rawSpan, regex } from "#test/support/unit/sc
 /** A roster a closed id or a set is over, its handles at hand. */
 export type DrawnRoster = AnyRoster & { readonly handles: Arr.NonEmptyReadonlyArray<string> }
 
-/** The constructors of `pg` that take a typmod or a configuration, which are no descriptor until called. */
-type PgConstructor = "numeric" | "vector" | "tsvector"
+/** The plain types that take a typmod or a configuration, which are no descriptor until called. */
+type PlainConstructor = "numeric" | "vector" | "tsvector"
 
-/** The members of `pg` that spell the serial family: no descriptor, but grizzle's refusal of one (scalar/minted.ts). */
+/** The plain names that spell the serial family: no descriptor, but grizzle's refusal of one (scalar/minted.ts). */
 type MintedMember = "smallserial" | "serial" | "bigserial" | "uuidv7"
 
 const mintedMembers: ReadonlySet<string> = new Set<MintedMember>([
@@ -31,20 +32,20 @@ const mintedMembers: ReadonlySet<string> = new Set<MintedMember>([
 	"uuidv7"
 ])
 
-/** A member of `pg` that is a field descriptor by itself. */
-export type PgMember = Exclude<keyof typeof pg, PgConstructor | MintedMember>
+/** One of PostgreSQL's plain types that is a field descriptor by itself. */
+export type PlainMember = Exclude<keyof typeof plainDescriptors, PlainConstructor | MintedMember>
 
-const isPgMember = (key: keyof typeof pg): key is PgMember =>
+const isPlainMember = (key: keyof typeof plainDescriptors): key is PlainMember =>
 	key !== "numeric" && key !== "vector" && key !== "tsvector" && !mintedMembers.has(key)
 
-/** Every member of `pg` that is a field descriptor by itself, in the namespace's order. */
-const pgMembers: Arr.NonEmptyReadonlyArray<PgMember> = nonEmpty(
-	Arr.filter(Rec.keys(pg), isPgMember),
-	"pg's descriptor members"
+/** Every plain type that is a field descriptor by itself, in their order. */
+const plainMembers: Arr.NonEmptyReadonlyArray<PlainMember> = nonEmpty(
+	Arr.filter(Rec.keys(plainDescriptors), isPlainMember),
+	"the plain descriptors"
 )
 
 /** A member's descriptor. */
-export const pgField = (member: PgMember): FieldBase => pg[member]
+export const plainField = (member: PlainMember): FieldBase => plainDescriptors[member]
 
 /**
  * A refined text's pattern: the wildcard, or one character class of `width` letters from the `first`-th letter, between
@@ -62,7 +63,7 @@ export type PatternSketch =
 
 /** A contract's base: any field type but a contract, a set and a span, which no contract is over. */
 export type BaseSketch =
-	| { readonly kind: "pg"; readonly member: PgMember }
+	| { readonly kind: "pg"; readonly member: PlainMember }
 	| { readonly kind: "numeric"; readonly precision: number; readonly scale: number }
 	| { readonly kind: "uuid" }
 	| { readonly kind: "text"; readonly pattern: PatternSketch }
@@ -117,13 +118,13 @@ const numericSketchGen: Gen<Extract<BaseSketch, { readonly kind: "numeric" }>> =
 	scale: source.draw(int(-1000, 1000))
 })
 
-const memberGen: Gen<PgMember> = (source) =>
-	Arr.getUnsafe(pgMembers, source.draw(int(0, pgMembers.length - 1)))
+const memberGen: Gen<PlainMember> = (source) =>
+	Arr.getUnsafe(plainMembers, source.draw(int(0, plainMembers.length - 1)))
 
 /** The base arms over `rosters` rosters, `member` drawing a `pg` member: one per kind a contract may be over. */
 const baseArms = (
 	rosters: number,
-	member: Gen<PgMember>
+	member: Gen<PlainMember>
 ): Arr.NonEmptyReadonlyArray<Gen<BaseSketch>> => [
 	map(member, (m): BaseSketch => ({ kind: "pg", member: m })),
 	numericSketchGen,
@@ -153,9 +154,9 @@ export const fieldSketchGen = (rosters: number, contractName: Gen<string>): Gen<
 const baseOf = (s: BaseSketch, rosters: Arr.NonEmptyReadonlyArray<DrawnRoster>): FieldBase => {
 	switch (s.kind) {
 		case "pg":
-			return pgField(s.member)
+			return plainField(s.member)
 		case "numeric":
-			return pg.numeric(s.precision, s.scale)
+			return numeric(s.precision, s.scale)
 		case "uuid":
 			return Id
 		case "text": {
@@ -165,7 +166,7 @@ const baseOf = (s: BaseSketch, rosters: Arr.NonEmptyReadonlyArray<DrawnRoster>):
 		case "closedId":
 			return rawClosedId(Arr.getUnsafe(rosters, s.roster))
 		case "vector":
-			return pg.vector(s.dimensions)
+			return vector(s.dimensions)
 	}
 }
 
@@ -179,12 +180,12 @@ export const fieldOf = (
 			return bareContract(s.name, baseOf(s.base, rosters))
 		case "span":
 			return Option.match(s.width, {
-				onNone: () => rawSpan(s.endpoint === "bigint" ? pg.bigint : pg.integer),
+				onNone: () => rawSpan(s.endpoint === "bigint" ? int8 : int4),
 				onSome: (width) =>
-					s.endpoint === "bigint" ? rawSpan(pg.bigint, BigInt(width)) : rawSpan(pg.integer, width)
+					s.endpoint === "bigint" ? rawSpan(int8, BigInt(width)) : rawSpan(int4, width)
 			})
 		case "bits":
-			return bits(Arr.getUnsafe(rosters, s.roster))
+			return bit(Arr.getUnsafe(rosters, s.roster))
 		case "pg":
 		case "numeric":
 		case "uuid":

@@ -19,7 +19,7 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Layer, Order } from "effect"
 import { Db } from "#adapter/public/db.ts"
-import { Bits } from "#compiler/public/fields.ts"
+import { Bit } from "#compiler/public/fields.ts"
 import {
 	allSets,
 	Flag,
@@ -61,7 +61,7 @@ export const aRowCheckOverASetAndASetValueHoldsARowExactlyWhenItsFlagsAreDisjoin
 							const outcome = yield* writeAnswerOf(
 								db.workload.write.once({
 									params: {},
-									facts: { insert: { R: [{ id: 1, flags: Bits.of(Flag, flags) }] } }
+									facts: { insert: { R: [{ id: 1, flags: Bit.of(Flag, flags) }] } }
 								})
 							)
 							const held = new Set(flags)

@@ -3,7 +3,7 @@
 import { type Gen, int, map, oneOf, shuffled } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record as Rec } from "effect"
 import { trusted } from "#compiler/core/trusted.ts"
-import { pg, type VariantArms, variant } from "#compiler/public/fields.ts"
+import { type VariantArms, variant, int4 } from "#compiler/public/fields.ts"
 import { closed } from "#compiler/public/schema.ts"
 
 /** The roster's handles, in its order. */
@@ -49,7 +49,7 @@ export const listings: Gen<Listing> = oneOf<Listing>([
  */
 const armsOf = (listed: ReadonlyArray<string>): VariantArms<typeof Mark> =>
 	trusted<VariantArms<typeof Mark>>(
-		Rec.fromEntries(Arr.map(listed, (handle) => [handle, { value: pg.integer }] as const))
+		Rec.fromEntries(Arr.map(listed, (handle) => [handle, { value: int4 }] as const))
 	)
 
 /** The variant a listing states, built by the public constructor. */

@@ -3,7 +3,15 @@
 import { Array as Arr } from "effect"
 import { int8Max } from "#compiler/ir/carriers.ts"
 import { Logic, Num, Type } from "#compiler/public/compute.ts"
-import { exactInteger, generated, Money, pg, variant } from "#compiler/public/fields.ts"
+import {
+	exactInteger,
+	generated,
+	Money,
+	variant,
+	bool,
+	int4,
+	int8
+} from "#compiler/public/fields.ts"
 import { type AnyRelation, closed, relation, schema } from "#compiler/public/schema.ts"
 import { moneyFractionDigits } from "#compiler/scalar/values/decimal.ts"
 import { numericMaxIntegerDigits } from "#compiler/scalar/values/fault.ts"
@@ -13,12 +21,12 @@ const BaseType = closed.unordered("BaseType", ["boolean", "integer"] as const)
 
 /** qti-pie's cell (ledger scalars.ts QtiValue, lane LEDGER-VALUECELL): its integer arm an exact integer. */
 const QtiValue = variant("QtiValue", BaseType, {
-	boolean: { value: pg.boolean },
+	boolean: { value: bool },
 	integer: { value: exactInteger }
 })
 
 /** The written fields every position's generated field `g` reads: an integer and an exact integer. */
-const written = { k: pg.integer, n: exactInteger } as const
+const written = { k: int4, n: exactInteger } as const
 
 /** The exact integer digits of a sum of two integers, |k + k| < 2^32 < 10^11: the bound a computed exact value has. */
 const sumDigits = 11
@@ -77,7 +85,7 @@ export const integerPositions = {
 		schema: (value: bigint) =>
 			level(
 				relation.generated("T", written, ["k"], (r) => ({
-					g: generated(pg.integer, Logic.cond(Logic.eq(r.n, value), r.k, 0))
+					g: generated(int4, Logic.cond(Logic.eq(r.n, value), r.k, 0))
 				}))
 			)
 	},
@@ -95,7 +103,7 @@ export const integerPositions = {
 		schema: (value: bigint) =>
 			level(
 				relation.generated("T", written, ["k"], (r) => ({
-					g: generated(pg.integer, Logic.cond(Logic.eq(Num.add(r.k, r.k), value), r.k, 0))
+					g: generated(int4, Logic.cond(Logic.eq(Num.add(r.k, r.k), value), r.k, 0))
 				}))
 			)
 	},
@@ -184,7 +192,7 @@ export const castSchema = (value: bigint) =>
 		relation.generated("T", written, ["k"], () => ({
 			g: generated(
 				QtiValue,
-				QtiValue.make("integer", { value: Type.cast(Type.literal(pg.bigint, value), exactInteger) })
+				QtiValue.make("integer", { value: Type.cast(Type.literal(int8, value), exactInteger) })
 			)
 		}))
 	)

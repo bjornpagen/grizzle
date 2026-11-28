@@ -11,7 +11,7 @@ import { baseOf, type ScalarType, subsumes } from "#compiler/ir/scalar.ts"
 import { binaryCoercion, castOf } from "#compiler/scalar/compute/registry.ts"
 import { anyNumeric } from "#compiler/scalar/compute/types.ts"
 import { bareEnv, scalarTypeOf } from "#compiler/scalar/registry.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 import {
 	compareCarried,
 	constantEnv,
@@ -37,11 +37,11 @@ const typed = (name: string, desc: FieldDesc): Typed => ({ name, type: typeOf(de
 
 /** The integer, floating and exact numeric types, at typmods that keep, round and widen each other's scales. */
 export const types: Arr.NonEmptyReadonlyArray<Typed> = [
-	typed("smallint", { kind: "pg", type: "smallint" }),
-	typed("integer", { kind: "pg", type: "integer" }),
-	typed("bigint", { kind: "pg", type: "bigint" }),
-	typed("real", { kind: "pg", type: "real" }),
-	typed("double precision", { kind: "pg", type: "double precision" }),
+	typed("int2", { kind: "pg", type: "int2" }),
+	typed("int4", { kind: "pg", type: "int4" }),
+	typed("int8", { kind: "pg", type: "int8" }),
+	typed("float4", { kind: "pg", type: "float4" }),
+	typed("float8", { kind: "pg", type: "float8" }),
 	{ name: "numeric", type: anyNumeric },
 	typed("numeric(5,0)", { kind: "numeric", precision: 5, scale: 0 }),
 	typed("numeric(10,0)", { kind: "numeric", precision: 10, scale: 0 }),
@@ -53,12 +53,12 @@ export const types: Arr.NonEmptyReadonlyArray<Typed> = [
 	typed("numeric(10,-2)", { kind: "numeric", precision: 10, scale: -2 })
 ]
 
-const bigint = typeOf({ kind: "pg", type: "bigint" })
+const bigint = typeOf({ kind: "pg", type: "int8" })
 
-const double = typeOf({ kind: "pg", type: "double precision" })
+const double = typeOf({ kind: "pg", type: "float8" })
 
 const decimal = (text: string): TypedLiteral => {
-	const d = Decimal.fromString(text)
+	const d = Numeric.fromString(text)
 	if (!d.ok) {
 		throw new Error(`the dictionary's decimal ${text} does not parse`)
 	}
@@ -226,11 +226,11 @@ export const castable = (from: ScalarType, to: ScalarType): boolean => {
  */
 export const decided = (from: ScalarType, to: ScalarType): boolean =>
 	baseOf(from).carrier === baseOf(to).carrier ||
-	family(from) === "integer" ||
+	family(from) === "int4" ||
 	(family(from) === "float" && family(to) !== "numeric")
 
 /** A carrier's family, for the features. */
-type Family = "integer" | "float" | "numeric"
+type Family = "int4" | "float" | "numeric"
 
 export const family = (t: ScalarType): Family => {
 	switch (baseOf(t).carrier) {
@@ -238,7 +238,7 @@ export const family = (t: ScalarType): Family => {
 		case "int4":
 		case "int8":
 		case "exactInteger":
-			return "integer"
+			return "int4"
 		case "float4":
 		case "float8":
 			return "float"

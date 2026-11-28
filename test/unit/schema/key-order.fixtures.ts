@@ -5,7 +5,7 @@ import { constant, type Gen, oneOf } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect } from "effect"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { Fn } from "#compiler/public/compute.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { bool, float8, int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { fn, relation, row, rows, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -33,12 +33,12 @@ import { fullWorld } from "#test/support/worlds.ts"
 const Text = str.regex("^.*$", "su")
 
 const singleFields = {
-	b: pg.boolean,
+	b: bool,
 	base: Text,
-	f: pg["double precision"],
+	f: float8,
 	field: Text,
-	m: pg.integer,
-	n: pg.integer,
+	m: int4,
+	n: int4,
 	t: Text,
 	u: Text,
 	w: Text
@@ -46,11 +46,11 @@ const singleFields = {
 const singleNames = ["b", "base", "f", "field", "m", "n", "t", "u", "w"] as const
 
 const glyphFields = {
-	Z: pg.integer,
-	_: pg.integer,
-	z: pg.integer,
-	"\uE000": pg.integer,
-	"\u{10000}": pg.integer
+	Z: int4,
+	_: int4,
+	z: int4,
+	"\uE000": int4,
+	"\u{10000}": int4
 } as const
 const glyphNames = ["Z", "_", "z", "\uE000", "\u{10000}"] as const
 
@@ -109,11 +109,8 @@ const declaredIn = (o: KeyOrders) => {
 	)
 	const kernelSin = fn("kernelSin", {
 		calls: [],
-		args: inOrder(
-			{ iy: pg.integer, x: pg["double precision"], y: pg["double precision"] },
-			o.sinArgs
-		),
-		returns: pg["double precision"],
+		args: inOrder({ iy: int4, x: float8, y: float8 }, o.sinArgs),
+		returns: float8,
 		volatility: "immutable",
 		nullInput: "called",
 		language: "sql",
@@ -140,19 +137,19 @@ const declaredIn = (o: KeyOrders) => {
 	const Seed = relation(
 		"Seed",
 		{
-			b: pg.boolean,
+			b: bool,
 			base: Text,
-			f: pg["double precision"],
+			f: float8,
 			field: Text,
-			id: pg.integer,
-			iy: pg.integer,
-			m: pg.integer,
-			n: pg.integer,
+			id: int4,
+			iy: int4,
+			m: int4,
+			n: int4,
 			t: Text,
 			u: Text,
 			w: Text,
-			x: pg["double precision"],
-			y: pg["double precision"]
+			x: float8,
+			y: float8
 		},
 		["id"]
 	)

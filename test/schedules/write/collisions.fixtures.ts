@@ -5,7 +5,7 @@ import { element, type Gen, int, constant } from "@bjornpagen/testing/gen"
 import { Array as Arr, Formatter, Option, Order, Result } from "effect"
 import type { CallError, WriteOutcome } from "#compiler/live/index.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { key, login, on, relation, role, schema } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
@@ -16,17 +16,17 @@ import { rigTemplate } from "#test/support/schedules/rig.ts"
 export const Sitting = relation(
 	"Sitting",
 	{
-		child: pg.integer,
-		test: pg.integer,
-		attempt: pg.integer,
-		note: pg.integer,
-		slot: pg.integer
+		child: int4,
+		test: int4,
+		attempt: int4,
+		note: int4,
+		slot: int4
 	},
 	["child", "test", "attempt"]
 )
 
 /** The relation a held call inserts last, which the owner's SHARE lock holds it at. */
-export const Gate = relation("Gate", { n: pg.integer }, ["n"])
+export const Gate = relation("Gate", { n: int4 }, ["n"])
 
 /** The fields a sitting's request states: every field. */
 export const statedFields = ["child", "test", "attempt", "note", "slot"] as const

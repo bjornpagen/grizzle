@@ -14,7 +14,7 @@ import {
 	type RowKey,
 	type ShapeFailure
 } from "#compiler/live/index.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 import { upTo } from "#test/support/up-to.ts"
 
 /** A row as the model holds it: its key value's index and its payload's. */
@@ -40,8 +40,8 @@ const keyValues: Arr.NonEmptyReadonlyArray<() => unknown> = [
 	() => "a",
 	() => "",
 	() => true,
-	() => Decimal.of("1.5"),
-	() => Decimal.of("15"),
+	() => Numeric.of("1.5"),
+	() => Numeric.of("15"),
 	() => ({ start: 1, end: 2 }),
 	() => ({ start: 1, end: 3 }),
 	() => new Set(["x", "y"]),
@@ -54,7 +54,7 @@ const keyValues: Arr.NonEmptyReadonlyArray<() => unknown> = [
 const payloads: Arr.NonEmptyReadonlyArray<() => unknown> = [
 	() => 0,
 	() => 1,
-	() => Decimal.of("1"),
+	() => Numeric.of("1"),
 	() => [0, "a"],
 	() => ({ n: new Set(["x"]) })
 ]

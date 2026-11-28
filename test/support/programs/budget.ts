@@ -30,14 +30,15 @@ export type {
 } from "#compiler/public/changeset.ts"
 export {
 	accumulated,
-	Bits,
+	Bit,
 	closedId,
 	contract,
 	drawn,
 	generated,
+	int4,
+	int8,
 	mintOf,
 	natural,
-	pg,
 	uuid
 } from "#compiler/public/fields.ts"
 export type { Infer, Uuid } from "#compiler/public/fields.ts"

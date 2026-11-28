@@ -4,7 +4,7 @@ import { element, type Gen, oneOf } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import type { ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
 import { type RelNode } from "#compiler/ir/rel.ts"
-import { closedId, pg } from "#compiler/public/fields.ts"
+import { closedId, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { Q, T } from "#test/support/unit/lower/conservative/fixtures.ts"
@@ -41,7 +41,7 @@ const Grid = closed.relation(
 /** The items a query matches with Grid, each carrying a value of each of Grid's fields. */
 const Item = relation(
 	"Item",
-	{ id: pg.bigint, k0: closedId(Kind), k1: closedId(Tier), w: closedId(Kind) },
+	{ id: int8, k0: closedId(Kind), k1: closedId(Tier), w: closedId(Kind) },
 	["id"]
 )
 

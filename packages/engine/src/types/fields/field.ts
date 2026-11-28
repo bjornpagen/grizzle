@@ -17,7 +17,7 @@ import type { CalendarDate } from "#compiler/ir/date.ts"
 import type { Instant } from "#compiler/scalar/instant.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
 import type { NumericHostOf } from "#compiler/scalar/values/convert.ts"
-import type { Decimal } from "#compiler/scalar/values/decimal.ts"
+import type { Numeric } from "#compiler/scalar/values/decimal.ts"
 import type { Money } from "#compiler/scalar/values/money.ts"
 import type { Sha256 } from "#compiler/scalar/values/sha256.ts"
 import type { Span } from "#compiler/scalar/values/span.ts"
@@ -72,7 +72,7 @@ export interface FieldBase extends Built, FieldMarked, Domained<unknown>, Langua
  * construction. Every runtime descriptor also carries its Description and ScalarType for the compiler
  * (scalar/registry.ts), which the public types leave out, so the shapes here are exactly the public ones.
  *
- * The exact carriers: Decimal holds PostgreSQL numeric exactly and is never a JavaScript number; Money holds the
+ * The exact carriers: Numeric holds PostgreSQL numeric exactly and is never a JavaScript number; Money holds the
  * signed 64-bit count of minor units. Each has an `of` convenience, which throws CompileError on a malformed value.
  * The values are the public barrel's (public/fields.ts).
  *
@@ -91,7 +91,7 @@ export type DateField = Field<CalendarDate, "date">
  * bytes: PostgreSQL's bytea, its host value a Uint8Array over its own ArrayBuffer, written and read back whole: its SQL
  * type is stored only (StoredOnlySql) (scalar/bytes.ts).
  */
-export type BytesField = Field<Uint8Array<ArrayBuffer>, "bytea">
+export type ByteaField = Field<Uint8Array<ArrayBuffer>, "bytea">
 
 /**
  * exactInteger: an integer of any size, the type integer arithmetic delivers, its host type bigint and its SQL type the
@@ -112,14 +112,14 @@ export type ExactMoneyField = Field<Money, "exact money">
  * storedOnly): the SQL types of the stored-only fields, bytes the one such field. A value of one is written and read back
  * whole, so no key, side, computation, parameter, filter, contract or written-by-PostgreSQL field takes one.
  */
-export type StoredOnlySql = BytesField["sql"]
+export type StoredOnlySql = ByteaField["sql"]
 
 /**
  * The refusal of a descriptor or term of SQL type Sql where it is stored only (StoredOnlySql), which no key, rule,
  * computation, parameter, filter, contract or written-by-PostgreSQL field takes; nothing for any other.
  */
 export type NotStoredOnly<Sql> = [Sql] extends [StoredOnlySql]
-	? Refusal<"bytes are stored only, written and read back whole: no key, rule, computation, parameter or filter reads them">
+	? Refusal<"bytea is stored only, written and read back whole: no key, rule, computation, parameter or filter reads them">
 	: unknown
 
 /** A contract's base that is no digest, whose one predicate is its length, which its domain holds (ir/scalar.ts DigestType). */
@@ -129,7 +129,7 @@ export type NotDigest<Sql> = [Sql] extends ["sha256"]
 
 /**
  * The refusal of a descriptor of SQL type Sql where it is a search document's, tsvector, which PostgreSQL alone makes
- * and a field holds as a read delivered it (pg.tsvector), so no parameter, relation parameter's column or contract's
+ * and a field holds as a read delivered it (tsvector), so no parameter, relation parameter's column or contract's
  * base is of it; nothing for any other.
  */
 export type NotSearchDocument<Sql> = [Sql] extends ["tsvector"]
@@ -202,13 +202,13 @@ export type PatternField = Field<string, "text">
 export type { NumericHostOf }
 
 /**
- * pg.numeric: PostgreSQL's numeric of no typmod, every value numeric holds, its host type Decimal, which is also the one
+ * numeric: PostgreSQL's numeric of no typmod, every value numeric holds, its host type Numeric, which is also the one
  * call numeric(p, s), precision and scale both declared, whose host type is its scale's (NumericHostOf): a bigint at
- * scale 0, a Decimal at any other, and whose member numeric.within(digits, scale) is numeric of no typmod within a
+ * scale 0, a Numeric at any other, and whose member numeric.within(digits, scale) is numeric of no typmod within a
  * computed numeric's bound (NumericBoundField). PostgreSQL's numerictypmodin rule is checked at runtime (ir/carriers.ts
  * numericMaxPrecision, numericMinScale and numericMaxScale).
  */
-export type NumericField = Field<Decimal, "numeric"> &
+export type NumericField = Field<Numeric, "numeric"> &
 	(<const S extends number>(
 		precision: number,
 		scale: S
@@ -217,24 +217,24 @@ export type NumericField = Field<Decimal, "numeric"> &
 	}
 
 /**
- * pg.numeric.within(digits, scale): numeric of no typmod within a computed numeric's bound, NaN, an infinity or a finite
+ * numeric.within(digits, scale): numeric of no typmod within a computed numeric's bound, NaN, an infinity or a finite
  * value below 10^digits in magnitude of at most `scale` fraction digits, the type a stored field of a sum's, a mean's
- * or an operation's value is of exactly. Its host type and domain are numeric's, Decimal, so its terms meet every
+ * or an operation's value is of exactly. Its host type and domain are numeric's, Numeric, so its terms meet every
  * numeric's; its bound is a runtime value only.
  */
-export interface NumericBoundField extends Field<Decimal, "numeric"> {
+export interface NumericBoundField extends Field<Numeric, "numeric"> {
 	readonly bound: { readonly digits: number; readonly scale: number }
 }
 
 /**
  * numeric(p, s), its precision and scale both declared, its host type its scale's (NumericHostOf). Its domain is
- * numeric's whatever its host, Decimal, so its terms meet every numeric's and take a numeric's literals; precision and
+ * numeric's whatever its host, Numeric, so its terms meet every numeric's and take a numeric's literals; precision and
  * scale are runtime values only.
  */
-export interface NumericTypmodField<Host extends Decimal | bigint = Decimal | bigint> extends Field<
+export interface NumericTypmodField<Host extends Numeric | bigint = Numeric | bigint> extends Field<
 	Host,
 	"numeric",
-	Decimal
+	Numeric
 > {
 	readonly precision: number
 	readonly scale: number
@@ -254,7 +254,7 @@ export type NaturalDomain = bigint & DeclaresAll<"nonnegative">
  */
 export interface NaturalField extends Field<
 	bigint,
-	"bigint",
+	"int8",
 	NaturalDomain,
 	{ readonly nonnegative: true }
 > {
@@ -265,7 +265,7 @@ export type { Instant } from "#compiler/scalar/instant.ts"
 
 /**
  * The identity an instant's terms meet at: a bigint of the database's clock, the domain of the builtin contract
- * `instant` over pg.bigint, proved nonnegative, a name no other contract takes (OneContractName), so an instant meets
+ * `instant` over int8, proved nonnegative, a name no other contract takes (OneContractName), so an instant meets
  * only instants, never a count, a caller's bigint or a contract over one. Its values are Instant, the bigints a read
  * delivers (InstantField).
  */
@@ -282,7 +282,7 @@ export type NotInstant<D> = [D] extends [never]
 	: 0 extends 1 & D
 		? unknown
 		: [D] extends [InstantDomain]
-			? Refusal<"an instant is the database's clock's alone: no parameter, literal, constant, cast, contract or span is of its type">
+			? Refusal<"an instant is the database's clock's alone: no parameter, literal, constant, cast, contract or range is of its type">
 			: unknown
 
 /**
@@ -293,7 +293,7 @@ export type NotInstant<D> = [D] extends [never]
  */
 export type StoredInstantField = Field<
 	Instant,
-	"bigint",
+	"int8",
 	InstantDomain,
 	{ readonly nonnegative: true }
 >
@@ -322,30 +322,30 @@ export type WritingTag = "generated" | "drawn" | "accumulated" | "place"
  * A span's width is upper - lower, a value of the endpoint's base type: over a contract
  * endpoint such as span(Cents, 15n) it is a bare bigint, not a Cents; for every unbranded
  * endpoint that is the endpoint type itself. BaseOf is a conditional type, so the variance is measured rather than
- * annotated: a SpanField is covariant in its endpoint exactly where BaseOf is. Its host is the span of its endpoint's
+ * annotated: a RangeField is covariant in its endpoint exactly where BaseOf is. Its host is the span of its endpoint's
  * host, Endpoint, and its domain the span of its endpoint's domain, EndpointDomain: over a contract, the contract's
  * domain with the facts it declares, so a span over Cents meets a point of Cents (r.pointIn) as the engine does.
  */
-export interface SpanField<Endpoint, EndpointDomain> extends Field<
+export interface RangeField<Endpoint, EndpointDomain> extends Field<
 	Span<Endpoint>,
 	"range",
 	Span<EndpointDomain>
 > {
-	readonly width?: SpanWidthOf<Endpoint>
+	readonly width?: RangeWidthOf<Endpoint>
 }
 
 /**
- * A literal compared with a term of language T. Over Decimal it is a Decimal, a bigint, or an exact decimal string
+ * A literal compared with a term of language T. Over Numeric it is a Numeric, a bigint, or an exact decimal string
  * checked at construction; a JavaScript number is never a numeric literal; and nothing over an instant, which is the
  * database's alone. A literal compared with a contract's term is a value of the contract's base, its host type
  * unmarked (BaseOf): a comparison makes no value of the contract, so `r.eq(score, 0.5)` forges nothing. Without BaseOf,
- * `T extends Decimal ? Decimal | bigint | string : T` would make `r.eq(cents, 5n)` fail to typecheck.
+ * `T extends Numeric ? Numeric | bigint | string : T` would make `r.eq(cents, 5n)` fail to typecheck.
  */
 export type LiteralOf<T> = [T] extends [InstantDomain]
 	? never
 	: BaseOf<T> extends infer B
-		? B extends Decimal
-			? Decimal | bigint | string
+		? B extends Numeric
+			? Numeric | bigint | string
 			: B
 		: never
 
@@ -456,23 +456,23 @@ export interface NotRoster {
 type PlainIntegerField<Host, Sql extends SqlTag> = Field<Host, Sql> & NoWriting
 
 /**
- * Span endpoints: pg.integer, pg.bigint and contracts over them. A contract over
- * pg.bigint is a Field<bigint & Brand, "bigint">, and Field is covariant in its host type, so the two plain arms admit
- * every contract over an admitted base. pg.smallint is no endpoint.
+ * Span endpoints: int4, int8 and contracts over them. A contract over
+ * int8 is a Field<bigint & Brand, "int8">, and Field is covariant in its host type, so the two plain arms admit
+ * every contract over an admitted base. int2 is no endpoint.
  */
-export type IntegerLike = PlainIntegerField<number, "integer"> | PlainIntegerField<bigint, "bigint">
+export type IntegerLike = PlainIntegerField<number, "int4"> | PlainIntegerField<bigint, "int8">
 
 /**
  * Span endpoints: the integer ones (IntegerLike), date and a contract over date, whose host is a CalendarDate, branded
  * or not.
  */
-export type SpanEndpointLike = IntegerLike | Field<CalendarDate, "date">
+export type RangeEndpointLike = IntegerLike | Field<CalendarDate, "date">
 
 /**
  * A span's width over endpoints of host type E, upper - lower: a count of days, a JavaScript integer, over dates; a
  * value of the endpoint's base type otherwise.
  */
-export type SpanWidthOf<E> = [BaseOf<E>] extends [CalendarDate] ? number : BaseOf<E>
+export type RangeWidthOf<E> = [BaseOf<E>] extends [CalendarDate] ? number : BaseOf<E>
 
 /**
  * A closed reference: one of the roster's handles, stored as its code under the roster's domain, whose domain is its
@@ -697,7 +697,7 @@ export type ArmTerms<Fields, P, O> = {
  * A set over a roster: bit(n), one bit per code the roster has minted, holes included. Its host value is Bits<C>, and
  * its domain the same, so a set over one roster never meets a set over another.
  */
-export interface BitsField<out C> extends Field<Bits<C>, "bits", Bits<C>> {
+export interface BitField<out C> extends Field<Bits<C>, "bit", Bits<C>> {
 	readonly roster: C
 }
 
@@ -719,7 +719,7 @@ export type DrawnType<F> = [F] extends [NaturalField]
 				{
 					readonly name: string
 					readonly base: FieldBase
-					readonly sql: "smallint" | "integer" | "bigint"
+					readonly sql: "int2" | "int4" | "int8"
 				}
 		  ]
 		? unknown

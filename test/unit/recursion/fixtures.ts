@@ -6,7 +6,7 @@ import type { LogicalQuery } from "#compiler/ir/products.ts"
 import { edgesOf, type NodeOf, type RelNode } from "#compiler/ir/rel.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { type ConservativeProgram, conservativeInput } from "#compiler/lower/conservative/types.ts"
-import { closedId, pg } from "#compiler/public/fields.ts"
+import { closedId, bool, int2, int4, money, numeric } from "#compiler/public/fields.ts"
 import { closed, contained, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { queryValueDesc } from "#compiler/query/build/query.ts"
@@ -28,15 +28,15 @@ const Vertex = relation(
 	{
 		id: Id,
 		label: str.regex("^v[0-9]+$"),
-		active: pg.boolean,
+		active: bool,
 		level: closedId(Level),
-		rank: pg.smallint,
-		price: pg.money,
-		weight: pg.numeric(10, 2)
+		rank: int2,
+		price: money,
+		weight: numeric(10, 2)
 	},
 	["id"]
 )
-const Edge = relation("Edge", { from: Id, to: Id, cost: pg.integer }, ["from", "to"])
+const Edge = relation("Edge", { from: Id, to: Id, cost: int4 }, ["from", "to"])
 const Blocked = relation("Blocked", { id: Id }, ["id"])
 export const Graph = schema(
 	"Graph",

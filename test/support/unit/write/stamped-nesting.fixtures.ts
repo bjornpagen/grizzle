@@ -6,7 +6,15 @@
 import { int as between, element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { Logic } from "#compiler/public/compute.ts"
-import { accumulated, drawn, generated, natural, pg, place } from "#compiler/public/fields.ts"
+import {
+	accumulated,
+	drawn,
+	generated,
+	natural,
+	place,
+	int4,
+	int8
+} from "#compiler/public/fields.ts"
 import {
 	contained,
 	fin,
@@ -107,32 +115,32 @@ export const stampedSchemaOf = (c: Pick<StampedCase, "selects">, name: string) =
 	const Owner = relation(
 		"Owner",
 		{
-			g: pg.integer,
-			h: pg.integer,
+			g: int4,
+			h: int4,
 			s: place,
-			x: pg.integer,
+			x: int4,
 			ms: drawn(natural),
-			tot: accumulated(pg.bigint, 0n)
+			tot: accumulated(int8, 0n)
 		},
 		["g", "h", "s"]
 	)
 	const M1 = relation.generated(
 		"M1",
 		{
-			g: pg.integer,
-			h: pg.integer,
+			g: int4,
+			h: int4,
 			s: natural,
 			at: drawn(natural),
-			v: pg.bigint,
-			cx: accumulated(pg.integer, 0),
+			v: int8,
+			cx: accumulated(int4, 0),
 			ks: drawn(natural)
 		},
 		["g", "h", "s", "at"],
-		(r) => ({ gs: generated(pg.bigint, Logic.cond(Logic.ge(r.s, 1n), r.v, 0n)) })
+		(r) => ({ gs: generated(int8, Logic.cond(Logic.ge(r.s, 1n), r.v, 0n)) })
 	)
 	const M2 = relation(
 		"M2",
-		{ g: pg.integer, h: pg.integer, s: natural, at: natural, bt: drawn(natural), w: pg.integer },
+		{ g: int4, h: int4, s: natural, at: natural, bt: drawn(natural), w: int4 },
 		["g", "h", "s", "at", "bt"]
 	)
 	const members = ordered(on(M1, "g", "h", "s", "at"), fin(Owner, "ms"))

@@ -767,7 +767,7 @@ export const judged = <O>(name: string, judge: Equivalence<O>, left: O, right: O
 export type NestedAgreement = "ordered" | "set"
 
 /**
- * One delivered value as its canonical text: records by sorted key, bigints apart from numbers, a Decimal or Money by
+ * One delivered value as its canonical text: records by sorted key, bigints apart from numbers, a Numeric or Money by
  * its exact text, an Option by its case, a vector by its components; nested arrays in order, or as sets, each nested
  * set's repeated item pushed to `repeats`.
  */
@@ -791,7 +791,7 @@ const canonicalOf = (value: unknown, nested: NestedAgreement, repeats: Array<str
 	}
 }
 
-/** A value whose class states its own text, as a Decimal, a Money and a Date do. */
+/** A value whose class states its own text, as a Numeric, a Money and a Date do. */
 const hasOwnText = (value: object): value is { toString(): string } =>
 	Predicate.hasProperty(value, "toString") && value.toString !== Object.prototype.toString
 

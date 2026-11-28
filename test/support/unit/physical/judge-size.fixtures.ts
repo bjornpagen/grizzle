@@ -6,7 +6,7 @@ import { Array as Arr, Formatter, String as Str } from "effect"
 import { lawChecks } from "#compiler/deploy/snapshot/violation.ts"
 import { installOptions } from "#compiler/physical/install/compile.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, type Rule, v } from "#compiler/public/query.ts"
 import {
 	check,
@@ -55,11 +55,10 @@ export type Reached =
 	| "a definition read three times"
 	| "a chain three deep"
 
-export const Node = relation(
-	"Node",
-	{ doc: pg.integer, start: pg.integer, parent: pg.integer, kind: pg.integer },
-	["doc", "start"]
-)
+export const Node = relation("Node", { doc: int4, start: int4, parent: int4, kind: int4 }, [
+	"doc",
+	"start"
+])
 const Base = schema("judge_size", [Node], [])
 
 /** Q0, each node with its parent and kind under its own names, and its first field `a`. */
@@ -1002,16 +1001,13 @@ export type NestedReached =
  * relation loses no row, so no statement reads its removed side), and the sessions of a document, keyed apart from it,
  * so the rule reads two units and is probed.
  */
-const NestNode = relation("Node", { doc: pg.integer, start: pg.integer, kind: pg.integer }, [
-	"doc",
-	"start"
-])
-const Doc = relation("Doc", { doc: pg.integer, root: pg.integer }, ["doc"])
-const Session = relation("Session", { id: pg.integer, doc: pg.integer }, ["id"])
+const NestNode = relation("Node", { doc: int4, start: int4, kind: int4 }, ["doc", "start"])
+const Doc = relation("Doc", { doc: int4, root: int4 }, ["doc"])
+const Session = relation("Session", { id: int4, doc: int4 }, ["id"])
 const NestBase = schema(
 	"judge_nested",
 	[NestNode, Doc, Session],
-	[unit("Docs", { doc: pg.integer }), mutable(NestNode), mutable(Doc)]
+	[unit("Docs", { doc: int4 }), mutable(NestNode), mutable(Doc)]
 )
 
 /** A rule reading Node at `kind`. */
@@ -1202,16 +1198,9 @@ export const foldedGen: Gen<Folded> = (s) => ({
 
 export type FoldedReached = Folded["reader"] | "a union of two rules" | "a union of three rules"
 
-const FoldVisit = relation("Visit", { child: pg.integer, k: pg.integer, at: pg.integer }, [
-	"child",
-	"k"
-])
-const Mark = relation("Mark", { n: pg.integer, child: pg.integer, k: pg.integer, at: pg.integer }, [
-	"n",
-	"child",
-	"k"
-])
-const Limit = relation("Limit", { id: pg.integer, child: pg.integer, cap: pg.integer }, ["id"])
+const FoldVisit = relation("Visit", { child: int4, k: int4, at: int4 }, ["child", "k"])
+const Mark = relation("Mark", { n: int4, child: int4, k: int4, at: int4 }, ["n", "child", "k"])
+const Limit = relation("Limit", { id: int4, child: int4, cap: int4 }, ["id"])
 const FoldBase = schema("judge_fold", [FoldVisit, Mark, Limit], [])
 
 /** A visit's own sign: its `at`. */

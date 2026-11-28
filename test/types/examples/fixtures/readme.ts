@@ -12,7 +12,7 @@ import {
 	contract,
 	counted,
 	CredentialError,
-	type Decimal,
+	type Numeric,
 	defineConfig,
 	derived,
 	drawn,
@@ -34,20 +34,21 @@ import {
 	paged,
 	type ParamsOf,
 	type ParamType,
-	pg,
 	query,
 	relation,
 	role,
 	schema,
 	type Sha256,
 	sha256,
-	span,
+	range,
 	str,
 	unit,
 	v,
 	variant,
 	wholeEntriesOf,
-	workload
+	workload,
+	bool,
+	int8
 } from "@bjornpagen/grizzle"
 import { insertPreview } from "@bjornpagen/grizzle/compile"
 import { Config, Effect, Result } from "effect"
@@ -177,7 +178,7 @@ const ProjectKey = str.regex("^[A-Z]{2,8}$")
 
 export const Task = relation(
 	"Task",
-	{ org: OrgId, project: ProjectKey, number: natural, title: Title, done: pg.boolean },
+	{ org: OrgId, project: ProjectKey, number: natural, title: Title, done: bool },
 	["org", "project", "number"]
 )
 export const Tracker = schema("Tracker", [Task], [unit("Org", { org: OrgId }), mutable(Task)])
@@ -213,8 +214,8 @@ export const TrackerApp = login(Tracker, "tracker", [Teammate], {
 const microsKey = Symbol("Micros")
 const millisKey = Symbol("Millis")
 /** Millionths of a dollar, never negative; milliseconds since the epoch. */
-const Micros = contract<typeof microsKey>()("Micros", pg.bigint, (m) => Logic.ge(m, 0n))
-const Millis = contract<typeof millisKey>()("Millis", pg.bigint)
+const Micros = contract<typeof microsKey>()("Micros", int8, (m) => Logic.ge(m, 0n))
+const Millis = contract<typeof millisKey>()("Millis", int8)
 const RequestId = str.regex("^req_[0-9A-Za-z]{1,64}$")
 const Workspace = str.regex("^ws_[0-9a-z]{1,32}$")
 const Model = str.regex("^[a-z0-9.-]{1,64}$")
@@ -250,11 +251,11 @@ export const topModels = query(Usage)
 
 type TopModelsRow = {
 	readonly workspace: string
-	readonly spend: Decimal
+	readonly spend: Numeric
 	readonly models: ReadonlyArray<{
 		readonly model: string
 		readonly calls: bigint
-		readonly spend: Decimal
+		readonly spend: Numeric
 	}>
 }
 
@@ -330,7 +331,7 @@ export const DriveApp = login(Drive, "drive", [DriveReader], {
 })
 
 export type FolderSizesHead = Expect<
-	Equals<HeadOf<typeof folderSizes>, { readonly folder: string; readonly bytes: Decimal }>
+	Equals<HeadOf<typeof folderSizes>, { readonly folder: string; readonly bytes: Numeric }>
 >
 export type FolderSizesParams = Expect<
 	Equals<ParamsOf<typeof folderSizes>, { readonly root: ParamType<string, "text"> }>
@@ -338,17 +339,17 @@ export type FolderSizesParams = Expect<
 
 const minuteKey = Symbol("Minute")
 /** Minutes since the epoch. */
-const Minute = contract<typeof minuteKey>()("Minute", pg.bigint)
+const Minute = contract<typeof minuteKey>()("Minute", int8)
 const RoomName = str.regex("^[A-Za-z0-9 -]{1,64}$")
 
 export const Room = relation("Room", { name: RoomName }, ["name"])
 /** When a room is open: a room's openings never overlap. */
-export const Opening = relation("Opening", { room: RoomName, hours: span(Minute) }, [
+export const Opening = relation("Opening", { room: RoomName, hours: range(Minute) }, [
 	"room",
 	"hours"
 ])
 /** A booking: a room's bookings never overlap, and each is covered by the room's openings. */
-export const Booking = relation("Booking", { room: RoomName, during: span(Minute), by: UserId }, [
+export const Booking = relation("Booking", { room: RoomName, during: range(Minute), by: UserId }, [
 	"room",
 	"during"
 ])
@@ -415,14 +416,13 @@ const EntryId = str.regex("^JE-[0-9]{1,12}$")
 
 export const Entry = relation(
 	"Entry",
-	{ id: EntryId, memo: Title, postings: drawn(natural), total: accumulated(pg.bigint, 0n) },
+	{ id: EntryId, memo: Title, postings: drawn(natural), total: accumulated(int8, 0n) },
 	["id"]
 )
-export const Posting = relation(
-	"Posting",
-	{ entry: EntryId, account: Account, amount: pg.bigint },
-	["entry", "account"]
-)
+export const Posting = relation("Posting", { entry: EntryId, account: Account, amount: int8 }, [
+	"entry",
+	"account"
+])
 
 const entryPostings = counted(on(Posting, "entry"), fin(Entry, "postings"))
 

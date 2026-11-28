@@ -1,6 +1,6 @@
 import type { Exact, Fact, FactSource, OperandPremise } from "#compiler/ir/proof.ts"
 import { doubleAtLeast, doubleParts, log2Of } from "#compiler/scalar/compute/cast.ts"
-import type { Decimal } from "#compiler/scalar/values/decimal.ts"
+import type { Numeric } from "#compiler/scalar/values/decimal.ts"
 import {
 	numericMaxFractionDigits,
 	numericMaxIntegerDigits,
@@ -106,8 +106,8 @@ export const scaleOfExact = (a: Exact): number => {
 	return scale
 }
 
-/** A finite Decimal's exact value; undefined for NaN and the infinities. */
-export const exactOfDecimal = (d: Decimal): Exact | undefined => {
+/** A finite Numeric's exact value; undefined for NaN and the infinities. */
+export const exactOfDecimal = (d: Numeric): Exact | undefined => {
 	const p = d.parts
 	return p.kind === "finite"
 		? { units: p.negative ? -p.coefficient : p.coefficient, scale: p.minScale }

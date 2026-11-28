@@ -4,7 +4,7 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Logic, Num, Type } from "#compiler/public/compute.ts"
-import { contract, instant, mintOf, pg } from "#compiler/public/fields.ts"
+import { contract, instant, mintOf, int4, int8 } from "#compiler/public/fields.ts"
 import { param, query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { clocked } from "#compiler/public/workload.ts"
@@ -12,7 +12,7 @@ import { fixtureTemplate } from "#test/support/pg/reads/support.ts"
 
 const spanKey = Symbol("Span")
 /** A lease's budget, bounded, so a reading plus it fits a bigint under its guard. */
-const Span = contract<typeof spanKey>()("Span", pg.bigint, (d) =>
+const Span = contract<typeof spanKey>()("Span", int8, (d) =>
 	Logic.and([Logic.ge(d, 0n), Logic.le(d, 10n ** 12n)])
 )
 export const toSpan = mintOf(spanKey)
@@ -21,20 +21,20 @@ export const toSpan = mintOf(spanKey)
 const Spans = relation("Spans", { span: Span }, ["span"])
 
 /** A lease, its `until` computed: the call's reading plus its budget. */
-const Lease = relation("Lease", { id: pg.integer, until: pg.bigint }, ["id"])
+const Lease = relation("Lease", { id: int4, until: int8 }, ["id"])
 
 /** A mark of a lease's taking, its instant stamped by the insert from the database's clock. */
-const Mark = relation("Mark", { id: pg.integer, at: instant }, ["id", "at"])
+const Mark = relation("Mark", { id: int4, at: instant }, ["id", "at"])
 
 export const Moved = schema("Moved", [Spans, Lease, Mark], [])
 
 /** The call's reading of the database's clock in microseconds, the parameter `now`, which each member binds to it. */
-const now = () => param("now", pg.bigint)
+const now = () => param("now", int8)
 
 /** The reading plus the budget, a bigint under its guard. */
 const untilOf = Logic.when(
 	Num.within(Num.add(Type.base(now()), Type.base(param("budget", Span))), 0n, 9223372036854775807n),
-	(x) => Type.cast(x, pg.bigint),
+	(x) => Type.cast(x, int8),
 	0n
 )
 
@@ -48,13 +48,13 @@ const programs = Object.freeze({
 		ChangeSet.empty(Moved)
 			.insertAllComputed({ Lease: [] }, { until: untilOf })
 			.insert(Mark, [])
-			.read("reading", () => query(Moved).rule((r) => r.find({ now: r.param("now", pg.bigint) }))),
+			.read("reading", () => query(Moved).rule((r) => r.find({ now: r.param("now", int8) }))),
 		{ now: "micros" }
 	),
 	live: clocked(
 		query(Moved).rule((r) => {
 			const { id, until } = v(Lease, "lease")
-			const reading = r.param("now", pg.bigint)
+			const reading = r.param("now", int8)
 			return r.match(Lease, { id, until }).where(r.gt(until, reading)).find({ id, now: reading })
 		}),
 		{ now: "micros" }

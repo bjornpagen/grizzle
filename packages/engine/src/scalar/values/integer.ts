@@ -21,7 +21,7 @@ export const toInt2 = (value: unknown): Result.Result<number, ValueFault> =>
 	checkNumber(value, int2Min, int2Max)
 
 /**
- * Integer host values of pg.smallint, pg.integer and pg.bigint.
+ * Integer host values of int2, int4 and int8.
  *
  * smallint and integer fit exactly in a JavaScript number and travel as one: an integer number in the type's signed
  * range (ir/carriers.ts int2Min through int4Max), -0 as 0. bigint always travels as a JavaScript bigint in the signed 64-bit range; a number is never a bigint

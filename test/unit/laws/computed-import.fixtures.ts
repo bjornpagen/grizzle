@@ -6,7 +6,7 @@ import { Array as Arr } from "effect"
 import { installOptions } from "#compiler/physical/install/compile.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
 import { Logic, Num } from "#compiler/public/compute.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, derived, on, relation, schema } from "#compiler/public/schema.ts"
 import { opened } from "#test/support/open.ts"
@@ -36,12 +36,9 @@ export type Feature = Case["term"] | `judged by ${Case["judged"]}`
  * whole; D, the w of each Low row of a T row's package whose g is the case's term of the T row's x; and D in S.
  */
 const schemaOf = (c: Case) => {
-	const T = relation("T", { package: pg.integer, id: pg.integer, x: pg.integer }, ["package", "id"])
-	const U = relation("U", { package: pg.integer, id: pg.integer, g: pg.integer, w: pg.integer }, [
-		"package",
-		"id"
-	])
-	const S = relation("S", { pack: pg.integer, w: pg.integer }, ["pack", "w"])
+	const T = relation("T", { package: int4, id: int4, x: int4 }, ["package", "id"])
+	const U = relation("U", { package: int4, id: int4, g: int4, w: int4 }, ["package", "id"])
+	const S = relation("S", { pack: int4, w: int4 }, ["pack", "w"])
 	const Base = schema("computed_import", [T, U, S], c.judged === "probes" ? opened([T, U, S]) : [])
 	const low = query(Base)
 		.rule((r) => {

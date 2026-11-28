@@ -14,7 +14,7 @@ import {
 	openFull
 } from "#bench/write/support/writes.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { drawn, natural, pg } from "#compiler/public/fields.ts"
+import { drawn, natural, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { fin, mutable, on, relation, schema, tree, unit } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -34,14 +34,14 @@ const Name = str.bytes(256, str.regex("^.*$", "su"))
 const Node = relation(
 	"Node",
 	{
-		pkg: pg.bigint,
+		pkg: int8,
 		path: Name,
 		parent: drawn(natural),
 		at: drawn(natural),
 		children: drawn(natural),
 		start: drawn(natural),
 		end: drawn(natural),
-		kind: pg.bigint
+		kind: int8
 	},
 	["pkg", "path", "start"]
 )
@@ -53,7 +53,7 @@ const build = (name: string) =>
 		[
 			tree(on(Node, "parent", "at"), fin(Node, "children"), { root: ["pkg", "path"] }),
 			mutable(Node),
-			unit("Package", { pkg: pg.bigint })
+			unit("Package", { pkg: int8 })
 		]
 	)
 
@@ -65,8 +65,8 @@ const byKindOf = (s: Schema) =>
 	query(s).rule((r) => {
 		const { start, kind } = v(Node, "n")
 		return r
-			.match(Node, { pkg: r.param("pkg", pg.bigint), path: r.param("path", Name), start, kind })
-			.where(r.ge(kind, r.param("kind", pg.bigint)))
+			.match(Node, { pkg: r.param("pkg", int8), path: r.param("path", Name), start, kind })
+			.where(r.ge(kind, r.param("kind", int8)))
 			.find({ start })
 	})
 

@@ -60,9 +60,9 @@ const isTreeUnit = (u: number): boolean => u % 4 === 3
 const nestedUnit = (
 	ns: string,
 	u: string
-): string => `export const ${ns}O${u} = relation("O${u}", { id: Id, n: drawn(natural), total: accumulated(pg.bigint, 0n) }, ["id"])
-export const ${ns}F${u} = relation("F${u}", { owner: Id, at: drawn(natural), m: drawn(natural), x: pg.bigint, parts: accumulated(pg.bigint, 0n) }, ["owner", "at"])
-export const ${ns}G${u} = relation("G${u}", { owner: Id, line: natural, at: drawn(natural), y: pg.bigint }, ["owner", "line", "at"])
+): string => `export const ${ns}O${u} = relation("O${u}", { id: Id, n: drawn(natural), total: accumulated(int8, 0n) }, ["id"])
+export const ${ns}F${u} = relation("F${u}", { owner: Id, at: drawn(natural), m: drawn(natural), x: int8, parts: accumulated(int8, 0n) }, ["owner", "at"])
+export const ${ns}G${u} = relation("G${u}", { owner: Id, line: natural, at: drawn(natural), y: int8 }, ["owner", "line", "at"])
 export const ${ns}lines${u} = ordered(on(${ns}F${u}, "owner", "at"), fin(${ns}O${u}, "n"))
 export const ${ns}parts${u} = ordered(on(${ns}G${u}, "owner", "line", "at"), fin(${ns}F${u}, "m"))
 export const ${ns}lineSum${u} = fold(${ns}lines${u}, Monoid.sum, on(${ns}F${u}, "owner", "x"), on(${ns}O${u}, "id", "total"))
@@ -74,7 +74,7 @@ const treeUnit = (
 	u: string
 ): string => `export const ${ns}T${u} = relation("T${u}", { doc: Id, parent: drawn(natural), at: drawn(natural), children: drawn(natural), start: drawn(natural), end: drawn(natural), size: accumulated(natural, 0n) }, ["doc", "start"])
 export const ${ns}P${u} = relation("P${u}", { id: Id, k: drawn(natural), size: accumulated(natural, 0n) }, ["id"])
-export const ${ns}I${u} = relation("I${u}", { pool: Id, w: pg.integer }, ["pool", "w"])
+export const ${ns}I${u} = relation("I${u}", { pool: Id, w: int4 }, ["pool", "w"])
 export const ${ns}nodes${u} = tree(on(${ns}T${u}, "parent", "at"), fin(${ns}T${u}, "children"), { root: ["doc"] })
 export const ${ns}nodeCount${u} = fold(${ns}nodes${u}, Monoid.count, on(${ns}T${u}, "doc", "parent"), on(${ns}T${u}, "doc", "start", "size"))
 export const ${ns}items${u} = counted(on(${ns}I${u}, "pool"), fin(${ns}P${u}, "k"))

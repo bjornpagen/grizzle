@@ -1,5 +1,5 @@
 /**
- * Text.parseDouble on PostgreSQL 19: over drawn decimal texts of doubles (test/support/lexical.ts doubleTextGen),
+ * Text.parseFloat8 on PostgreSQL 19: over drawn decimal texts of doubles (test/support/lexical.ts doubleTextGen),
  * weighted at every point binary64's rounding turns on (the greatest finite double and the overflow threshold past it,
  * the least normal, subnormals, half the least subnormal, midpoints between neighbouring doubles, each exactly, cut
  * short and one digit past), digits of up to 40 places and past 700 near either threshold and far past both, signed
@@ -9,8 +9,8 @@
  * - IEEE 754-2019's conversion from decimal character sequences written from its definition in exact rational
  *   arithmetic (test/support/oracle/evaluate/double-text.ts), apart from the engine, ECMAScript and PostgreSQL;
  * - grizzle's host evaluator (scalar/compute/evaluate.ts) over the parse as a check lowers it;
- * - the value PostgreSQL stores in an installed relation's generated field `parseDouble(key)`, its key typed by
- *   doubleText, read by float8send: the installer's own DDL, so the parse's SQL is held IMMUTABLE and raising on no
+ * - the value PostgreSQL stores in an installed relation's generated field `parseFloat8(key)`, its key typed by
+ *   float8Text, read by float8send: the installer's own DDL, so the parse's SQL is held IMMUTABLE and raising on no
  *   member as a generation expression, every drawn row inserted.
  *
  * The oracle is the reference conversion. Bound: up to 48 texts a case, each case one installation in a transaction
@@ -37,7 +37,7 @@ import { referenceConversion, sameDouble } from "#test/support/oracle/evaluate/d
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**
- * Text.parseDouble on PostgreSQL 19 a stored parse, the host evaluator and IEEE 754's conversion agree to the bit on every double's text.
+ * Text.parseFloat8 on PostgreSQL 19 a stored parse, the host evaluator and IEEE 754's conversion agree to the bit on every double's text.
  *
  * Its budget, measured (fastcycle's cull):
  *

@@ -6,7 +6,7 @@ import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Order, String as Str } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
-import { drawn as drawnField, natural, pg } from "#compiler/public/fields.ts"
+import { drawn as drawnField, natural, int4 } from "#compiler/public/fields.ts"
 import { counted, fin, on, relation, schema } from "#compiler/public/schema.ts"
 import { joined } from "#test/support/chunked.ts"
 import { migrated } from "#test/support/installed.ts"
@@ -38,19 +38,17 @@ const before = (name: string) =>
 	schema(
 		name,
 		[
-			relation("Owner", { id: pg.integer }, ["id"]),
-			relation("Other", { id: pg.integer }, ["id"]),
-			relation("Member", { member: pg.integer, g: pg.integer, h: pg.integer }, ["member"])
+			relation("Owner", { id: int4 }, ["id"]),
+			relation("Other", { id: int4 }, ["id"]),
+			relation("Member", { member: int4, g: int4, h: int4 }, ["member"])
 		],
 		[]
 	)
 
 const after = (name: string) => {
-	const Owner = relation("Owner", { id: pg.integer, n: drawnField(natural) }, ["id"])
-	const Other = relation("Other", { id: pg.integer, m: drawnField(natural) }, ["id"])
-	const Member = relation("Member", { member: pg.integer, g: pg.integer, h: pg.integer }, [
-		"member"
-	])
+	const Owner = relation("Owner", { id: int4, n: drawnField(natural) }, ["id"])
+	const Other = relation("Other", { id: int4, m: drawnField(natural) }, ["id"])
+	const Member = relation("Member", { member: int4, g: int4, h: int4 }, ["member"])
 	return schema(
 		name,
 		[Owner, Other, Member],

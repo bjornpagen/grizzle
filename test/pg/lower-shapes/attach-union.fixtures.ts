@@ -5,7 +5,7 @@ import { type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
 import { descentsOf, type PlanNode, planNodes, scannedRows } from "#bench/harness/explain.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { fullWorldRole, servedRead, servedRun } from "#test/support/advice.ts"
@@ -22,24 +22,21 @@ import { beginSerializable } from "#test/support/substrate/session.ts"
  * CandidatePath), each keyed by the document and the reference's place, and a package's media files are keyed by
  * their path (Media).
  */
-const Document = relation("Document", { pkg: pg.integer, path: pg.integer }, ["pkg", "path"])
+const Document = relation("Document", { pkg: int4, path: int4 }, ["pkg", "path"])
 
-const Reference = relation(
-	"Reference",
-	{ pkg: pg.integer, path: pg.integer, at: pg.integer, target: pg.integer },
-	["pkg", "path", "at"]
-)
-
-const Candidate = relation(
-	"Candidate",
-	{ pkg: pg.integer, path: pg.integer, at: pg.integer, target: pg.integer },
-	["pkg", "path", "at"]
-)
-
-const Media = relation("Media", { pkg: pg.integer, path: pg.integer, digest: pg.integer }, [
+const Reference = relation("Reference", { pkg: int4, path: int4, at: int4, target: int4 }, [
 	"pkg",
-	"path"
+	"path",
+	"at"
 ])
+
+const Candidate = relation("Candidate", { pkg: int4, path: int4, at: int4, target: int4 }, [
+	"pkg",
+	"path",
+	"at"
+])
+
+const Media = relation("Media", { pkg: int4, path: int4, digest: int4 }, ["pkg", "path"])
 
 const Files = schema("AttachUnion", [Document, Reference, Candidate, Media], [])
 
@@ -53,7 +50,7 @@ const documents = query(Files)
 		const { pkg, path } = v(Document, "document")
 		return r
 			.match(Document, { pkg, path })
-			.where(r.eq(pkg, r.param("pkg", pg.integer)))
+			.where(r.eq(pkg, r.param("pkg", int4)))
 			.find({ pkg, path })
 	})
 	.attach(

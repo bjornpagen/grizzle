@@ -5,7 +5,7 @@ import { Array as Arr, Effect } from "effect"
 import type { ExecutedStatement } from "#adapter/types/db.ts"
 import { planNodes } from "#bench/harness/explain.ts"
 import { Distance, Num, Search, Type } from "#compiler/public/compute.ts"
-import { closedId, pg, searchDocument } from "#compiler/public/fields.ts"
+import { closedId, searchDocument, float8, int4, vector } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -42,7 +42,7 @@ import type { RawSession } from "#test/support/substrate/session.ts"
  */
 const Prose = str.regex("^.*$", "su")
 const QueryText = str.bytes(4096, str.regex("^.*$", "su"))
-const Embedding = pg.vector(dimensions)
+const Embedding = vector(dimensions)
 
 /** Who a lesson intervenes for: a gap's remediation, an extension past it, or both. */
 const Intervention = closed.unordered("Intervention", ["remediate", "extend", "both"])
@@ -50,10 +50,10 @@ const Intervention = closed.unordered("Intervention", ["remediate", "extend", "b
 const Lesson = relation.generated(
 	"Lesson",
 	{
-		lesson: pg.integer,
-		subject: pg.integer,
-		grade: pg.integer,
-		app: pg.integer,
+		lesson: int4,
+		subject: int4,
+		grade: int4,
+		app: int4,
 		intervention: closedId(Intervention),
 		title: Prose,
 		summary: Prose,
@@ -179,12 +179,7 @@ const hybrid = query(Catalog)
 		const { arm, lesson, place } = v(p, "place")
 		return r.match(p, { arm, lesson, place }).find({
 			lesson,
-			score: r.sum(
-				Num.div(
-					Type.literal(pg["double precision"], 1),
-					Type.cast(Num.add(place, fusionK), pg["double precision"])
-				)
-			)
+			score: r.sum(Num.div(Type.literal(float8, 1), Type.cast(Num.add(place, fusionK), float8)))
 		})
 	})
 	.orderBy(["score", "desc"])

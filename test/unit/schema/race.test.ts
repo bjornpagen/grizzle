@@ -66,7 +66,7 @@ export const raceROwnsOverAnOrdinaryRelationWhosePrimaryKeyHasAPayloadHoldsNoSpa
 		kills: [
 			{
 				file: "packages/engine/src/schema/own.ts",
-				original: `\t\tconst spans = key.filter((f) => spanned(r.fields[f]?.type))\n\t\tif (spans.length > 0) {\n\t\t\tfail(\n\t\t\t\t"MalformedDescription",\n\t\t\t\ts.desc.loc,\n\t\t\t\t\`\${statementLabel(s.desc)} over a primary key of no span; \${r.name}.\${spans.join(", ")} is a span, whose exclusion constraint PostgreSQL arbitrates by DO NOTHING alone, which yields no row an insertion met\`\n\t\t\t)\n\t\t}`,
+				original: `\t\tconst spans = key.filter((f) => spanned(r.fields[f]?.type))\n\t\tif (spans.length > 0) {\n\t\t\tfail(\n\t\t\t\t"MalformedDescription",\n\t\t\t\ts.desc.loc,\n\t\t\t\t\`\${statementLabel(s.desc)} over a primary key of no range; \${r.name}.\${spans.join(", ")} is a range, whose exclusion constraint PostgreSQL arbitrates by DO NOTHING alone, which yields no row an insertion met\`\n\t\t\t)\n\t\t}`,
 				replacement: "",
 				why: "The span key's refusal dropped (schema/own.ts checkRacedKey)."
 			}

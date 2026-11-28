@@ -15,7 +15,7 @@ import { Array as Arr, Effect, Fiber, Option, Order, Record as Rec } from "effec
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Logic, Num, Range, Type } from "#compiler/public/compute.ts"
-import { contract, natural, pg, span } from "#compiler/public/fields.ts"
+import { contract, natural, range, int4, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { login, mutable, relation, role, schema, unit } from "#compiler/public/schema.ts"
 import { clocked, workload } from "#compiler/public/workload.ts"
@@ -37,20 +37,18 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
 
 const learnerIdKey = Symbol("LearnerId")
-const LearnerId = contract<typeof learnerIdKey>()("LearnerId", pg.integer)
+const LearnerId = contract<typeof learnerIdKey>()("LearnerId", int4)
 const momentKey = Symbol("Moment")
 /** Microseconds on the database's clock, a window's ends; a reading is one below the top, so it ends a window too. */
-const Moment = contract<typeof momentKey>()("Moment", pg.bigint, (t) =>
-	Num.within(t, 0n, 2n ** 62n)
-)
+const Moment = contract<typeof momentKey>()("Moment", int8, (t) => Num.within(t, 0n, 2n ** 62n))
 const readingKey = Symbol("Reading")
-const Reading = contract<typeof readingKey>()("Reading", pg.bigint, (t) =>
+const Reading = contract<typeof readingKey>()("Reading", int8, (t) =>
 	Num.within(t, 0n, 2n ** 62n - 1n)
 )
 
 /** A learner's presence in a stage: one window per stretch of readings no more than 3 s apart (docs/reads-and-writes.md "A window a put
  * extends"). */
-const Presence = relation("Presence", { child: LearnerId, stage: natural, during: span(Moment) }, [
+const Presence = relation("Presence", { child: LearnerId, stage: natural, during: range(Moment) }, [
 	"child",
 	"stage",
 	"during"
@@ -117,7 +115,7 @@ const presenceShape = (name: string) => {
 			})
 			return r
 				.match(bound, { child, stage, start, end })
-				.find({ child, stage, during: r.span(start, end) })
+				.find({ child, stage, during: r.range(start, end) })
 		})
 	)
 	return {

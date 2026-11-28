@@ -100,15 +100,15 @@ export const compute = (
 
 export const cast = (arg: ExprDesc, to: FieldDesc): ExprDesc => ({ kind: "cast", to, arg })
 
-type IntegerType = "smallint" | "integer" | "bigint"
+type IntegerType = "int2" | "int4" | "int8"
 
 /** Each integer type's range, what an exact integer narrowed into it is proved within, and its literal 0. */
 const integerTypes: Readonly<
 	Record<IntegerType, { readonly low: bigint; readonly high: bigint; readonly zero: LiteralDesc }>
 > = {
-	smallint: { low: -(2n ** 15n), high: 2n ** 15n - 1n, zero: 0 },
-	integer: { low: -(2n ** 31n), high: 2n ** 31n - 1n, zero: 0 },
-	bigint: { low: -(2n ** 63n), high: 2n ** 63n - 1n, zero: 0n }
+	int2: { low: -(2n ** 15n), high: 2n ** 15n - 1n, zero: 0 },
+	int4: { low: -(2n ** 31n), high: 2n ** 31n - 1n, zero: 0 },
+	int8: { low: -(2n ** 63n), high: 2n ** 63n - 1n, zero: 0n }
 }
 
 /**

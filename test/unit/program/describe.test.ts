@@ -7,7 +7,7 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { describeQuery, lowerQuery } from "#compiler/program/describe.ts"
 import { queryInput } from "#compiler/program/input.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { schema } from "#compiler/public/schema.ts"
 import { relationBuilder } from "#compiler/schema/relation.ts"
@@ -88,7 +88,7 @@ export const describeQueryQueryFromDescriptionAndLowerQueryCheckADescriptionAgai
 		situations: ["elsewhere"] satisfies ReadonlyArray<Reached<"elsewhere">>,
 		check: (_, k: Case<"elsewhere">) => (name) =>
 			Effect.sync(() => {
-				const Elsewhere = relationBuilder(name, { task: Id, budget: pg.bigint }, ["task"], [])
+				const Elsewhere = relationBuilder(name, { task: Id, budget: int8 }, ["task"], [])
 				const Elsewheres = schema("Elsewhere", [Elsewhere], [])
 				const d = describeQuery(
 					query(Elsewheres).rule((r) => {

@@ -4,7 +4,7 @@ import { constant, element, type Gen, int, weighted } from "@bjornpagen/testing/
 import { Array as Arr, Option, String as Str } from "effect"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Fn, Num } from "#compiler/public/compute.ts"
-import { Decimal, pg } from "#compiler/public/fields.ts"
+import { Numeric, int4, numeric } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { fn, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -17,30 +17,30 @@ import type { SubstrateTemplate } from "#test/support/substrate/substrate.ts"
 import { fullWorld } from "#test/support/worlds.ts"
 
 /**
- * A declared function of PostgreSQL's numeric of no typmod, `pg.numeric`, passes its value as it is, through a query's
- * read and through a write, as a stored `pg.numeric` field does: a value is never rounded to a scale nothing stated.
- * The schema holds Source(id, text), a decimal's text, Held(id, value), a `pg.numeric` a caller writes, and
- * Written(id, value), a `pg.numeric` a ChangeSet writes from a call. `decimalOf(t text) returns numeric` is `t::numeric`,
+ * A declared function of PostgreSQL's numeric of no typmod, `numeric`, passes its value as it is, through a query's
+ * read and through a write, as a stored `numeric` field does: a value is never rounded to a scale nothing stated.
+ * The schema holds Source(id, text), a decimal's text, Held(id, value), a `numeric` a caller writes, and
+ * Written(id, value), a `numeric` a ChangeSet writes from a call. `decimalOf(t text) returns numeric` is `t::numeric`,
  * and `negated(x numeric) returns numeric` is `-x`, a numeric argument and result both. The programs: `hold`, Held's
  * insertion from its facts; `record`, Written's insertion of each Source's decimalOf; `fromText`, each Source's
  * decimalOf read; `held`, each Held's value and its negated; `written`, Written's rows; and `doubled`, each Held's value
- * added to itself, arithmetic over a `pg.numeric`, which PostgreSQL holds to numeric's own limit.
+ * added to itself, arithmetic over a `numeric`, which PostgreSQL holds to numeric's own limit.
  */
 
 /** Any text. */
 const Text = str.regex("^.*$", "su")
 
-const Source = relation("Source", { id: pg.integer, text: Text }, ["id"])
+const Source = relation("Source", { id: int4, text: Text }, ["id"])
 
-const Held = relation("Held", { id: pg.integer, value: pg.numeric }, ["id"])
+const Held = relation("Held", { id: int4, value: numeric }, ["id"])
 
-const Written = relation("Written", { id: pg.integer, value: pg.numeric }, ["id"])
+const Written = relation("Written", { id: int4, value: numeric }, ["id"])
 
 /** A decimal's text read as numeric: its value exactly, at no typmod, as QTI's round-to returns one. */
 const decimalOf = fn("decimalOf", {
 	calls: [],
 	args: { t: Text },
-	returns: pg.numeric,
+	returns: numeric,
 	volatility: "immutable",
 	nullInput: "called",
 	language: "sql",
@@ -50,8 +50,8 @@ const decimalOf = fn("decimalOf", {
 /** A numeric negated: a numeric argument and a numeric result. */
 const negated = fn("negated", {
 	calls: [],
-	args: { x: pg.numeric },
-	returns: pg.numeric,
+	args: { x: numeric },
+	returns: numeric,
 	volatility: "immutable",
 	nullInput: "called",
 	language: "plpgsql",
@@ -144,7 +144,7 @@ const digitsOf =
 const sign: Gen<string> = element(["", "-"] as const)
 
 /** A decimal of `whole` integer digits and `fraction` fraction digits, its first and last digits nonzero. */
-const decimalText =
+const numericText =
 	(whole: number, fraction: number): Gen<string> =>
 	(source) => {
 		const integer = whole === 0 ? "0" : source.draw(digitsOf(whole, true))
@@ -167,7 +167,7 @@ const drawnGen: Gen<Drawn> = weighted([
 	[
 		2,
 		(source) => ({
-			text: source.draw(decimalText(source.draw(int(301, 320)), source.draw(int(0, 3)))),
+			text: source.draw(numericText(source.draw(int(301, 320)), source.draw(int(0, 3)))),
 			feature: "a value past 1e300"
 		})
 	],
@@ -206,7 +206,7 @@ const drawnGen: Gen<Drawn> = weighted([
 	[
 		2,
 		(source) => ({
-			text: source.draw(decimalText(source.draw(int(0, 6)), source.draw(int(0, 6)))),
+			text: source.draw(numericText(source.draw(int(0, 6)), source.draw(int(0, 6)))),
 			feature: "an ordinary decimal"
 		})
 	]
@@ -221,9 +221,9 @@ export const caseGen: Gen<NumericCase> = (source) => ({
 	drawn: Array.from({ length: source.draw(int(1, 5)) }, () => source.draw(drawnGen))
 })
 
-/** The model of a drawn text: its Decimal, as the host parses it. */
-export const modelOf = (text: string): Decimal =>
-	succeeded(Decimal.fromString(text), `the host parses ${Str.slice(0, 40)(text)}`)
+/** The model of a drawn text: its Numeric, as the host parses it. */
+export const modelOf = (text: string): Numeric =>
+	succeeded(Numeric.fromString(text), `the host parses ${Str.slice(0, 40)(text)}`)
 
 /** A case's facts, as the owner loads them: each drawn text a Source row; Held and Written empty. */
 export const factsOf = (c: NumericCase) => ({
@@ -232,15 +232,15 @@ export const factsOf = (c: NumericCase) => ({
 	Written: []
 })
 
-/** Held's facts as `hold` writes them: each drawn value as its Decimal. */
+/** Held's facts as `hold` writes them: each drawn value as its Numeric. */
 export const heldFacts = (c: NumericCase) =>
 	Arr.map(c.drawn, (d, id) => ({ id, value: modelOf(d.text) }))
 
 /** The model of a value negated, numeric.c's numeric_uminus. */
-export const negatedModel = (d: Decimal): Decimal => succeeded(N.neg(d), "a numeric negated")
+export const negatedModel = (d: Numeric): Numeric => succeeded(N.neg(d), "a numeric negated")
 
 /** The model of a value doubled, numeric.c's numeric_add: none past numeric's format, where PostgreSQL raises 22003. */
-export const doubledModel = (d: Decimal): Option.Option<Decimal> => {
+export const doubledModel = (d: Numeric): Option.Option<Numeric> => {
 	const sum = N.add(d, d)
 	return sum.ok ? Option.some(sum.value) : Option.none()
 }

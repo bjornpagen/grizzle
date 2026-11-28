@@ -4,7 +4,7 @@ import { catchCompileError } from "#compiler/core/canonical.ts"
 import { noClock, transactionClock } from "#compiler/ir/clock.ts"
 import { writeWorldOf } from "#compiler/program/write-world.ts"
 import { Num } from "#compiler/public/compute.ts"
-import { Money, pg } from "#compiler/public/fields.ts"
+import { Money, bool, int8 } from "#compiler/public/fields.ts"
 import { param, query, v } from "#compiler/public/query.ts"
 import { role } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
@@ -304,7 +304,7 @@ const outsideField = (s: Subject): Option.Option<Selectable> => {
 		case "Chip":
 			return Option.some({
 				field: "next",
-				param: paramOf(s, "next", (n) => param(n, pg.bigint)),
+				param: paramOf(s, "next", (n) => param(n, int8)),
 				literal: Option.none()
 			})
 		case "Task":
@@ -364,10 +364,7 @@ const fieldsOf = (c: DeleteWhereCase): Option.Option<Fields> => {
 			return first === undefined
 				? Option.none()
 				: Option.some([
-						[
-							first.field,
-							{ text: `param("q", pg.boolean)`, value: () => param("q", pg.boolean) }
-						] as const
+						[first.field, { text: `param("q", bool)`, value: () => param("q", bool) }] as const
 					])
 		case "a typed constant": {
 			const kind = Arr.findFirst(row, (f) => f.field === "kind")
@@ -382,8 +379,8 @@ const fieldsOf = (c: DeleteWhereCase): Option.Option<Fields> => {
 						[
 							f.field,
 							{
-								text: `Num.add(param("q", pg.bigint), 1n)`,
-								value: () => Num.add(param("q", pg.bigint), 1n)
+								text: `Num.add(param("q", int8), 1n)`,
+								value: () => Num.add(param("q", int8), 1n)
 							}
 						] as const
 					])

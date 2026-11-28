@@ -6,7 +6,7 @@ import { Array as Arr, Data, Effect, Equivalence, Formatter, Option, Order, Resu
 import { rowEvaluator } from "#adapter/public/host.ts"
 import { constraintNamesOf } from "#compiler/program/laws.ts"
 import { Range } from "#compiler/public/compute.ts"
-import { contract, mintOf, pg, span } from "#compiler/public/fields.ts"
+import { contract, mintOf, range, int4, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { check, derived, relation, schema } from "#compiler/public/schema.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -23,20 +23,17 @@ import { firstRefusalOf, refusalOf } from "#test/support/substrate.ts"
 
 const secondsKey = Symbol("Seconds")
 /** A point of a sitting's timeline, whole seconds. */
-const Seconds = contract<typeof secondsKey>()("Seconds", pg.bigint)
+const Seconds = contract<typeof secondsKey>()("Seconds", int8)
 const toSeconds = mintOf(secondsKey)
 
 /** A sitting's start, at most one. */
-const Began = relation("Began", { sitting: pg.integer, at: Seconds }, ["sitting"])
+const Began = relation("Began", { sitting: int4, at: Seconds }, ["sitting"])
 
 /** A sitting's end, at most one, none while it is open. */
-const EndedAt = relation("EndedAt", { sitting: pg.integer, at: Seconds }, ["sitting"])
+const EndedAt = relation("EndedAt", { sitting: int4, at: Seconds }, ["sitting"])
 
 /** A sitting's closed visits, no two of one sitting overlapping. */
-const Visit = relation("Visit", { sitting: pg.integer, during: span(Seconds) }, [
-	"sitting",
-	"during"
-])
+const Visit = relation("Visit", { sitting: int4, during: range(Seconds) }, ["sitting", "during"])
 
 const RELATIONS = ["Began", "EndedAt", "Visit"] as const
 type Table = (typeof RELATIONS)[number]

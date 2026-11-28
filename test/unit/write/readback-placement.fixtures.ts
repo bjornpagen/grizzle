@@ -8,7 +8,7 @@ import { identity } from "#compiler/core/identity.ts"
 import { noClock, transactionClock } from "#compiler/ir/clock.ts"
 import { installOptions } from "#compiler/physical/install/compile.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { mutable, relation, schema, unit } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { FinishedValue, RuleValue } from "#compiler/query/build/rule.ts"
@@ -26,16 +26,16 @@ import { type FixtureSchema, testArtifacts, testCompile } from "#test/support/co
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { checking, owning } from "#test/support/policy.ts"
 
-const M = relation("M", { id: pg.integer, v: pg.integer }, ["id"])
+const M = relation("M", { id: int4, v: int4 }, ["id"])
 
-const A = relation("A", { id: pg.integer, v: pg.integer }, ["id"])
+const A = relation("A", { id: int4, v: int4 }, ["id"])
 
-const Z = relation("Z", { id: pg.integer, v: pg.integer }, ["id"])
+const Z = relation("Z", { id: int4, v: int4 }, ["id"])
 
 const schemaName = "readback_placement"
 
 /** M mutable inside the unit of its id, since the cases put and delete it. */
-const S = schema(schemaName, [M, A, Z], [unit("Row", { id: pg.integer }), mutable(M)])
+const S = schema(schemaName, [M, A, Z], [unit("Row", { id: int4 }), mutable(M)])
 
 type Op = "insert" | "delete" | "put"
 

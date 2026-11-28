@@ -103,7 +103,7 @@ import {
 	type RelationInfo,
 	type RowGuard,
 	scalarKeySet,
-	type SpanField,
+	type RangeField,
 	type SpanKeyScalars,
 	spanKeySet,
 	type TheoryRelation,
@@ -213,7 +213,7 @@ export type NamedNative =
 export type PrimaryNative =
 	| NativeOf<"PrimaryKey">
 	| (Omit<NativeOf<"WithoutOverlaps">, "span" | "key"> & {
-			readonly span: { readonly kind: "field"; readonly field: SpanField }
+			readonly span: { readonly kind: "field"; readonly field: RangeField }
 			readonly key: {
 				readonly kind: "primary"
 				readonly scalars: NonEmptyReadonlyArray<{

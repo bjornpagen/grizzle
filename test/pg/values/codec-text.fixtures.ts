@@ -17,7 +17,7 @@ import { baseOf, type Carrier, rosterOf, type ScalarType } from "#compiler/ir/sc
 import type { TextedField } from "#compiler/program/text.ts"
 import {
 	accumulated,
-	bits,
+	bit,
 	closedId,
 	contract,
 	date,
@@ -25,9 +25,17 @@ import {
 	type Field,
 	generated,
 	natural,
-	pg,
 	slot,
-	span
+	range,
+	bool,
+	float4,
+	float8,
+	int2,
+	int4,
+	int8,
+	money,
+	numeric,
+	vector
 } from "#compiler/public/fields.ts"
 import { closed, fin, relation } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -145,7 +153,7 @@ const naturalCarrier: DeclaredCarrier = {
 }
 
 /** boolean. */
-const booleanCarrier = declaredOf("boolean", pg.boolean)
+const booleanCarrier = declaredOf("boolean", bool)
 
 /** A closed id of Kind, a slot's type. */
 const kindCarrier = declaredOf("closed id", closedId(Kind))
@@ -157,32 +165,32 @@ const centsKey = Symbol("Cents")
  * and natural.
  */
 const declaredCarriers: Arr.NonEmptyReadonlyArray<DeclaredCarrier> = [
-	declaredOf("smallint", pg.smallint),
-	declaredOf("integer", pg.integer),
-	declaredOf("bigint", pg.bigint),
-	declaredOf("numeric(7,2)", pg.numeric(7, 2)),
-	declaredOf("real", pg.real),
-	declaredOf("double precision", pg["double precision"]),
-	declaredOf("money", pg.money),
+	declaredOf("smallint", int2),
+	declaredOf("integer", int4),
+	declaredOf("bigint", int8),
+	declaredOf("numeric(7,2)", numeric(7, 2)),
+	declaredOf("real", float4),
+	declaredOf("double precision", float8),
+	declaredOf("money", money),
 	booleanCarrier,
 	contractOf("uuid", Id, idKey),
 	declaredOf("text", str.regex("^.*$", "su")),
 	kindCarrier,
-	declaredOf("set", bits(Kind)),
+	declaredOf("set", bit(Kind)),
 	...Arr.map(setWidths, (w) =>
-		declaredOf(`set over ${w} codes`, bits(closedBuilder(`Set${w}`, setHandles(w), "ordered", [])))
+		declaredOf(`set over ${w} codes`, bit(closedBuilder(`Set${w}`, setHandles(w), "ordered", [])))
 	),
-	declaredOf("int4range", span(pg.integer, undefined)),
-	declaredOf("int8range", span(pg.bigint, undefined)),
-	declaredOf("vector(3)", pg.vector(3)),
-	declaredOf("vector(16)", pg.vector(16)),
+	declaredOf("int4range", range(int4, undefined)),
+	declaredOf("int8range", range(int8, undefined)),
+	declaredOf("vector(3)", vector(3)),
+	declaredOf("vector(16)", vector(16)),
 	contractOf(
 		"contract Cents",
-		contract<typeof centsKey>()("Cents", pg.bigint, undefined, undefined),
+		contract<typeof centsKey>()("Cents", int8, undefined, undefined),
 		centsKey
 	),
 	declaredOf("date", date),
-	declaredOf("daterange", span(date, undefined)),
+	declaredOf("daterange", range(date, undefined)),
 	declaredOf("unordered closed id", closedId(Mark)),
 	naturalCarrier
 ]

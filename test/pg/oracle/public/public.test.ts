@@ -25,7 +25,7 @@ import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
  * schema through its migration on a database of its own, as each case of the search installed its own.
  *
  * It searches with the runner's budget (runner/limits.ts searchRuns, steeredCases): it declares no kill, and its
- * catch, issue #3's, which its two kept cases hold, was cured by a representation, the value-only Decimal
+ * catch, issue #3's, which its two kept cases hold, was cured by a representation, the value-only Numeric
  * (scalar/values/decimal.ts), which no one-line mutant plants again: with the mean's trim_scale dropped
  * (lower/conservative/group/index.ts aggregateExpr scaleFree) every witness passed (lane CULL-ORACLE's pubkill.log,
  * 2026-11-23).

@@ -5,7 +5,7 @@ import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Data, Effect, Formatter, String as Str } from "effect"
 import { blockSize } from "#compiler/core/page.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { check, derived, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -19,17 +19,15 @@ import type { RawSession } from "#test/support/substrate/session.ts"
 const labelBytes = 1024
 
 /** A document, its body a text of no bound, so a delta of it may take a value no row holds. */
-const Doc = relation("Doc", { id: pg.integer, body: str.regex("^.*$", "su") }, ["id"])
+const Doc = relation("Doc", { id: int4, body: str.regex("^.*$", "su") }, ["id"])
 
 /** A tag, its label a text of at most labelBytes bytes, so a delta of it holds every value in its row. */
-const Tag = relation(
-	"Tag",
-	{ id: pg.integer, label: str.bytes(labelBytes, str.regex("^.*$", "su")) },
-	["id"]
-)
+const Tag = relation("Tag", { id: int4, label: str.bytes(labelBytes, str.regex("^.*$", "su")) }, [
+	"id"
+])
 
 /** The ids the derived relations join each of Doc and Tag with. */
-const Known = relation("Known", { id: pg.integer }, ["id"])
+const Known = relation("Known", { id: int4 }, ["id"])
 
 /**
  * The schema under `name`: Doc, Tag and Known stored, and a rule over each of Doc's and Tag's joins with Known, so the

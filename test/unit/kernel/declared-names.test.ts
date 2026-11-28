@@ -38,7 +38,7 @@ import {
 } from "#compiler/core/identity.ts"
 import { lawsOf } from "#compiler/program/laws.ts"
 import { relation as dynamicRelation } from "#compiler/public/dynamic.ts"
-import { closedId, pg } from "#compiler/public/fields.ts"
+import { closedId, int4 } from "#compiler/public/fields.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { succeeded, throwsRefused } from "#test/support/assert.ts"
 import { ownedInput } from "#test/support/policy.ts"
@@ -219,11 +219,7 @@ export const aRelationsFieldIsAdmittedExactlyWhenItsConversionIsNoneOfPostgreSQL
 			Effect.sync(() => {
 				assert.equal(conversionOf(field.declared), field.converted, field.declared)
 				const owned = ownedInput(
-					schema(
-						"Named",
-						[relation("R", { id: pg.integer, [field.declared]: pg.integer }, ["id"])],
-						[]
-					)
+					schema("Named", [relation("R", { id: int4, [field.declared]: int4 }, ["id"])], [])
 				)
 				const system = Arr.findFirst(pgSystemColumns, (s) => s === field.converted)
 				if (system._tag === "None") {
@@ -290,7 +286,7 @@ export const aClosedIdFieldIsAdmittedExactlyWhenItsDecodedColumnFitsAndRefusedWh
 						const build = () =>
 							dynamicRelation(
 								"Swatch",
-								{ id: pg.integer, [field]: closedField ? closedId(Shade) : pg.integer },
+								{ id: int4, [field]: closedField ? closedId(Shade) : int4 },
 								["id"]
 							)
 						if (closedField && bytes > closedIdFieldBytes) {

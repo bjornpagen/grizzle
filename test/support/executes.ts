@@ -5,7 +5,7 @@ import { Array as Arr, Option, Record as Rec } from "effect"
 import { parseDeclaredName } from "#compiler/core/identity.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { Logic } from "#compiler/public/compute.ts"
-import { Bits, bits, closedId, contract, pg } from "#compiler/public/fields.ts"
+import { Bit, bit, closedId, contract, int4 } from "#compiler/public/fields.ts"
 import { check, contained, login, on, select } from "#compiler/public/schema.ts"
 import { closedBuilder, relationBuilder } from "#compiler/schema/relation.ts"
 import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
@@ -285,7 +285,7 @@ const countName = "Count"
 
 const countKey = Symbol("Count")
 /** The contract every count field is typed by: an integer above zero. */
-const Count = contract<typeof countKey>()(countName, pg.integer, (x) => Logic.gt(x, 0))
+const Count = contract<typeof countKey>()(countName, int4, (x) => Logic.gt(x, 0))
 
 /**
  * The world built through the public builders under the declared name `name`: its schema and its login `desk`, whose
@@ -302,11 +302,11 @@ export const buildExecutesWorld = (w: ExecutesWorld, name: string) => {
 			case "code":
 				return closedId(rosterOf(f.roster))
 			case "set":
-				return bits(rosterOf(f.roster))
+				return bit(rosterOf(f.roster))
 			case "count":
 				return Count
 			case "plain":
-				return pg.integer
+				return int4
 			case "ref":
 				return Id
 		}
@@ -322,7 +322,7 @@ export const buildExecutesWorld = (w: ExecutesWorld, name: string) => {
 	)
 	const relationOf = (n: RelationName) => defined(relations.get(n), `the relation ${n}`)
 	const constantOf = (f: RosterField, handles: Arr.NonEmptyReadonlyArray<string>) =>
-		f.kind === "set" ? Bits.of(rosterOf(f.roster), handles) : rosterOf(f.roster).handle(handles[0])
+		f.kind === "set" ? Bit.of(rosterOf(f.roster), handles) : rosterOf(f.roster).handle(handles[0])
 	const statements = Arr.map(w.laws, (law, i) => {
 		switch (law.kind) {
 			case "selected":

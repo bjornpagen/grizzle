@@ -49,7 +49,7 @@ import { anyNumeric } from "#compiler/scalar/compute/types.ts"
 import { type ScalarEnv, scalarTypeOf, type SqlTag } from "#compiler/scalar/registry.ts"
 import { spanColumn } from "#compiler/scalar/span.ts"
 import { carrierColumn, numericColumn, vectorColumn } from "#compiler/scalar/values/convert.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import type { Expr, TypeRef } from "#compiler/sql/ast.ts"
 import { noExtension } from "#test/support/compute.ts"
@@ -194,13 +194,13 @@ export const field = (desc: FieldDesc, sql: SqlTag): TestField => ({
 })
 
 export const testPg = {
-	smallint: field({ kind: "pg", type: "smallint" }, "smallint"),
-	integer: field({ kind: "pg", type: "integer" }, "integer"),
-	bigint: field({ kind: "pg", type: "bigint" }, "bigint"),
-	real: field({ kind: "pg", type: "real" }, "real"),
-	double: field({ kind: "pg", type: "double precision" }, "double precision"),
+	smallint: field({ kind: "pg", type: "int2" }, "int2"),
+	integer: field({ kind: "pg", type: "int4" }, "int4"),
+	bigint: field({ kind: "pg", type: "int8" }, "int8"),
+	real: field({ kind: "pg", type: "float4" }, "float4"),
+	double: field({ kind: "pg", type: "float8" }, "float8"),
 	money: field({ kind: "pg", type: "money" }, "money"),
-	boolean: field({ kind: "pg", type: "boolean" }, "boolean"),
+	boolean: field({ kind: "pg", type: "bool" }, "bool"),
 	/**
 	 * The widest numeric the compute suites declare: numeric(1000, 20), its 980 integer and 20 fraction digits holding
 	 * every operand they draw. No numeric field is without a typmod, so none holds an infinity.
@@ -296,7 +296,7 @@ export const param = (name: string, of: TestField): ScalarTerm =>
 
 /**
  * An env's variables: each a column of node n0; a literal of a field's type, as Type.literal makes one; or a bare
- * literal, which states no type and so has the one its kind gives it, a Decimal's a computed numeric at numeric's own
+ * literal, which states no type and so has the one its kind gives it, a Numeric's a computed numeric at numeric's own
  * limits (typing.ts bareLiteral). lowerWith lowers a literal binding as that literal (withLiterals).
  */
 export type LeafBinding =
@@ -625,7 +625,7 @@ const literalExpr = (literal: TypedLiteral, t: ScalarType, options: RenderOption
 				throw new Error("a money literal holds a Money")
 			}
 			const minor = literal.value.minorUnits
-			const amount = succeeded(Decimal.fromParts(minor < 0n, minor < 0n ? -minor : minor, 2))
+			const amount = succeeded(Numeric.fromParts(minor < 0n, minor < 0n ? -minor : minor, 2))
 			return {
 				kind: "cast",
 				expr: {
@@ -761,4 +761,4 @@ export const sqlOf = (root: ScalarExpr, options: RenderOptions): Expr => {
 export const renderSql = (root: ScalarExpr, options: RenderOptions): string =>
 	printExpr(sqlOf(root, options))
 
-export const decimal = (text: string): Decimal => Decimal.of(text)
+export const decimal = (text: string): Numeric => Numeric.of(text)

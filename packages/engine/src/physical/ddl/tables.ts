@@ -418,7 +418,7 @@ export interface KeyIndex {
  * Each column whose type PostgreSQL holds more values of than its host type spells also carries its column CHECK
  * (physical/ddl/column-checks.ts): a vector's cosine domain, a date's days, an integer numeric's integers and a
  * closed id of a subset its subset's codes; a bytes column carries none, since its type's own bound is its value's
- * (bytesMaxLength).
+ * (byteaMaxLength).
  * Every table is added before the objects on it, so the inline constraints are planned first. */
 export const addTables = (b: InstallBuilder): PlacedNatives => {
 	const inline: Inline = new Map()

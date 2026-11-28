@@ -1,5 +1,5 @@
 import { type NonEmptyReadonlyArray, isNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
-import type { LawField, RelationInfo, SpanField } from "#compiler/ir/law.ts"
+import type { LawField, RelationInfo, RangeField } from "#compiler/ir/law.ts"
 import { isCarried } from "#compiler/write/insert/statement.ts"
 
 /** A relation's fields its facts carry outside its primary key, in heading order (insert/statement.ts isCarried): none
@@ -25,7 +25,7 @@ export const payloadOf = (relation: RelationInfo): Payload => {
  * insert is the named-arbiter insert, and its put is never ON CONFLICT DO UPDATE or MERGE. */
 export type PrimaryKeyShape =
 	| { readonly kind: "scalar" }
-	| { readonly kind: "span"; readonly span: SpanField }
+	| { readonly kind: "span"; readonly span: RangeField }
 
 export const primaryKeyShape = (relation: RelationInfo): PrimaryKeyShape => {
 	const { span } = relation.keyNames[0]

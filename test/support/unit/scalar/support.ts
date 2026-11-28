@@ -16,20 +16,34 @@ import { regex } from "arkregex"
 import { Array as Arr, Option, Order, Record as Rec } from "effect"
 import { vectorMaxDimensions, integerRanges } from "#compiler/ir/carriers.ts"
 import { type RosterOrder, rosterOrders } from "#compiler/ir/scalar.ts"
-import { pgDescriptors } from "#compiler/scalar/pg.ts"
+import { minted } from "#compiler/scalar/minted.ts"
+import {
+	bool,
+	cidr,
+	float4,
+	float8,
+	inet,
+	int2,
+	int4,
+	int8,
+	money,
+	numeric
+} from "#compiler/scalar/pg.ts"
 import { isOwnedDescriptor } from "#compiler/scalar/registry.ts"
+import { storedSearchDescriptor } from "#compiler/scalar/search.ts"
 import { uuidDescriptor } from "#compiler/scalar/uuid.ts"
 import {
 	numericMaxPrecision,
 	numericMaxScale,
 	numericMinScale
 } from "#compiler/scalar/values/fault.ts"
+import { vector } from "#compiler/scalar/vector.ts"
 import { admittedClosedId, closedBuilder } from "#compiler/schema/relation.ts"
 import { contractDescriptor, spanDescriptor } from "#test/support/fixtures/descriptors.ts"
 
 /**
- * Field descriptors as a JavaScript caller writes them, drawn as sketches over the whole namespace: every spelling of
- * the pg namespace that is a descriptor itself, numeric(p, s), vector(n), uuid, a closed id over a drawn
+ * Field descriptors as a JavaScript caller writes them, drawn as sketches over PostgreSQL's plain types: every one that
+ * is a descriptor itself, numeric(p, s), vector(n), uuid, a closed id over a drawn
  * roster, a span over a drawn endpoint with or without a width, and a contract over a drawn base. A sketch is what a
  * search prints and shrinks; `descriptorOf` builds the descriptor it names.
  */
@@ -51,20 +65,43 @@ export type DescriptorSketch =
 	  }
 	| { readonly kind: "contract"; readonly name: string; readonly base: DescriptorSketch }
 
-/** A name of the pg namespace. */
-export type Spelling = keyof typeof pgDescriptors
+/**
+ * PostgreSQL's plain types as the package root exports them, each under its pg_type name, with the constructors
+ * numeric(p, s), vector(n) and tsvector(c) and the refusals of the minting types.
+ */
+export const plainDescriptors = {
+	int2,
+	int4,
+	int8,
+	numeric,
+	float4,
+	float8,
+	money,
+	bool,
+	inet,
+	cidr,
+	smallserial: minted,
+	serial: minted,
+	bigserial: minted,
+	uuidv7: minted,
+	vector,
+	tsvector: storedSearchDescriptor
+} as const
 
-/** The names of the pg namespace whose value is a descriptor itself, not a constructor of one. */
+/** A name of one of PostgreSQL's plain types. */
+export type Spelling = keyof typeof plainDescriptors
+
+/** The names of PostgreSQL's plain types whose value is a descriptor itself, not a constructor of one. */
 export const spellings: Arr.NonEmptyReadonlyArray<Spelling> = nonEmpty(
-	Arr.filter(Rec.keys(pgDescriptors), (name) => isOwnedDescriptor(pgDescriptors[name])),
-	"the pg namespace's descriptors"
+	Arr.filter(Rec.keys(plainDescriptors), (name) => isOwnedDescriptor(plainDescriptors[name])),
+	"PostgreSQL's plain descriptors"
 )
 
 /** The descriptor a spelling names. */
 export const spelled = (name: Spelling) =>
 	defined(
-		Option.getOrUndefined(Option.liftPredicate(pgDescriptors[name], isOwnedDescriptor)),
-		`pg.${name} is a descriptor`
+		Option.getOrUndefined(Option.liftPredicate(plainDescriptors[name], isOwnedDescriptor)),
+		`${name} is a descriptor`
 	)
 
 /** The descriptor a sketch names, built as a JavaScript caller builds it. */
@@ -73,9 +110,9 @@ export const descriptorOf = (sketch: DescriptorSketch): unknown => {
 		case "spelling":
 			return spelled(sketch.name)
 		case "numeric":
-			return pgDescriptors.numeric(sketch.precision, sketch.scale)
+			return numeric(sketch.precision, sketch.scale)
 		case "vector":
-			return pgDescriptors.vector(sketch.dimensions)
+			return vector(sketch.dimensions)
 		case "uuid":
 			return uuidDescriptor
 		case "closedId":
@@ -98,7 +135,7 @@ export const spanCarrierOf = (sketch: DescriptorSketch): "range4" | "range8" | u
 	switch (sketch.kind) {
 		case "spelling": {
 			const sql = spelled(sketch.name).sql
-			return sql === "integer" ? "range4" : sql === "bigint" ? "range8" : undefined
+			return sql === "int4" ? "range4" : sql === "int8" ? "range8" : undefined
 		}
 		case "contract":
 			return spanCarrierOf(sketch.base)

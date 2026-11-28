@@ -434,7 +434,7 @@ class Parser {
 		return { min: min.value, max }
 	}
 
-	/** Decimal digits, saturating at a value above any admitted bound so a huge literal never loses precision. */
+	/** Numeric digits, saturating at a value above any admitted bound so a huge literal never loses precision. */
 	#decimal(): { readonly value: number } | undefined {
 		const first = this.#peek(0)
 		return first !== undefined && isAsciiDigit(first) ? this.#decimalFrom(first) : undefined

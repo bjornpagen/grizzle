@@ -46,7 +46,7 @@ export const varlenaHeaderBytes = 4
  *   MaxAllocSize - VARHDRSZ
  * @from {@link maxAllocSize}, {@link varlenaHeaderBytes}
  */
-export const bytesMaxLength = maxAllocSize - varlenaHeaderBytes
+export const byteaMaxLength = maxAllocSize - varlenaHeaderBytes
 
 /**
  * The most bytes PostgreSQL holds of a tsvector's lexemes and positions, and of a tsquery's operands: a document or a
@@ -185,7 +185,7 @@ export const numericMaxFractionDigits = 16383
  * The integer digits a numeric result is bounded by, `needed` its making's bound over operands of `operands` integer
  * digits: `needed` itself, where it lies within numeric's own limit or every operand is proved within it, so a bound past
  * the limit is the compilation's to refuse (ResourceBound); and numeric's own limit where it passes the limit over an
- * operand already at it, a value bounded by nothing proved but the limit, pg.numeric's (numericOwnBound). There no bound
+ * operand already at it, a value bounded by nothing proved but the limit, numeric's (numericOwnBound). There no bound
  * the operands have keeps the result within the limit, and none is missing: PostgreSQL enforces its own, refusing a
  * value past it with 22003, numeric_value_out_of_range, as the host's arithmetic refuses it ("format",
  * scalar/compute/numeric.ts). Every numeric result's bound is read here: an operation's (scalar/compute/bounds.ts
@@ -199,7 +199,7 @@ export const resultDigits = (needed: number, operands: ReadonlyArray<number>): n
 /**
  * numeric's own limits as a bound (ir/scalar.ts NumericBound): numericMaxIntegerDigits integer digits and
  * numericMaxFractionDigits fraction digits, which every numeric value lies within, the bound of numeric of no typmod
- * as pg.numeric declares it (scalar/registry.ts numericOwnLimits).
+ * as numeric declares it (scalar/registry.ts numericOwnLimits).
  */
 export const numericOwnBound: { readonly digits: number; readonly scale: number } = Object.freeze({
 	digits: numericMaxIntegerDigits,
@@ -276,8 +276,8 @@ export const cosineNormMax =
  */
 const valueFaults: { readonly [F in ValueFault]: string } = {
 	decimalNumber:
-		"an exact decimal: a Decimal, a bigint, or an exact decimal string, never a JavaScript number",
-	decimalType: "an exact decimal: a Decimal, a bigint, or an exact decimal string",
+		"an exact decimal: a Numeric, a bigint, or an exact decimal string, never a JavaScript number",
+	decimalType: "an exact decimal: a Numeric, a bigint, or an exact decimal string",
 	decimalSyntax:
 		"an exact decimal literal: digits with an optional fraction and exponent, NaN, or Infinity",
 	decimalRange: `a numeric within PostgreSQL's format: below 10^${numericMaxIntegerDigits} with at most ${numericMaxFractionDigits} fractional digits`,
@@ -290,12 +290,12 @@ const valueFaults: { readonly [F in ValueFault]: string } = {
 	numericNaN:
 		"an integer: numeric(p, 0) holds integers alone, its host value a bigint, so never NaN",
 	numericBound:
-		"a numeric within its computed bound (pg.numeric.within): NaN, an infinity, or a finite value below 10^digits in magnitude and a multiple of 10^-scale, a value of the bound refused rather than stored past it",
+		"a numeric within its computed bound (numeric.within): NaN, an infinity, or a finite value below 10^digits in magnitude and a multiple of 10^-scale, a value of the bound refused rather than stored past it",
 	moneyType: "a money amount as a bigint count of minor units",
 	moneyRange: "a money amount within the signed 64-bit minor-unit range",
 	moneySpecial: "a finite money amount: NaN and infinity have no money value",
 	integerType:
-		"an integer host value: a JavaScript integer for smallint and integer, a bigint for bigint and numeric(p, 0)",
+		"an integer host value: a JavaScript integer for int2 and int4, a bigint for int8 and numeric(p, 0)",
 	integerRange: "an integer within the PostgreSQL type's signed range",
 	floatType: "a JavaScript number",
 	realInexact:
@@ -316,25 +316,25 @@ const valueFaults: { readonly [F in ValueFault]: string } = {
 	textType: "a string",
 	textNul: "text without NUL: PostgreSQL text cannot store U+0000",
 	textSurrogate: "well-formed text: an unpaired UTF-16 surrogate is not a Unicode scalar",
-	bytesType: "bytes: a Uint8Array",
-	bytesLength: `bytes one bytea holds: at most ${bytesMaxLength} bytes`,
+	bytesType: "bytea: a Uint8Array",
+	bytesLength: `bytes one bytea holds: at most ${byteaMaxLength} bytes`,
 	bytesChanged:
 		"bytes its caller leaves as they were from their admission to their send: a value changed meanwhile is refused rather than sent unlike the identity the write worked out from it",
 	bytesCollision:
 		"bytes whose SHA-256 digest no other bytes value of the write shares: two different values of one digest are a SHA-256 collision, refused rather than taken as one",
 	bytesLiteral:
-		"bytes in no literal: a bytes value is written and read back whole, never a rule's or a query's constant",
+		"bytes in no literal: a bytea value is written and read back whole, never a rule's or a query's constant",
 	sha256Value: `a SHA-256 digest: a Uint8Array of exactly ${sha256Octets} bytes`,
 	sha256Syntax: `a SHA-256 digest's hex: exactly ${sha256Octets} pairs of lowercase hex digits`,
 	codeHandle: "a handle of the closed relation's roster",
 	codeSubset: "a handle of the subset of its roster the closed id holds",
 	bitsType: "a set of handles: a Set whose members are strings",
 	bitsMember: "a set of handles of the closed relation's roster",
-	spanType: "a span: an object with exactly the fields start and end",
+	spanType: "a range: an object with exactly the fields start and end",
 	spanEndpoint:
-		"a span endpoint of the endpoint type: an integer number for integer, a bigint for bigint, in range",
-	spanOrder: "a nonempty span: start < end",
-	spanWidth: "a span of the declared fixed width: end - start equals the width",
+		"a range endpoint of the endpoint type: an integer number for int4, a bigint for int8, in range",
+	spanOrder: "a nonempty range: start < end",
+	spanWidth: "a range of the declared fixed width: end - start equals the width",
 	vectorType: "a vector: a Float32Array of its components",
 	vectorDimensions: `vector dimensions: an integer 1-${vectorMaxDimensions} that the components match`,
 	vectorNonFinite: "a finite vector component: NaN and infinity are not vector values",

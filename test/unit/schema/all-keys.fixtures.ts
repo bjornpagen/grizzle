@@ -9,7 +9,7 @@ import type { IndexRequest } from "#compiler/ir/products.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import type { InstallOptions } from "#compiler/physical/install/compile.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
-import { accumulated, Bits, bits, drawn, natural, pg } from "#compiler/public/fields.ts"
+import { accumulated, Bit, bit, drawn, natural, bool } from "#compiler/public/fields.ts"
 import {
 	closed,
 	contained,
@@ -187,7 +187,7 @@ const unitParts = (u: DrawnUnit): UnitParts => {
 		case "declared":
 			return declaredParts(u)
 		case "projected": {
-			const P = relation("P0", { id: Id, live: pg.boolean, t }, ["id"])
+			const P = relation("P0", { id: Id, live: bool, t }, ["id"])
 			return {
 				relations: [P],
 				statements: [
@@ -234,10 +234,10 @@ const unitParts = (u: DrawnUnit): UnitParts => {
 		}
 		case "set": {
 			const Tag = closed.ordered("Tag0", ["red", "blue"])
-			const none = Bits.of(Tag, [])
+			const none = Bit.of(Tag, [])
 			const Order = relation(
 				"Order0",
-				{ id: Id, n: drawn(natural), seen: accumulated(bits(Tag), none) },
+				{ id: Id, n: drawn(natural), seen: accumulated(bit(Tag), none) },
 				["id"]
 			)
 			const Item = relation(
@@ -245,9 +245,9 @@ const unitParts = (u: DrawnUnit): UnitParts => {
 				{
 					order: Id,
 					at: drawn(natural),
-					flags: bits(Tag),
-					before: accumulated(bits(Tag), none),
-					after: accumulated(bits(Tag), none)
+					flags: bit(Tag),
+					before: accumulated(bit(Tag), none),
+					after: accumulated(bit(Tag), none)
 				},
 				["order", "at"]
 			)

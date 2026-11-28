@@ -15,7 +15,7 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Record as Rec } from "effect"
-import { accumulated, drawn, natural, pg } from "#compiler/public/fields.ts"
+import { accumulated, drawn, natural, int8 } from "#compiler/public/fields.ts"
 import { rows } from "#compiler/public/schema.ts"
 import { admitClosedRelation, generatedField } from "#compiler/schema/relation.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
@@ -24,7 +24,7 @@ import { throwsRefused } from "#test/support/assert.ts"
 /** The fields a field builder makes that are no value type, each by its builder. */
 const writtenFields = {
 	"drawn(natural)": () => drawn(natural),
-	"accumulated(pg.bigint, 0n)": () => accumulated(pg.bigint, 0n)
+	"accumulated(int8, 0n)": () => accumulated(int8, 0n)
 } as const satisfies Readonly<Record<string, () => FieldBase>>
 
 type Written = keyof typeof writtenFields
@@ -35,7 +35,7 @@ const admissions = {
 		admit: (value: FieldBase) => accumulated(value, 0n),
 		tag: "Refused",
 		reason:
-			"an accumulated field is of a value type: no span, vector or field of a writing of its own"
+			"an accumulated field is of a value type: no range, vector or field of a writing of its own"
 	},
 	"a generated field's type": {
 		admit: (value: FieldBase) => generatedField(value, 0n, []),

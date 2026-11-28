@@ -468,7 +468,7 @@ that refusal's.
 | `MissingDiscriminant`, `AttachedParentUnbound`, `AttachedPage`, `DescribedHeadingMismatch`, `ContractLiteral` | a `capability` sentence |
 
 **`EncodingFailure`**'s reason is its codec's fault word, never the value, the word of the exact parse that refused it:
-`numericScale` for a `Decimal` past its field's scale and `realInexact` for a `number` no binary32 value is among them;
+`numericScale` for a `Numeric` past its field's scale and `realInexact` for a `number` no binary32 value is among them;
 its `place` is the `Slot` the value fills, by `name`, or a whole `Fact`. **`CallInputRefused`**'s `fault` names what
 of a call's input it refuses: `envelope`, no record of exactly `params` and `facts` (and a paged member's `window`);
 `params`, params that are no record; `{ program, parameter }`, a key of the params that names none of the member's
@@ -752,7 +752,7 @@ export const Author = role(Bank, "author", wholeEntriesOf(Bank), { insert: ["Que
 export const Published = relation("Published", { question: ItemIdentifier }, ["question"])
 export const Answer = relation(
 	"Answer",
-	{ learner: ClerkUser, step: pg.bigint, question: ItemIdentifier },
+	{ learner: ClerkUser, step: int8, question: ItemIdentifier },
 	["learner", "step"]
 )
 export const Exam = schema.extend(
@@ -792,14 +792,14 @@ A claim of work, keyed by the work it claims and never searched for:
 
 ```ts
 const instantKey = Symbol("Instant")
-export const Instant = contract<typeof instantKey>()("Instant", pg.bigint)
+export const Instant = contract<typeof instantKey>()("Instant", int8)
 /** A step, by its name in its flow, and a claimer, by its own name: its host and its process. */
 const StepName = str.regex("^[0-9A-Za-z:_-]{1,96}$")
 const Worker = str.regex("^[0-9a-z.-]{1,64}:[0-9]{1,10}$")
 export const Step = relation("Step", { id: StepName }, ["id"])
 export const Claim = relation(
 	"Claim",
-	{ step: StepName, attempt: natural, holder: Worker, at: Instant, ttl: pg.bigint },
+	{ step: StepName, attempt: natural, holder: Worker, at: Instant, ttl: int8 },
 	["step", "attempt"]
 )
 export const Finished = relation("Finished", { step: StepName, attempt: natural, holder: Worker }, [

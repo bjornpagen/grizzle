@@ -5,6 +5,7 @@
  */
 export {
 	accumulated,
+	bool,
 	ChangeSet,
 	clocked,
 	closed,
@@ -12,21 +13,28 @@ export {
 	contract,
 	date,
 	drawn,
+	float4,
+	float8,
 	fn,
+	int2,
+	int4,
+	int8,
 	Logic,
 	mintOf,
+	money,
 	natural,
-	pg,
+	numeric,
 	query,
+	range,
 	relation,
 	row,
 	rows,
 	schema,
-	span,
 	str,
 	Type,
 	uuid,
 	v,
-	variant
+	variant,
+	vector
 } from "#index.ts"
 export type { Fact, HeadOf, Infer, Marked, ParamArg, ParamsOf } from "#index.ts"

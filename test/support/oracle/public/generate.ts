@@ -25,7 +25,7 @@ import { baseOf, numericTypmodOf, type ScalarType, sameScalarType } from "#compi
 import { wildcardText } from "#compiler/scalar/compute/types.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 import { noRosters, scalarTypeOf } from "#compiler/scalar/registry.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 import { type AmbientSession, ambientSessionGen } from "#test/support/ambient.ts"
 import { fileText, joinPath } from "#test/support/files.ts"
 import { textDesc } from "#test/support/fixtures/ir/desc.ts"
@@ -2228,15 +2228,15 @@ const readingKinds = ["none", "padded", "div", "sqrt", "power"] as const
 
 /** The divisors a quotient draws: nonzero, and ones whose quotients do not terminate, so its scale shows in its digits. */
 const divisors: Arr.NonEmptyReadonlyArray<TypedLiteral> = [
-	{ kind: "numeric", value: Decimal.of("3") },
-	{ kind: "numeric", value: Decimal.of("7") }
+	{ kind: "numeric", value: Numeric.of("3") },
+	{ kind: "numeric", value: Numeric.of("7") }
 ]
 
 /** The exponents a power draws: integral ones, and a half, whose power PostgreSQL computes through its logarithm. */
 const exponents: Arr.NonEmptyReadonlyArray<TypedLiteral> = [
-	{ kind: "numeric", value: Decimal.of("2") },
-	{ kind: "numeric", value: Decimal.of("3") },
-	{ kind: "numeric", value: Decimal.of("0.5") }
+	{ kind: "numeric", value: Numeric.of("2") },
+	{ kind: "numeric", value: Numeric.of("3") },
+	{ kind: "numeric", value: Numeric.of("0.5") }
 ]
 
 /**
@@ -4200,7 +4200,7 @@ const acceptanceField = (name: string, kind: FieldKind): ProgramField => ({
 	type: typeOf(kind, userRoster)
 })
 
-const decimal = (text: string): TypedLiteral => ({ kind: "numeric", value: Decimal.of(text) })
+const decimal = (text: string): TypedLiteral => ({ kind: "numeric", value: Numeric.of(text) })
 
 /** A value stored in the input spelling `text`, a twin of its one form, which a direct writer stores as written. */
 const twinSpelled = (literal: TypedLiteral, text: string): SpelledValue => ({

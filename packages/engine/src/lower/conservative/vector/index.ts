@@ -164,8 +164,8 @@ export const lowerVectorOp = (
 		case "contains":
 		case "collapse":
 		case "lowerAscii":
-		case "parseDouble":
-		case "parseDecimal":
+		case "parseFloat8":
+		case "parseNumeric":
 		case "floatBits":
 		case "utf16Length":
 		case "library":

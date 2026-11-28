@@ -1,6 +1,6 @@
 import { Array as Arr, Effect, Option, Record as Rec, Result } from "effect"
 import { login } from "#compiler/program/workload/login.ts"
-import { closedId, pg, span } from "#compiler/public/fields.ts"
+import { closedId, range, bool, int2, int4, int8 } from "#compiler/public/fields.ts"
 import {
 	type AnyClosed,
 	type AnyRelation,
@@ -119,17 +119,15 @@ const fieldOf = (domain: FieldDomain, kit: Kit): Effect.Effect<FieldBase> => {
 		case "text":
 			return Effect.succeed(regexField(domain.pattern, [domain.flags]))
 		case "integer":
-			return Effect.succeed(
-				domain.bits === 16 ? pg.smallint : domain.bits === 32 ? pg.integer : pg.bigint
-			)
+			return Effect.succeed(domain.bits === 16 ? int2 : domain.bits === 32 ? int4 : int8)
 		case "boolean":
-			return Effect.succeed(pg.boolean)
+			return Effect.succeed(bool)
 		case "handle":
 			return Effect.map(found(kit.rosters, domain.closed, "closed roster"), (roster) =>
 				closedId(roster)
 			)
 		case "span":
-			return Effect.succeed(domain.bits === 32 ? span(pg.integer) : span(pg.bigint))
+			return Effect.succeed(domain.bits === 32 ? range(int4) : range(int8))
 		case "contract":
 			return found(kit.contracts, domain.name, "contract")
 	}
@@ -144,7 +142,7 @@ const contractOf = (
 ): Effect.Effect<FieldBase> =>
 	Effect.sync(() => {
 		const wide = domain.bits === 64
-		const integer = domain.bits === 16 ? pg.smallint : domain.bits === 32 ? pg.integer : pg.bigint
+		const integer = domain.bits === 16 ? int2 : domain.bits === 32 ? int4 : int8
 		const low = wide ? BigInt(domain.min) : domain.min
 		const high = wide ? BigInt(domain.max) : domain.max
 		return contractField(domain.name, integer, (v: unknown) => compute.between(v, low, high))

@@ -1,7 +1,7 @@
 import { indices, maxOf } from "@bjornpagen/grizzle-text/base/array"
 import { assert, defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Data, Option, Result, String as Str } from "effect"
-import { Decimal, type DecimalParts, type FiniteParts } from "#compiler/scalar/values/decimal.ts"
+import { Numeric, type DecimalParts, type FiniteParts } from "#compiler/scalar/values/decimal.ts"
 import { numericMaxIntegerDigits } from "#compiler/scalar/values/fault.ts"
 import { isqrt } from "#test/support/oracle/evaluate/numeric.ts"
 
@@ -911,7 +911,7 @@ const sqrtVar = (arg: NumVar, rscale: number, meter: Meter): NumVar => {
 }
 
 /** A stripped value's decimal text, the point after its integer digits. */
-const decimalText = (v: NumVar): string => {
+const numericText = (v: NumVar): string => {
 	const text = digitsText(v.digits)
 	const point = (v.weight + 1) * DEC_DIGITS
 	return point <= 0
@@ -924,7 +924,7 @@ const decimalText = (v: NumVar): string => {
 /** numericvar_to_double_no_overflow: the value's text at its display scale, read by strtod. */
 const toDouble = (v: NumVar): number => {
 	const t = truncVar(v, Math.max(v.dscale, 0))
-	return isZero(t) ? 0 : Number(`${t.neg ? "-" : ""}${decimalText(t)}`)
+	return isZero(t) ? 0 : Number(`${t.neg ? "-" : ""}${numericText(t)}`)
 }
 
 /** numericvar_to_int64: the value rounded to an integer, or none outside int64. */
@@ -1247,13 +1247,13 @@ const powerVarAt = (
 const fromParts = (p: FiniteParts): NumVar =>
 	ofUnits(p.negative, p.coefficient, -p.minScale, p.minScale)
 
-/** make_result: the Decimal of the result, 22003 outside numeric's format. */
-const toDecimal = (v: NumVar): Result.Result<Decimal, PowerStopReason> => {
+/** make_result: the Numeric of the result, 22003 outside numeric's format. */
+const toDecimal = (v: NumVar): Result.Result<Numeric, PowerStopReason> => {
 	const shift = DEC_DIGITS * lastWeight(v) + v.dscale
 	const units = integerOf(v)
 	const unit = pow10(Math.max(-shift, 0))
 	assert.ok(units % unit === 0n, "numeric power: a result with no digits past its display scale")
-	const made = Decimal.fromParts(v.neg, (units / unit) * pow10(Math.max(shift, 0)), v.dscale)
+	const made = Numeric.fromParts(v.neg, (units / unit) * pow10(Math.max(shift, 0)), v.dscale)
 	return made.ok ? Result.succeed(made.value) : failed("22003")
 }
 
@@ -1270,11 +1270,11 @@ const signOf = (p: DecimalParts): -1 | 0 | 1 => {
 	}
 }
 
-/** The Decimal 1. */
-const one = (): Decimal => {
-	const made = Decimal.fromParts(false, 1n, 0)
+/** The Numeric 1. */
+const one = (): Numeric => {
+	const made = Numeric.fromParts(false, 1n, 0)
 	if (!made.ok) {
-		throw new Error(`numeric power: the Decimal 1 (${made.error})`)
+		throw new Error(`numeric power: the Numeric 1 (${made.error})`)
 	}
 	return made.value
 }
@@ -1302,16 +1302,16 @@ const absAboveOne = (p: FiniteParts): boolean => p.coefficient > pow10(p.minScal
 /**
  * numeric_power's rules for NaN and the infinities, POSIX pow(3)'s, over operands one of which is no finite value.
  */
-const specialPower = (a: Decimal, b: Decimal): Result.Result<Decimal, PowerStopReason> => {
+const specialPower = (a: Numeric, b: Numeric): Result.Result<Numeric, PowerStopReason> => {
 	const x = a.parts
 	const y = b.parts
 	if (x.kind === "nan") {
 		return y.kind === "finite" && y.coefficient === 0n
 			? Result.succeed(one())
-			: Result.succeed(Decimal.nan)
+			: Result.succeed(Numeric.nan)
 	}
 	if (y.kind === "nan") {
-		return isUnit(x, false) ? Result.succeed(one()) : Result.succeed(Decimal.nan)
+		return isUnit(x, false) ? Result.succeed(one()) : Result.succeed(Numeric.nan)
 	}
 	const sign1 = signOf(x)
 	const sign2 = signOf(y)
@@ -1328,32 +1328,32 @@ const specialPower = (a: Decimal, b: Decimal): Result.Result<Decimal, PowerStopR
 		return Result.succeed(one())
 	}
 	if (sign1 === 0 && sign2 > 0) {
-		return Result.succeed(Decimal.zero)
+		return Result.succeed(Numeric.zero)
 	}
 	if (y.kind !== "finite") {
 		if (isUnit(x, true)) {
 			return Result.succeed(one())
 		}
 		const absXGtOne = x.kind === "finite" ? absAboveOne(x) : true
-		return Result.succeed(absXGtOne === sign2 > 0 ? Decimal.infinity : Decimal.zero)
+		return Result.succeed(absXGtOne === sign2 > 0 ? Numeric.infinity : Numeric.zero)
 	}
 	if (x.kind === "infinity") {
-		return Result.succeed(sign2 > 0 ? Decimal.infinity : Decimal.zero)
+		return Result.succeed(sign2 > 0 ? Numeric.infinity : Numeric.zero)
 	}
 	if (sign2 < 0) {
-		return Result.succeed(Decimal.zero)
+		return Result.succeed(Numeric.zero)
 	}
 	/** a is -Infinity and b is finite and positive: -Infinity to an odd integer, +Infinity otherwise. */
 	const d = fromParts(y)
 	const last = d.digits.at(-1)
 	const odd = last !== undefined && d.digits.length === d.weight + 1 && (last & 1) === 1
-	return Result.succeed(odd ? Decimal.negativeInfinity : Decimal.infinity)
+	return Result.succeed(odd ? Numeric.negativeInfinity : Numeric.infinity)
 }
 
 /**
  * PostgreSQL 19's numeric power, ported from src/backend/utils/adt/numeric.c (numeric_power, power_var,
  * power_var_int, ln_var, exp_var, estimate_ln_dweight, sqrt_var, mul_var, div_var, div_var_int), over the exact
- * Decimal carrier.
+ * Numeric carrier.
  *
  * numeric power is the one scalar operation whose result depends on PostgreSQL's intermediate rounding: power_var
  * picks its result scale from a low-precision estimate of exp * ln(base), computes ln and exp by series at local
@@ -1390,9 +1390,9 @@ const specialPower = (a: Decimal, b: Decimal): Result.Result<Decimal, PowerStopR
  * (registry.ts OperandReading): POSIX pow(3)'s rules for NaN and the infinities, then power_var.
  */
 export const powerWork = (
-	a: Decimal,
-	b: Decimal
-): { readonly outcome: Result.Result<Decimal, PowerStopReason>; readonly work: number } => {
+	a: Numeric,
+	b: Numeric
+): { readonly outcome: Result.Result<Numeric, PowerStopReason>; readonly work: number } => {
 	const x = a.parts
 	const y = b.parts
 	if (x.kind !== "finite" || y.kind !== "finite") {
@@ -1410,5 +1410,5 @@ export const powerWork = (
 }
 
 /** numeric power's outcome (powerWork). */
-export const power = (a: Decimal, b: Decimal): Result.Result<Decimal, PowerStopReason> =>
+export const power = (a: Numeric, b: Numeric): Result.Result<Numeric, PowerStopReason> =>
 	powerWork(a, b).outcome

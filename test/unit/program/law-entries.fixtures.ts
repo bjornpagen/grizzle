@@ -8,7 +8,7 @@ import type { Installation } from "#compiler/physical/install/compile.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
 import { lawModel } from "#compiler/program/laws.ts"
 import { Logic } from "#compiler/public/compute.ts"
-import { accumulated, contract, drawn, natural, pg } from "#compiler/public/fields.ts"
+import { accumulated, contract, drawn, natural, int4, int8 } from "#compiler/public/fields.ts"
 import {
 	type AnyRelation,
 	fin,
@@ -145,7 +145,7 @@ const cataloguedOf = (
 	const text = declaredAs(c.text, regexField(cataloguedPattern.source, [cataloguedPattern.flags]))
 	const units = declaredAs(
 		c.contract,
-		contract<typeof contractKey>()(cataloguedContract, pg.bigint, (u) => Logic.ge(u, 0n))
+		contract<typeof contractKey>()(cataloguedContract, int8, (u) => Logic.ge(u, 0n))
 	)
 	const count = declaredAs(c.natural, natural)
 	const joined = declaredAs(
@@ -156,9 +156,9 @@ const cataloguedOf = (
 		c.key,
 		generatedRelation(
 			"Catalogued",
-			{ id: Id, a: text, b: text, n: units, m: count, k: pg.integer },
+			{ id: Id, a: text, b: text, n: units, m: count, k: int4 },
 			["id"],
-			(row) => ({ g: declaredAs(c.generated, generatedField(pg.integer, row["k"], [])) }),
+			(row) => ({ g: declaredAs(c.generated, generatedField(int4, row["k"], [])) }),
 			[]
 		)
 	)

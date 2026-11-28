@@ -6,7 +6,7 @@ import { catchCompileError } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { float4, int4, numeric } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, derived, on, relation, schema, select } from "#compiler/public/schema.ts"
 import {
@@ -66,16 +66,16 @@ export interface Placed {
 	readonly literal: LiteralForm
 }
 
-const B = relation("B", { id: pg.integer, x: pg.numeric(5, 1) }, ["id"])
+const B = relation("B", { id: int4, x: numeric(5, 1) }, ["id"])
 
 /** B keyed by id and x, so a rule fixing x is keyed within B and lowers to a foreign key. */
-const BKeyed = relation("BKeyed", { id: pg.integer, x: pg.numeric(5, 1) }, ["id", "x"])
+const BKeyed = relation("BKeyed", { id: int4, x: numeric(5, 1) }, ["id", "x"])
 
-const A = relation("A", { id: pg.integer }, ["id"])
+const A = relation("A", { id: int4 }, ["id"])
 
-const N = relation("N", { x: pg.numeric(5, 1) }, ["x"])
+const N = relation("N", { x: numeric(5, 1) }, ["x"])
 
-const R = relation("R", { id: pg.integer, y: pg.real }, ["id"])
+const R = relation("R", { id: int4, y: float4 }, ["id"])
 
 const Base = schema("LiteralOpposite", [B, BKeyed, A, N, R], [])
 

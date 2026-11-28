@@ -14,7 +14,7 @@ import type { CodecFault, EncodingFailure } from "#compiler/core/errors.ts"
 import { hasProperties } from "#compiler/core/record.ts"
 import type { LiteralBound, MessageBound } from "#compiler/ir/products.ts"
 import { strataAt, type StratumAt } from "#compiler/ir/stratum.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { key, mutable, on, relation, schema, unit } from "#compiler/public/schema.ts"
 import { prepareBinding } from "#compiler/runtime/write/binding.ts"
 import { type Normalization, normalizeChangeSet } from "#compiler/runtime/write/normalize.ts"
@@ -42,12 +42,12 @@ import { type FactTexts, identityOrder } from "#test/support/oracle/delta.ts"
 import { codesOf, compiled, cs, parsedOf } from "#test/support/unit/write/changeset/fixtures.ts"
 
 /** Pair(k, v, c): primary key k, candidate key c. */
-const Pair = relation("Pair", { k: pg.integer, v: pg.integer, c: pg.integer }, ["k"])
+const Pair = relation("Pair", { k: int4, v: int4, c: int4 }, ["k"])
 
 const pairC = key(on(Pair, "c"))
 
 /** The schema of Pair, with its candidate key on c, mutable inside the unit of its k. */
-const Small = schema("Small", [Pair], [pairC, unit("Ks", { k: pg.integer }), mutable(Pair)])
+const Small = schema("Small", [Pair], [pairC, unit("Ks", { k: int4 }), mutable(Pair)])
 
 type Category = "put" | "delete" | "insert"
 

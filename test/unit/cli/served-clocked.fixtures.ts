@@ -11,7 +11,7 @@ import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
 import { clockedMember, workload } from "#compiler/program/workload/value.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Num, Type } from "#compiler/public/compute.ts"
-import { contract, pg } from "#compiler/public/fields.ts"
+import { contract, int4, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	contained,
@@ -32,19 +32,18 @@ import { noDeclarations } from "#test/support/migrate/kit.ts"
 import { offlineOwner } from "#test/support/pg/cli/support.ts"
 
 const instantKey = Symbol("Instant")
-const Instant = contract<typeof instantKey>()("Instant", pg.bigint)
+const Instant = contract<typeof instantKey>()("Instant", int8)
 
-const Step = relation("Step", { id: pg.integer }, ["id"])
+const Step = relation("Step", { id: int4 }, ["id"])
 
-const Claim = relation(
-	"Claim",
-	{ step: pg.integer, attempt: pg.integer, at: Instant, ttl: pg.bigint },
-	["step", "attempt"]
-)
+const Claim = relation("Claim", { step: int4, attempt: int4, at: Instant, ttl: int8 }, [
+	"step",
+	"attempt"
+])
 
-const Stamp = relation("Stamp", { key: pg.integer, at: Instant }, ["key", "at"])
+const Stamp = relation("Stamp", { key: int4, at: Instant }, ["key", "at"])
 
-const Wanted = relation("Wanted", { key: pg.integer, due: Instant }, ["key"])
+const Wanted = relation("Wanted", { key: int4, due: Instant }, ["key"])
 
 const Box = schema(
 	"ClockBox",
@@ -59,10 +58,10 @@ const changes = {
 		Claim,
 		query(Box).rule((r) =>
 			r.find({
-				step: r.param("step", pg.integer),
-				attempt: r.param("attempt", pg.integer),
+				step: r.param("step", int4),
+				attempt: r.param("attempt", int4),
 				at: r.param("now", Instant),
-				ttl: r.param("ttl", pg.bigint)
+				ttl: r.param("ttl", int8)
 			})
 		)
 	),
@@ -75,18 +74,18 @@ const changes = {
 				.match(Claim, { step, attempt, at, ttl })
 				.where(
 					r.and([
-						r.eq(step, r.param("step", pg.integer)),
-						r.eq(attempt, r.param("attempt", pg.integer)),
+						r.eq(step, r.param("step", int4)),
+						r.eq(attempt, r.param("attempt", int4)),
 						r.lt(Num.add(Type.base(at), ttl), Type.base(r.param("now", Instant)))
 					])
 				)
-				.find({ step, attempt: r.param("next", pg.integer), at: r.param("now", Instant), ttl })
+				.find({ step, attempt: r.param("next", int4), at: r.param("now", Instant), ttl })
 		})
 	),
 	/** A stamp keyed by its instant: a key one of whose fields is `now`. */
 	stamp: ChangeSet.empty(Box).insert(
 		Stamp,
-		query(Box).rule((r) => r.find({ key: r.param("key", pg.integer), at: r.param("now", Instant) }))
+		query(Box).rule((r) => r.find({ key: r.param("key", int4), at: r.param("now", Instant) }))
 	),
 	/**
 	 * A wanted row from the stamp at its key and instant: a point read of Stamp at its whole key, which `now` binds one
@@ -98,7 +97,7 @@ const changes = {
 			const { key, at } = v(Stamp, "stamp")
 			return r
 				.match(Stamp, { key, at })
-				.where(r.and([r.eq(key, r.param("key", pg.integer)), r.eq(at, r.param("now", Instant))]))
+				.where(r.and([r.eq(key, r.param("key", int4)), r.eq(at, r.param("now", Instant))]))
 				.find({ key, due: at })
 		})
 	),

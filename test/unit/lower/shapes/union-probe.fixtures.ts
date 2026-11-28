@@ -2,7 +2,7 @@
 
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, String as Str } from "effect"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
@@ -16,16 +16,15 @@ import { descOf } from "#test/support/unit/write/changeset/fixtures.ts"
  * Each session's attempts, each attempt's snapshot of its variables, and the assertions that replace a snapshot's
  * value, as edullm's ledger holds them: an outcome in force is a snapshot no assertion replaced, or an assertion.
  */
-const Attempt = relation(
-	"Attempt",
-	{ session: pg.integer, attempt: pg.integer, opened: pg.integer },
-	["session", "attempt"]
-)
+const Attempt = relation("Attempt", { session: int4, attempt: int4, opened: int4 }, [
+	"session",
+	"attempt"
+])
 const fields = {
-	session: pg.integer,
-	attempt: pg.integer,
-	variable: pg.integer,
-	value: pg.integer
+	session: int4,
+	attempt: int4,
+	variable: int4,
+	value: int4
 } as const
 const Snapshot = relation("Snapshot", fields, ["session", "attempt", "variable"])
 const Assertion = relation("Assertion", fields, ["session", "attempt", "variable"])
@@ -53,7 +52,7 @@ const inForce = query(Written)
 	})
 
 /** The sessions a write reads, a relation parameter of the call. */
-const sessions = { session: pg.integer } as const
+const sessions = { session: int4 } as const
 
 /**
  * How the case reads the outcomes in force: a write at the call's sessions, a relation parameter; a write of the outcomes
@@ -152,7 +151,7 @@ const besideAttempts = query(Written).rule((r) => {
 })
 
 /** The session the call names: the write's `sittings`. */
-const named = query(Written).rule((r) => r.find({ session: r.param("session", pg.integer) }))
+const named = query(Written).rule((r) => r.find({ session: r.param("session", int4) }))
 
 /**
  * The sessions of the attempts opened at the call's value: the write's `sittings`, sessions stored rows hold, so no value
@@ -161,9 +160,7 @@ const named = query(Written).rule((r) => r.find({ session: r.param("session", pg
  */
 const openedAt = query(Written).rule((r) => {
 	const { session, attempt } = v(Attempt, "attempt")
-	return r
-		.match(Attempt, { session, attempt, opened: r.param("opened", pg.integer) })
-		.find({ session })
+	return r.match(Attempt, { session, attempt, opened: r.param("opened", int4) }).find({ session })
 })
 
 const reality = realityWrite(succeeded(testArtifacts(Written, testCompile)))

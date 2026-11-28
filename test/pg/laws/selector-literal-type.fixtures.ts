@@ -3,7 +3,7 @@
 import { constant, element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Data, Formatter } from "effect"
 import { Type } from "#compiler/public/compute.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4, numeric } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, derived, on, relation, schema, select } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -12,40 +12,40 @@ import { seatTemplate } from "#test/support/pg/fin/installed.ts"
 /** A text of up to 8 letters, a type other than BText's x, of up to 3. */
 const Longer = str.regex("^[a-z]{1,8}$")
 
-const BNumeric = relation("BNumeric", { id: pg.integer, x: pg.numeric(5, 1) }, ["id"])
+const BNumeric = relation("BNumeric", { id: int4, x: numeric(5, 1) }, ["id"])
 
 /** BNumeric keyed by id and x, so a containment into it over id is keyed only where its selection fixes x. */
-const BKeyed = relation("BKeyed", { id: pg.integer, x: pg.numeric(5, 1) }, ["id", "x"])
+const BKeyed = relation("BKeyed", { id: int4, x: numeric(5, 1) }, ["id", "x"])
 
-const BText = relation("BText", { id: pg.integer, x: str.regex("^[a-z]{1,3}$") }, ["id"])
+const BText = relation("BText", { id: int4, x: str.regex("^[a-z]{1,3}$") }, ["id"])
 
-const NumericOther = relation("NumericOther", { id: pg.integer }, ["id"])
+const NumericOther = relation("NumericOther", { id: int4 }, ["id"])
 
-const NumericOtherExact = relation("NumericOtherExact", { id: pg.integer }, ["id"])
+const NumericOtherExact = relation("NumericOtherExact", { id: int4 }, ["id"])
 
-const NumericOwn = relation("NumericOwn", { id: pg.integer }, ["id"])
+const NumericOwn = relation("NumericOwn", { id: int4 }, ["id"])
 
-const NumericBare = relation("NumericBare", { id: pg.integer }, ["id"])
+const NumericBare = relation("NumericBare", { id: int4 }, ["id"])
 
-const KeyedBare = relation("KeyedBare", { id: pg.integer }, ["id"])
+const KeyedBare = relation("KeyedBare", { id: int4 }, ["id"])
 
-const RuleBare = relation("RuleBare", { id: pg.integer }, ["id"])
+const RuleBare = relation("RuleBare", { id: int4 }, ["id"])
 
-const KeyedRuleBare = relation("KeyedRuleBare", { id: pg.integer }, ["id"])
+const KeyedRuleBare = relation("KeyedRuleBare", { id: int4 }, ["id"])
 
-const KeyedOtherExact = relation("KeyedOtherExact", { id: pg.integer }, ["id"])
+const KeyedOtherExact = relation("KeyedOtherExact", { id: int4 }, ["id"])
 
-const KeyedRuleOther = relation("KeyedRuleOther", { id: pg.integer }, ["id"])
+const KeyedRuleOther = relation("KeyedRuleOther", { id: int4 }, ["id"])
 
-const KeyedRuleOtherExact = relation("KeyedRuleOtherExact", { id: pg.integer }, ["id"])
+const KeyedRuleOtherExact = relation("KeyedRuleOtherExact", { id: int4 }, ["id"])
 
-const TextOther = relation("TextOther", { id: pg.integer }, ["id"])
+const TextOther = relation("TextOther", { id: int4 }, ["id"])
 
-const TextOtherExact = relation("TextOtherExact", { id: pg.integer }, ["id"])
+const TextOtherExact = relation("TextOtherExact", { id: int4 }, ["id"])
 
-const RuleOther = relation("RuleOther", { id: pg.integer }, ["id"])
+const RuleOther = relation("RuleOther", { id: int4 }, ["id"])
 
-const RuleOtherExact = relation("RuleOtherExact", { id: pg.integer }, ["id"])
+const RuleOtherExact = relation("RuleOtherExact", { id: int4 }, ["id"])
 
 const Selected = schema(
 	"selector_literal",
@@ -72,14 +72,14 @@ const Selected = schema(
 		contained(
 			on(NumericOther, "id"),
 			on(
-				select(BNumeric, (b) => b.eq(b.x, Type.literal(pg.numeric(10, 2), "1.25"))),
+				select(BNumeric, (b) => b.eq(b.x, Type.literal(numeric(10, 2), "1.25"))),
 				"id"
 			)
 		),
 		contained(
 			on(NumericOtherExact, "id"),
 			on(
-				select(BNumeric, (b) => b.eq(b.x, Type.literal(pg.numeric(10, 2), "1.30"))),
+				select(BNumeric, (b) => b.eq(b.x, Type.literal(numeric(10, 2), "1.30"))),
 				"id"
 			)
 		),
@@ -107,7 +107,7 @@ const Selected = schema(
 		contained(
 			on(KeyedOtherExact, "id"),
 			on(
-				select(BKeyed, (b) => b.eq(b.x, Type.literal(pg.numeric(10, 2), "1.30"))),
+				select(BKeyed, (b) => b.eq(b.x, Type.literal(numeric(10, 2), "1.30"))),
 				"id"
 			)
 		),
@@ -132,7 +132,7 @@ const Selected = schema(
 const numericAt = (value: string) =>
 	query(Selected).rule((r) => {
 		const { id } = v(BNumeric, "b")
-		return r.match(BNumeric, { id, x: Type.literal(pg.numeric(10, 2), value) }).find({ id })
+		return r.match(BNumeric, { id, x: Type.literal(numeric(10, 2), value) }).find({ id })
 	})
 
 /**
@@ -142,7 +142,7 @@ const numericAt = (value: string) =>
 const keyedAt = (value: string) =>
 	query(Selected).rule((r) => {
 		const { id } = v(BKeyed, "b")
-		return r.match(BKeyed, { id, x: Type.literal(pg.numeric(10, 2), value) }).find({ id })
+		return r.match(BKeyed, { id, x: Type.literal(numeric(10, 2), value) }).find({ id })
 	})
 
 /** The ids of BNumeric whose x a bare literal names, a value of x's numeric(5, 1) as written: matched by a rule. */

@@ -3,7 +3,7 @@
  * prelude (test/support/prelude.ts): the program imports these alone, each through this module.
  */
 export { Fn } from "#compiler/public/compute.ts"
-export { pg } from "#compiler/public/fields.ts"
+export { int4, int8 } from "#compiler/public/fields.ts"
 export { type ParamsOf, query, v } from "#compiler/public/query.ts"
 export {
 	attached,

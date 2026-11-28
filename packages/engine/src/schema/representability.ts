@@ -672,7 +672,7 @@ const integerFamily = (desc: FieldDesc): "int4" | "int8" | undefined => {
 		case "contract":
 			return integerFamily(desc.base)
 		case "pg":
-			return desc.type === "integer" ? "int4" : desc.type === "bigint" ? "int8" : undefined
+			return desc.type === "int4" ? "int4" : desc.type === "int8" ? "int8" : undefined
 		case "numeric":
 		case "exact":
 		case "computedNumeric":
@@ -694,21 +694,21 @@ const integerFamily = (desc: FieldDesc): "int4" | "int8" | undefined => {
 /** The largest index datum of a PostgreSQL scalar type: each is fixed-size. */
 const pgDatumBound = (type: Extract<FieldDesc, { readonly kind: "pg" }>["type"]): DatumBound => {
 	switch (type) {
-		case "smallint":
+		case "int2":
 			return fixed(typlens.int2, 2, "int2")
-		case "integer":
+		case "int4":
 			return fixed(typlens.int4, 4, "int4")
-		case "bigint":
+		case "int8":
 			return fixed(typlens.int8, 8, "int8")
 		case "numeric":
 			return numericDatum(numericOwnBound)
-		case "real":
+		case "float4":
 			return fixed(typlens.float4, 4, "float4")
-		case "double precision":
+		case "float8":
 			return fixed(typlens.float8, 8, "float8")
 		case "money":
 			return fixed(typlens.money, 8, "money")
-		case "boolean":
+		case "bool":
 			return fixed(typlens.bool, 1, "bool")
 		case "date":
 			return fixed(typlens.date, 4, "date")
@@ -730,7 +730,7 @@ const numericMaximumSize = (precision: number): number =>
 
 /**
  * The largest datum of numeric of no typmod within `bound` (ir/scalar.ts NumericBound): a computed numeric's, and
- * pg.numeric's at numeric's own limits, whose widest value no B-tree entry holds, so a key over one is refused and a
+ * numeric's at numeric's own limits, whose widest value no B-tree entry holds, so a key over one is refused and a
  * lookup leaves it out as a filter (`lookupEntry`).
  */
 const numericDatum = (bound: NumericBound): DatumBound =>
@@ -740,7 +740,7 @@ const numericDatum = (bound: NumericBound): DatumBound =>
  * The largest datum of an exact field (ir/desc.ts FieldDesc exact), numeric of no typmod at numeric's own limit: an
  * exact integer's integer digits, scale 0, and exact money's with money's fraction digits, its stored scale. Its widest
  * value no B-tree entry holds: no key holds one (exactKeyFault), and a lookup leaves one out of its index, a filter
- * beside it (`lookupEntry`), as a pg.numeric of no typmod.
+ * beside it (`lookupEntry`), as a numeric of no typmod.
  */
 const exactDatum: { readonly [C in ExactValueCarrier]: DatumBound } = {
 	exactInteger: numericDatum({ digits: numericMaxIntegerDigits, scale: 0 }),
@@ -1001,11 +1001,11 @@ const exactKeyFix: {
 } = {
 	exactInteger: {
 		type: "an exact integer",
-		precision: "pg.numeric(p, 0), an integer of at most p digits read as a bigint, or pg.bigint"
+		precision: "numeric(p, 0), an integer of at most p digits read as a bigint, or int8"
 	},
 	exactMoney: {
 		type: "exact money",
-		precision: "pg.numeric(p, 2), or pg.money, a signed 64-bit count of cents"
+		precision: "numeric(p, 2), or money, a signed 64-bit count of cents"
 	}
 }
 

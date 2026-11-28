@@ -24,7 +24,7 @@ import {
 } from "effect"
 import type { BorrowLock } from "#compiler/core/certificate.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { anyNumeric, wildcardText } from "#compiler/scalar/compute/types.ts"
 import type { Expr, TypeRef } from "#compiler/sql/ast.ts"
@@ -48,7 +48,7 @@ import { upTo } from "#test/support/up-to.ts"
 import { fullWorld } from "#test/support/worlds.ts"
 
 /** A relation for the installation to hold, whose role's sessions borrow; no case reads or writes it. */
-const Mark = relation("Mark", { id: pg.integer }, ["id"])
+const Mark = relation("Mark", { id: int4 }, ["id"])
 
 const Borrows = schema("Borrows", [Mark], [])
 

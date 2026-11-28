@@ -4,7 +4,7 @@ import { type Gen, int, subarray } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, schema as declareSchema, on, relation } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -36,9 +36,9 @@ import { upTo } from "#test/support/up-to.ts"
 
 const text = str.regex("^[a-z]{1,8}$")
 
-const V = relation("V", { id: pg.integer }, ["id"])
+const V = relation("V", { id: int4 }, ["id"])
 
-const E = relation("E", { from: pg.integer, to: pg.integer }, ["from", "to"])
+const E = relation("E", { from: int4, to: int4 }, ["from", "to"])
 
 const W = relation("W", { id: text }, ["id"])
 
@@ -115,7 +115,7 @@ const caseOf = (
  * the text graph T.
  */
 const IntClosure = query(Net).recursive("IntClosure", {
-	row: { origin: pg.integer, node: pg.integer },
+	row: { origin: int4, node: int4 },
 	base: [
 		(r) => {
 			const { from, to } = v(E, "e")
@@ -151,7 +151,7 @@ const TextClosure = query(Net).recursive("TextClosure", {
 /** (a) A parameter constant on the origin. */
 const ConstantParam = query(Net).rule((r) => {
 	const { node } = v(IntClosure, "intClosure")
-	return r.match(IntClosure, { origin: r.param("p", pg.integer), node }).find({ node })
+	return r.match(IntClosure, { origin: r.param("p", int4), node }).find({ node })
 })
 
 /** A literal constant on the origin. */
@@ -182,7 +182,7 @@ const RegionEq = query(Net).rule((r) => {
 	const { origin, node } = v(IntClosure, "intClosure")
 	return r
 		.match(IntClosure, { origin, node })
-		.where(r.eq(origin, r.param("p", pg.integer)))
+		.where(r.eq(origin, r.param("p", int4)))
 		.find({ node })
 })
 
@@ -191,7 +191,7 @@ const RegionLt = query(Net).rule((r) => {
 	const { origin, node } = v(IntClosure, "intClosure")
 	return r
 		.match(IntClosure, { origin, node })
-		.where(r.lt(origin, r.param("p", pg.integer)))
+		.where(r.lt(origin, r.param("p", int4)))
 		.find({ origin, node })
 })
 
@@ -200,7 +200,7 @@ const RegionMixed = query(Net).rule((r) => {
 	const { origin, node } = v(IntClosure, "intClosure")
 	return r
 		.match(IntClosure, { origin, node })
-		.where(r.ge(origin, r.param("p", pg.integer)), r.ne(node, origin))
+		.where(r.ge(origin, r.param("p", int4)), r.ne(node, origin))
 		.find({ origin, node })
 })
 

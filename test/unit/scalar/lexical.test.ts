@@ -48,9 +48,9 @@ import type { CompileReasonTag } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { dayNumber, toCalendarDate } from "#compiler/ir/date.ts"
 import { schema } from "#compiler/public/schema.ts"
-import { decimalText, lexical, lexicalForm } from "#compiler/public/text.ts"
+import { numericText, lexical, lexicalForm } from "#compiler/public/text.ts"
 import {
-	decimalTextMaxBytes,
+	numericTextMaxBytes,
 	formOctets,
 	formSource,
 	type LexicalTarget,
@@ -132,8 +132,8 @@ export const lexicalFormsEachFormsPatternAndItsScanAgreeOnEveryCandidateAndAMemb
 				assert.equal(scanned !== undefined, c.member, `${label}: scan`)
 				if (c.target.kind === "double" && c.member) {
 					assert.ok(
-						Matcher.of(nfaOf(formSource({ kind: "doubleText" }))).matches(c.text),
-						`${label}: the bounded double form lies inside doubleText`
+						Matcher.of(nfaOf(formSource({ kind: "float8Text" }))).matches(c.text),
+						`${label}: the bounded double form lies inside float8Text`
 					)
 				}
 				if (c.member) {
@@ -165,13 +165,13 @@ export const lexicalFormsEachFormsPatternAndItsScanAgreeOnEveryCandidateAndAMemb
 				file: "packages/engine/src/scalar/lexical.ts",
 				original: '(?:[eE][+-]?[0-9]+)?|-?INF|NaN"',
 				replacement: '(?:[eE][+-]?[0-9]+)?|[+-]?INF|NaN"',
-				why: 'doubleText\'s pattern admits "+INF", which XML Schema 1.0\'s xs:double lexical space does not hold; the "+INF" candidate fails.'
+				why: 'float8Text\'s pattern admits "+INF", which XML Schema 1.0\'s xs:double lexical space does not hold; the "+INF" candidate fails.'
 			},
 			{
 				file: "packages/engine/src/scalar/lexical.ts",
 				original: '\t\ttext === "INF" ||\n\t\ttext === "-INF" ||',
 				replacement: '\t\ttext === "INF" ||\n\t\ttext === "+INF" ||\n\t\ttext === "-INF" ||',
-				why: 'doubleText\'s scan reads "+INF" as Infinity, which XML Schema 1.0 does not; the "+INF" candidate fails.'
+				why: 'float8Text\'s scan reads "+INF" as Infinity, which XML Schema 1.0 does not; the "+INF" candidate fails.'
 			},
 			{
 				file: "packages/engine/src/scalar/compute/cast.ts",
@@ -243,8 +243,8 @@ export const lexicalFormsIsAdmittedByTheTextAnalysisAsARefinementStrRegexTypesAF
 			"double",
 			"boolean",
 			"date",
-			"doubleText",
-			"decimalText"
+			"float8Text",
+			"numericText"
 		] satisfies ReadonlyArray<Reached<LexicalTarget["kind"]>>,
 		check: (_, c: Case<LexicalTarget["kind"]>) => (t) =>
 			Effect.sync(() => {
@@ -421,7 +421,7 @@ export const aParsesLexicalPreconditionIsProvedExactlyWhenTheOperandsLanguageIsI
 	)
 
 /**
- * A decimal's parse is proved exactly when the operand's language is inside decimalText and its bytes within the
+ * A decimal's parse is proved exactly when the operand's language is inside numericText and its bytes within the
  * form's, by its type or by guards.
  *
  * Budget: its suite's count before the conversion (unit/scalar/lexical-decimal-proved: 600 independent cases and 240
@@ -457,7 +457,7 @@ export const aDecimalsParseIsProvedExactlyWhenTheOperandsLanguageIsInsideDecimal
 						}
 						const language = inclusion(
 							[minimal(nfaOf(pattern))],
-							[minimal(nfaOf(decimalText.source))],
+							[minimal(nfaOf(numericText.source))],
 							regexDfaLimits
 						).kind
 						const check = analyzed.value.check
@@ -470,12 +470,12 @@ export const aDecimalsParseIsProvedExactlyWhenTheOperandsLanguageIsInsideDecimal
 							bound.kind === "bytes" ? bound.bytes : Number.POSITIVE_INFINITY
 						)
 						/** The judgment within the operand's bytes; the remedy reads the language alone (lexicalRemedy). */
-						const verdict = includedInBytes(nfaOf(pattern), bytes, nfaOf(decimalText.source))
+						const verdict = includedInBytes(nfaOf(pattern), bytes, nfaOf(numericText.source))
 						const withinBytes =
-							bytes <= decimalTextMaxBytes ||
+							bytes <= numericTextMaxBytes ||
 							(verdict === "included" &&
 								bytes < patternBytes &&
-								longestMember(nfaOf(pattern), bytes) <= decimalTextMaxBytes)
+								longestMember(nfaOf(pattern), bytes) <= numericTextMaxBytes)
 						const checked = checkedIn(
 							schema("DecimalLexical", [decimalRelation(pattern, route, bound)], [])
 						)
@@ -496,8 +496,8 @@ export const aDecimalsParseIsProvedExactlyWhenTheOperandsLanguageIsInsideDecimal
 						assert.deepEqual(
 							reason.guard.remedy,
 							language === "included"
-								? { kind: "octets", bytes: decimalTextMaxBytes }
-								: { kind: "matches", pattern: "decimalText" },
+								? { kind: "octets", bytes: numericTextMaxBytes }
+								: { kind: "matches", pattern: "numericText" },
 							label
 						)
 						run.note(
@@ -508,7 +508,7 @@ export const aDecimalsParseIsProvedExactlyWhenTheOperandsLanguageIsInsideDecimal
 					}),
 			oracle: {
 				kind: "second-implementation",
-				name: "language inclusion of the pattern in decimalText (scalar/regex/inclusion.ts) and the bytes of its longest member within the bound the text analysis and the str.bytes prove, by the host matcher's walk"
+				name: "language inclusion of the pattern in numericText (scalar/regex/inclusion.ts) and the bytes of its longest member within the bound the text analysis and the str.bytes prove, by the host matcher's walk"
 			},
 			budget: { runs: 600, steered: 240 },
 			kept: [],

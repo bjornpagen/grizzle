@@ -8,7 +8,7 @@ import { compareIdentities, type Identity, identity } from "#compiler/core/ident
 import type { Slot, Step } from "#compiler/deploy/diff/plan.ts"
 import { writeSnapshot } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, key, on, relation, schema, unit } from "#compiler/public/schema.ts"
 import type { CreateIndex, CreateStoredTable, Expr } from "#compiler/sql/ast.ts"
@@ -95,11 +95,8 @@ export const recreatedBy = (change: Change): ReadonlyArray<View> => {
  */
 const schemaOf = (change: Change, version: "first" | "second") => {
 	const changed = (c: Change): boolean => version === "second" && change === c
-	const T = relation("T", { doc: pg.integer, at: pg.integer, a: pg.integer, b: pg.integer }, [
-		"doc",
-		"at"
-	])
-	const Document = unit("Document", { doc: pg.integer })
+	const T = relation("T", { doc: int4, at: int4, a: int4, b: int4 }, ["doc", "at"])
+	const Document = unit("Document", { doc: int4 })
 	const Base = schema(
 		"view_identity",
 		[T],

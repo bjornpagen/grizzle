@@ -7,7 +7,7 @@ import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
 import { Logic } from "#compiler/public/compute.ts"
-import { closedId, contract, pg } from "#compiler/public/fields.ts"
+import { closedId, contract, bool, int8 } from "#compiler/public/fields.ts"
 import { closed, contained, key, on, relation, schema, select } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { installationsOf, own, rostersOf } from "#compiler/schema/own.ts"
@@ -22,9 +22,9 @@ const R = relation(
 	"R",
 	{
 		id: Id,
-		big: pg.bigint,
+		big: int8,
 		label: str.regex("^[a-z]{1,8}$"),
-		flag: pg.boolean,
+		flag: bool,
 		other: Id,
 		kind: closedId(Kind)
 	},
@@ -141,7 +141,7 @@ export const leveledGen: Gen<LeveledCase> = (source) => ({
 })
 
 const centsKey = Symbol("Cents")
-const Cents = contract<typeof centsKey>()("Cents", pg.bigint, (v) => Logic.ge(v, 0n))
+const Cents = contract<typeof centsKey>()("Cents", int8, (v) => Logic.ge(v, 0n))
 
 /**
  * The case's two schemas, the root alone and the level over it: Z at the root, A at the level, A contained in Z by its
@@ -151,8 +151,8 @@ const Cents = contract<typeof centsKey>()("Cents", pg.bigint, (v) => Logic.ge(v,
 export const leveledSchemas = (
 	c: LeveledCase
 ): { readonly root: AnySchema; readonly level: AnySchema } => {
-	const Z = relation("Z", { id: Id, c: c.use === "level" ? pg.bigint : Cents }, ["id"])
-	const A = relation("A", { id: Id, z: Id, c: c.use === "root" ? pg.bigint : Cents }, ["id"])
+	const Z = relation("Z", { id: Id, c: c.use === "level" ? int8 : Cents }, ["id"])
+	const A = relation("A", { id: Id, z: Id, c: c.use === "root" ? int8 : Cents }, ["id"])
 	const root = schema("Root", [Z], c.key === "root" ? [key(on(Z, "c"))] : [])
 	return {
 		root,

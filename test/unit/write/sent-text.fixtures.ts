@@ -7,7 +7,7 @@ import { identity } from "#compiler/core/identity.ts"
 import { noClock, transactionClock } from "#compiler/ir/clock.ts"
 import { installOptions } from "#compiler/physical/install/compile.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { key, on, schema } from "#compiler/public/schema.ts"
 import { relationBuilder } from "#compiler/schema/relation.ts"
 import { noAdvice } from "#compiler/sql/advice.ts"
@@ -40,7 +40,7 @@ export interface SentPair {
  */
 export const sentPairs = (n: number): ReadonlyArray<SentPair> => {
 	const written = upTo(n, (i) =>
-		relationBuilder(`R${i}`, { id: pg.integer, ref: pg.integer, v: pg.integer }, ["id"], [])
+		relationBuilder(`R${i}`, { id: int4, ref: int4, v: int4 }, ["id"], [])
 	)
 	const wide = schema(
 		"Sent",

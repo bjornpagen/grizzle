@@ -7,7 +7,7 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import { int8Digits, int8Max, int8Min } from "#compiler/ir/carriers.ts"
 import type { MoneyValue } from "#compiler/ir/carriers.ts"
 import { moneyFractionDigits } from "#compiler/scalar/values/decimal.ts"
-import { Decimal, roundedUnits } from "#compiler/scalar/values/decimal.ts"
+import { Numeric, roundedUnits } from "#compiler/scalar/values/decimal.ts"
 import { faultError } from "#compiler/scalar/values/fault.ts"
 
 /**
@@ -33,7 +33,7 @@ const notMoney = (): ValueFault => "moneyType"
 const minting: unique symbol = Symbol("Money")
 
 /**
- * The owned Money carrier of pg.money.
+ * The owned Money carrier of money.
  *
  * PostgreSQL's money is a signed 64-bit count of fractional units, compared as that integer (cash_send, cash_eq). The
  * carrier holds exactly a count and nothing else: no currency, no locale, no floating amount. A money field's count is
@@ -125,16 +125,16 @@ export class Money implements Canonicalizable {
 	 * numeric::money: round(amount * 10^moneyFractionDigits) half away from zero, refused outside int64; NaN and
 	 * infinity have no money value (numeric_int8 refuses them).
 	 */
-	static fromDecimal(amount: Decimal): Result.Result<Money, ValueFault> {
+	static fromDecimal(amount: Numeric): Result.Result<Money, ValueFault> {
 		return Money.admitDecimal(amount)
 	}
 
 	/**
 	 * The admission core `fromDecimal` runs, for what a JavaScript caller may pass: a value that is not a
-	 * Decimal is moneyType.
+	 * Numeric is moneyType.
 	 */
 	static admitDecimal(amount: unknown): Result.Result<Money, ValueFault> {
-		if (!(amount instanceof Decimal)) {
+		if (!(amount instanceof Numeric)) {
 			return Result.err("moneyType")
 		}
 		if (!amount.isFinite()) {
@@ -178,12 +178,12 @@ export class Money implements Canonicalizable {
 	}
 
 	/**
-	 * money::numeric: the exact amount, in the Decimal's one form ("12.5" for 1250 minor units).
+	 * money::numeric: the exact amount, in the Numeric's one form ("12.5" for 1250 minor units).
 	 *
 	 * Every int64 count of minor units is within the numeric format.
 	 */
-	toDecimal(): Decimal {
-		return Decimal.fromMinorUnits(this.minorUnits)
+	toDecimal(): Numeric {
+		return Numeric.fromMinorUnits(this.minorUnits)
 	}
 
 	/**

@@ -8,7 +8,7 @@ import { element, type Gen } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { compileInstallation } from "#compiler/program/install.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, derived, on, relation, schema, unit } from "#compiler/public/schema.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
@@ -28,7 +28,7 @@ import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import type { SubstrateTemplate } from "#test/support/substrate/substrate.ts"
 
-const i = pg.integer
+const i = int4
 
 /**
  * metis's PartByBase (proctoring/src/flow-laws.ts:146, its law :159): a learner's proctored parts, keyed by the learner

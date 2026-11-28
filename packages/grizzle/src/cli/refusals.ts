@@ -188,7 +188,7 @@ export const migrateStageFix: Readonly<Record<MigrateStage, string>> = {
  * generate prints "fix login L, role R first" for that role (GivenCondition).
  */
 export const isolationFix: Readonly<Record<OwnCondition, string>> = {
-	form: "move each ChangeSet that inserts into a relation whose primary key holds a span to a role of its own, which runs SERIALIZABLE: such a write has no READ COMMITTED form",
+	form: "move each ChangeSet that inserts into a relation whose primary key holds a range to a role of its own, which runs SERIALIZABLE: such a write has no READ COMMITTED form",
 	facts:
 		"name no table or function in the role's ChangeSets that is no relation of the installation; where grizzle named it (a function of its own, named __), report the line to grizzle",
 	members:

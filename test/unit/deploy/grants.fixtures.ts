@@ -13,7 +13,7 @@ import { noSpellings } from "#compiler/ir/pattern.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4, int8 } from "#compiler/public/fields.ts"
 import { query, v as v_ } from "#compiler/public/query.ts"
 import { derived, login, relation, role, schema, unit } from "#compiler/public/schema.ts"
 import { installationsOf, type OwnedLogin, ownLogin, rostersOf } from "#compiler/schema/own.ts"
@@ -120,7 +120,7 @@ export const featureOf = (t: Turn): TurnFeature => {
 const built = (
 	v: Version
 ): { readonly base: DeploySubject; readonly logins: ReadonlyArray<OwnedLogin> } => {
-	const A = relation("A", { id: Id, note: v.wide ? pg.bigint : pg.integer }, ["id"])
+	const A = relation("A", { id: Id, note: v.wide ? int8 : int4 }, ["id"])
 	const B = relation("B", { id: Id }, ["id"])
 	const C = relation("C", { id: Id }, ["id"])
 	const owned = (l: Parameters<typeof loginDescOf>[0]): OwnedLogin =>

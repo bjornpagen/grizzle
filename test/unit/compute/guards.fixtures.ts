@@ -3,11 +3,11 @@ import { regexTextMaxBytes, type GuardTest, type PreconditionKind } from "#compi
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
 import type { OpenExpr } from "#compiler/ir/open.ts"
 import type { Carrier } from "#compiler/ir/scalar.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4, int8 } from "#compiler/public/fields.ts"
 import { lexicalForm } from "#compiler/public/text.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import type { ScalarTerm } from "#compiler/scalar/compute/term.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 import {
 	baseParams,
 	lowerWith,
@@ -50,7 +50,7 @@ interface Plant {
 
 /** A zero each operand type's literals spell. */
 const zeroOf = (f: TestOperand): LiteralDesc =>
-	f.scalar.carrier === "int8" ? 0n : f.scalar.carrier === "numeric" ? Decimal.of("0") : 0
+	f.scalar.carrier === "int8" ? 0n : f.scalar.carrier === "numeric" ? Numeric.of("0") : 0
 
 /** A consumer's contract and the key its module holds, which a cast into it takes (scalar/contract.ts admitMintKey). */
 interface Keyed {
@@ -65,7 +65,7 @@ const Positive: Keyed = {
 
 const Fraction: Keyed = {
 	contract: testContract("Fraction", testPg.numericOf(5, 2), (x) =>
-		computeCore.lt(x, Decimal.of("1"))
+		computeCore.lt(x, Numeric.of("1"))
 	),
 	key: Symbol("Fraction")
 }
@@ -246,7 +246,7 @@ export const plants: { readonly [K in PreconditionKind]: Arr.NonEmptyReadonlyArr
 	],
 	contract: [
 		numberContract(testPg.integer, Positive, 1),
-		numberContract(testPg.numericOf(5, 2), Fraction, Decimal.of("0")),
+		numberContract(testPg.numericOf(5, 2), Fraction, Numeric.of("0")),
 		typedContract(testPg.text, Named),
 		typedContract(testPg.boolean, Truth)
 	],
@@ -267,7 +267,7 @@ export const plants: { readonly [K in PreconditionKind]: Arr.NonEmptyReadonlyArr
 	],
 	powerDomain: [power(testPg.numeric), power(testPg.double)],
 	powerRange: [
-		powerRange(testPg.numeric, Decimal.of("1"), Decimal.of("2")),
+		powerRange(testPg.numeric, Numeric.of("1"), Numeric.of("2")),
 		powerRange(testPg.double, 1, 2)
 	],
 	bucketDomain: [
@@ -284,8 +284,8 @@ export const plants: { readonly [K in PreconditionKind]: Arr.NonEmptyReadonlyArr
 	],
 	lexical: Arr.map(
 		[
-			[testPg.integer, pg.integer],
-			[testPg.bigint, pg.bigint]
+			[testPg.integer, int4],
+			[testPg.bigint, int8]
 		] as const,
 		([target, descriptor]) => ({
 			operand: short,

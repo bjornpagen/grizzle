@@ -153,11 +153,11 @@ const prelude = await Effect.runPromise(preludeAt("test/support/programs/budget.
 /** The schema every case inserts into, the batch's own. */
 const nestingSchema = `export const Node = relation(
 	"Node",
-	{ doc: Id, parent: drawn(natural), at: drawn(natural), children: drawn(natural), start: drawn(natural), end: drawn(natural), label: pg.integer, n: drawn(natural) },
+	{ doc: Id, parent: drawn(natural), at: drawn(natural), children: drawn(natural), start: drawn(natural), end: drawn(natural), label: int4, n: drawn(natural) },
 	["doc", "start"]
 )
-export const Line = relation("Line", { doc: Id, node: natural, at: drawn(natural), qty: pg.integer, m: drawn(natural) }, ["doc", "node", "at"])
-export const Part = relation("Part", { doc: Id, node: natural, line: natural, at: drawn(natural), y: pg.integer }, ["doc", "node", "line", "at"])
+export const Line = relation("Line", { doc: Id, node: natural, at: drawn(natural), qty: int4, m: drawn(natural) }, ["doc", "node", "at"])
+export const Part = relation("Part", { doc: Id, node: natural, line: natural, at: drawn(natural), y: int4 }, ["doc", "node", "line", "at"])
 export const nodes = tree(on(Node, "parent", "at"), fin(Node, "children"), { root: ["doc"] })
 export const lines = ordered(on(Line, "doc", "node", "at"), fin(Node, "n"))
 export const parts = ordered(on(Part, "doc", "node", "line", "at"), fin(Line, "m"))

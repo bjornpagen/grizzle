@@ -6,7 +6,7 @@ import type { Case } from "@bjornpagen/testing/property"
 import { Effect, Formatter } from "effect"
 import type { BenchSession } from "#bench/harness/session.ts"
 import { Num, Type } from "#compiler/public/compute.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, key, on, relation, schema, sealed, unit } from "#compiler/public/schema.ts"
 import {
@@ -25,7 +25,7 @@ import { readWork } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import type { PgConnection } from "#test/support/pg.ts"
 
-const i = pg.integer
+const i = int4
 
 /**
  * A package's content, as pantry's node tree holds it: each node of a package's document by its start, and by its parent
@@ -60,7 +60,7 @@ const Allowance = derived(
 		const { package: pkg, path, parent, raw } = v(Node, "control")
 		return r
 			.match(Node, { package: pkg, path, parent, raw })
-			.find({ allowance: Type.cast(Num.add(raw, 1), pg.bigint), package: pkg, path, scope: parent })
+			.find({ allowance: Type.cast(Num.add(raw, 1), int8), package: pkg, path, scope: parent })
 	})
 )
 const Ledger = schema.extend([Content], "DerivedKeyOrderStored", [Allowance], [])

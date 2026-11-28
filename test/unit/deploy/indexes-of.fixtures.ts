@@ -6,7 +6,7 @@ import { Array as Arr, Option, Order, Record as Rec } from "effect"
 import type { DeploySnapshot, SnapshotContent } from "#compiler/deploy/snapshot/types.ts"
 import type { PhysicalReason } from "#compiler/ir/products.ts"
 import { parseIdent } from "#compiler/physical/obligations/graph.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { bool, int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	contained,
@@ -24,7 +24,7 @@ import { Id } from "#test/support/ids.ts"
 
 const B = relation("B", { id: Id }, ["id"])
 
-const R = relation("R", { id: Id, other: Id, rank: pg.integer, flag: pg.boolean }, ["id"])
+const R = relation("R", { id: Id, other: Id, rank: int4, flag: bool }, ["id"])
 
 const placements = ["root", "level"] as const
 

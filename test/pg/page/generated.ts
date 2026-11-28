@@ -67,7 +67,7 @@ import { columnPosition, rowCell, scalarReader } from "#compiler/plan/runtime.ts
 import { keyColumns, statementOutput } from "#compiler/runtime/lower/tree.ts"
 import { mergeHeadingGroups } from "#compiler/runtime/lower/union.ts"
 import { hasCapability } from "#compiler/scalar/registry.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 import { storedValue } from "#compiler/scalar/values/identity.ts"
 import { noAdvice } from "#compiler/sql/advice.ts"
 import { costChosen } from "#compiler/sql/emit.ts"
@@ -595,7 +595,7 @@ const orderedQuery = (o: OrderedCase): OrderedQuery | undefined => {
 /**
  * A literal as a caller passes it: its host value, which its type's codec reads from the literal's text, or, for an
  * exact numeric whose literal is not written at its typmod's display scale (the codec reads PostgreSQL's own text,
- * "0.00" for numeric(5,2)), the Decimal of that text admitted at the typmod; and the text the codec writes for that
+ * "0.00" for numeric(5,2)), the Numeric of that text admitted at the typmod; and the text the codec writes for that
  * value. D reads that text, not the literal's: a caller passes only what its host carrier holds, which is one zero for
  * a float, so a literal spelled -0 reaches PostgreSQL as 0 through the runtime and must reach D as 0 too.
  */
@@ -611,7 +611,7 @@ const callerInput = (
 	if (Result.isSuccess(value)) {
 		return of(value.success)
 	}
-	const decimal = codec.spec.carrier === "numeric" ? Decimal.fromString(text) : undefined
+	const decimal = codec.spec.carrier === "numeric" ? Numeric.fromString(text) : undefined
 	const admitted = decimal?.ok === true ? storedValue(codec.spec, decimal.value) : undefined
 	if (admitted?.ok === true) {
 		return of(admitted.value)

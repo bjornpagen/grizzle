@@ -1,6 +1,6 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { Undefined } from "#compiler/scalar/compute/registry.ts"
-import { Decimal, type FiniteParts, roundedUnits } from "#compiler/scalar/values/decimal.ts"
+import { Numeric, type FiniteParts, roundedUnits } from "#compiler/scalar/values/decimal.ts"
 import { numericMaxFractionDigits } from "#compiler/scalar/values/fault.ts"
 import { numericMaxPrecision } from "#compiler/scalar/values/fault.ts"
 
@@ -50,12 +50,12 @@ const numericMinSigDigits = 16
 export const decDigits = 4
 
 /**
- * PostgreSQL numeric arithmetic over the exact Decimal carrier, and the conversion to an integer: each defined where
+ * PostgreSQL numeric arithmetic over the exact Numeric carrier, and the conversion to an integer: each defined where
  * its precondition holds (registry.ts Totality), and refused with the precondition it lacks elsewhere.
  *
  * Each function computes the value the named function of src/backend/utils/adt/numeric.c returns when every operand is
  * written in its one form, trim_scale(x): the value SQL rendering makes PostgreSQL compute, since it passes the
- * operands of every display-scale reading through trim_scale (registry.ts OperandReading). A Decimal has no display
+ * operands of every display-scale reading through trim_scale (registry.ts OperandReading). A Numeric has no display
  * scale, so where numeric.c reads one (division's select_div_scale) this reads the value's least scale, minScale, and
  * every result is the one form. Special values follow PostgreSQL 14's rules: NaN absorbs, infinities combine as
  * numeric.c's special-value branches say, and a finite division by an infinity is zero. Division rounds half away from
@@ -63,7 +63,7 @@ export const decDigits = 4
  * JavaScript arithmetic for a SQL expression: these functions exist so the compiler can evaluate a literal against a
  * contract predicate (ContractLiteral) and cast a value.
  */
-export type NumericResult = Result.Result<Decimal, Undefined>
+export type NumericResult = Result.Result<Numeric, Undefined>
 
 const pow10 = (n: number): bigint => 10n ** BigInt(n)
 
@@ -73,20 +73,20 @@ const units = (p: FiniteParts): bigint => (p.negative ? -p.coefficient : p.coeff
 const at = (p: FiniteParts, scale: number): bigint => units(p) * pow10(scale - p.minScale)
 
 /**
- * A finite Decimal from signed units at a scale, in its one form, or "format" outside numeric's format, which the
+ * A finite Numeric from signed units at a scale, in its one form, or "format" outside numeric's format, which the
  * lowering's digit bounds rule out of every admitted expression (lower.ts) over operands proved within it, and
  * PostgreSQL refuses with 22003 over one bounded by nothing but numeric's own limit (scalar/values/fault.ts
  * resultDigits).
  */
 export const fromUnits = (value: bigint, scale: number): NumericResult => {
-	const made = Decimal.fromParts(value < 0n, value < 0n ? -value : value, scale)
+	const made = Numeric.fromParts(value < 0n, value < 0n ? -value : value, scale)
 	return made.ok ? Result.ok(made.value) : Result.err("format")
 }
 
-const ok = (d: Decimal): NumericResult => Result.ok(d)
+const ok = (d: Numeric): NumericResult => Result.ok(d)
 
 /** The sign of a value that is not NaN: -1, 0 or 1. NaN, which has none, is ruled out by every caller first. */
-const signOf = (d: Decimal): -1 | 0 | 1 => {
+const signOf = (d: Numeric): -1 | 0 | 1 => {
 	const p = d.parts
 	switch (p.kind) {
 		case "infinity":
@@ -100,19 +100,19 @@ const signOf = (d: Decimal): -1 | 0 | 1 => {
 	}
 }
 
-const infinityOf = (sign: number): Decimal =>
-	sign > 0 ? Decimal.infinity : Decimal.negativeInfinity
+const infinityOf = (sign: number): Numeric =>
+	sign > 0 ? Numeric.infinity : Numeric.negativeInfinity
 
 /** numeric_add. */
-export const add = (a: Decimal, b: Decimal): NumericResult => {
+export const add = (a: Numeric, b: Numeric): NumericResult => {
 	const x = a.parts
 	const y = b.parts
 	if (x.kind === "nan" || y.kind === "nan") {
-		return ok(Decimal.nan)
+		return ok(Numeric.nan)
 	}
 	if (x.kind !== "finite" || y.kind !== "finite") {
 		if (x.kind !== "finite" && y.kind !== "finite" && x.kind !== y.kind) {
-			return ok(Decimal.nan)
+			return ok(Numeric.nan)
 		}
 		return ok(x.kind !== "finite" ? a : b)
 	}
@@ -121,30 +121,30 @@ export const add = (a: Decimal, b: Decimal): NumericResult => {
 }
 
 /** numeric_uminus. */
-export const neg = (a: Decimal): NumericResult => {
+export const neg = (a: Numeric): NumericResult => {
 	const x = a.parts
 	switch (x.kind) {
 		case "nan":
 			return ok(a)
 		case "infinity":
-			return ok(Decimal.negativeInfinity)
+			return ok(Numeric.negativeInfinity)
 		case "-infinity":
-			return ok(Decimal.infinity)
+			return ok(Numeric.infinity)
 		case "finite":
 			return fromUnits(-units(x), x.minScale)
 	}
 }
 
 /** numeric_sub. */
-export const sub = (a: Decimal, b: Decimal): NumericResult => {
+export const sub = (a: Numeric, b: Numeric): NumericResult => {
 	const x = a.parts
 	const y = b.parts
 	if (x.kind === "nan" || y.kind === "nan") {
-		return ok(Decimal.nan)
+		return ok(Numeric.nan)
 	}
 	if (x.kind !== "finite" || y.kind !== "finite") {
 		if (x.kind !== "finite" && y.kind !== "finite" && x.kind === y.kind) {
-			return ok(Decimal.nan)
+			return ok(Numeric.nan)
 		}
 		return x.kind !== "finite" ? ok(a) : neg(b)
 	}
@@ -153,15 +153,15 @@ export const sub = (a: Decimal, b: Decimal): NumericResult => {
 }
 
 /** numeric_mul: the exact product, rounded only past NUMERIC_DSCALE_MAX digits after the point. */
-export const mul = (a: Decimal, b: Decimal): NumericResult => {
+export const mul = (a: Numeric, b: Numeric): NumericResult => {
 	const x = a.parts
 	const y = b.parts
 	if (x.kind === "nan" || y.kind === "nan") {
-		return ok(Decimal.nan)
+		return ok(Numeric.nan)
 	}
 	if (x.kind !== "finite" || y.kind !== "finite") {
 		const s = signOf(a) * signOf(b)
-		return ok(s === 0 ? Decimal.nan : infinityOf(s))
+		return ok(s === 0 ? Numeric.nan : infinityOf(s))
 	}
 	const scale = x.minScale + y.minScale
 	const product = units(x) * units(y)
@@ -245,15 +245,15 @@ type Division =
  *
  * A finite value over an infinity is zero.
  */
-const division = (a: Decimal, b: Decimal): Division => {
+const division = (a: Numeric, b: Numeric): Division => {
 	const x = a.parts
 	const y = b.parts
 	if (x.kind === "nan" || y.kind === "nan") {
-		return { kind: "decided", result: ok(Decimal.nan) }
+		return { kind: "decided", result: ok(Numeric.nan) }
 	}
 	if (x.kind !== "finite") {
 		if (y.kind !== "finite") {
-			return { kind: "decided", result: ok(Decimal.nan) }
+			return { kind: "decided", result: ok(Numeric.nan) }
 		}
 		const s = signOf(b)
 		return {
@@ -262,7 +262,7 @@ const division = (a: Decimal, b: Decimal): Division => {
 		}
 	}
 	if (y.kind !== "finite") {
-		return { kind: "decided", result: ok(Decimal.zero) }
+		return { kind: "decided", result: ok(Numeric.zero) }
 	}
 	if (y.coefficient === 0n) {
 		return { kind: "decided", result: Result.err("nonzero") }
@@ -271,7 +271,7 @@ const division = (a: Decimal, b: Decimal): Division => {
 }
 
 /** numeric_div. */
-export const div = (a: Decimal, b: Decimal): NumericResult => {
+export const div = (a: Numeric, b: Numeric): NumericResult => {
 	const d = division(a, b)
 	if (d.kind === "decided") {
 		return d.result
@@ -281,7 +281,7 @@ export const div = (a: Decimal, b: Decimal): NumericResult => {
 }
 
 /** numeric_div_trunc, the function div(a, b): the quotient truncated toward zero, an integer. */
-export const divTrunc = (a: Decimal, b: Decimal): NumericResult => {
+export const divTrunc = (a: Numeric, b: Numeric): NumericResult => {
 	const d = division(a, b)
 	if (d.kind === "decided") {
 		return d.result
@@ -292,14 +292,14 @@ export const divTrunc = (a: Decimal, b: Decimal): NumericResult => {
 /**
  * numeric_mod, the operator % and the function mod(a, b): a - trunc(a / b) * b, with the dividend's sign.
  */
-export const mod = (a: Decimal, b: Decimal): NumericResult => {
+export const mod = (a: Numeric, b: Numeric): NumericResult => {
 	const x = a.parts
 	const y = b.parts
 	if (x.kind === "nan" || y.kind === "nan") {
-		return ok(Decimal.nan)
+		return ok(Numeric.nan)
 	}
 	if (x.kind !== "finite") {
-		return y.kind === "finite" && y.coefficient === 0n ? Result.err("nonzero") : ok(Decimal.nan)
+		return y.kind === "finite" && y.coefficient === 0n ? Result.err("nonzero") : ok(Numeric.nan)
 	}
 	if (y.kind !== "finite") {
 		return ok(a)
@@ -312,21 +312,21 @@ export const mod = (a: Decimal, b: Decimal): NumericResult => {
 }
 
 /** numeric_abs. */
-export const abs = (a: Decimal): NumericResult => {
+export const abs = (a: Numeric): NumericResult => {
 	const x = a.parts
 	switch (x.kind) {
 		case "nan":
 			return ok(a)
 		case "infinity":
 		case "-infinity":
-			return ok(Decimal.infinity)
+			return ok(Numeric.infinity)
 		case "finite":
 			return fromUnits(x.coefficient, x.minScale)
 	}
 }
 
 /** numeric_sign: -1, 0 or 1; NaN for NaN. */
-export const sign = (a: Decimal): NumericResult => {
+export const sign = (a: Numeric): NumericResult => {
 	if (a.isNaN()) {
 		return ok(a)
 	}
@@ -337,7 +337,7 @@ export const sign = (a: Decimal): NumericResult => {
  * numeric to an integer type (numeric_int2, numeric_int4, numeric_int8): round half away from zero; defined on finite
  * values ("finite") that fit [lo, hi] once rounded ("fits").
  */
-export const toInteger = (a: Decimal, lo: bigint, hi: bigint): Result.Result<bigint, Undefined> => {
+export const toInteger = (a: Numeric, lo: bigint, hi: bigint): Result.Result<bigint, Undefined> => {
 	if (!a.isFinite()) {
 		return Result.err("finite")
 	}

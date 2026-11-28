@@ -16,7 +16,7 @@ import { Array as Arr, String as Str } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { installOptions } from "#compiler/physical/install/compile.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { queryOver as query, varsOver as v } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { derivedBuilder, relationBuilder as relation } from "#compiler/schema/relation.ts"
@@ -135,9 +135,9 @@ export const standCaseGen: Gen<StandCase> = (s) => ({
 })
 
 /** W, X and Y, written, each mutable in its document. */
-const W = relation("W", { doc: pg.integer, at: pg.integer, u: pg.integer }, ["doc", "at"], [])
-const X = relation("X", { doc: pg.integer, at: pg.integer, x: pg.integer }, ["doc", "at"], [])
-const Y = relation("Y", { doc: pg.integer, at: pg.integer }, ["doc", "at"], [])
+const W = relation("W", { doc: int4, at: int4, u: int4 }, ["doc", "at"], [])
+const X = relation("X", { doc: int4, at: int4, x: int4 }, ["doc", "at"], [])
+const Y = relation("Y", { doc: int4, at: int4 }, ["doc", "at"], [])
 
 /** A row of a relation of field `F` as a row predicate reads it. */
 type RowOf<F extends string> = { readonly [K in F]: RowTerm } & typeof rowHelpers

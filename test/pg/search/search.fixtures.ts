@@ -6,7 +6,7 @@ import { Array as Arr, Effect, Order } from "effect"
 import type { ExecutedPlan, ExecutedStatement } from "#adapter/types/db.ts"
 import { planNodes } from "#bench/harness/explain.ts"
 import { Search } from "#compiler/public/compute.ts"
-import { pg, searchDocument } from "#compiler/public/fields.ts"
+import { searchDocument, int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -36,12 +36,12 @@ const QueryText = str.bytes(4096, str.regex("^.*$", "su"))
 
 const Lesson = relation.generated(
 	"Lesson",
-	{ lesson: pg.integer, subject: pg.integer, grade: pg.integer, title: Prose, summary: Prose },
+	{ lesson: int4, subject: int4, grade: int4, title: Prose, summary: Prose },
 	["lesson"],
 	(r) => ({ search: searchDocument("english", ["A", r.title], ["B", r.summary]) })
 )
 
-const Note = relation.generated("Note", { note: pg.integer, body: Prose }, ["note"], (r) => ({
+const Note = relation.generated("Note", { note: int4, body: Prose }, ["note"], (r) => ({
 	search: searchDocument("simple", ["D", r.body])
 }))
 

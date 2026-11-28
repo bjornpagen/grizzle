@@ -1,14 +1,16 @@
 import { Logic, Num, Type } from "#compiler/public/compute.ts"
 import {
 	accumulated,
-	bits,
+	bit,
 	closedId,
 	contract,
 	drawn,
 	generated,
 	mintOf,
 	natural,
-	pg
+	int4,
+	int8,
+	money
 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
@@ -44,16 +46,14 @@ const centsKey = Symbol("Cents")
  * an extension of it, a level above it, and two schemas of which neither is a level of Work, one of its name; and
  * Work's worlds.
  */
-export const Cents = contract<typeof centsKey>()("Cents", pg.bigint, (x) => Logic.ge(x, 0n))
+export const Cents = contract<typeof centsKey>()("Cents", int8, (x) => Logic.ge(x, 0n))
 export const toCents = mintOf(centsKey)
 export const Kind = closed.ordered("Kind", ["Automatic", "Manual"])
 export const Task = relation("Task", { id: Id, account: Id, kind: closedId(Kind) }, ["id"])
 export const Budget = relation("Budget", { task: Id, cents: Cents }, ["task"])
-export const Ticket = relation("Ticket", { id: pg.bigint, account: Id, amount: Cents }, ["id"])
-export const Pair = relation("Pair", { a: pg.bigint, b: pg.integer, note: Id }, ["a"])
-export const Ledger = relation("Ledger", { id: pg.bigint, balance: pg.bigint, fee: pg.money }, [
-	"id"
-])
+export const Ticket = relation("Ticket", { id: int8, account: Id, amount: Cents }, ["id"])
+export const Pair = relation("Pair", { a: int8, b: int4, note: Id }, ["a"])
+export const Ledger = relation("Ledger", { id: int8, balance: int8, fee: money }, ["id"])
 /** A relation every field of which its caller writes, a closed id, a set and two texts of different patterns among them. */
 export const Flag = closed.ordered("Flag", ["on", "off"])
 export const Tag = relation(
@@ -61,7 +61,7 @@ export const Tag = relation(
 	{
 		id: Id,
 		kind: closedId(Kind),
-		flags: bits(Flag),
+		flags: bit(Flag),
 		answer: str.regex("^(yes|no)$"),
 		grade: str.regex("^(pass|fail)$")
 	},
@@ -69,14 +69,14 @@ export const Tag = relation(
 )
 
 /** An ordered family's owner: its drawn count, and the total its members' quantities sum into. */
-const ownerFields = { id: Id, n: drawn(natural), total: accumulated(pg.bigint, 0n) } as const
+const ownerFields = { id: Id, n: drawn(natural), total: accumulated(int8, 0n) } as const
 /** An ordered family's member, keyed by its owner and its drawn index, with its sum's accumulator pair. */
 const sequenceFields = {
 	owner: Id,
 	at: drawn(natural),
-	qty: pg.bigint,
-	before: accumulated(pg.bigint, 0n),
-	after: accumulated(pg.bigint, 0n)
+	qty: int8,
+	before: accumulated(int8, 0n),
+	after: accumulated(int8, 0n)
 } as const
 /** A counted family's owner: its drawn count, and the size its count folds into. */
 const poolFields = { id: Id, k: drawn(natural), size: accumulated(natural, 0n) } as const
@@ -95,36 +95,26 @@ const entries = ordered(on(Entry, "owner", "at"), fin(Cart, "n"))
  */
 export const Pool = relation("Pool", poolFields, ["id"])
 export const Bin = relation("Bin", poolFields, ["id"])
-export const Item = relation.generated(
-	"Item",
-	{ owner: Id, v: pg.bigint },
-	["owner", "v"],
-	(r) => ({
-		next: generated(
-			pg.bigint,
-			Logic.when(
-				Num.within(Num.add(r.v, 1n), -9223372036854775808n, 9223372036854775807n),
-				(g) => Type.cast(g, pg.bigint),
-				r.v
-			)
+export const Item = relation.generated("Item", { owner: Id, v: int8 }, ["owner", "v"], (r) => ({
+	next: generated(
+		int8,
+		Logic.when(
+			Num.within(Num.add(r.v, 1n), -9223372036854775808n, 9223372036854775807n),
+			(g) => Type.cast(g, int8),
+			r.v
 		)
-	})
-)
-export const Chip = relation.generated(
-	"Chip",
-	{ owner: Id, v: pg.bigint },
-	["owner", "v"],
-	(r) => ({
-		next: generated(
-			pg.bigint,
-			Logic.when(
-				Num.within(Num.add(r.v, 1n), -9223372036854775808n, 9223372036854775807n),
-				(g) => Type.cast(g, pg.bigint),
-				r.v
-			)
+	)
+}))
+export const Chip = relation.generated("Chip", { owner: Id, v: int8 }, ["owner", "v"], (r) => ({
+	next: generated(
+		int8,
+		Logic.when(
+			Num.within(Num.add(r.v, 1n), -9223372036854775808n, 9223372036854775807n),
+			(g) => Type.cast(g, int8),
+			r.v
 		)
-	})
-)
+	)
+}))
 const items = counted(on(Item, "owner"), fin(Pool, "k"))
 const chips = counted(on(Chip, "owner"), fin(Bin, "k"))
 
@@ -135,7 +125,7 @@ const chips = counted(on(Chip, "owner"), fin(Bin, "k"))
  */
 const Shelf = relation("Shelf", { id: Id, books: drawn(natural) }, ["id"])
 export const Book = relation("Book", { id: Id, shelf: Id, pages: drawn(natural) }, ["id"])
-const Page = relation("Page", { id: Id, book: Id, at: drawn(natural), words: pg.bigint }, ["id"])
+const Page = relation("Page", { id: Id, book: Id, at: drawn(natural), words: int8 }, ["id"])
 const books = counted(on(Book, "shelf"), fin(Shelf, "books"))
 const pages = ordered(on(Page, "book", "at"), fin(Book, "pages"))
 
@@ -152,7 +142,7 @@ export const Node = relation(
 		children: drawn(natural),
 		start: drawn(natural),
 		end: drawn(natural),
-		label: pg.integer
+		label: int4
 	},
 	["doc", "start"]
 )
@@ -200,8 +190,8 @@ export const Work = schema(
 		tree(on(Node, "parent", "at"), fin(Node, "children"), { root: ["doc"] }),
 		unit("Entity", { id: Id }),
 		unit("Task", { task: Id }),
-		unit("Numbered", { id: pg.bigint }),
-		unit("Pair", { a: pg.bigint }),
+		unit("Numbered", { id: int8 }),
+		unit("Pair", { a: int8 }),
 		unit("Owner", { owner: Id }),
 		unit("Document", { doc: Id }),
 		mutable(Task),

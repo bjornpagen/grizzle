@@ -88,11 +88,11 @@ const rangeOperator = (
 		return refuseAt("MalformedDescription", at, `a boolean result of the range operator ${name}`)
 	}
 	if (carrierOf(leftOperand.type) !== carrier) {
-		return refuseAt("MalformedDescription", at, `a ${carrier} span on the left of ${name}`)
+		return refuseAt("MalformedDescription", at, `a ${carrier} range on the left of ${name}`)
 	}
 	if (form.kind === "atom") {
 		if (carrierOf(rightOperand.type) !== carrier) {
-			return refuseAt("MalformedDescription", at, `a ${carrier} span on the right of ${name}`)
+			return refuseAt("MalformedDescription", at, `a ${carrier} range on the right of ${name}`)
 		}
 		return binary(form.op, left, right)
 	}
@@ -101,7 +101,7 @@ const rangeOperator = (
 		return refuseAt(
 			"MalformedDescription",
 			at,
-			`a point of the span's endpoint type ${endpoint} in ${name}, not ${carrierOf(rightOperand.type)}`
+			`a point of the range's endpoint type ${endpoint} in ${name}, not ${carrierOf(rightOperand.type)}`
 		)
 	}
 	return binary("@>", left, cast(right, endpointType[endpoint]))
@@ -189,6 +189,6 @@ export const lowerSpanOp = (
 	return refuseAt(
 		"UnsupportedOperation",
 		at,
-		`a span operation ${describeOp(expr.op)}: spans admit the Allen range operators, pointIn, span comparisons, and Range.lower, upper and width`
+		`a range operation ${describeOp(expr.op)}: ranges admit the Allen range operators, pointIn, range comparisons, and Range.lower, upper and width`
 	)
 }

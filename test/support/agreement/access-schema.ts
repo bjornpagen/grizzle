@@ -1,4 +1,4 @@
-import { closedId, pg } from "#compiler/public/fields.ts"
+import { closedId, int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	closed,
@@ -27,7 +27,7 @@ import { Id } from "#test/support/ids.ts"
 export const Tier = closed.ordered("Tier", ["Free", "Pro"])
 const TierInfo = closed.relation(
 	"TierInfo",
-	{ tier: closedId(Tier), seats: pg.integer },
+	{ tier: closedId(Tier), seats: int4 },
 	["tier"],
 	[
 		{ tier: "Free", seats: 1 },

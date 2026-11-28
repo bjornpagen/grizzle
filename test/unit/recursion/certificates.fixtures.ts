@@ -57,12 +57,12 @@ import {
 	vars
 } from "#test/support/unit/check/dsl.ts"
 
-type Carrier = "smallint" | "integer" | "bigint"
+type Carrier = "int2" | "int4" | "int8"
 
 const ranges: Readonly<Record<Carrier, readonly [bigint, bigint]>> = {
-	smallint: [-32768n, 32767n],
-	integer: [-2147483648n, 2147483647n],
-	bigint: [-9223372036854775808n, 9223372036854775807n]
+	int2: [-32768n, 32767n],
+	int4: [-2147483648n, 2147483647n],
+	int8: [-9223372036854775808n, 9223372036854775807n]
 }
 
 type Spelling = "typed" | "untyped" | "cast"
@@ -190,14 +190,14 @@ const armGen: Gen<ArmSpec> = (source) => ({
 
 /** What a carrier lets an arm read: the edge's cost is an integer, a vertex's rank a smallint. */
 const fitted = (carrier: Carrier, arm: ArmSpec): ArmSpec => {
-	const costs = carrier === "integer"
+	const costs = carrier === "int4"
 	const h: Step =
 		!costs && (arm.h.kind === "addCost" || arm.h.kind === "cost" || arm.h.kind === "costPlus")
 			? { kind: "copy" }
 			: arm.h
 	const t: Tag =
 		!costs && (arm.t.kind === "cost" || arm.t.kind === "costPlus") ? { kind: "copy" } : arm.t
-	return { ...arm, h, t, pinned: arm.pinned && carrier === "smallint" }
+	return { ...arm, h, t, pinned: arm.pinned && carrier === "int2" }
 }
 
 const seedsGen = array(
@@ -211,7 +211,7 @@ const seedsGen = array(
 
 const populationGen: Gen<Spec> = map(
 	(source) => ({
-		carrier: source.draw(element<Carrier>(["smallint", "integer", "bigint"])),
+		carrier: source.draw(element<Carrier>(["int2", "int4", "int8"])),
 		seeds: source.draw(seedsGen),
 		arms: source.draw(array(armGen, { min: 1, max: 2 }))
 	}),
@@ -235,11 +235,11 @@ const openCounterGen: Gen<Spec> = map(
 	({ seeds, copy, counter, k, down, bound }): Spec => {
 		const toward: Guard = { kind: "compare", op: down ? "gt" : "lt", bound, flipped: false }
 		return {
-			carrier: "smallint",
+			carrier: "int2",
 			seeds,
 			arms: [
-				fitted("smallint", { ...copy, h: { kind: "copyTag" } }),
-				fitted("smallint", {
+				fitted("int2", { ...copy, h: { kind: "copyTag" } }),
+				fitted("int2", {
 					...counter,
 					h: { kind: down ? "sub" : "add", k },
 					guards: [toward, ...counter.guards],
@@ -267,9 +267,9 @@ const twoCostsGen: Gen<Spec> = map(
 		)
 	}),
 	({ seeds, arms, t }): Spec => ({
-		carrier: "integer",
+		carrier: "int4",
 		seeds,
-		arms: [fitted("integer", { ...arms[0], t: t[0] }), fitted("integer", { ...arms[1], t: t[1] })]
+		arms: [fitted("int4", { ...arms[0], t: t[0] }), fitted("int4", { ...arms[1], t: t[1] })]
 	})
 )
 
@@ -280,7 +280,7 @@ const twoCostsGen: Gen<Spec> = map(
  */
 const saturatingGen: Gen<Spec> = map(
 	(source) => ({
-		carrier: source.draw(element<Carrier>(["smallint", "integer", "bigint"])),
+		carrier: source.draw(element<Carrier>(["int2", "int4", "int8"])),
 		seed: source.draw((source) => ({
 			h: source.draw(litGen(-3, 12)),
 			t: source.draw(litGen(0, 3)),
@@ -334,7 +334,7 @@ const costsAtOneVertexGen: Gen<Spec> = map(
 		m: source.draw(element(marks))
 	}),
 	(seed): Spec => ({
-		carrier: "integer",
+		carrier: "int4",
 		seeds: [seed],
 		arms: Arr.map([{ kind: "cost" }, { kind: "costPlus" }] as const, (t): ArmSpec => ({
 			h: { kind: "copy" },
@@ -360,7 +360,7 @@ const carrierEdgeOf = (
 ): Gen<Spec> =>
 	map(
 		(source) => ({
-			carrier: source.draw(element<Carrier>(["smallint", "integer", "bigint"])),
+			carrier: source.draw(element<Carrier>(["int2", "int4", "int8"])),
 			seeds: source.draw(seedsGen),
 			counter: source.draw(counters),
 			k: source.draw(steps),
@@ -434,13 +434,13 @@ const markType: FieldDesc = textDesc("^[a-c]$", "u")
 
 /** The host value a literal of the carrier is spelled in: a bigint for bigint, a number otherwise. */
 const host = (carrier: Carrier, value: number): number | bigint =>
-	carrier === "bigint" ? BigInt(value) : value
+	carrier === "int8" ? BigInt(value) : value
 
 /** A narrower integer type the carrier's literal can be cast from, exactly. */
 const narrower: Readonly<Record<Carrier, FieldDesc | undefined>> = {
-	smallint: undefined,
-	integer: { kind: "pg", type: "smallint" },
-	bigint: { kind: "pg", type: "integer" }
+	int2: undefined,
+	int4: { kind: "pg", type: "int2" },
+	int8: { kind: "pg", type: "int4" }
 }
 
 /** A head literal in its spelling. */
@@ -488,7 +488,7 @@ const boundValue = (carrier: Carrier, bound: number | Edge): bigint => {
 
 /** The host value of a carrier's literal, exactly: a bigint for bigint, a number otherwise. */
 const exact = (carrier: Carrier, value: bigint): number | bigint =>
-	carrier === "bigint" ? value : Number(value)
+	carrier === "int8" ? value : Number(value)
 
 const guardDesc = (carrier: Carrier, g: Guard): ExprDesc => {
 	if (g.kind === "between") {
@@ -1177,7 +1177,7 @@ export const featureTests = [
 				...Arr.flatMap(s.arms, (a) => (a.t.kind === "literal" ? [a.t.value] : []))
 			]
 			return (
-				s.carrier === "bigint" &&
+				s.carrier === "int8" &&
 				Arr.some(
 					tags,
 					(x) =>

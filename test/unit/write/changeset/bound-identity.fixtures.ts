@@ -2,7 +2,7 @@ import { assert } from "@bjornpagen/testing/assert"
 import { Array as Arr, String as Str } from "effect"
 import { maxStringLength } from "#compiler/core/canonical.ts"
 import { isRecord } from "#compiler/core/record.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { queryOver as query, varsOver as v } from "#compiler/query/build/query.ts"
@@ -10,7 +10,7 @@ import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
 
 /** Note(id, body): a body of a's and b's, keyed by id. */
-const Note = relation("Note", { id: pg.integer, body: str.regex("^[ab]*$") }, ["id"])
+const Note = relation("Note", { id: int4, body: str.regex("^[ab]*$") }, ["id"])
 
 const Notes = schema("BoundNotes", [Note], [])
 

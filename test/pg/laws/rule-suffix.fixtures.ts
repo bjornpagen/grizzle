@@ -8,7 +8,7 @@ import { array, boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import { explainServerStatement, planNodes } from "#bench/harness/explain.ts"
 import { Logic, Text } from "#compiler/public/compute.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { check, derived, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -25,7 +25,7 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 const Target = str.bytes(256, str.regex("^.*$", "su"))
 
 /** A reference to a file, by its id: its kind and its target. */
-const Ref = relation("Ref", { id: pg.integer, kind: pg.integer, target: Target }, ["id"])
+const Ref = relation("Ref", { id: int4, kind: int4, target: Target }, ["id"])
 
 /** A suffix no reference of kind 1 may end with, keyed by itself, written by a policy, as edullm's MediaType is. */
 const Forbidden = relation("Forbidden", { suffix: Target }, ["suffix"])

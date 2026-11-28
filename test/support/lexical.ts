@@ -13,8 +13,8 @@ import {
 } from "@bjornpagen/testing/gen"
 import { type Array as Arr, DateTime, Record as Rec, String as Str } from "effect"
 import { integerRanges } from "#compiler/ir/carriers.ts"
-import { decimalTextMaxBytes, type LexicalTarget } from "#compiler/scalar/lexical.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { numericTextMaxBytes, type LexicalTarget } from "#compiler/scalar/lexical.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 import { numericMaxIntegerDigits } from "#compiler/scalar/values/fault.ts"
 import { referenceDecimal } from "#test/support/oracle/evaluate/decimal-text.ts"
 import { referenceDouble } from "#test/support/oracle/evaluate/double-text.ts"
@@ -79,8 +79,8 @@ const targetsOfKind = (
 	double: constant({ kind: "double" }),
 	boolean: constant({ kind: "boolean" }),
 	date: constant({ kind: "date" }),
-	doubleText: constant({ kind: "doubleText" }),
-	decimalText: constant({ kind: "decimalText" })
+	float8Text: constant({ kind: "float8Text" }),
+	numericText: constant({ kind: "numericText" })
 })
 
 /** A target of any kind, each kind alike. */
@@ -91,7 +91,7 @@ export const targetGen = (maxPrecision: number): Gen<LexicalTarget> =>
 const candidateMaxPrecision = 6
 
 /** A target of a type's form, a field's: every kind but a double's text and a decimal text, which are no type's. */
-export type TypeTarget = Exclude<LexicalTarget, { readonly kind: "doubleText" | "decimalText" }>
+export type TypeTarget = Exclude<LexicalTarget, { readonly kind: "float8Text" | "numericText" }>
 
 const candidateTargets = targetsOfKind(candidateMaxPrecision)
 
@@ -124,7 +124,7 @@ export interface Candidate {
 	readonly target: LexicalTarget
 	readonly text: string
 	readonly member: boolean
-	readonly value: bigint | Decimal | number | boolean | string | undefined
+	readonly value: bigint | Numeric | number | boolean | string | undefined
 	readonly shape: Shape
 }
 
@@ -234,7 +234,7 @@ const decimalGen =
 		const member =
 			spelled && significantInteger <= precision - scale && significantFraction <= scale
 		const magnitude = spelled ? BigInt(`${integer}${fraction}`) : 0n
-		const value = Decimal.fromParts(s === "-" && magnitude !== 0n, magnitude, fraction.length)
+		const value = Numeric.fromParts(s === "-" && magnitude !== 0n, magnitude, fraction.length)
 		return {
 			target: { kind: "decimal", typmod: { precision, scale } },
 			text,
@@ -655,22 +655,22 @@ const decimalWithin =
 	}
 
 /**
- * A member of decimalText's form: a decimal text within decimalTextMaxBytes, at the digit counts the widest numeric(p, s)
+ * A member of numericText's form: a decimal text within numericTextMaxBytes, at the digit counts the widest numeric(p, s)
  * form and the form's own bytes turn on, or a spelling of zero.
  */
 export const decimalTextGen: Gen<string> = weighted([
 	[1, element(["0", "-0", "+0", "0.", ".0", "-.000", "000", "-0.0"])],
-	[9, decimalWithin(decimalTextMaxBytes)]
+	[9, decimalWithin(numericTextMaxBytes)]
 ])
 
 /**
- * A decimal text's candidate: a member of the grammar, of the form where it is within decimalTextMaxBytes, its value the
+ * A decimal text's candidate: a member of the grammar, of the form where it is within numericTextMaxBytes, its value the
  * one xs:decimal's lexical mapping gives it (test/support/oracle/evaluate/decimal-text.ts).
  */
 const decimalCandidate = (target: LexicalTarget, text: string): Candidate => {
 	const read = defined(referenceDecimal(text), "a member of the grammar")
-	const value = Decimal.fromParts(read.negative, read.digits, Number(read.scale))
-	const member = text.length <= decimalTextMaxBytes
+	const value = Numeric.fromParts(read.negative, read.digits, Number(read.scale))
+	const member = text.length <= numericTextMaxBytes
 	return {
 		target,
 		text,
@@ -698,7 +698,7 @@ const candidatesOf = (target: LexicalTarget): Gen<Candidate> => {
 			return booleanGen
 		case "date":
 			return dateGen
-		case "doubleText":
+		case "float8Text":
 			return weighted<Candidate>([
 				[
 					9,
@@ -724,11 +724,11 @@ const candidatesOf = (target: LexicalTarget): Gen<Candidate> => {
 					}))
 				]
 			])
-		case "decimalText":
+		case "numericText":
 			return map(
 				weighted([
 					[4, decimalTextGen],
-					[1, decimalWithin(decimalTextMaxBytes + 3)]
+					[1, decimalWithin(numericTextMaxBytes + 3)]
 				]),
 				(text) => decimalCandidate(target, text)
 			)
@@ -757,6 +757,6 @@ export const candidateOf =
 export const candidateGen: Gen<Candidate> = (source) =>
 	source.draw(candidateOf(source.draw(targetGen(candidateMaxPrecision))))
 
-/** Two values of a target's host type are one value: a Decimal by equals, a double by Object.is, -0 apart from 0. */
+/** Two values of a target's host type are one value: a Numeric by equals, a double by Object.is, -0 apart from 0. */
 export const sameValue = (a: unknown, b: unknown): boolean =>
-	a instanceof Decimal && b instanceof Decimal ? a.equals(b) : Object.is(a, b)
+	a instanceof Numeric && b instanceof Numeric ? a.equals(b) : Object.is(a, b)

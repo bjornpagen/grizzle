@@ -211,7 +211,7 @@ import type { PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
 import { stretchSource } from "#compiler/scalar/regex/stretch.ts"
 import { tokenSource } from "#compiler/scalar/regex/whitespace.ts"
 import { hasCapability, spanType } from "#compiler/scalar/registry.ts"
-import { bytesMaxLength } from "#compiler/scalar/values/fault.ts"
+import { byteaMaxLength } from "#compiler/scalar/values/fault.ts"
 /**
  * How a query is read: as rows (execute, get, compile, attach, derived, a ChangeSet member), as a page, as a
  * ChangeSet's read-back, which may read delta.added and delta.removed sources, as a write filter's membership, which
@@ -838,7 +838,7 @@ const foldedOf = (
 			fail(
 				"UnsupportedOperation",
 				at,
-				"aggregate and span producer in one head: a producer yields facts per binding, an aggregate folds them"
+				"aggregate and range producer in one head: a producer yields facts per binding, an aggregate folds them"
 			)
 		}
 		return { kind: "aggregates", aggregates }
@@ -847,7 +847,7 @@ const foldedOf = (
 		return undefined
 	}
 	if (more.length > 0) {
-		fail("UnsupportedOperation", at, "one span producer per head")
+		fail("UnsupportedOperation", at, "one range producer per head")
 	}
 	return { kind: "producer", producer }
 }
@@ -1003,7 +1003,7 @@ const producerKinds = {
 } as const satisfies Readonly<Record<ProducerHead["fn"], ProducerKind>>
 
 /**
- * r.span(start, end): two endpoints of one type, the type a span is over (scalar/registry.ts spanType), and the span
+ * r.range(start, end): two endpoints of one type, the type a span is over (scalar/registry.ts spanType), and the span
  * over it they bound. An instant is no endpoint: it is the database's alone, stamped or read from a stored row, where a
  * span's ends are values (ir/instant.ts instantName).
  */
@@ -1019,11 +1019,11 @@ const spanFromEnds = (
 		return fail(
 			"MalformedDescription",
 			childLoc(at, 0),
-			`a span endpoint for span, integer, bigint, date or a contract over one, not ${typeLabel(first.nominal)}`
+			`a range endpoint for range, int4, int8, date or a contract over one, not ${typeLabel(first.nominal)}`
 		)
 	}
 	if (!compatible(last.nominal, first.nominal)) {
-		return fail("MalformedDescription", childLoc(at, 1), "endpoints of one type for span")
+		return fail("MalformedDescription", childLoc(at, 1), "endpoints of one type for range")
 	}
 	return {
 		call: { producer: producerKinds.span, args: [first.expr, last.expr] },
@@ -2513,7 +2513,7 @@ export class Checker {
 				return fail(
 					"MalformedDescription",
 					at,
-					`an integer for r.series' ${name} end, an integer, bigint or exact integer term; it is ${typeLabel(term.nominal)}`
+					`an integer for r.series' ${name} end, an int2, int4, int8 or exact integer term; it is ${typeLabel(term.nominal)}`
 				)
 			}
 			return term
@@ -2958,11 +2958,11 @@ export class Checker {
 			base === undefined || reference === undefined
 				? undefined
 				: base + reference + mergedSlashBytes
-		if (bytes === undefined || bytes > bytesMaxLength) {
+		if (bytes === undefined || bytes > byteaMaxLength) {
 			return fail(
 				"UnsupportedOperation",
 				loc,
-				`r.resolvedWithin over a base and a reference whose patterns bound the target within ${bytesMaxLength} bytes: its target is built by concatenation, which PostgreSQL refuses past 1 GB, and a read never fails on a value; ${bytes === undefined ? "an operand's pattern bounds no length" : `the operands' patterns bound it at ${bytes} bytes`}, so bound them`
+				`r.resolvedWithin over a base and a reference whose patterns bound the target within ${byteaMaxLength} bytes: its target is built by concatenation, which PostgreSQL refuses past 1 GB, and a read never fails on a value; ${bytes === undefined ? "an operand's pattern bounds no length" : `the operands' patterns bound it at ${bytes} bytes`}, so bound them`
 			)
 		}
 		const language = languageWithin(unwrap(this.patterns.language([wildcardPattern])), bytes)
@@ -3940,13 +3940,13 @@ export class Checker {
 				return fail(
 					"MalformedDescription",
 					at,
-					"a span term here; a literal takes the type of the term it meets"
+					"a range term here; a literal takes the type of the term it meets"
 				)
 			}
 			const t = unwrap(lower(d))
 			const base = spanBase(t.nominal)
 			if (base === undefined) {
-				return fail("MalformedDescription", at, `a span term, not ${typeLabel(t.nominal)}`)
+				return fail("MalformedDescription", at, `a range term, not ${typeLabel(t.nominal)}`)
 			}
 			return { expr: t.expr, nominal: t.nominal, span: base.span, carrier: base.carrier }
 		}
@@ -4003,7 +4003,7 @@ export class Checker {
 					return fail(
 						"MalformedDescription",
 						childLoc(loc, "pointIn", "point"),
-						`a span endpoint as the point, not ${typeLabel(point.nominal)}`
+						`a range endpoint as the point, not ${typeLabel(point.nominal)}`
 					)
 				}
 				const span = operand(desc.span, window.value, at)
@@ -4017,7 +4017,7 @@ export class Checker {
 
 	/**
 	 * The type of a literal that meets no term: a JavaScript number is integer, a bigint bigint, a
-	 * Decimal numeric, a Money money, a boolean boolean and a string text with the canonical wildcard. A Decimal is
+	 * Numeric numeric, a Money money, a boolean boolean and a string text with the canonical wildcard. A Numeric is
 	 * admitted as any numeric value, and its node then typed by its own value (literalNumeric).
 	 */
 	bareLiteralType(value: LiteralDesc, loc: SourceLoc): ScalarType {
@@ -4039,7 +4039,7 @@ export class Checker {
 			return fail(
 				"MalformedDescription",
 				loc,
-				"a head literal whose type something fixes: an integer, a bigint, a Decimal, a Money, a boolean or a string, or a typed Type.literal"
+				"a head literal whose type something fixes: an integer, a bigint, a Numeric, a Money, a boolean or a string, or a typed Type.literal"
 			)
 		}
 		return plainType(carrier)
@@ -6257,7 +6257,7 @@ class RuleCheck {
 				fail(
 					"MalformedDescription",
 					childLoc(at, i),
-					`a span argument for ${p.fn}, not ${typeLabel(t.nominal)}`
+					`a range argument for ${p.fn}, not ${typeLabel(t.nominal)}`
 				)
 			}
 			return t
@@ -6275,7 +6275,7 @@ class RuleCheck {
 				const first = span(p.args[0], 0)
 				const second = span(p.args[1], 1)
 				if (!compatible(second.nominal, first.nominal)) {
-					fail("MalformedDescription", at, `spans of one type for ${p.fn}`)
+					fail("MalformedDescription", at, `ranges of one type for ${p.fn}`)
 				}
 				return {
 					call: { producer: producerKinds[p.fn], args: [first.expr, second.expr] },

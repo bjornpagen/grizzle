@@ -110,8 +110,8 @@ const columnsOf: { readonly [W in Width]: Arr.NonEmptyReadonlyArray<string> } = 
 const other: { readonly [W in Width]: Width } = { float8: "float4", float4: "float8" }
 
 const fieldOf: { readonly [W in Width]: FieldDesc } = {
-	float8: { kind: "pg", type: "double precision" },
-	float4: { kind: "pg", type: "real" }
+	float8: { kind: "pg", type: "float8" },
+	float4: { kind: "pg", type: "float4" }
 }
 
 const ops: Arr.NonEmptyReadonlyArray<Op> = ["add", "sub", "mul", "div"]

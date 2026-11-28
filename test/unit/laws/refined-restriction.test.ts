@@ -13,7 +13,7 @@
  * Property: over every case, the schema compiles to its installation.
  *
  * The box: Assignment(child, number: natural), Budget(child, stage: Stage, remaining) and Limit(number, seconds),
- * Stage a contract over pg.bigint as qti-pie's SittingKey is; each assignment's sitting at the stage its number casts
+ * Stage a contract over int8 as qti-pie's SittingKey is; each assignment's sitting at the stage its number casts
  * into Stage under the contract's key; the limits, a union of one or two rules over the sittings; First, each budget
  * beside its limit where its stage is the assignment's number, the equality written `stage = base(number)`, `base(number)
  * = stage` or `base(stage) = base(number)`, and a check of First. metis's shape, the first equality over a union of two

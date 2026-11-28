@@ -15,7 +15,7 @@ import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import {
 	login,
 	mutable,
@@ -107,14 +107,14 @@ const postName = (c: GuardCase, step: number): "Post" | "Note" =>
 const nameAt = (c: GuardCase, step: number, table: Table): string =>
 	table === "post" ? postName(c, step) : "Tag"
 
-const Post = relation("Post", { id: pg.integer }, ["id"])
+const Post = relation("Post", { id: int4 }, ["id"])
 
-const Note = relation("Note", { id: pg.integer }, ["id"])
+const Note = relation("Note", { id: int4 }, ["id"])
 
-const Tag = relation("Tag", { id: pg.integer }, ["id"])
+const Tag = relation("Tag", { id: int4 }, ["id"])
 
 /** Tag open, mutable inside the unit of its id, in every version; Post and Note closed. */
-const openTag = [mutable(Tag), unit("Row", { id: pg.integer })] as const
+const openTag = [mutable(Tag), unit("Row", { id: int4 })] as const
 
 const file = `${repoRoot}app/grizzle.config.ts`
 

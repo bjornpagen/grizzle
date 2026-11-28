@@ -3,7 +3,7 @@ import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option } from "effect"
 import type { Json } from "#compiler/core/canonical.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	context,
@@ -42,12 +42,9 @@ const Clerk = str.regex("^u_[a-z]{1,8}$")
 const Person = str.regex("^p_[a-z]{1,8}$")
 
 export const Account = relation("Account", { clerk: Clerk, person: Person }, ["clerk"])
-export const Sitting = relation("Sitting", { number: pg.integer, student: Person }, ["number"])
-export const Started = relation("Started", { number: pg.integer }, ["number"])
-export const ActedAs = relation("ActedAs", { number: pg.integer, actor: Clerk }, [
-	"number",
-	"actor"
-])
+export const Sitting = relation("Sitting", { number: int4, student: Person }, ["number"])
+export const Started = relation("Started", { number: int4 }, ["number"])
+export const ActedAs = relation("ActedAs", { number: int4, actor: Clerk }, ["number", "actor"])
 
 /** The signed-in Clerk user: the `sub` of the verified token's top level. */
 const Session = context("Session", { sub: Clerk })
@@ -64,7 +61,7 @@ export const sittingsAt = (name: string) => {
 	const startAsStudent = ChangeSet.empty(base).insert(
 		Started,
 		query(base).rule((r) => {
-			const number = r.param("number", pg.integer)
+			const number = r.param("number", int4)
 			const { student } = v(Sitting, "sitting")
 			const { sub: clerk } = v(Session, "session")
 			return r
@@ -78,7 +75,7 @@ export const sittingsAt = (name: string) => {
 	const actedAs = ChangeSet.empty(base).insert(
 		ActedAs,
 		query(base).rule((r) => {
-			const number = r.param("number", pg.integer)
+			const number = r.param("number", int4)
 			const { sub: actor } = v(Acting, "acting")
 			return r.match(Sitting, { number }).match(Acting, { sub: actor }).find({ number, actor })
 		})

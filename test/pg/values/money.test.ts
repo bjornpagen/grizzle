@@ -23,7 +23,7 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { bigint } from "@bjornpagen/testing/values"
 import { Array as Arr, Effect } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import {
 	amount,
@@ -90,7 +90,7 @@ export const moneyAgreementWithPostgreSQLRoundTripsEveryInt64MinorUnitCountThrou
 						const money = Money.of(u)
 						const [, numeric, minor] = defined(rows[i], `no row for sample ${i}`)
 						const back = succeeded(
-							Money.fromDecimal(succeeded(Decimal.fromString(String(numeric))))
+							Money.fromDecimal(succeeded(Numeric.fromString(String(numeric))))
 						)
 						return numeric === money.toString() && minor === u.toString() && back.equals(money)
 							? []

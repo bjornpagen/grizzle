@@ -27,7 +27,7 @@ import {
 const largestQuerySize = 200
 
 const relationDeclaration = (ns: string, i: number): string =>
-	`export const ${ns}R${i} = relation("R${i}", { id: Id, parent: Id, amount: pg.bigint, label: ${ns}Label, kind: closedId(${ns}Kind), qty: pg.integer }, ["id"])\n`
+	`export const ${ns}R${i} = relation("R${i}", { id: Id, parent: Id, amount: int8, label: ${ns}Label, kind: closedId(${ns}Kind), qty: int4 }, ["id"])\n`
 
 /** One relation's queries, workload and reads, under the prefix `ns`, in a schema of `relations` relations. */
 const relationBlock = (ns: string, i: number, relations: number): string => {

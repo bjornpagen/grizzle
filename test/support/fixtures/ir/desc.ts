@@ -136,7 +136,7 @@ export const textDesc = (
 const naturalDesc: FieldDesc = {
 	kind: "contract",
 	name: "natural",
-	base: { kind: "pg", type: "bigint" },
+	base: { kind: "pg", type: "int8" },
 	predicate: {
 		kind: "compare",
 		op: "ge",
@@ -153,10 +153,10 @@ const instantDesc: FieldDesc = { ...naturalDesc, name: "instant" }
 /** Field descriptors. */
 export const f = {
 	pg: (type: PgScalarName): FieldDesc => ({ kind: "pg", type }),
-	smallint: fieldDesc({ kind: "pg", type: "smallint" }),
-	integer: fieldDesc({ kind: "pg", type: "integer" }),
-	bigint: fieldDesc({ kind: "pg", type: "bigint" }),
-	boolean: fieldDesc({ kind: "pg", type: "boolean" }),
+	smallint: fieldDesc({ kind: "pg", type: "int2" }),
+	integer: fieldDesc({ kind: "pg", type: "int4" }),
+	bigint: fieldDesc({ kind: "pg", type: "int8" }),
+	boolean: fieldDesc({ kind: "pg", type: "bool" }),
 	numeric: (precision: number, scale: number): FieldDesc => ({ kind: "numeric", precision, scale }),
 	natural: naturalDesc,
 	/** An instant of the database's clock, which a relation's laws make a clock or a reference (ir/instant.ts). */

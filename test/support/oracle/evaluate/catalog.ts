@@ -36,9 +36,9 @@ import {
 	nativeOp,
 	nativeOps
 } from "#compiler/scalar/compute/registry.ts"
-import { decimalTextMaxBytes } from "#compiler/scalar/lexical.ts"
+import { numericTextMaxBytes } from "#compiler/scalar/lexical.ts"
 import type { BytesDigest } from "#compiler/scalar/values/bytes.ts"
-import { compareDecimal, Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
+import { compareDecimal, Numeric, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { compareFloat } from "#compiler/scalar/values/float.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { referenceDecimal } from "#test/support/oracle/evaluate/decimal-text.ts"
@@ -165,8 +165,8 @@ const evaluationOf = (op: NativeOp): Evaluation => {
 		case "cutFrom":
 		case "replace":
 		case "isXsdPattern":
-		case "parseDouble":
-		case "parseDecimal":
+		case "parseFloat8":
+		case "parseNumeric":
 		case "eq":
 		case "ne":
 		case "lt":
@@ -212,14 +212,14 @@ export type CatalogStop =
 
 /**
  * A value as the reference evaluator holds it, in exact carriers of its own, which no form of the engine's constrains:
- * an integer, an exact integer's among them, as a bigint, numeric as Decimal, a float as a double, money as Money,
+ * an integer, an exact integer's among them, as a bigint, numeric as Numeric, a float as a double, money as Money,
  * booleans, and text, uuids, dates and closed ids' handles as strings, a set as the Set of its handles, a span as the
  * { start, end } positions of its endpoints, a date span's their day numbers, a vector as its canonical components,
  * and a bytes value as its digest, all Crypto.sha256 reads.
  */
 export type ModelValue =
 	| bigint
-	| Decimal
+	| Numeric
 	| number
 	| Money
 	| boolean
@@ -235,7 +235,7 @@ export const modelLiteral = (literal: TypedLiteral): ModelValue => {
 		case "int":
 			return literal.value
 		case "numeric":
-			return Decimal.fromValue(literal.value)
+			return Numeric.fromValue(literal.value)
 		case "float":
 			return literal.value
 		case "floatSpecial":
@@ -323,7 +323,7 @@ const liftEngine = <A extends ModelValue>(r: Engine.Result<A, string>): CatalogR
 const isBigint = (v: unknown): v is bigint => typeof v === "bigint"
 const isNumber = (v: unknown): v is number => typeof v === "number"
 const isString = (v: unknown): v is string => typeof v === "string"
-const isDecimal = (v: unknown): v is Decimal => v instanceof Decimal
+const isDecimal = (v: unknown): v is Numeric => v instanceof Numeric
 const isMoney = (v: unknown): v is Money => v instanceof Money
 type SpanValue = { readonly start: bigint; readonly end: bigint }
 const isSpanValue = (v: unknown): v is SpanValue =>
@@ -925,22 +925,22 @@ const catalogApply = (
 			return declined(op, "database", "PostgreSQL alone evaluates it")
 		case "collapse":
 			return isString(a) ? Result.succeed(collapsedText(a)) : mismatch(op)
-		case "parseDouble": {
+		case "parseFloat8": {
 			if (!isString(a)) {
 				return mismatch(op)
 			}
 			const value = referenceDouble(a)
 			return value === undefined ? undefinedAt("lexical") : Result.succeed(value)
 		}
-		case "parseDecimal": {
+		case "parseNumeric": {
 			if (!isString(a)) {
 				return mismatch(op)
 			}
 			const read = referenceDecimal(a)
 			const value =
-				read === undefined || utf8Length(a) > decimalTextMaxBytes
+				read === undefined || utf8Length(a) > numericTextMaxBytes
 					? undefined
-					: Decimal.fromParts(read.negative, read.digits, Number(read.scale))
+					: Numeric.fromParts(read.negative, read.digits, Number(read.scale))
 			return value?.ok === true ? Result.succeed(value.value) : undefinedAt("lexical")
 		}
 		case "union":
@@ -1053,13 +1053,13 @@ const castTo = (v: ModelValue, from: ScalarType, to: ScalarType): CatalogResult 
  * It evaluates every node the registry holds: comparisons, BETWEEN, IN, boolean composition and conditionals; integer,
  * numeric, float and money arithmetic (integer.ts, src's scalar/compute/numeric.ts, float.ts); rounding, gcd and lcm,
  * square roots, width_bucket and min_scale (numeric.ts); numeric power (power.ts, PostgreSQL's numeric_power
- * step for step); char_length, span endpoints, LEAST and GREATEST; and the registry's casts and domain casts. The host
+ * step for step); char_length, range endpoints, LEAST and GREATEST; and the registry's casts and domain casts. The host
  * never claims a value it cannot reproduce bit for bit: a node PostgreSQL alone computes (Evaluation "database": a
  * float's pow through the platform libm, pgvector's operations), and numeric power where a libm estimate decides it and
  * the host's may not agree, answer "declined" rather than an approximation, and their consumers leave them to
  * PostgreSQL.
  *
- * Values are the reference's own exact carriers (ModelValue), each in its one form: a Decimal has no display scale, and
+ * Values are the reference's own exact carriers (ModelValue), each in its one form: a Numeric has no display scale, and
  * a float holds its zero's sign as IEEE 754 computes it, as grizzle delivers it. They are compared by the
  * reference's own reading of PostgreSQL's total orders (compareCarried), never by src's. A regex refinement's
  * membership is the text package's NFA, which the caller supplies.

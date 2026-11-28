@@ -6,7 +6,7 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
-import { natural, pg } from "#compiler/public/fields.ts"
+import { natural, int4, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { check, contained, derived, login, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -59,12 +59,12 @@ type PlainUse = Exclude<Use, UnionUse | WriteUse | WalkUse>
 
 const label = str.bytes(64, str.regex("^.*$", "su"))
 
-const Item = relation("Item", { id: pg.integer, kind: pg.integer }, ["id"])
+const Item = relation("Item", { id: int4, kind: int4 }, ["id"])
 
-const Doc = relation("Doc", { id: pg.integer, start: pg.bigint, label }, ["id"])
+const Doc = relation("Doc", { id: int4, start: int8, label }, ["id"])
 
 /** A node of a document: its start, natural, as pantry's Node.start is. */
-const Node = relation("Node", { id: pg.integer, start: natural }, ["id"])
+const Node = relation("Node", { id: int4, start: natural }, ["id"])
 
 const Base = schema("LiteralHeads", [Item, Doc, Node], [])
 
@@ -152,7 +152,7 @@ export const installed = (use: Use): Result.Result<unknown, CompileError> =>
 				: installedOverQuery(use)
 
 /** Where a write member's rows land: a scope and its node's start. */
-const Scoped = relation("Scoped", { id: pg.integer, start: natural }, ["id"])
+const Scoped = relation("Scoped", { id: int4, start: natural }, ["id"])
 
 /** Base with Scoped, which the write member inserts into. */
 const Written = schema.extend([Base], "LiteralHeadsWritten", [Scoped], [])
@@ -299,22 +299,16 @@ export const installedReaders = (
 }
 
 /** A part of a document at its parent's place, keyed by its document first: the unit a rule over a walk is judged in. */
-const Part = relation("Part", { doc: pg.integer, start: pg.integer, parent: pg.integer }, [
-	"doc",
-	"start"
-])
+const Part = relation("Part", { doc: int4, start: int4, parent: int4 }, ["doc", "start"])
 
 /** A part's level, natural. */
-const Level = relation("Level", { doc: pg.integer, start: pg.integer, level: natural }, [
-	"doc",
-	"start"
-])
+const Level = relation("Level", { doc: int4, start: int4, level: natural }, ["doc", "start"])
 
 const Parts = schema("LiteralHeadsParts", [Part, Level], [])
 
 /** Every part a document's root reaches, its document carried through every step: a recursion local to the document. */
 const descent = query(Parts).recursive("Descent", {
-	row: { doc: pg.integer, part: pg.integer },
+	row: { doc: int4, part: int4 },
 	base: [
 		(r) => {
 			const p = v(Part, "p")

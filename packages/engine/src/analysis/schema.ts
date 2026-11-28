@@ -1605,7 +1605,7 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 			return fail(
 				"UnsupportedOperation",
 				at,
-				`textSearch: ${r.name}.${f.name} of ${typeLabel(type)} is a search document, which searchDocument's generation parses from its row's texts or its caller writes as a read delivered it (pg.tsvector); it is ${w.kind}`
+				`textSearch: ${r.name}.${f.name} of ${typeLabel(type)} is a search document, which searchDocument's generation parses from its row's texts or its caller writes as a read delivered it (tsvector); it is ${w.kind}`
 			)
 		}
 		if (isInstantDesc(f.desc) !== (w.kind === "instant") && w.kind !== "caller") {
@@ -1645,7 +1645,7 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 					return fail(
 						"MalformedDescription",
 						at,
-						`an accumulated field of a type a fold combines or a copy carries, no span or vector; ${r.name}.${f.name} is ${typeLabel(type)}`
+						`an accumulated field of a type a fold combines or a copy carries, no range or vector; ${r.name}.${f.name} is ${typeLabel(type)}`
 					)
 				}
 				return {

@@ -12,7 +12,8 @@ import {
 	generated,
 	mintOf,
 	natural,
-	pg
+	int4,
+	int8
 } from "#compiler/public/fields.ts"
 import { param, query } from "#compiler/public/query.ts"
 import { check, contained, fin, on, ordered, relation, schema } from "#compiler/public/schema.ts"
@@ -21,7 +22,7 @@ import { fixtureTemplate } from "#test/support/pg/reads/support.ts"
 
 const spanKey = Symbol("Span")
 /** A span of time a call adds to its clock's reading, bounded, so the sum fits a bigint under its guard. */
-const Span = contract<typeof spanKey>()("Span", pg.bigint, (d) =>
+const Span = contract<typeof spanKey>()("Span", int8, (d) =>
 	Logic.and([Logic.ge(d, 0n), Logic.le(d, 10n ** 12n)])
 )
 export const toSpan = mintOf(spanKey)
@@ -30,7 +31,7 @@ export const toSpan = mintOf(spanKey)
 const Spans = relation("Spans", { span: Span }, ["span"])
 
 /** Depth 0: a lease, its `until` computed. */
-const Lease = relation("Lease", { id: pg.integer, until: pg.bigint }, ["id"])
+const Lease = relation("Lease", { id: int4, until: int8 }, ["id"])
 
 /**
  * Depth 1: an owner keyed by its queue and its computed `due`, its `until` computed, `held` generated over it, its items
@@ -39,18 +40,18 @@ const Lease = relation("Lease", { id: pg.integer, until: pg.bigint }, ["id"])
  */
 const Flat = relation.generated(
 	"Flat",
-	{ q: pg.integer, due: pg.bigint, until: pg.bigint, items: drawn(natural) },
+	{ q: int4, due: int8, until: int8, items: drawn(natural) },
 	["q", "due"],
-	(r) => ({ held: generated(pg.bigint, Logic.cond(Logic.ge(r.until, 0n), r.until, 0n)) })
+	(r) => ({ held: generated(int8, Logic.cond(Logic.ge(r.until, 0n), r.until, 0n)) })
 )
 const FlatItem = relation(
 	"FlatItem",
 	{
-		q: pg.integer,
-		due: pg.bigint,
+		q: int4,
+		due: int8,
 		at: drawn(natural),
-		v: pg.integer,
-		cu: accumulated(pg.bigint, 0n)
+		v: int4,
+		cu: accumulated(int8, 0n)
 	},
 	["q", "due", "at"]
 )
@@ -60,19 +61,18 @@ const FlatItem = relation(
  * its queue to 1 and up, so an owner at queue 0 is refused, its key's `due` the call's reading of the database's clock
  * plus its delay, which no host value holds.
  */
-const Deep = relation(
-	"Deep",
-	{ q: pg.integer, due: pg.bigint, until: pg.bigint, items: drawn(natural) },
-	["q", "due"]
-)
+const Deep = relation("Deep", { q: int4, due: int8, until: int8, items: drawn(natural) }, [
+	"q",
+	"due"
+])
 const DeepItem = relation(
 	"DeepItem",
-	{ q: pg.integer, due: pg.bigint, at: drawn(natural), v: pg.integer, parts: drawn(natural) },
+	{ q: int4, due: int8, at: drawn(natural), v: int4, parts: drawn(natural) },
 	["q", "due", "at"]
 )
 const DeepPart = relation(
 	"DeepPart",
-	{ q: pg.integer, due: pg.bigint, at: natural, bt: drawn(natural), w: pg.integer },
+	{ q: int4, due: int8, at: natural, bt: drawn(natural), w: int4 },
 	["q", "due", "at", "bt"]
 )
 
@@ -80,7 +80,7 @@ const DeepPart = relation(
  * A plain relation keyed over a field its insert computes, as den's served rows are keyed by their environment and the
  * instant the call casts its parameter into: Slot(env, at, v) keyed (env, at), `at` a Span, nesting nothing.
  */
-const Slot = relation("Slot", { env: pg.integer, at: Span, v: pg.integer }, ["env", "at"])
+const Slot = relation("Slot", { env: int4, at: Span, v: int4 }, ["env", "at"])
 
 export const Computed = schema(
 	"Computed",
@@ -99,16 +99,16 @@ export const Computed = schema(
 const after = <const By extends string>(by: By) =>
 	Logic.when(
 		Num.within(
-			Num.add(Type.base(param("now", pg.bigint)), Type.base(param(by, Span))),
+			Num.add(Type.base(param("now", int8)), Type.base(param(by, Span))),
 			0n,
 			9223372036854775807n
 		),
-		(x) => Type.cast(x, pg.bigint),
+		(x) => Type.cast(x, int8),
 		0n
 	)
 
 /** The call's reading, read back in its transaction: the parameter `now` alone, which the member binds to the clock. */
-const reading = () => query(Computed).rule((r) => r.find({ now: r.param("now", pg.bigint) }))
+const reading = () => query(Computed).rule((r) => r.find({ now: r.param("now", int8) }))
 
 /** Each depth's insert, its fields computed from the call's reading, reading the reading back, clocked in micros. */
 const programs = Object.freeze({

@@ -2,7 +2,7 @@
 
 import { boolean, constant, element, type Gen, weighted } from "@bjornpagen/testing/gen"
 import { Crypto, Text } from "#compiler/public/compute.ts"
-import { generated, pg, sha256 } from "#compiler/public/fields.ts"
+import { generated, sha256, int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -82,9 +82,9 @@ const Word = str.regex("^[a-z]{1,40}$")
  * delivers those and T's digest where T declares one, as attributeValues delivers an attribute's value and digest.
  */
 const digestSchemaOf = (c: DigestCase) => {
-	const S = relation("S", { s: pg.integer, u: Path, w: Word }, ["s"])
+	const S = relation("S", { s: int4, u: Path, w: Word }, ["s"])
 	if (c.digest) {
-		const T = relation.generated("T", { k: pg.integer, g: pg.integer, t: Path }, ["k"], (row) => ({
+		const T = relation.generated("T", { k: int4, g: int4, t: Path }, ["k"], (row) => ({
 			l: generated(Path, Text.lowerAscii(row.t)),
 			h: generated(sha256, Crypto.sha256(row.t))
 		}))
@@ -99,7 +99,7 @@ const digestSchemaOf = (c: DigestCase) => {
 		})
 		return { T, S, schema: Digests, Copies }
 	}
-	const T = relation("T", { k: pg.integer, g: pg.integer, t: Path }, ["k"])
+	const T = relation("T", { k: int4, g: int4, t: Path }, ["k"])
 	const Digests = schema("DigestSeeks", [S, T], [])
 	const Pairs = query(Digests).rule((r) => {
 		const { k, g, t } = v(T, "t")
@@ -147,21 +147,21 @@ const programOf = (
 			return reads.rule((r) => {
 				const { k, g } = v(Texts, "text")
 				return r
-					.match(Texts, { k: c.keyed ? r.param("k", pg.integer) : k, g, t: r.param("t", Path) })
+					.match(Texts, { k: c.keyed ? r.param("k", int4) : k, g, t: r.param("t", Path) })
 					.find({ g })
 			})
 		case "a carried literal":
 			return reads.rule((r) => {
 				const { k, g } = v(Copies, "copy")
-				return r.match(Copies, { k: c.keyed ? r.param("k", pg.integer) : k, g, t: "x" }).find({ g })
+				return r.match(Copies, { k: c.keyed ? r.param("k", int4) : k, g, t: "x" }).find({ g })
 			})
 		case "a carried join":
 			return reads.rule((r) => {
 				const { k, g } = v(Carried, "carried")
 				const { u } = v(S, "s")
 				return r
-					.match(S, { s: r.param("s", pg.integer), u })
-					.match(Carried, { k: c.keyed ? r.param("k", pg.integer) : k, g, t: u })
+					.match(S, { s: r.param("s", int4), u })
+					.match(Carried, { k: c.keyed ? r.param("k", int4) : k, g, t: u })
 					.find({ g })
 			})
 		case "a carried join of another text type":
@@ -169,8 +169,8 @@ const programOf = (
 				const { k, g } = v(Branches, "branch")
 				const { w } = v(S, "s")
 				return r
-					.match(S, { s: r.param("s", pg.integer), w })
-					.match(Branches, { k: c.keyed ? r.param("k", pg.integer) : k, g, t: w })
+					.match(S, { s: r.param("s", int4), w })
+					.match(Branches, { k: c.keyed ? r.param("k", int4) : k, g, t: w })
 					.find({ g })
 			})
 		case "a correlated negation":
@@ -192,20 +192,20 @@ const programOf = (
 		case "a literal":
 			return reads.rule((r) => {
 				const { k, g } = v(T, "t")
-				return r.match(T, { k: c.keyed ? r.param("k", pg.integer) : k, g, t: "x" }).find({ g })
+				return r.match(T, { k: c.keyed ? r.param("k", int4) : k, g, t: "x" }).find({ g })
 			})
 		case "a parameter":
 			return reads.rule((r) => {
 				const { k, g } = v(T, "t")
 				return r
-					.match(T, { k: c.keyed ? r.param("k", pg.integer) : k, g, t: r.param("t", Path) })
+					.match(T, { k: c.keyed ? r.param("k", int4) : k, g, t: r.param("t", Path) })
 					.find({ g })
 			})
 		case "an equality":
 			return reads.rule((r) => {
 				const { k, g, t } = v(T, "t")
 				return r
-					.match(T, { k: c.keyed ? r.param("k", pg.integer) : k, g, t })
+					.match(T, { k: c.keyed ? r.param("k", int4) : k, g, t })
 					.where(r.eq(t, r.param("t", Path)))
 					.find({ g })
 			})
@@ -213,7 +213,7 @@ const programOf = (
 			return reads.rule((r) => {
 				const { k, g, t } = v(T, "t")
 				return r
-					.match(T, { k: c.keyed ? r.param("k", pg.integer) : k, g, t })
+					.match(T, { k: c.keyed ? r.param("k", int4) : k, g, t })
 					.where(r.eq(t, r.param("t", Word)))
 					.find({ g })
 			})
@@ -221,7 +221,7 @@ const programOf = (
 			return reads.rule((r) => {
 				const { k, g, t } = v(T, "t")
 				return r
-					.match(T, { k: c.keyed ? r.param("k", pg.integer) : k, g, t })
+					.match(T, { k: c.keyed ? r.param("k", int4) : k, g, t })
 					.where(r.in(t, ["x", "y"]))
 					.find({ g })
 			})
@@ -230,8 +230,8 @@ const programOf = (
 				const { k, g, t } = v(T, "t")
 				const { u } = v(S, "s")
 				return r
-					.match(S, { s: r.param("s", pg.integer), u })
-					.match(T, { k: c.keyed ? r.param("k", pg.integer) : k, g, t })
+					.match(S, { s: r.param("s", int4), u })
+					.match(T, { k: c.keyed ? r.param("k", int4) : k, g, t })
 					.where(r.eq(t, u))
 					.find({ g })
 			})
@@ -241,7 +241,7 @@ const programOf = (
 				const { s, u } = v(S, "s")
 				return r
 					.match(S, { s, u })
-					.match(T, { k: c.keyed ? r.param("k", pg.integer) : k, g, t })
+					.match(T, { k: c.keyed ? r.param("k", int4) : k, g, t })
 					.where(r.eq(t, u))
 					.find({ g })
 			})
@@ -250,8 +250,8 @@ const programOf = (
 				const { k, g } = v(T, "t")
 				const { u } = v(S, "s")
 				return r
-					.match(S, { s: r.param("s", pg.integer), u })
-					.match(T, { k: c.keyed ? r.param("k", pg.integer) : k, g, t: u })
+					.match(S, { s: r.param("s", int4), u })
+					.match(T, { k: c.keyed ? r.param("k", int4) : k, g, t: u })
 					.find({ g })
 			})
 		case "a negated literal":
@@ -272,9 +272,9 @@ const programOf = (
  * (Checker `digestColumns`): the read binds the query's text to a parameter, and its key where the case binds it.
  */
 const importedRead = (c: DigestCase) => {
-	const S = relation("S", { s: pg.integer, u: Path }, ["s"])
+	const S = relation("S", { s: int4, u: Path }, ["s"])
 	if (c.digest) {
-		const T = relation.generated("T", { k: pg.integer, g: pg.integer, t: Path }, ["k"], (row) => ({
+		const T = relation.generated("T", { k: int4, g: int4, t: Path }, ["k"], (row) => ({
 			l: generated(Path, Text.lowerAscii(row.t)),
 			h: generated(sha256, Crypto.sha256(row.t))
 		}))
@@ -286,12 +286,12 @@ const importedRead = (c: DigestCase) => {
 		const read = query(Digests).rule((r) => {
 			const { k, g } = v(Texts, "text")
 			return r
-				.match(Texts, { k: c.keyed ? r.param("k", pg.integer) : k, g, t: r.param("t", Path) })
+				.match(Texts, { k: c.keyed ? r.param("k", int4) : k, g, t: r.param("t", Path) })
 				.find({ g })
 		})
 		return servingWith(Digests, { read })
 	}
-	const T = relation("T", { k: pg.integer, g: pg.integer, t: Path }, ["k"])
+	const T = relation("T", { k: int4, g: int4, t: Path }, ["k"])
 	const Digests = schema("DigestSeeks", [S, T], [])
 	const Texts = query(Digests).rule((r) => {
 		const { k, g, t } = v(T, "t")
@@ -300,7 +300,7 @@ const importedRead = (c: DigestCase) => {
 	const read = query(Digests).rule((r) => {
 		const { k, g } = v(Texts, "text")
 		return r
-			.match(Texts, { k: c.keyed ? r.param("k", pg.integer) : k, g, t: r.param("t", Path) })
+			.match(Texts, { k: c.keyed ? r.param("k", int4) : k, g, t: r.param("t", Path) })
 			.find({ g })
 	})
 	return servingWith(Digests, { read })

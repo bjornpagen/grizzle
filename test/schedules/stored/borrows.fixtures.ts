@@ -7,7 +7,7 @@ import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Result } from "effect"
 import type { CallError, WriteOutcome } from "#compiler/live/index.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, login, relation, role, schema, unit } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
@@ -15,11 +15,7 @@ import type { WriteAnswer } from "#test/support/calls.ts"
 import { rigTemplate } from "#test/support/schedules/rig.ts"
 
 /** A document's places, in the unit of the document's shelf. */
-export const Doc = relation("Doc", { shelf: pg.integer, doc: pg.integer, at: pg.integer }, [
-	"shelf",
-	"doc",
-	"at"
-])
+export const Doc = relation("Doc", { shelf: int4, doc: int4, at: int4 }, ["shelf", "doc", "at"])
 
 /** The shelf every document of a case stands on. */
 export const shelf = 1
@@ -32,7 +28,7 @@ export const shelf = 1
  * else, its workload `put`, an insertion of Doc's rows the call states, and its two logins.
  */
 export const stored = (name: string) => {
-	const base = schema(name, [Doc], [unit("Shelf", { shelf: pg.integer })])
+	const base = schema(name, [Doc], [unit("Shelf", { shelf: int4 })])
 	const Counted = derived(
 		"Counted",
 		query(base).rule((r) => {

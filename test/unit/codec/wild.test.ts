@@ -237,7 +237,7 @@ export const factIdentityRefusesEveryFactWithAWordAndItsFieldOrAdmitsEveryFieldA
 				file: "packages/engine/src/scalar/values/span.ts",
 				original: '\t\tif (typeof value !== "bigint" || value < int8Min || value > int8Max) {',
 				replacement: '\t\tif (typeof value !== "bigint" || value >= int8Min || value > int8Max) {',
-				why: "Operator mutant (comparison) at packages/engine/src/scalar/values/span.ts:51 in the int8 span endpoint: `<` becomes `>=`, so every int8 endpoint at or above the minimum is refused as spanEndpoint; a fact of Live fields is refused and the property fails (lane CATCH, grizzle a673cd7a)."
+				why: "Operator mutant (comparison) at packages/engine/src/scalar/values/span.ts:51 in the int8 range endpoint: `<` becomes `>=`, so every int8 endpoint at or above the minimum is refused as spanEndpoint; a fact of Live fields is refused and the property fails (lane CATCH, grizzle a673cd7a)."
 			}
 		]
 	})

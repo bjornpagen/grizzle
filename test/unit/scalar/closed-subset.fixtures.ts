@@ -9,7 +9,7 @@ import type { FieldDesc } from "#compiler/ir/desc.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { queryInput } from "#compiler/program/input.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
-import { type ClosedIdField, type ClosedSubset, pg } from "#compiler/public/fields.ts"
+import { type ClosedIdField, type ClosedSubset, int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { own, rostersOf } from "#compiler/schema/own.ts"
@@ -155,7 +155,7 @@ export const statedBy = (subset: ClosedSubset<typeof Mark> | undefined): Stated 
  * a query over T may equate mark to, as its check admits them.
  */
 export const installedOf = (field: ClosedIdField<typeof Mark, Handle>) => {
-	const T = relation("T", { k: pg.integer, mark: field }, ["k"])
+	const T = relation("T", { k: int4, mark: field }, ["k"])
 	const S = schema("Subsets", [Mark, T], [])
 	const desc = defined(schemaDescOf(S), "the case's description")
 	const fields = Option.getOrThrow(

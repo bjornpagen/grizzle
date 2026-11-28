@@ -1,5 +1,5 @@
 import { Distance } from "#compiler/public/compute.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int8, vector } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	contained,
@@ -18,16 +18,16 @@ import { Id } from "#test/support/ids.ts"
 
 /** The dimension count of the Search schema's vectors. */
 export const documentDimensions = 4
-export const DocumentVector = pg.vector(documentDimensions)
+export const DocumentVector = vector(documentDimensions)
 const Title = str.regex("^.+$", "su")
 export const Document = relation("Document", { id: Id, account: Id, title: Title }, ["id"])
-export const DocumentCurrent = relation("DocumentCurrent", { document: Id, revision: pg.bigint }, [
+export const DocumentCurrent = relation("DocumentCurrent", { document: Id, revision: int8 }, [
 	"document"
 ])
 
 export const DocumentEmbedding = relation(
 	"DocumentEmbedding",
-	{ document: Id, revision: pg.bigint, value: DocumentVector },
+	{ document: Id, revision: int8, value: DocumentVector },
 	["document", "revision"]
 )
 

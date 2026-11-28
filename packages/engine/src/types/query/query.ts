@@ -859,7 +859,7 @@ interface SearchRefusals {
 	readonly approximate: "approximateNearest over one rule's projection; this source is another approximate search"
 	readonly recursive: "approximateNearest over one rule's projection; this source is a recursive relation"
 	readonly aggregate: "approximateNearest over one rule's projection; this source is an aggregate rule, whose output is a nonlinear fold rather than a distance of one stored vector"
-	readonly producer: "approximateNearest over one rule's projection; this source is a rule whose head produces spans, facts per binding rather than its projection"
+	readonly producer: "approximateNearest over one rule's projection; this source is a rule whose head produces ranges, facts per binding rather than its projection"
 }
 /**
  * What an approximate search over the arm A takes: a spec ranking by a distance of A's carriers and taking K facts
@@ -1149,7 +1149,7 @@ type Apart<X, Y> = [OneKnown<LiteralOf<X>>] extends [never]
 			: true
 /**
  * A constant's one value as the checker compares it, a number and a bigint by their spelling, which a field both
- * meet types alike; never where the types carry no one value: a Decimal, a Money, a typed Type.literal's, a value
+ * meet types alike; never where the types carry no one value: a Numeric, a Money, a typed Type.literal's, a value
  * of a non-literal type.
  */
 type OneKnown<V> = [V] extends [UnionToIntersection<V>]
@@ -1281,7 +1281,7 @@ export interface Ordered<
 	/**
 	 * The first k under the completed total order; a set again; take(1) is atMostOne (TakeEvidence). k is a positive
 	 * literal of int4's range, or the name of an integer parameter, take("batch"), which joins the query's parameters
-	 * as pg.integer (TakeBound). A union of several headings is bounded by one take (OneTakeOverGroups).
+	 * as int4 (TakeBound). A union of several headings is bounded by one take (OneTakeOverGroups).
 	 */
 	take<Over, const K extends number | string>(
 		this: OverSchema<Over>,
@@ -1290,7 +1290,7 @@ export interface Ordered<
 		Over,
 		Head,
 		TakeEvidence<Ev, K>,
-		K extends string ? Simplify<P & { readonly [N in K]: ParamType<number, "integer"> }> : P,
+		K extends string ? Simplify<P & { readonly [N in K]: ParamType<number, "int4"> }> : P,
 		IHead,
 		Hc,
 		Cx,

@@ -794,7 +794,7 @@ class Flattener {
 		}
 		if (term.kind === "producer") {
 			return this.#refuseKind(
-				"a rule reads a derived relation whose definition joins, selects and projects: this one produces spans"
+				"a rule reads a derived relation whose definition joins, selects and projects: this one produces ranges"
 			)
 		}
 		const foreign = foreignLeaf(term)

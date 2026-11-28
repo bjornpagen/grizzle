@@ -17,9 +17,9 @@ import { bigint } from "@bjornpagen/testing/values"
 import { Array as Arr, Option, String as Str } from "effect"
 import { type FieldDesc, pgScalarNames } from "#compiler/ir/desc.ts"
 import { type DeclaredType, languageOfText, languageWithin, textOf } from "#compiler/ir/scalar.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4, int8, numeric } from "#compiler/public/fields.ts"
 import { str } from "#compiler/public/text.ts"
-import { Decimal, type DecimalParts, type FiniteParts } from "#compiler/scalar/values/decimal.ts"
+import { Numeric, type DecimalParts, type FiniteParts } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { makeSpan } from "#compiler/scalar/values/span.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
@@ -30,7 +30,7 @@ import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { Id } from "#test/support/ids.ts"
 import { decimalGen, numericText } from "#test/support/unit/values/support.ts"
 
-/** Groups of spellings of one Decimal value, and values alone. */
+/** Groups of spellings of one Numeric value, and values alone. */
 const decimalGroups: Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<string>> = [
 	["0", "-0", "0.000", "+0", "0e5", "-0.0"],
 	["1", "1.0", "1.00", "+1", "1e0", "10e-1", "0.1e1"],
@@ -44,21 +44,21 @@ const decimalGroups: Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<string>
 	["0.10000000000000000001"]
 ]
 
-const decimalOf = (text: string): Decimal => succeeded(Decimal.fromString(text))
+const decimalOf = (text: string): Numeric => succeeded(Numeric.fromString(text))
 
 /** A value drawn from the dictionary or generated. */
-const dictionaryDecimal: Gen<Decimal> = (source) =>
+const dictionaryDecimal: Gen<Numeric> = (source) =>
 	decimalOf(source.draw(element(source.draw(element(decimalGroups)))))
 
-const anyDecimal: Gen<Decimal> = oneOf([dictionaryDecimal, decimalGen])
+const anyDecimal: Gen<Numeric> = oneOf([dictionaryDecimal, decimalGen])
 
 const signed = (p: FiniteParts): bigint => (p.negative ? -p.coefficient : p.coefficient)
 
 /**
- * The exact rational value of a finite Decimal as a signed coefficient over 10^minScale, compared by cross
+ * The exact rational value of a finite Numeric as a signed coefficient over 10^minScale, compared by cross
  * multiplication, which reads no canonical form; the specials by their kind, NaN equal to NaN.
  */
-const sameDecimal = (a: Decimal, b: Decimal): boolean => {
+const sameDecimal = (a: Numeric, b: Numeric): boolean => {
 	const x = a.parts
 	const y = b.parts
 	if (x.kind !== "finite" || y.kind !== "finite") {
@@ -110,7 +110,7 @@ type Judged =
 			readonly components: readonly [ReadonlyArray<number>, ReadonlyArray<number>]
 	  })
 
-const judgedDecimal = (a: Decimal, b: Decimal): Judged => ({
+const judgedDecimal = (a: Numeric, b: Numeric): Judged => ({
 	carrier: "decimal",
 	oracle: sameDecimal(a, b),
 	sides: [
@@ -249,15 +249,15 @@ const otherDescs: Arr.NonEmptyReadonlyArray<FieldDesc> = [
 	f.natural,
 	f.closedId("Kind"),
 	{ kind: "bits", roster: "Kind" },
-	{ kind: "span", endpoint: { kind: "pg", type: "bigint" }, width: 10n },
-	{ kind: "span", endpoint: { kind: "pg", type: "integer" }, width: undefined },
+	{ kind: "span", endpoint: { kind: "pg", type: "int8" }, width: 10n },
+	{ kind: "span", endpoint: { kind: "pg", type: "int4" }, width: undefined },
 	{ kind: "span", endpoint: { kind: "pg", type: "date" }, width: undefined },
 	{ kind: "vector", dimensions: 3 }
 ]
 
 /** A constructed value with the name of its constructor. */
 export type Constructor =
-	| "Decimal.fromString"
+	| "Numeric.fromString"
 	| "Money.fromCanonical"
 	| "makeSpan"
 	| "Vector.canonical"
@@ -334,7 +334,7 @@ const typedSpaces: Arr.NonEmptyReadonlyArray<readonly [Typed, Gen<Constructed>]>
 ]
 
 const constructedGen: Gen<Constructed> = oneOf<Constructed>([
-	map(numericText, (text): Constructed => ({ by: "Decimal.fromString", value: decimalOf(text) })),
+	map(numericText, (text): Constructed => ({ by: "Numeric.fromString", value: decimalOf(text) })),
 	map(minorUnits, (units): Constructed => ({ by: "Money.fromCanonical", value: moneyOf(units) })),
 	(source): Constructed => {
 		const start = source.draw(bigint(-10n, 10n))
@@ -348,9 +348,9 @@ const constructedGen: Gen<Constructed> = oneOf<Constructed>([
 	oneOf(Arr.map(typedSpaces, ([, space]) => space)),
 	element<Constructed>([
 		{ by: "a public field descriptor", value: Id },
-		{ by: "a public field descriptor", value: pg.integer },
-		{ by: "a public field descriptor", value: pg.bigint },
-		{ by: "a public field descriptor", value: pg.numeric(10, 2) },
+		{ by: "a public field descriptor", value: int4 },
+		{ by: "a public field descriptor", value: int8 },
+		{ by: "a public field descriptor", value: numeric(10, 2) },
 		{ by: "str.regex", value: str.regex("^[a-z]{1,8}$") }
 	])
 ])
@@ -446,7 +446,7 @@ export const offeredSpace: Aimed<Offered, RevivalFeature> = aimed(
 export const rewritten = (tag: Tag, payload: string): Result.Result<string, string> => {
 	switch (tag) {
 		case "d": {
-			const d = Decimal.fromCanonical(payload)
+			const d = Numeric.fromCanonical(payload)
 			return d.ok ? Result.ok(d.value.toString()) : Result.err(d.error.message)
 		}
 		case "m": {

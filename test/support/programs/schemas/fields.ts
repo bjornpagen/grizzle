@@ -5,27 +5,43 @@
  */
 export {
 	accumulated,
-	bits,
-	Bits,
+	bigserial,
+	bit,
+	Bit,
+	bool,
+	cidr,
 	closedId,
 	contract,
 	date,
-	Decimal,
 	drawn,
+	float4,
+	float8,
 	generated,
+	inet,
+	int2,
+	int4,
+	int8,
 	mintOf,
+	money,
 	Money,
 	natural,
-	pg,
+	numeric,
+	Numeric,
+	serial,
 	slot,
-	span,
-	uuid,
+	smallserial,
+	range,
+	tsvector,
 	Uuid,
-	Vector
+	uuid,
+	uuidv7,
+	Vector,
+	vector
 } from "#compiler/public/fields.ts"
+export type { Range } from "#compiler/public/compute.ts"
 export type {
 	AccumulatedField,
-	BitsField,
+	BitField,
 	CalendarDate,
 	ClosedIdField,
 	Contract,
@@ -39,9 +55,8 @@ export type {
 	NaturalField,
 	NumericField,
 	NumericTypmodField,
-	Span,
-	SpanEndpointLike,
-	SpanField,
+	RangeEndpointLike,
+	RangeField,
 	VectorField
 } from "#compiler/public/fields.ts"
 export { Id, idKey } from "#test/support/ids.ts"

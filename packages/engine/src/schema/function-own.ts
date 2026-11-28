@@ -90,7 +90,7 @@ const subsetId = (t: FieldDesc): boolean =>
 const signatureRefused = (loc: SourceLoc): CompileError =>
 	ruleRefused(
 		loc,
-		"a declared function takes and returns values of a base type, a closed id, a digest, a contract or a refined text over one, or a variant: no serial, money, exact value, bytes, set, span or vector"
+		"a declared function takes and returns values of a base type, a closed id, a digest, a contract or a refined text over one, or a variant: no serial, money, exact value, bytes, set, range or vector"
 	)
 
 /**

@@ -26,7 +26,7 @@ interface ExactCase {
 const admitted = { kind: "admitted" } as const
 
 const contractRefusal: Refused =
-	"no contract is over an exact value of any size: declare it over pg.bigint, pg.numeric(p, s) or pg.money"
+	"no contract is over an exact value of any size: declare it over int8, numeric(p, s) or money"
 
 const boxCases: ReadonlyArray<ExactCase> = [
 	{
@@ -57,9 +57,9 @@ const boxCases: ReadonlyArray<ExactCase> = [
 		verdict: { kind: "refusal", refusal: "a member fact is not a fact of the relation" }
 	},
 	{
-		what: "an insert of a Decimal into the exact money",
+		what: "an insert of a Numeric into the exact money",
 		statement:
-			'ChangeSet.empty(S).insert(Ledger, [{ id: 1, count: 5n, total: Decimal.of("1.50"), n: 1n, m: Money.of(1n) }])',
+			'ChangeSet.empty(S).insert(Ledger, [{ id: 1, count: 5n, total: Numeric.of("1.50"), n: 1n, m: Money.of(1n) }])',
 		verdict: { kind: "refusal", refusal: "a member fact is not a fact of the relation" }
 	},
 	{
@@ -99,7 +99,7 @@ const boxCases: ReadonlyArray<ExactCase> = [
 	{
 		what: "a generated exact integer of two bigints",
 		statement:
-			'relation.generated("Summed", { id: pg.integer, a: pg.bigint, b: pg.bigint }, ["id"], (row) => ({ s: generated(exactInteger, Num.add(row.a, row.b)) }))',
+			'relation.generated("Summed", { id: int4, a: int8, b: int8 }, ["id"], (row) => ({ s: generated(exactInteger, Num.add(row.a, row.b)) }))',
 		verdict: admitted
 	},
 	{
@@ -144,7 +144,7 @@ const prelude = await Effect.runPromise(preludeAt("test/support/programs/exact-f
 
 /** Ledger, its count an exactInteger and its total an exactMoney beside a plain bigint and amount. */
 const exactHeader = `export const probeKey = Symbol("Probe")
-export const Ledger = relation("Ledger", { id: pg.integer, count: exactInteger, total: exactMoney, n: pg.bigint, m: pg.money }, ["id"])
+export const Ledger = relation("Ledger", { id: int4, count: exactInteger, total: exactMoney, n: int8, m: money }, ["id"])
 export const S = schema("S", [Ledger], [])
 `
 

@@ -16,7 +16,7 @@ import { lawsOfConstraint } from "#compiler/ir/products.ts"
 import { countColumn } from "#compiler/physical/ddl/deltas.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int2, int4, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, derived, mutable, on, relation, schema, unit } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -59,22 +59,22 @@ const A = relation(
 	{
 		package: Path,
 		path: Path,
-		start: pg.bigint,
-		name: pg.smallint,
-		governor: pg.smallint,
-		note: pg.integer
+		start: int8,
+		name: int2,
+		governor: int2,
+		note: int4
 	},
 	["package", "path", "start", "name"]
 )
 /** A reference to an attribute, at the attribute's key, its package in a pack. */
-const R = relation("R", { pack: Path, path: Path, start: pg.bigint, name: pg.smallint }, [
+const R = relation("R", { pack: Path, path: Path, start: int8, name: int2 }, [
 	"pack",
 	"path",
 	"start",
 	"name"
 ])
 /** A name a package declares, in a pack. */
-const Q = relation("Q", { pack: Path, name: pg.smallint }, ["pack", "name"])
+const Q = relation("Q", { pack: Path, name: int2 }, ["pack", "name"])
 
 /**
  * Mutable: P and A in the unit of their package, R and Q in the unit of their pack, so every rule over them reads the

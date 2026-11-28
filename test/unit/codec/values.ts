@@ -1,4 +1,4 @@
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 import { isVector, type Vector } from "#compiler/scalar/values/vector.ts"
 
 /**
@@ -9,8 +9,8 @@ const fail = (expected: string, value: unknown): never => {
 	throw new Error(`expected a ${expected}, got ${String(value)}`)
 }
 
-export const asDecimal = (value: unknown): Decimal =>
-	value instanceof Decimal ? value : fail("Decimal", value)
+export const asDecimal = (value: unknown): Numeric =>
+	value instanceof Numeric ? value : fail("Numeric", value)
 
 export const asVector = (value: unknown): Vector =>
 	isVector(value) ? value : fail("Vector", value)

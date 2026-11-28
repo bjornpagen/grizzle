@@ -8,7 +8,7 @@ import { textDesc } from "#test/support/fixtures/ir/desc.ts"
 import { Id } from "#test/support/ids.ts"
 import { typedLit, varRef } from "#test/support/unit/check/dsl.ts"
 
-export const integer: FieldDesc = { kind: "pg", type: "integer" }
+export const integer: FieldDesc = { kind: "pg", type: "int4" }
 
 export const s = (column: string) => varRef(`self.${column}`)
 
@@ -17,9 +17,9 @@ export const integerLit = (n: number) => typedLit(n, integer)
 
 /** A Vertex column copied as data into the state, and its declared type. */
 export const copied: Arr.NonEmptyReadonlyArray<readonly [string, FieldDesc]> = [
-	["active", { kind: "pg", type: "boolean" }],
+	["active", { kind: "pg", type: "bool" }],
 	["level", { kind: "closedId", roster: "Level", only: undefined }],
-	["rank", { kind: "pg", type: "smallint" }],
+	["rank", { kind: "pg", type: "int2" }],
 	["label", textDesc("^v[0-9]+$", "u")]
 ]
 

@@ -43,14 +43,14 @@ export const castInjectiveAdmitsOnlyCastsThatMergeNoTwoValuesOfTheirSourceAndEve
 		{
 			needs: {},
 			situations: [
-				"integer->integer admitted",
-				"integer->float admitted",
-				"integer->float refused, a merge witnessed",
+				"int4->int4 admitted",
+				"int4->float admitted",
+				"int4->float refused, a merge witnessed",
 				"float->float admitted",
 				"float->float refused, a merge witnessed",
-				"float->integer refused, a merge witnessed",
-				"integer->numeric admitted",
-				"integer->numeric refused, a merge witnessed",
+				"float->int4 refused, a merge witnessed",
+				"int4->numeric admitted",
+				"int4->numeric refused, a merge witnessed",
 				"numeric->numeric admitted",
 				"numeric->numeric refused, a merge witnessed",
 				"a value the cast refuses"

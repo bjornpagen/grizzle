@@ -52,7 +52,7 @@ type ArmRefusal<A> =
 		? Stage extends "rule" | "union" | "recursive"
 			? [KeysOfCarrier<C, Producer<unknown, never>>] extends [never]
 				? never
-				: Refusal<"a rule reads a derived relation whose definition joins, selects and projects: this one produces spans">
+				: Refusal<"a rule reads a derived relation whose definition joins, selects and projects: this one produces ranges">
 			: Refusal<StageRefusals[Exclude<Stage, "rule" | "union" | "recursive">]>
 		: never
 

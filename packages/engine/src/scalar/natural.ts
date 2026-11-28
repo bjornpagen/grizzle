@@ -9,35 +9,35 @@ import { baseOf, naturalName, type ScalarType } from "#compiler/ir/scalar.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { integerHostOf } from "#compiler/scalar/compute/literal.ts"
 import { contractParts } from "#compiler/scalar/contract.ts"
-import { pgDescriptors } from "#compiler/scalar/pg.ts"
+import { int8 } from "#compiler/scalar/pg.ts"
 import { defineField, describeFieldOrThrow } from "#compiler/scalar/registry.ts"
 
 /**
- * natural's admission: the contract `natural` over pg.bigint, whose values are never below zero, which it declares it
+ * natural's admission: the contract `natural` over int8, whose values are never below zero, which it declares it
  * proves, admitted by the one path every contract is.
  */
-const parts = contractParts(naturalName, pgDescriptors.bigint, [
+const parts = contractParts(naturalName, int8, [
 	(v: unknown) => computeCore.ge(v, 0n),
 	{ proves: ["nonnegative"] }
 ])
 
-/** pg.bigint's column, which natural's values are read by: a bigint's. */
-const column: Column<bigint> = pgDescriptors.bigint.column
+/** int8's column, which natural's values are read by: a bigint's. */
+const column: Column<bigint> = int8.column
 
 /**
  * natural: a count, a bigint never below zero, and the one field type a law side may read pred of. It is the builtin
- * contract `natural` over pg.bigint, `CHECK (VALUE >= 0)`, so it lowers to its PostgreSQL domain as every contract
+ * contract `natural` over int8, `CHECK (VALUE >= 0)`, so it lowers to its PostgreSQL domain as every contract
  * does, and a schema that declares another contract under its name declares a conflicting descriptor. Its host type is
- * bigint, unbranded: its column is pg.bigint's, and it is no brand constructor. `natural: true` is the member its type
+ * bigint, unbranded: its column is int8's, and it is no brand constructor. `natural: true` is the member its type
  * is told apart by (types/fields NaturalField).
  */
 export const naturalDescriptor = defineField(
 	{},
-	pgDescriptors.bigint.sql,
+	int8.sql,
 	parts.desc,
 	{
 		name: parts.name,
-		base: pgDescriptors.bigint,
+		base: int8,
 		predicate: parts.predicate,
 		column,
 		natural: true
@@ -95,7 +95,7 @@ const isIntegerDesc = (desc: FieldDesc): boolean => {
 		case "contract":
 			return isIntegerDesc(desc.base)
 		case "pg":
-			return desc.type === "smallint" || desc.type === "integer" || desc.type === "bigint"
+			return desc.type === "int2" || desc.type === "int4" || desc.type === "int8"
 		case "numeric":
 		case "exact":
 		case "computedNumeric":
@@ -129,7 +129,7 @@ export const drawnNarrowing = (type: ScalarType): DrawnNarrowing | undefined => 
 	return carrier === "int2" || carrier === "int4"
 		? {
 				greatest: integerRanges[carrier][1],
-				contract: defined(type.contract, "a drawn type below bigint is a contract").name
+				contract: defined(type.contract, "a drawn type below int8 is a contract").name
 			}
 		: undefined
 }

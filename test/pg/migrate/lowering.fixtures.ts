@@ -9,7 +9,7 @@ import { quoteIdent } from "#compiler/core/text.ts"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import { lawsOfConstraint } from "#compiler/ir/products.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, derived, on, relation, schema } from "#compiler/public/schema.ts"
 import { ambientOwner, ordinarySession } from "#test/support/ambient.ts"
@@ -124,13 +124,13 @@ const keeps = (rows: Rows, uses: ReadonlyArray<number>, version: Version): boole
 const useName = (c: WalkCase, step: number): "Use" | "Usage" =>
 	c.applied === "the last two together" && step === 2 ? "Usage" : "Use"
 
-const Doc = relation("Doc", { node: pg.integer, kind: pg.integer }, ["node"])
+const Doc = relation("Doc", { node: int4, kind: int4 }, ["node"])
 
-const Extra = relation("Extra", { node: pg.integer }, ["node"])
+const Extra = relation("Extra", { node: int4 }, ["node"])
 
-const Use = relation("Use", { id: pg.integer, doc: pg.integer }, ["id"])
+const Use = relation("Use", { id: int4, doc: int4 }, ["id"])
 
-const Usage = relation("Usage", { id: pg.integer, doc: pg.integer }, ["id"])
+const Usage = relation("Usage", { id: int4, doc: int4 }, ["id"])
 
 /** The version `version` under `name`, with Use contained in D or in nothing. */
 const withUseDerived = (name: string, version: Version) => {

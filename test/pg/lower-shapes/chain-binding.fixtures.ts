@@ -6,7 +6,7 @@ import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
 import type { BenchSession } from "#bench/harness/session.ts"
 import { Type } from "#compiler/public/compute.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import {
@@ -25,7 +25,7 @@ import { readWork } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import type { PgConnection } from "#test/support/pg.ts"
 
-const i = pg.integer
+const i = int4
 
 /**
  * A test's content and a learner's sittings of it, as qti-pie's ledger reads pantry's test views: each member of a test
@@ -80,7 +80,7 @@ const shownInForce = query(Content)
 		return r
 			.match(ItemRefSection, { package: pkg, path, start })
 			.where(r.not(Shown, { package: pkg, path, start }))
-			.find({ package: pkg, path, shown: Type.literal(pg.integer, 0), start })
+			.find({ package: pkg, path, shown: Type.literal(int4, 0), start })
 	})
 
 /** Each section member's time limit in force: the stated one, else 0, a default list as shownInForce's. */
@@ -96,7 +96,7 @@ const limitInForce = query(Content)
 		return r
 			.match(ItemRefSection, { package: pkg, path, start })
 			.where(r.not(Limit, { package: pkg, path, start }))
-			.find({ package: pkg, path, seconds: Type.literal(pg.integer, 0), start })
+			.find({ package: pkg, path, seconds: Type.literal(int4, 0), start })
 	})
 
 /**

@@ -6,7 +6,7 @@
  * its root value `doc` and its start, its `parent` the parent's start: the substrate's `parentStart`.
  */
 import { Array as Arr, Option } from "effect"
-import { drawn, natural, pg } from "#compiler/public/fields.ts"
+import { drawn, natural, int4 } from "#compiler/public/fields.ts"
 import { fin, on, relation, schema, tree } from "#compiler/public/schema.ts"
 import type { TreeNative } from "#test/support/families/tree.ts"
 import type { Catalogued, Seat } from "#test/support/pg/fin/installed.ts"
@@ -17,7 +17,7 @@ import type { TreeRow } from "#test/support/pg/substrate/tree.ts"
 const Node = relation(
 	"Node",
 	{
-		doc: pg.integer,
+		doc: int4,
 		parent: drawn(natural),
 		at: drawn(natural),
 		children: drawn(natural),

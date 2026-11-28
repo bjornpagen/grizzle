@@ -12,7 +12,7 @@ import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { installOptions } from "#compiler/physical/install/compile.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
 import { closed, relation } from "#compiler/public/dynamic.ts"
-import { bits, closedId } from "#compiler/public/fields.ts"
+import { bit, closedId } from "#compiler/public/fields.ts"
 import { login, role, schema } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
@@ -77,7 +77,7 @@ export const compiledCase = (drawn: RosterCase): CompiledCase => {
 		drawn.order === "ordered"
 			? closed.ordered("Graders", drawn.handles)
 			: closed.unordered("Graders", drawn.handles)
-	const Graded = relation("Graded", { id: Id, grader: closedId(Graders), graders: bits(Graders) }, [
+	const Graded = relation("Graded", { id: Id, grader: closedId(Graders), graders: bit(Graders) }, [
 		"id"
 	])
 	const value = schema("Registry", [Graders, Graded], [])

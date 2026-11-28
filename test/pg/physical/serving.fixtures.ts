@@ -413,7 +413,7 @@ type SpanScalar = (typeof spanScalars)[number]
 
 /**
  * A drawn request, by what it asks: a workload B-tree access, a law's probe, or a GiST
- * span predicate on during with Booking's scalars before it. Each names the relation, the columns and the use it draws.
+ * range predicate on during with Booking's scalars before it. Each names the relation, the columns and the use it draws.
  */
 interface KeySketch<C extends string> {
 	readonly column: C
@@ -432,7 +432,7 @@ type Intent =
 			readonly relation: Keyed
 			readonly keys: Arr.NonEmptyReadonlyArray<KeySketch<string>>
 	  }
-	| { readonly kind: "span predicate"; readonly scalars: ReadonlyArray<SpanScalar> }
+	| { readonly kind: "range predicate"; readonly scalars: ReadonlyArray<SpanScalar> }
 
 /** One to three keys over `columns`, a column possibly repeated (a request keys each once). */
 const keysGen =
@@ -474,7 +474,7 @@ const intentGen: Gen<Intent> = weighted<Intent>([
 	[
 		1,
 		(source) => ({
-			kind: "span predicate",
+			kind: "range predicate",
 			scalars: source.draw(array(element(spanScalars), { min: 0, max: 2 }))
 		})
 	]
@@ -535,12 +535,12 @@ const resolveIntent = (intent: Intent): RequestSpec => {
 				relation: intent.relation,
 				keys: Arr.map(keysFor(intent.keys), (k) => k.field)
 			}
-		case "span predicate": {
+		case "range predicate": {
 			const scalars = Arr.dedupe(intent.scalars)
 			return {
 				kind: "access",
 				relation: "Booking",
-				use: "span predicate",
+				use: "range predicate",
 				keys: Arr.append(
 					Arr.map(scalars, (field) => ({ field, dir: "asc" as const })),
 					{ field: "during", dir: "asc" as const }
@@ -553,7 +553,7 @@ const resolveIntent = (intent: Intent): RequestSpec => {
 const resolveIntents = (intents: ReadonlyArray<Intent>): ReadonlyArray<RequestSpec> =>
 	Arr.map(intents, resolveIntent)
 
-export type RequestFeature = ServingFeature | "a span predicate on during alone"
+export type RequestFeature = ServingFeature | "a range predicate on during alone"
 
 /**
  * The drawn requests on the drawn suite's schema (requestSchema), installed, each relation loaded at volume, and judged
@@ -563,8 +563,8 @@ export const requestCase = (sketch: RequestSketch, note: (feature: RequestFeatur
 	Effect.gen(function* () {
 		const specs = resolveIntents(sketch.intents)
 		for (const spec of specs) {
-			if (spec.kind === "access" && spec.use === "span predicate" && spec.keys.length === 1) {
-				note("a span predicate on during alone")
+			if (spec.kind === "access" && spec.use === "range predicate" && spec.keys.length === 1) {
+				note("a range predicate on during alone")
 			}
 		}
 		const { plan } = yield* installRealSchema(requestSchema(sketch.shades), {

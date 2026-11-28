@@ -22,7 +22,7 @@ import { Array as Arr, Option, Record as Rec, String as Str } from "effect"
 import type { ValueFault } from "#compiler/core/errors.ts"
 import { rosterCodec } from "#compiler/ir/codes.ts"
 import { Sha256 } from "#compiler/public/fields.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 import { cosineNormMax, cosineNormMin } from "#compiler/scalar/values/fault.ts"
 import {
 	type CarrierHost,
@@ -138,12 +138,12 @@ export const carriers: Arr.NonEmptyReadonlyArray<Carrier> = [
 		spec: { carrier: "numeric", typmod: probeTypmod },
 		live: oneOf<unknown>([
 			(source) =>
-				Decimal.of(`${source.draw(bigint(-(10n ** 9n), 10n ** 9n))}e-${source.draw(int(0, 4))}`),
-			map(bigint(-(10n ** 6n), 10n ** 6n), (n) => Decimal.of(`${n}e-2`)),
-			element<unknown>([Decimal.nan, Decimal.infinity, Decimal.negativeInfinity, 1.5, "1.5"])
+				Numeric.of(`${source.draw(bigint(-(10n ** 9n), 10n ** 9n))}e-${source.draw(int(0, 4))}`),
+			map(bigint(-(10n ** 6n), 10n ** 6n), (n) => Numeric.of(`${n}e-2`)),
+			element<unknown>([Numeric.nan, Numeric.infinity, Numeric.negativeInfinity, 1.5, "1.5"])
 		]),
 		judge: (value) => {
-			if (!(value instanceof Decimal)) {
+			if (!(value instanceof Numeric)) {
 				return { fault: typeof value === "number" ? "decimalNumber" : "decimalType" }
 			}
 			if (value.isNaN()) {
@@ -421,7 +421,7 @@ export const factOf = (f: {
 	readonly width: bigint
 }) => ({
 	id: f.id,
-	amount: Decimal.of(`${f.cents}e-2`),
+	amount: Numeric.of(`${f.cents}e-2`),
 	ratio: Math.fround(f.ratio),
 	during: { start: f.start, end: f.start + f.width }
 })

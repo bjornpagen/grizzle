@@ -28,7 +28,7 @@ const step = 27 * levels
 
 /** Relation i: an id and a field of its own, so no two relations' records are one type. */
 const relationOf = (i: number): string =>
-	`export const R${i} = relation("R${i}", { id: pg.integer, f${i}: pg.integer }, ["id"])\n`
+	`export const R${i} = relation("R${i}", { id: int4, f${i}: int4 }, ["id"])\n`
 
 /** Level j of `width` relations: the relations it declares, over the level below it, the first over none, holding R2's key. */
 const levelOf =

@@ -262,9 +262,7 @@ export const keptParameterFacts = (keeping: Keeping): ValidDag => {
 /** Reading: a double precision x of each id, beside an int4 n, keyed by its id. */
 const ReadingDesc: SchemaDesc = decodedSchema({
 	name: "Readings",
-	relations: [
-		relation("Reading", { id: f.uuid, x: f.pg("double precision"), n: f.integer }, ["id"])
-	],
+	relations: [relation("Reading", { id: f.uuid, x: f.pg("float8"), n: f.integer }, ["id"])],
 	statements: [],
 	bases: []
 })
@@ -325,9 +323,7 @@ export const readingProjection = (c: FactCase): ValidDag => {
  */
 const DoublyDesc: SchemaDesc = decodedSchema({
 	name: "Doubly",
-	relations: [
-		relation("Doubly", { id: f.uuid, x: f.pg("double precision"), n: f.integer }, ["id"])
-	],
+	relations: [relation("Doubly", { id: f.uuid, x: f.pg("float8"), n: f.integer }, ["id"])],
 	statements: [key(on("Doubly", ["n"]))],
 	bases: []
 })

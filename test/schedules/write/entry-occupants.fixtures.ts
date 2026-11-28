@@ -2,7 +2,7 @@
 
 import { boolean, type Gen } from "@bjornpagen/testing/gen"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { context, login, relation, role, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -11,10 +11,10 @@ import { rigTemplate } from "#test/support/schedules/rig.ts"
 
 const Subject = str.regex("^u_[a-z]{1,8}$")
 
-export const Seat = relation("Seat", { id: pg.integer, team: pg.integer, holder: Subject }, ["id"])
+export const Seat = relation("Seat", { id: int4, team: int4, holder: Subject }, ["id"])
 
 /** The relation a held call inserts last, which the owner's SHARE lock holds it at. */
-export const Gate = relation("Gate", { n: pg.integer }, ["n"])
+export const Gate = relation("Gate", { n: int4 }, ["n"])
 
 /** The schema, the role `holder`, which inserts its subject's seats and Gate, and its two logins. */
 export const seats = (name: string) => {

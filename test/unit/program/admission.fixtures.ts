@@ -4,7 +4,16 @@ import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record as Rec } from "effect"
 import { Logic, Text } from "#compiler/public/compute.ts"
 import { relation } from "#compiler/public/dynamic.ts"
-import { bytes, contract, date, Decimal, pg } from "#compiler/public/fields.ts"
+import {
+	bytea,
+	contract,
+	date,
+	Numeric,
+	int2,
+	int4,
+	int8,
+	numeric
+} from "#compiler/public/fields.ts"
 import { schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { Id, toId } from "#test/support/ids.ts"
@@ -22,15 +31,15 @@ const tallyKey = Symbol("Tally")
  */
 export const cellFields = {
 	id: Id,
-	i2: pg.smallint,
-	i4: pg.integer,
-	i8: pg.bigint,
+	i2: int2,
+	i4: int4,
+	i8: int8,
 	t: anyText,
 	d: date,
-	n: pg.numeric(5, 2),
-	b: bytes,
-	ci4: contract<typeof slotKey>()("Slot", pg.integer, (v) => Logic.ge(v, 0)),
-	ci8: contract<typeof tallyKey>()("Tally", pg.bigint, (v) => Logic.ge(v, 0n)),
+	n: numeric(5, 2),
+	b: bytea,
+	ci4: contract<typeof slotKey>()("Slot", int4, (v) => Logic.ge(v, 0)),
+	ci8: contract<typeof tallyKey>()("Tally", int8, (v) => Logic.ge(v, 0n)),
 	ct: contract<typeof shortKey>()("Short", anyText, (v) => Logic.le(Text.charLength(v), 8))
 } as const
 
@@ -50,7 +59,7 @@ export const admittedRow = {
 	i8: 1n,
 	t: "a",
 	d: "2024-02-29",
-	n: Decimal.of("123.45"),
+	n: Numeric.of("123.45"),
 	b: new Uint8Array([1, 2]),
 	ci4: 1,
 	ci8: 1n,
@@ -121,8 +130,8 @@ const badInputs: Arr.NonEmptyReadonlyArray<BadInput> = [
 	...textWithNul("t"),
 	{ site: "d", label: "February the 30th", input: stated("2023-02-30") },
 	{ site: "d", label: "a thirteenth month", input: stated("2024-13-01") },
-	{ site: "n", label: "past its scale", input: stated(Decimal.of("123.456")) },
-	{ site: "n", label: "past its precision", input: stated(Decimal.of("12345.6")) },
+	{ site: "n", label: "past its scale", input: stated(Numeric.of("123.456")) },
+	{ site: "n", label: "past its precision", input: stated(Numeric.of("12345.6")) },
 	{ site: "b", label: "a text", input: stated("AQI=") },
 	{ site: "b", label: "an array of numbers", input: stated([1, 2]) },
 	...integerOfNumber("ci4", 2147483647),

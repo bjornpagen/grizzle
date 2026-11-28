@@ -14,11 +14,11 @@ import {
 	Result,
 	String as Str
 } from "effect"
-import { natural, pg } from "#compiler/public/fields.ts"
+import { natural, bool, int4, numeric } from "#compiler/public/fields.ts"
 import type { AnyDerived, AnySchema, Relation, Statement } from "#compiler/public/schema.ts"
 import { type QueryValue, queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { FinishedValue, RuleValue } from "#compiler/query/build/rule.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 import { derivedBuilder, relationBuilder } from "#compiler/schema/relation.ts"
 import { schemaBuilder } from "#compiler/schema/schema.ts"
 import {
@@ -135,16 +135,22 @@ interface Stored {
 const storedNames = ["Attempt", "ItemMode", "Topic", "Cap", "Extra", "Expect", "Allowed"] as const
 type StoredName = (typeof storedNames)[number]
 
-const int4 = (name: string) => ({ name, kind: "int" }) as const
+const int4Field = (name: string) => ({ name, kind: "int" }) as const
 
 /** The group columns of a shape as fields of a stored relation: integers. */
-const groupFields = (shape: Shape) => Arr.map(shape.groups, int4)
+const groupFields = (shape: Shape) => Arr.map(shape.groups, int4Field)
 
 /** The stored relations a shape reads, each with its fields and key. */
 const storedOf = (shape: Shape): Arr.NonEmptyReadonlyArray<Stored> => {
 	const attempt: Stored = {
 		name: "Attempt",
-		fields: [int4("child"), int4("item"), int4("n"), int4("at"), int4("score")],
+		fields: [
+			int4Field("child"),
+			int4Field("item"),
+			int4Field("n"),
+			int4Field("at"),
+			int4Field("score")
+		],
 		keyed: 4
 	}
 	const lawKinds = Arr.map(shape.laws, (l) => l.kind)
@@ -155,19 +161,25 @@ const storedOf = (shape: Shape): Arr.NonEmptyReadonlyArray<Stored> => {
 			? [
 					{
 						name: "ItemMode",
-						fields: [int4("item"), { name: "adaptive", kind: "bool" }],
+						fields: [int4Field("item"), { name: "adaptive", kind: "bool" }],
 						keyed: 1
 					} satisfies Stored
 				]
 			: []),
 		...(shape.join
-			? [{ name: "Topic", fields: [int4("item"), int4("topic")], keyed: 1 } satisfies Stored]
+			? [
+					{
+						name: "Topic",
+						fields: [int4Field("item"), int4Field("topic")],
+						keyed: 1
+					} satisfies Stored
+				]
 			: []),
 		...(shape.reading === "under"
 			? [
 					{
 						name: "Cap",
-						fields: [int4(shape.groups[0]), { name: "cap", kind: "fold" }],
+						fields: [int4Field(shape.groups[0]), { name: "cap", kind: "fold" }],
 						keyed: 1
 					} satisfies Stored
 				]
@@ -213,10 +225,10 @@ const foldDescriptor = (fold: Fold): FieldBase => {
 		case "count":
 			return natural
 		case "sum":
-			return pg.numeric(12, 0)
+			return numeric(12, 0)
 		case "min":
 		case "max":
-			return pg.integer
+			return int4
 	}
 }
 
@@ -237,10 +249,10 @@ const foldHost = (fold: Fold, value: number): bigint | number => {
 
 /**
  * A fold's value as a literal beside Read's fold, of the aggregate's own type: a count a bigint, a sum of integers an
- * exact numeric of no typmod, a Decimal, and a least or greatest score a number.
+ * exact numeric of no typmod, a Numeric, and a least or greatest score a number.
  */
-const foldLiteral = (fold: Fold, value: number): bigint | Decimal | number =>
-	fold === "sum" ? Decimal.of(BigInt(value)) : foldHost(fold, value)
+const foldLiteral = (fold: Fold, value: number): bigint | Numeric | number =>
+	fold === "sum" ? Numeric.of(BigInt(value)) : foldHost(fold, value)
 
 /** A stored relation value of a name known at run time: the widest type relation(...) gives. */
 type RelationValue = Relation<
@@ -252,9 +264,9 @@ type RelationValue = Relation<
 const descriptorOf = (kind: FieldKind, fold: Fold): FieldBase => {
 	switch (kind) {
 		case "int":
-			return pg.integer
+			return int4
 		case "bool":
-			return pg.boolean
+			return bool
 		case "fold":
 			return foldDescriptor(fold)
 	}

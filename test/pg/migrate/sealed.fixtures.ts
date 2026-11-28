@@ -4,7 +4,7 @@ import { assert } from "@bjornpagen/testing/assert"
 import { Array as Arr, Effect, Option } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { lawsOfConstraint } from "#compiler/ir/products.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { relation, schema, sealed, unit } from "#compiler/public/schema.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import { type Version } from "#test/support/install-migrate.ts"
@@ -15,13 +15,13 @@ import { refusalOf } from "#test/support/substrate.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** A sheet, keyed by the unit's key alone. */
-const Sheet = relation("Sheet", { sheet: pg.integer, label: pg.integer }, ["sheet"])
+const Sheet = relation("Sheet", { sheet: int4, label: int4 }, ["sheet"])
 /** A sheet's cells, each at a place. */
-const Cell = relation("Cell", { sheet: pg.integer, place: pg.integer }, ["sheet", "place"])
+const Cell = relation("Cell", { sheet: int4, place: int4 }, ["sheet", "place"])
 
 /** The version over Sheet and Cell under the unit Sheet, sealed or not, written by no login. */
 const versionOf = (name: string, sealedUnit: boolean): Version => {
-	const declared = unit("Sheet", { sheet: pg.integer })
+	const declared = unit("Sheet", { sheet: int4 })
 	return {
 		schema: schema(name, [Sheet, Cell], [sealedUnit ? sealed(declared) : declared]),
 		logins: []

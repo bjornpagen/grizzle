@@ -17,7 +17,7 @@ import {
 import { type Carrier, carriers, type ScalarType } from "#compiler/ir/scalar.ts"
 import { roleDefaultSettings } from "#compiler/physical/ddl/roles.ts"
 import { anyNumeric as computedNumeric } from "#compiler/scalar/compute/types.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 import type { ColumnDefinition } from "#compiler/sql/ast.ts"
 import { cast, col, provedSelect, target, types } from "#compiler/sql/build.ts"
 import { printStatement, printType } from "#compiler/sql/print.ts"
@@ -116,12 +116,12 @@ const anyText: Gen<string> = oneOf([
  * Numerics of any scale, display scale kept (1.10 is not 1.1), NaN and the infinities among them: a computed numeric's
  * values (scalar/compute/types.ts anyNumeric), which a carrier of a query's computed column holds.
  */
-const anyNumericValue: Gen<Decimal> = oneOf([
+const anyNumericValue: Gen<Numeric> = oneOf([
 	decimalGen,
 	element(
 		Arr.map(
 			["1.10", "-0.000", "0", "1e-20", "123456789012345678901234567890.123456789"] as const,
-			(text) => Decimal.of(text)
+			(text) => Numeric.of(text)
 		)
 	)
 ])

@@ -7,7 +7,7 @@ import { identity } from "#compiler/core/identity.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import { ALLEN } from "#compiler/public/allen.ts"
-import { contract, pg, span } from "#compiler/public/fields.ts"
+import { contract, range, int4, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
@@ -22,15 +22,11 @@ import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { has, shapeOf } from "#test/support/kernel/shape.ts"
 
 const instantKey = Symbol("Instant")
-const Instant = contract<typeof instantKey>()("Instant", pg.bigint)
+const Instant = contract<typeof instantKey>()("Instant", int8)
 
-export const Slot = relation(
-	"Slot",
-	{ id: pg.integer, room: Id, during: span(pg.integer), at: pg.integer },
-	["id"]
-)
+export const Slot = relation("Slot", { id: int4, room: Id, during: range(int4), at: int4 }, ["id"])
 
-const Visit = relation("Visit", { id: Id, stay: span(Instant), at: Instant }, ["id"])
+const Visit = relation("Visit", { id: Id, stay: range(Instant), at: Instant }, ["id"])
 
 export const Spans = schema("Spans", [Slot, Visit], [])
 
@@ -49,14 +45,12 @@ const statements = (t: OracleTemplate): ReadonlyArray<SqlStatement> => [
 	...Arr.map(flight(t.programs.conservative.roots), (s) => s.ast)
 ]
 
-const Shift = relation("Shift", { id: pg.integer, slot: span(pg.integer, 15), at: pg.integer }, [
-	"id"
-])
+const Shift = relation("Shift", { id: int4, slot: range(int4, 15), at: int4 }, ["id"])
 
 const Shifts = schema("Shifts", [Shift, Visit], [])
 
 /** The endpoint types a span parameter is declared over, by the pg type its description names. */
-export const endpoints = ["integer", "bigint"] as const
+export const endpoints = ["int4", "int8"] as const
 
 type Endpoint = (typeof endpoints)[number]
 

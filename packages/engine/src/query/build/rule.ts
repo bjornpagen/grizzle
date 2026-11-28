@@ -635,7 +635,7 @@ const ruleValue = <S, Params, Sole, Facts, Cx>(
 		difference: (left, right) =>
 			guarded("r.difference", [left, right], () => T.difference(left, right)),
 		pack: (spans) => guarded("r.pack", [spans], () => T.pack(spans)),
-		span: (start, end) => guarded("r.span", [start, end], () => T.spanFromEnds(start, end)),
+		range: (start, end) => guarded("r.range", [start, end], () => T.spanFromEnds(start, end)),
 		count: (...extra: ReadonlyArray<unknown>) => guarded("r.count", extra, () => T.count(extra)),
 		sum: (term) => guarded("r.sum", [term], () => T.sum(term)),
 		mean: (term) => guarded("r.mean", [term], () => T.mean(term)),

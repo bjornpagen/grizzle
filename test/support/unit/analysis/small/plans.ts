@@ -113,8 +113,8 @@ export const extendedGrammar: Grammar = {
 	extended: true
 }
 
-const integer: FieldDesc = { kind: "pg", type: "integer" }
-const bigint: FieldDesc = { kind: "pg", type: "bigint" }
+const integer: FieldDesc = { kind: "pg", type: "int4" }
+const bigint: FieldDesc = { kind: "pg", type: "int8" }
 
 /** The head keys of a count, a sum and a union's tag. */
 const countKey = "n"

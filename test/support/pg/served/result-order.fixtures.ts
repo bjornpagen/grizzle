@@ -6,7 +6,7 @@ import { Array as Arr, Effect, Order, Record as Rec, String as Str } from "effec
 import { isRecord } from "#compiler/core/record.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { mutable, relation, schema, unit } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -109,12 +109,11 @@ export const caseGen: Gen<ResultOrderCase> = (source) => {
  * note and each item's twins less b, projections that keep no key. None states an order.
  */
 const declaredIn = (declared: ReadonlyArray<KeyField>) => (name: string) => {
-	const Item = relation(
-		"Item",
-		{ shelf: pg.integer, a: Word, b: pg.integer, c: Word, note: Word },
-		["shelf", ...declared]
-	)
-	const s = schema(name, [Item], [unit("Shelf", { shelf: pg.integer }), mutable(Item)])
+	const Item = relation("Item", { shelf: int4, a: Word, b: int4, c: Word, note: Word }, [
+		"shelf",
+		...declared
+	])
+	const s = schema(name, [Item], [unit("Shelf", { shelf: int4 }), mutable(Item)])
 	const all = query(s).rule((r) => {
 		const { shelf, a, b, c, note } = v(Item, "item")
 		return r.match(Item, { shelf, a, b, c, note }).find({ shelf, a, b, c, note })
@@ -123,7 +122,7 @@ const declaredIn = (declared: ReadonlyArray<KeyField>) => (name: string) => {
 		const { shelf, a, b, c, note } = v(Item, "item")
 		return r
 			.match(Item, { shelf, a, b, c, note })
-			.where(r.eq(shelf, r.param("shelf", pg.integer)))
+			.where(r.eq(shelf, r.param("shelf", int4)))
 			.find({ a, b, c, note })
 	})
 	const pairs = query(s).rule((r) => {

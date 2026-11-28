@@ -4,7 +4,7 @@
 import { element, type Gen, int, subarray } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order } from "effect"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { closedId, drawn, natural, pg } from "#compiler/public/fields.ts"
+import { closedId, drawn, natural, int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	closed,
@@ -85,7 +85,7 @@ export const Invalidation = relation(
 	{ child: Child, number: natural, change: natural },
 	["child", "number", "change"]
 )
-const Grade = relation("Grade", { number: natural, grade: pg.integer }, ["number"])
+const Grade = relation("Grade", { number: natural, grade: int4 }, ["number"])
 const Enrolled = relation("Enrolled", { class: Name, child: Child }, ["class", "child"])
 export const TestSession = relation(
 	"TestSession",

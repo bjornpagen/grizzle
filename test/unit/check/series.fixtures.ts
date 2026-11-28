@@ -3,7 +3,7 @@
 import { element, type FiniteSpace, finite, int } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { Logic, Num, Time, Type } from "#compiler/public/compute.ts"
-import { contract, pg } from "#compiler/public/fields.ts"
+import { contract, int4, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
@@ -44,16 +44,16 @@ const targetKey = Symbol("Target")
  * so the cast stands only on the element's interval.
  */
 export const compilesCast = (k: ElementCase): boolean => {
-	const Lo = contract<typeof loKey>()("Lo", pg.bigint, (x) =>
+	const Lo = contract<typeof loKey>()("Lo", int8, (x) =>
 		Logic.and([Logic.ge(x, BigInt(k.a)), Logic.le(x, BigInt(k.b))])
 	)
-	const Hi = contract<typeof hiKey>()("Hi", pg.bigint, (x) =>
+	const Hi = contract<typeof hiKey>()("Hi", int8, (x) =>
 		Logic.and([Logic.ge(x, BigInt(k.c)), Logic.le(x, BigInt(k.d))])
 	)
-	const Target = contract<typeof targetKey>()("Target", pg.bigint, (x) =>
+	const Target = contract<typeof targetKey>()("Target", int8, (x) =>
 		Logic.and([Logic.ge(x, BigInt(k.l)), Logic.le(x, BigInt(k.h))])
 	)
-	const Ends = relation("Ends", { id: pg.integer, lo: Lo, hi: Hi, target: Target }, ["id"])
+	const Ends = relation("Ends", { id: int4, lo: Lo, hi: Hi, target: Target }, ["id"])
 	const S = schema("Series", [Ends], [])
 	const q = query(S).rule((r) => {
 		const { id, lo, hi } = v(Ends, "ends")
@@ -84,24 +84,22 @@ const dayMicros = 86_400_000_000n
 
 const momentKey = Symbol("Moment")
 /** The ledger's clock: an instant before 10000-01-01, the instant after which no day a date holds begins. */
-const Moment = contract<typeof momentKey>()("Moment", pg.bigint, (t) =>
+const Moment = contract<typeof momentKey>()("Moment", int8, (t) =>
 	Num.within(t, 0n, 253_402_300_800_000_000n - 1n)
 )
 
 const stampKey = Symbol("Stamp")
 /** An instant a candidate's application stamps, on a clock wider than the ledger's. */
-const Stamp = contract<typeof stampKey>()("Stamp", pg.bigint, (t) => Num.within(t, 0n, 2n ** 62n))
+const Stamp = contract<typeof stampKey>()("Stamp", int8, (t) => Num.within(t, 0n, 2n ** 62n))
 
 /**
  * The ledger's piece of presence (qti-pie ledger delivery.ts presentPieces and PresentTime): a window's credit, from
  * its first beacon to its last, cut to a presentation's span, `from` the later of the window's start and the
  * presentation's instant, `to` the earlier of the window's end less 1 µs and the next moment.
  */
-const Piece = relation(
-	"Piece",
-	{ id: pg.integer, start: Moment, end: Moment, at: Stamp, next: Stamp },
-	["id"]
-)
+const Piece = relation("Piece", { id: int4, start: Moment, end: Moment, at: Stamp, next: Stamp }, [
+	"id"
+])
 
 /** Which way the ledger's day split is written: as the series of its days, or with its days' ends unbounded. */
 export const ledgerShapes = ["days of a piece", "days past the clock's top"] as const
@@ -123,7 +121,7 @@ export const compilesLedger = (shape: LedgerShape): boolean => {
 	const ofPiece = query(S).rule((r) => {
 		const { id, start, end, at, next } = v(Piece, "piece")
 		const from = Logic.greatest(Type.base(start), Type.base(at))
-		const to = Logic.least(Type.cast(Num.sub(Type.base(end), 1n), pg.bigint), Type.base(next))
+		const to = Logic.least(Type.cast(Num.sub(Type.base(end), 1n), int8), Type.base(next))
 		const days = r.series(Num.div(from, dayMicros), Num.div(Num.sub(to, 1n), dayMicros))
 		const { at: day } = v(days, "day")
 		return r
@@ -131,7 +129,7 @@ export const compilesLedger = (shape: LedgerShape): boolean => {
 			.match(days, { at: day })
 			.find({
 				id,
-				day: Time.dateOfEpochDay(Type.cast(day, pg.bigint)),
+				day: Time.dateOfEpochDay(Type.cast(day, int8)),
 				micros: Num.sub(
 					Logic.least(Num.numeric(to), Num.numeric(Num.add(Num.mul(day, dayMicros), dayMicros))),
 					Logic.greatest(Num.numeric(from), Num.numeric(Num.mul(day, dayMicros)))
@@ -149,7 +147,7 @@ export const compilesLedger = (shape: LedgerShape): boolean => {
 			.match(days, { at: day })
 			.find({
 				id,
-				day: Time.dateOfEpochDay(Type.cast(day, pg.bigint)),
+				day: Time.dateOfEpochDay(Type.cast(day, int8)),
 				micros: Num.sub(
 					Logic.least(Num.numeric(to), Num.numeric(Num.add(Num.mul(day, dayMicros), dayMicros))),
 					Logic.greatest(Num.numeric(from), Num.numeric(Num.mul(day, dayMicros)))

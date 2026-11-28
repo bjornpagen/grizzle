@@ -20,7 +20,7 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { boolean, finite, type Gen } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Record as Rec } from "effect"
-import { bytes } from "#compiler/public/fields.ts"
+import { bytea } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -30,7 +30,7 @@ import { Id } from "#test/support/ids.ts"
 
 const Item = relation(
 	"Item",
-	{ id: Id, blob: bytes, other: bytes, note: str.regex("^.{0,8}$", "su") },
+	{ id: Id, blob: bytea, other: bytea, note: str.regex("^.{0,8}$", "su") },
 	["id"]
 )
 const Items = schema("Items", [Item], [])

@@ -6,7 +6,7 @@ import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { rowsTouched } from "#bench/harness/explain.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	check,
@@ -26,7 +26,7 @@ import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
 
 /** A row of a unit, `package` its unit: its id, and the value g it states. */
-const T = relation("T", { package: pg.integer, id: pg.integer, g: pg.integer }, ["package", "id"])
+const T = relation("T", { package: int4, id: int4, g: int4 }, ["package", "id"])
 
 /** How a rule's judge reads what a transaction wrote: by probes over its rows, or whole over the units they hold. */
 const judgings = ["probed", "whole"] as const
@@ -49,7 +49,7 @@ const regionSchema = (judged: Judged) => {
 			const Base = schema(
 				"ProbedRegion",
 				[T],
-				[mutable(T), unit("Row", { package: pg.integer, id: pg.integer })]
+				[mutable(T), unit("Row", { package: int4, id: int4 })]
 			)
 			const Stated = derived(
 				"Stated",

@@ -12,7 +12,7 @@ import { compareOps } from "#compiler/ir/desc.ts"
 import { builtExpr, predicateTable } from "#compiler/ir/expr.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { compileLaws } from "#compiler/laws/model/model.ts"
-import { accumulated, Decimal, drawn, natural, pg } from "#compiler/public/fields.ts"
+import { accumulated, Numeric, drawn, natural, int4, numeric } from "#compiler/public/fields.ts"
 import {
 	contained,
 	fin,
@@ -527,22 +527,21 @@ type RoundingPosition = (typeof roundingPositions)[number]
 const roundingSchemas = (
 	term: (r: Row) => unknown
 ): ReadonlyArray<readonly [RoundingPosition, FixtureSchema]> => {
-	const pred = (r: Row): unknown => C.le(term(r), C.literal(pg.numeric(3, 1), Decimal.of("0.5")))
-	const asInteger = (r: Row): unknown =>
-		C.cond(pred(r), C.literal(pg.integer, 1), C.literal(pg.integer, 0))
+	const pred = (r: Row): unknown => C.le(term(r), C.literal(numeric(3, 1), Numeric.of("0.5")))
+	const asInteger = (r: Row): unknown => C.cond(pred(r), C.literal(int4, 1), C.literal(int4, 0))
 	const { Owner, Member } = foldRelations(closed)
 	const members = ordered(on(Member, "owner", "at"), fin(Owner, "members"))
 	const Stepped = generatedRelation(
 		"Member",
 		{
 			...itemFields(closed),
-			owner: pg.integer,
+			owner: int4,
 			at: drawn(natural),
-			before: accumulated(pg.integer, 0),
-			after: accumulated(pg.integer, 0)
+			before: accumulated(int4, 0),
+			after: accumulated(int4, 0)
 		},
 		["id"],
-		(r) => ({ g: generatedField(pg.integer, asInteger(r), []) }),
+		(r) => ({ g: generatedField(int4, asInteger(r), []) }),
 		[]
 	)
 	const stepped = ordered(on(Stepped, "owner", "at"), fin(Owner, "members"))
@@ -550,7 +549,7 @@ const roundingSchemas = (
 		"Generated",
 		itemFields(closed),
 		["id"],
-		(r) => ({ g: generatedField(pg.integer, asInteger(r), []) }),
+		(r) => ({ g: generatedField(int4, asInteger(r), []) }),
 		[]
 	)
 	return [
@@ -587,7 +586,7 @@ const roundingSchemas = (
 					on(Owner, "id", "total")
 				),
 				mutable(Owner),
-				unit("Holder", { id: pg.integer })
+				unit("Holder", { id: int4 })
 			] as const)
 		],
 		[
@@ -601,7 +600,7 @@ const roundingSchemas = (
 					on(Owner, "id", "total")
 				),
 				mutable(Owner),
-				unit("Holder", { id: pg.integer })
+				unit("Holder", { id: int4 })
 			] as const)
 		]
 	]

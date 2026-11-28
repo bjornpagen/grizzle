@@ -3055,13 +3055,12 @@ export const solvedConjuncts = (
 	return out
 }
 
-/** PostgreSQL's integer types by their SQL names, each its carrier, and each carrier's SQL name. */
+/** PostgreSQL's integer types, each by its pg_type name, which is its carrier's. */
 const integerCarriers: ReadonlyMap<string, "int2" | "int4" | "int8"> = new Map([
-	["smallint", "int2"],
-	["integer", "int4"],
-	["bigint", "int8"]
+	["int2", "int2"],
+	["int4", "int4"],
+	["int8", "int8"]
 ] as const)
-const integerTypeNames = { int2: "smallint", int4: "integer", int8: "bigint" } as const
 
 /** The integer carrier a field holds and the least value its type admits: a nonnegative contract's 0, a nonzero one's 1. */
 const integerDomainOf = (desc: FieldDesc): IntegerDomain | undefined => {
@@ -3220,7 +3219,7 @@ const probeAt = (
 	}
 	const bound = (n: bigint): number | bigint =>
 		integerHostOf(subject.domain.carrier, n < sLeast ? sLeast : n > sGreatest ? sGreatest : n)
-	const carrier: FieldDesc = { kind: "pg", type: integerTypeNames[domain.carrier] }
+	const carrier: FieldDesc = { kind: "pg", type: domain.carrier }
 	const guard = { kind: "within", low: bound(low), high: bound(high) } as const
 	return {
 		kind: "compare",

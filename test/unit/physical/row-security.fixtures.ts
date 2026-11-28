@@ -7,7 +7,7 @@ import { firstCodebook } from "#compiler/ir/codes.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { type AnyLogin, login, relation, schema } from "#compiler/public/schema.ts"
 import { installationsOf } from "#compiler/schema/own.ts"
@@ -34,11 +34,11 @@ import { owning } from "#test/support/policy.ts"
  * filterless entry holding TRUE, a filter function, two writers narrowing, and a table narrowed from one login and
  * written from another.
  */
-const Shelf = relation("Shelf", { id: pg.integer }, ["id"])
+const Shelf = relation("Shelf", { id: int4 }, ["id"])
 
-const Note = relation("Note", { id: Id, shelf: pg.integer }, ["id"])
+const Note = relation("Note", { id: Id, shelf: int4 }, ["id"])
 
-const Card = relation("Card", { id: Id, shelf: pg.integer }, ["id"])
+const Card = relation("Card", { id: Id, shelf: int4 }, ["id"])
 
 const Library = schema("Library", [Shelf, Note, Card], [])
 

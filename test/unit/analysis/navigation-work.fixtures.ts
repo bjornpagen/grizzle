@@ -10,7 +10,7 @@ import { buildTheory } from "#compiler/analysis/theory/theory.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { descIdentity, type InferredQuery } from "#compiler/ir/desc.ts"
 import { queryInput } from "#compiler/program/input.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -45,11 +45,10 @@ export type Reached =
 	| "a chain read at a document"
 	| "a chain sixteen deep"
 
-const Node = relation(
-	"Node",
-	{ doc: pg.integer, start: pg.integer, parent: pg.integer, kind: pg.integer },
-	["doc", "start"]
-)
+const Node = relation("Node", { doc: int4, start: int4, parent: int4, kind: int4 }, [
+	"doc",
+	"start"
+])
 const Base = schema("navigation_work", [Node], [])
 
 /** The leaf, each node with its parent and kind under its own names. */
@@ -92,7 +91,7 @@ const twice = query(Base)
 /** A read of a level over the leaf at one document, a parameter. */
 const atDocument = query(Base).rule((r) => {
 	const { a, b, k } = v(once, "t")
-	return r.match(once, { doc: r.param("doc", pg.integer), a, b, k }).find({ a, b, k })
+	return r.match(once, { doc: r.param("doc", int4), a, b, k }).find({ a, b, k })
 })
 
 /** The Description of a public query. */

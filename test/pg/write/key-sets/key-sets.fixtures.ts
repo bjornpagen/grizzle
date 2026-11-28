@@ -2,7 +2,7 @@
 
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Order } from "effect"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { type QueryValue, queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
@@ -13,16 +13,13 @@ import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write
  * one of its links, which the property counts the reads of; an item's pins, which it does not; and the two relations the
  * write fills.
  */
-export const Item = relation("Item", { session: pg.integer, k: pg.integer, v: pg.integer }, [
-	"session",
-	"k"
-])
-export const Done = relation("Done", { session: pg.integer, k: pg.integer }, ["session", "k"])
-export const Tag = relation("Tag", { k: pg.integer, t: pg.integer }, ["k", "t"])
-export const TagB = relation("TagB", { k: pg.integer, t: pg.integer }, ["k", "t"])
-export const Link = relation("Link", { k: pg.integer, j: pg.integer }, ["k", "j"])
-export const Pin = relation("Pin", { k: pg.integer, t: pg.integer }, ["k", "t"])
-const outFields = { session: pg.integer, k: pg.integer, t: pg.integer } as const
+export const Item = relation("Item", { session: int4, k: int4, v: int4 }, ["session", "k"])
+export const Done = relation("Done", { session: int4, k: int4 }, ["session", "k"])
+export const Tag = relation("Tag", { k: int4, t: int4 }, ["k", "t"])
+export const TagB = relation("TagB", { k: int4, t: int4 }, ["k", "t"])
+export const Link = relation("Link", { k: int4, j: int4 }, ["k", "j"])
+export const Pin = relation("Pin", { k: int4, t: int4 }, ["k", "t"])
+const outFields = { session: int4, k: int4, t: int4 } as const
 export const Out0 = relation("Out0", outFields, ["session", "k", "t"])
 export const Out1 = relation("Out1", outFields, ["session", "k", "t"])
 
@@ -108,7 +105,7 @@ const joinedOf = (s: Schema): QueryValue => {
 	})
 }
 
-const sittingHeading = { session: pg.integer } as const
+const sittingHeading = { session: int4 } as const
 
 /** The open items of the call's sessions: each item of a session the call names no Done fact holds. */
 const openOf = (s: Schema): QueryValue =>
@@ -167,7 +164,7 @@ const byDone = (s: Schema, labels: QueryValue): QueryValue =>
 const alone = (s: Schema, labels: QueryValue): QueryValue =>
 	queryOver(s).rule((r: RuleValue) => {
 		const { k, t } = varsOver(labels, "label")
-		return r.match(labels, { k, t }).find({ session: r.param("session", pg.integer), k, t })
+		return r.match(labels, { k, t }).find({ session: r.param("session", int4), k, t })
 	})
 
 /** A member's rows: the open items whose value is no label of theirs, the labels on an anti-join's right. */
@@ -224,7 +221,7 @@ const unguarded = (s: Schema, labels: QueryValue): QueryValue => {
 		const { session, k } = varsOver(guards, "guard")
 		return r
 			.match(guards, { session, k })
-			.where(r.eq(session, r.param("session", pg.integer)))
+			.where(r.eq(session, r.param("session", int4)))
 			.find({ k })
 	})
 	return queryOver(s).rule((r: RuleValue) => {
@@ -232,14 +229,14 @@ const unguarded = (s: Schema, labels: QueryValue): QueryValue => {
 		const { session, k, v } = varsOver(open, "open")
 		return r
 			.match(open, { session, k, v })
-			.where(r.not(atSession.bind({ session: r.param("session", pg.integer) }), { k }))
+			.where(r.not(atSession.bind({ session: r.param("session", int4) }), { k }))
 			.find({ session, k, t: v })
 	})
 }
 
 /** The session the call names: the write's `sittings`. */
 const namedOf = (s: Schema): QueryValue =>
-	queryOver(s).rule((r: RuleValue) => r.find({ session: r.param("session", pg.integer) }))
+	queryOver(s).rule((r: RuleValue) => r.find({ session: r.param("session", int4) }))
 
 /** The case's write: the two members, Out0's and Out1's, the sittings bound to the call's session. */
 export const changeOf = (s: Schema, readers: Readers): ChangeSetValue => {

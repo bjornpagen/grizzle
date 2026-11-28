@@ -29,15 +29,18 @@ import { previewOver } from "#compiler/program/preview.ts"
 import { Logic, Text } from "#compiler/public/compute.ts"
 import { closed } from "#compiler/public/dynamic.ts"
 import {
-	bits,
-	bytes,
+	bit,
+	bytea,
 	closedId,
 	contract,
 	date,
-	Decimal,
+	Numeric,
 	drawn,
 	natural,
-	pg
+	bool,
+	int4,
+	int8,
+	numeric
 } from "#compiler/public/fields.ts"
 import { fin, on, ordered, relation, schema, tree } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -70,23 +73,23 @@ const Word = str.regex("^[a-z]+$")
 
 const countKey = Symbol("Count")
 /** A count of no fewer than none: an integer under a contract. */
-const Count = contract<typeof countKey>()("Count", pg.integer, (v) => Logic.ge(v, 0))
+const Count = contract<typeof countKey>()("Count", int4, (v) => Logic.ge(v, 0))
 
 /** A relation inserted flat: a field of each carrier an export's rows hold, a contract, a pattern and a bytes field. */
 const Flat = relation(
 	"Flat",
 	{
 		id: Id,
-		n: pg.integer,
-		big: pg.bigint,
-		amount: pg.numeric(5, 2),
+		n: int4,
+		big: int8,
+		amount: numeric(5, 2),
 		d: date,
-		ok: pg.boolean,
+		ok: bool,
 		t: Short,
 		w: Word,
 		tone: closedId(Tone),
-		tones: bits(Tone),
-		b: bytes
+		tones: bit(Tone),
+		b: bytea
 	},
 	["id"]
 )
@@ -202,7 +205,7 @@ const flatGen =
 		id: idOf(n),
 		n: int(-3, 3)(source),
 		big: BigInt(int(-3, 3)(source)),
-		amount: Decimal.of(`${String(int(0, 999)(source))}.25`),
+		amount: Numeric.of(`${String(int(0, 999)(source))}.25`),
 		d: `2024-02-${String(int(10, 29)(source))}`,
 		ok: boolean(source),
 		t: shortGen(source),
@@ -276,7 +279,7 @@ const sites: Arr.NonEmptyReadonlyArray<SiteValues> = [
 		relation: "Flat",
 		depth: "own",
 		field: "amount",
-		typed: [Decimal.of("1.234"), 1.5],
+		typed: [Numeric.of("1.234"), 1.5],
 		domain: []
 	},
 	{ relation: "Flat", depth: "own", field: "d", typed: ["2023-02-30", "2024-13-01"], domain: [] },

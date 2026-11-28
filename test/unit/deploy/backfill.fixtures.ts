@@ -27,7 +27,7 @@ import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { Family } from "#compiler/ir/family.ts"
 import type { NativeColumn } from "#compiler/ir/law.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
-import { accumulated, drawn, instant, natural, pg, place } from "#compiler/public/fields.ts"
+import { accumulated, drawn, instant, natural, place, int4 } from "#compiler/public/fields.ts"
 import {
 	contained,
 	counted,
@@ -441,8 +441,8 @@ const foldObserved = (c: FoldCase, state: State) => {
 const countedBefore = schema(
 	"Backfill",
 	[
-		relation("Owner", { id: pg.integer, tag: pg.integer }, ["id"]),
-		relation("Member", { member: pg.integer, g: pg.integer, x: pg.integer }, ["member"])
+		relation("Owner", { id: int4, tag: int4 }, ["id"]),
+		relation("Member", { member: int4, g: int4, x: int4 }, ["member"])
 	],
 	[]
 )
@@ -450,12 +450,12 @@ const countedBefore = schema(
 const countedAfter = (() => {
 	const Owner = relation(
 		"Owner",
-		{ id: pg.integer, tag: pg.integer, n: drawn(natural), end: accumulated(pg.integer, 0) },
+		{ id: int4, tag: int4, n: drawn(natural), end: accumulated(int4, 0) },
 		["id"]
 	)
 	const Member = relation(
 		"Member",
-		{ member: pg.integer, g: pg.integer, x: pg.integer, ownerTag: accumulated(pg.integer, 0) },
+		{ member: int4, g: int4, x: int4, ownerTag: accumulated(int4, 0) },
 		["member"]
 	)
 	const family = counted(on(Member, "g"), fin(Owner, "n"))
@@ -494,10 +494,8 @@ const countedCase: FoldCase = {
 const countedWritten = schema(
 	"Backfill",
 	[
-		relation("Owner", { id: pg.integer, tag: pg.integer, n: natural, end: pg.integer }, ["id"]),
-		relation("Member", { member: pg.integer, g: pg.integer, x: pg.integer, ownerTag: pg.integer }, [
-			"member"
-		])
+		relation("Owner", { id: int4, tag: int4, n: natural, end: int4 }, ["id"]),
+		relation("Member", { member: int4, g: int4, x: int4, ownerTag: int4 }, ["member"])
 	],
 	[]
 )
@@ -508,17 +506,13 @@ type LineKey = "line" | "order and index"
 /** The counted case's family over members the migration creates, its owners stored before it. */
 const newMembers: Migration = (() => {
 	const name = "Backfill"
-	const Owner = relation(
-		"Owner",
-		{ id: pg.integer, n: drawn(natural), end: accumulated(pg.integer, 0) },
-		["id"]
-	)
-	const Member = relation("Member", { member: pg.integer, g: pg.integer, x: pg.integer }, [
-		"member"
+	const Owner = relation("Owner", { id: int4, n: drawn(natural), end: accumulated(int4, 0) }, [
+		"id"
 	])
+	const Member = relation("Member", { member: int4, g: int4, x: int4 }, ["member"])
 	const family = counted(on(Member, "g"), fin(Owner, "n"))
 	return migrationOf(
-		schema(name, [relation("Owner", { id: pg.integer }, ["id"])], []),
+		schema(name, [relation("Owner", { id: int4 }, ["id"])], []),
 		schema(
 			name,
 			[Owner, Member],
@@ -535,21 +529,21 @@ const orderedCase = (key: LineKey, stepped: Stepped): FoldCase => {
 	const Order_ = relation(
 		"Order",
 		{
-			id: pg.integer,
-			tag: pg.integer,
+			id: int4,
+			tag: int4,
 			n: drawn(natural),
-			total: accumulated(pg.integer, 0),
-			lastQty: accumulated(pg.integer, -1)
+			total: accumulated(int4, 0),
+			lastQty: accumulated(int4, -1)
 		},
 		["id"]
 	)
 	const fields = {
-		line: pg.integer,
-		order: pg.integer,
+		line: int4,
+		order: int4,
 		at: drawn(natural),
-		qty: pg.integer,
-		orderTag: accumulated(pg.integer, 0),
-		prevQty: accumulated(pg.integer, -1)
+		qty: int4,
+		orderTag: accumulated(int4, 0),
+		prevQty: accumulated(int4, -1)
 	}
 	const Line =
 		key === "line" ? relation("Line", fields, ["line"]) : relation("Line", fields, ["order", "at"])
@@ -559,8 +553,8 @@ const orderedCase = (key: LineKey, stepped: Stepped): FoldCase => {
 			schema(
 				name,
 				[
-					relation("Order", { id: pg.integer, tag: pg.integer }, ["id"]),
-					relation("Line", { line: pg.integer, order: pg.integer, qty: pg.integer }, ["line"])
+					relation("Order", { id: int4, tag: int4 }, ["id"]),
+					relation("Line", { line: int4, order: int4, qty: int4 }, ["line"])
 				],
 				[]
 			),
@@ -777,8 +771,8 @@ const lineFieldRenamed = (from: string, to: string): Rename => ({
 const storedLines = schema(
 	"StoredKey",
 	[
-		relation("Order", { id: pg.integer, tag: pg.integer }, ["id"]),
-		relation("Line", { line: pg.integer, order: pg.integer, qty: pg.integer }, ["line"])
+		relation("Order", { id: int4, tag: int4 }, ["id"]),
+		relation("Line", { line: int4, order: int4, qty: int4 }, ["line"])
 	],
 	[]
 )
@@ -786,7 +780,7 @@ const storedLines = schema(
 /** The orders after the migration: each counts its lines and sums their qty. */
 const countedOrder = relation(
 	"Order",
-	{ id: pg.integer, tag: pg.integer, n: drawn(natural), total: accumulated(pg.integer, 0) },
+	{ id: int4, tag: int4, n: drawn(natural), total: accumulated(int4, 0) },
 	["id"]
 )
 
@@ -835,11 +829,10 @@ const droppedKeyCase = (after: DeploySubject): StoredKeyCase => {
 
 /** The lines after a migration that renames their stored key to a fresh name: lineNo, keyed by order and index. */
 const freshKeyed = (() => {
-	const Line = relation(
-		"Line",
-		{ lineNo: pg.integer, order: pg.integer, at: drawn(natural), qty: pg.integer },
-		["order", "at"]
-	)
+	const Line = relation("Line", { lineNo: int4, order: int4, at: drawn(natural), qty: int4 }, [
+		"order",
+		"at"
+	])
 	const family = ordered(on(Line, "order", "at"), fin(countedOrder, "n"))
 	return schema(
 		"StoredKey",
@@ -850,11 +843,10 @@ const freshKeyed = (() => {
 
 /** The lines after a migration that swaps their stored key with qty: qty holds the stored key, line the qty. */
 const swappedKeyed = (() => {
-	const Line = relation(
-		"Line",
-		{ qty: pg.integer, order: pg.integer, at: drawn(natural), line: pg.integer },
-		["order", "at"]
-	)
+	const Line = relation("Line", { qty: int4, order: int4, at: drawn(natural), line: int4 }, [
+		"order",
+		"at"
+	])
 	const family = ordered(on(Line, "order", "at"), fin(countedOrder, "n"))
 	return schema(
 		"StoredKey",
@@ -865,11 +857,10 @@ const swappedKeyed = (() => {
 
 /** The lines after a migration that renames their stored key along a chain: line to qty, qty to amount. */
 const chainedKeyed = (() => {
-	const Line = relation(
-		"Line",
-		{ qty: pg.integer, order: pg.integer, at: drawn(natural), amount: pg.integer },
-		["order", "at"]
-	)
+	const Line = relation("Line", { qty: int4, order: int4, at: drawn(natural), amount: int4 }, [
+		"order",
+		"at"
+	])
 	const family = ordered(on(Line, "order", "at"), fin(countedOrder, "n"))
 	return schema(
 		"StoredKey",
@@ -880,10 +871,7 @@ const chainedKeyed = (() => {
 
 /** The lines after a migration that drops their stored key. */
 const droppedKeyed = (() => {
-	const Line = relation("Line", { order: pg.integer, at: drawn(natural), qty: pg.integer }, [
-		"order",
-		"at"
-	])
+	const Line = relation("Line", { order: int4, at: drawn(natural), qty: int4 }, ["order", "at"])
 	const family = ordered(on(Line, "order", "at"), fin(countedOrder, "n"))
 	return schema(
 		"StoredKey",
@@ -944,14 +932,14 @@ const concatCase: FoldCase = (() => {
 	const name = "Joining"
 	const Attr = relation(
 		"Attr",
-		{ id: pg.integer, n: drawn(natural), joined: accumulated(joinedText, "") },
+		{ id: int4, n: drawn(natural), joined: accumulated(joinedText, "") },
 		["id"]
 	)
 	const Token = relation(
 		"Token",
 		{
-			token: pg.integer,
-			attr: pg.integer,
+			token: int4,
+			attr: int4,
 			at: drawn(natural),
 			piece: joinedText,
 			before: accumulated(joinedText, ""),
@@ -965,8 +953,8 @@ const concatCase: FoldCase = (() => {
 			schema(
 				name,
 				[
-					relation("Attr", { id: pg.integer }, ["id"]),
-					relation("Token", { token: pg.integer, attr: pg.integer, piece: joinedText }, ["token"])
+					relation("Attr", { id: int4 }, ["id"]),
+					relation("Token", { token: int4, attr: int4, piece: joinedText }, ["token"])
 				],
 				[]
 			),
@@ -1566,7 +1554,7 @@ const placedRowsGen: Gen<Backfill> = (source) => {
 }
 
 /** The schema the place case's relations extend where they are a level of their own. */
-const placedBase = schema("Backfill", [relation("Root", { id: pg.integer }, ["id"])], [])
+const placedBase = schema("Backfill", [relation("Root", { id: int4 }, ["id"])], [])
 
 /** The place case's declared drops: the attempts' and the values' stages. */
 const placedDrops = droppedFields([
@@ -1579,21 +1567,24 @@ const placedDrops = droppedFields([
  * attempt by its attempt and its own: what a migration re-keys by a place within each child's item, by stage.
  */
 const placedBeforeIn = (level: boolean) => {
-	const Session = relation("Session", { child: pg.integer, item: pg.integer, stage: pg.integer }, [
+	const Session = relation("Session", { child: int4, item: int4, stage: int4 }, [
 		"child",
 		"item",
 		"stage"
 	])
-	const Attempt = relation(
-		"Attempt",
-		{ child: pg.integer, item: pg.integer, stage: pg.integer, at: pg.integer },
-		["child", "item", "stage", "at"]
-	)
-	const Value = relation(
-		"Value",
-		{ child: pg.integer, item: pg.integer, stage: pg.integer, at: pg.integer, v: pg.integer },
-		["child", "item", "stage", "at", "v"]
-	)
+	const Attempt = relation("Attempt", { child: int4, item: int4, stage: int4, at: int4 }, [
+		"child",
+		"item",
+		"stage",
+		"at"
+	])
+	const Value = relation("Value", { child: int4, item: int4, stage: int4, at: int4, v: int4 }, [
+		"child",
+		"item",
+		"stage",
+		"at",
+		"v"
+	])
 	const laws = [
 		contained(on(Attempt, "child", "item", "stage"), on(Session, "child", "item", "stage")),
 		contained(
@@ -1614,19 +1605,22 @@ const placedBeforeIn = (level: boolean) => {
 const placedAfterIn = (level: boolean) => {
 	const Session = relation(
 		"Session",
-		{ child: pg.integer, item: pg.integer, n: place.by("stage"), stage: pg.integer },
+		{ child: int4, item: int4, n: place.by("stage"), stage: int4 },
 		["child", "item", "n"]
 	)
-	const Attempt = relation(
-		"Attempt",
-		{ child: pg.integer, item: pg.integer, n: natural, at: pg.integer },
-		["child", "item", "n", "at"]
-	)
-	const Value = relation(
-		"Value",
-		{ child: pg.integer, item: pg.integer, n: natural, at: pg.integer, v: pg.integer },
-		["child", "item", "n", "at", "v"]
-	)
+	const Attempt = relation("Attempt", { child: int4, item: int4, n: natural, at: int4 }, [
+		"child",
+		"item",
+		"n",
+		"at"
+	])
+	const Value = relation("Value", { child: int4, item: int4, n: natural, at: int4, v: int4 }, [
+		"child",
+		"item",
+		"n",
+		"at",
+		"v"
+	])
 	const laws = [
 		key(on(Session, "child", "item", "stage")),
 		contained(on(Attempt, "child", "item", "n"), on(Session, "child", "item", "n")),
@@ -1802,11 +1796,7 @@ const signedBefore = (key: "user" | "user and email") =>
 	schema(
 		"Backfill",
 		[
-			relation(
-				"SignIn",
-				{ user: pg.integer, email: pg.integer },
-				key === "user" ? ["user"] : ["user", "email"]
-			)
+			relation("SignIn", { user: int4, email: int4 }, key === "user" ? ["user"] : ["user", "email"])
 		],
 		[]
 	)
@@ -1818,8 +1808,8 @@ const signedAfter = (head: StampedHead) =>
 		"Backfill",
 		[
 			head === "clock"
-				? relation("SignIn", { user: pg.integer, at: instant, email: pg.integer }, ["user", "at"])
-				: relation("SignIn", { user: pg.integer, n: place, email: pg.integer }, ["user", "n"])
+				? relation("SignIn", { user: int4, at: instant, email: int4 }, ["user", "at"])
+				: relation("SignIn", { user: int4, n: place, email: int4 }, ["user", "n"])
 		],
 		[]
 	)
@@ -1948,12 +1938,12 @@ const usersOf = (clocked: boolean) =>
 	schema(
 		"Backfill",
 		[
-			relation("Visit", { user: pg.integer, at: instant }, ["user", "at"]),
+			relation("Visit", { user: int4, at: instant }, ["user", "at"]),
 			clocked
-				? relation("SignIn", { user: pg.integer, at: instant, email: pg.integer }, ["user", "at"])
-				: relation("SignIn", { user: pg.integer, email: pg.integer }, ["user"])
+				? relation("SignIn", { user: int4, at: instant, email: int4 }, ["user", "at"])
+				: relation("SignIn", { user: int4, email: int4 }, ["user"])
 		],
-		[unit("User", { user: pg.integer })]
+		[unit("User", { user: int4 })]
 	)
 
 /**

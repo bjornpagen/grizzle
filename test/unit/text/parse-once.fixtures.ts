@@ -4,7 +4,7 @@ import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { defined } from "@bjornpagen/testing/assert"
 import { array, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record as Rec } from "effect"
-import { closedId, pg } from "#compiler/public/fields.ts"
+import { closedId, bool } from "#compiler/public/fields.ts"
 import { closed } from "#compiler/public/schema.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import {
@@ -135,20 +135,20 @@ const relationsOf = (c: ParseCase, copies: number, closedRelations: ReturnType<t
 				)
 			}
 			const match = patternAt(c, fields[0]).match
-			const yes = computeCore.literal(pg.boolean, true)
-			const no = computeCore.literal(pg.boolean, false)
+			const yes = computeCore.literal(bool, true)
+			const no = computeCore.literal(bool, false)
 			const R = generatedRelation(
 				name,
 				written,
 				["id"],
 				(row: Readonly<Record<string, unknown>>) => ({
 					m: generatedField(
-						pg.boolean,
+						bool,
 						computeCore.cond(computeCore.matches(row["t0"], computeCore.pattern(match)), yes, no),
 						[]
 					),
 					w: generatedField(
-						pg.boolean,
+						bool,
 						computeCore.when(
 							computeCore.matches(row["t0"], computeCore.pattern(match)),
 							() => yes,
@@ -157,7 +157,7 @@ const relationsOf = (c: ParseCase, copies: number, closedRelations: ReturnType<t
 						[]
 					),
 					p: generatedField(
-						pg.boolean,
+						bool,
 						computeCore.cond(
 							computeCore.matches(row["t0"], closedRelations.Rules.at("pattern", "A")),
 							yes,

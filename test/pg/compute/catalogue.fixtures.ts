@@ -21,7 +21,7 @@ import type { OpenExpr } from "#compiler/ir/open.ts"
 import { numericTypmodOf, typeLabel } from "#compiler/ir/scalar.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import type { ScalarTerm } from "#compiler/scalar/compute/term.ts"
-import { Decimal, type FiniteDecimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
+import { Numeric, type FiniteDecimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { constantEnv, evaluate } from "#test/support/oracle/evaluate/catalog.ts"
@@ -125,7 +125,7 @@ const boundaries: { readonly [C in Gate]: Arr.NonEmptyReadonlyArray<Boundary> } 
 			["int8 half", "9223372036854775807.5"],
 			["NaN", "NaN"]
 		] as const,
-		([name, text]) => ({ name, value: Decimal.of(text) })
+		([name, text]) => ({ name, value: Numeric.of(text) })
 	),
 	float8: [
 		{ name: "zero", value: 0 },
@@ -190,7 +190,7 @@ const maxPaddedScale = 1000
  * below half a unit of the slot's last place is the zero a refusal sees; padded by `digits` fraction digits past that
  * value's least scale; NaN as it is.
  */
-const numericOperand = (given: Decimal, digits: number, boundary: string): Operand => {
+const numericOperand = (given: Numeric, digits: number, boundary: string): Operand => {
 	const value = succeeded(normalizeNumeric(given, numericTypmodOf(fields.numeric.scalar)))
 	const p = value.parts
 	if (digits === 0 || p.kind !== "finite") {
@@ -316,12 +316,12 @@ const fractionalText: Gen<string> = (source) => {
 
 /** A finite numeric's text one unit in its last place nearer zero. */
 const unitNearerZero = (text: string): string => {
-	const x = Decimal.of(text)
+	const x = Numeric.of(text)
 	if (!x.isFinite()) {
 		throw new Error(`a fractional operand is finite, not ${text}`)
 	}
 	return succeeded(
-		Decimal.fromParts(x.parts.negative, x.parts.coefficient - 1n, x.parts.minScale)
+		Numeric.fromParts(x.parts.negative, x.parts.coefficient - 1n, x.parts.minScale)
 	).toString()
 }
 
@@ -347,7 +347,7 @@ const at = <A>(xs: ReadonlyArray<A>, i: number): A => {
 const boundaryValues = (operands: Operands): ReadonlyArray<Operand> =>
 	operands.carrier === "numeric"
 		? Arr.map(boundaries.numeric, (b, i) => {
-				const value = b.value instanceof Decimal ? b.value : Decimal.zero
+				const value = b.value instanceof Numeric ? b.value : Numeric.zero
 				return numericOperand(value, at(operands.boundaryPaddings, i), b.name)
 			})
 		: boundaryOperands(operands.carrier)
@@ -364,7 +364,7 @@ const operandValues = (operands: Operands): ReadonlyArray<Operand> => {
 			case "money":
 				return Arr.map(operands.drawn, (m) => plainOperand(Money.of(m), "drawn"))
 			case "numeric":
-				return Arr.map(operands.drawn, ([t, d]) => numericOperand(Decimal.of(t), d, "drawn"))
+				return Arr.map(operands.drawn, ([t, d]) => numericOperand(Numeric.of(t), d, "drawn"))
 			case "float8":
 				return Arr.map(operands.drawn, floatOperand)
 			case "float4":
@@ -437,7 +437,7 @@ const inLists: { readonly [C in Gate]: ReadonlyArray<unknown> } = {
 	int2: [0, 1, -1, 7, 32767, -32768],
 	int4: [0, 1, -1, 7, 2147483647, -2147483648],
 	int8: [0n, 1n, -1n, 7n, 9223372036854775807n, -9223372036854775808n],
-	numeric: [Decimal.nan, Decimal.infinity, Decimal.negativeInfinity, "0", "1.0", "-2.5", 3n],
+	numeric: [Numeric.nan, Numeric.infinity, Numeric.negativeInfinity, "0", "1.0", "-2.5", 3n],
 	float8: [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, 0, 1, 2.5, 1e308],
 	float4: [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, 0, 1, 2.5],
 	money: [Money.of(0n), Money.of(100n), Money.of(-1n), Money.of(9223372036854775807n)]
@@ -854,8 +854,8 @@ const formsOf = (k: CatalogueCase): ReadonlyArray<Formed> => {
 				bucket(at(t, 0), at(t, 1), at(t, 2), at(counts, i % counts.length))
 			)
 			const atClasses = Arr.flatMap(boundaryValues(k.operands), (x, i) => {
-				const lo = plainOperand(Decimal.of(BigInt(-(i % 17))), "drawn")
-				const hi = plainOperand(Decimal.of(`${(i % 13) + 1}.${i % 7}`), "drawn")
+				const lo = plainOperand(Numeric.of(BigInt(-(i % 17))), "drawn")
+				const hi = plainOperand(Numeric.of(`${(i % 13) + 1}.${i % 7}`), "drawn")
 				const n = (i % 9) + 1
 				return [bucket(x, lo, hi, n), bucket(lo, x, hi, n), bucket(lo, hi, x, n)]
 			})
@@ -864,8 +864,8 @@ const formsOf = (k: CatalogueCase): ReadonlyArray<Formed> => {
 		case "fractional lcm": {
 			const numeric = testPg.numeric
 			return Arr.map(k.pairs, ([x, y]) => {
-				const a = plainOperand(Decimal.of(x), "drawn")
-				const b = plainOperand(Decimal.of(y), "drawn")
+				const a = plainOperand(Numeric.of(x), "drawn")
+				const b = plainOperand(Numeric.of(y), "drawn")
 				return {
 					expr: computeCore.lcm(v("a", numeric), v("b", numeric)).expr,
 					bindings: { a: literalOf(numeric, a), b: literalOf(numeric, b) },
@@ -891,18 +891,18 @@ export const buildCases = (k: CatalogueCase): ReadonlyArray<ReadCase> => {
 const isZero = (x: LiteralDesc): boolean =>
 	x === 0 ||
 	x === 0n ||
-	(x instanceof Decimal && x.isFinite() && x.parts.coefficient === 0n) ||
+	(x instanceof Numeric && x.isFinite() && x.parts.coefficient === 0n) ||
 	(x instanceof Money && x.minorUnits === 0n)
 
 const isNegative = (x: LiteralDesc): boolean =>
 	(typeof x === "number" && x < 0) ||
 	(typeof x === "bigint" && x < 0n) ||
-	(x instanceof Decimal && x.isFinite() && x.parts.negative && x.parts.coefficient !== 0n) ||
-	(x instanceof Decimal && x.parts.kind === "-infinity") ||
+	(x instanceof Numeric && x.isFinite() && x.parts.negative && x.parts.coefficient !== 0n) ||
+	(x instanceof Numeric && x.parts.kind === "-infinity") ||
 	(typeof x === "object" && "float" in x && x.float === "-Infinity")
 
 const isSpecial = (x: LiteralDesc): boolean =>
-	(x instanceof Decimal && !x.isFinite()) || (typeof x === "object" && "float" in x)
+	(x instanceof Numeric && !x.isFinite()) || (typeof x === "object" && "float" in x)
 
 /**
  * Whether a refusal is the operands' values': a nonzero precondition over a zero operand, a nonnegative one over a
@@ -970,7 +970,7 @@ const integerDigits = (x: FiniteDecimal): number => {
 
 /** The finite numerics among a case's operands. */
 const finiteDecimals = (read: ReadonlyArray<Operand>): ReadonlyArray<FiniteDecimal> =>
-	Arr.flatMap(read, (o) => (o.value instanceof Decimal && o.value.isFinite() ? [o.value] : []))
+	Arr.flatMap(read, (o) => (o.value instanceof Numeric && o.value.isFinite() ? [o.value] : []))
 
 /**
  * Whether a case is lcm over two finite numerics read plain, agreeing on a value with more integer digits than its
@@ -986,7 +986,7 @@ export const lcmPastOperandDigits = (k: ReadCase, agreed: boolean): boolean => {
 		label === "lcm/numeric" &&
 		read.length === 2 &&
 		host._tag === "Success" &&
-		host.success instanceof Decimal &&
+		host.success instanceof Numeric &&
 		host.success.isFinite() &&
 		integerDigits(host.success) > Arr.reduce(read, 0, (n, x) => n + integerDigits(x))
 	)

@@ -9,7 +9,7 @@ import type { LawId } from "#compiler/core/ids.ts"
 import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { Logic, Num } from "#compiler/public/compute.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import {
 	contained,
 	key,
@@ -23,21 +23,18 @@ import {
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
 
 /** A unit's header. */
-const H = relation("H", { g: pg.integer }, ["g"])
+const H = relation("H", { g: int4 }, ["g"])
 /** Two relations keyed by H's unit first. */
-const B = relation("B", { g: pg.integer, i: pg.integer, kind: pg.integer }, ["g", "i"])
-const C = relation("C", { g: pg.integer, i: pg.integer, kind: pg.integer }, ["g", "i"])
+const B = relation("B", { g: int4, i: int4, kind: int4 }, ["g", "i"])
+const C = relation("C", { g: int4, i: int4, kind: int4 }, ["g", "i"])
 /** A relation keyed apart from the unit. */
-const D = relation("D", { i: pg.integer, n: pg.integer }, ["i"])
+const D = relation("D", { i: int4, n: int4 }, ["i"])
 /** A relation keyed by the unit first, each of its fields one of its key's. */
-const E = relation("E", { g: pg.integer, i: pg.integer }, ["g", "i"])
+const E = relation("E", { g: int4, i: int4 }, ["g", "i"])
 /** A relation keyed by the unit first, with a field beyond a superkey of its key. */
-const F = relation("F", { g: pg.integer, i: pg.integer, kind: pg.integer, n: pg.integer }, [
-	"g",
-	"i"
-])
+const F = relation("F", { g: int4, i: int4, kind: int4, n: int4 }, ["g", "i"])
 /** A relation keyed by the unit first, with a declared key (g, j) beside its primary key. */
-const G = relation("G", { g: pg.integer, i: pg.integer, j: pg.integer }, ["g", "i"])
+const G = relation("G", { g: int4, i: int4, j: int4 }, ["g", "i"])
 
 /**
  * The box's containments, by what decides each one's discharge (laws/model/plan.ts containmentDischarge):
@@ -95,8 +92,8 @@ export const caseGen: Gen<Case> = (s) => ({
 })
 
 /** The unit of a group, which H, B and C sit in, and the unit of D's i. */
-const groupUnit = unit("Group", { g: pg.integer })
-const dUnit = unit("Ds", { i: pg.integer })
+const groupUnit = unit("Group", { g: int4 })
+const dUnit = unit("Ds", { i: int4 })
 
 /** The relations of `mutable`, each of the box's, inside its unit. */
 const mutableOf = (m: Mutability) => {
@@ -371,7 +368,7 @@ export const migrationCaseGen: Gen<MigrationCase> = (s) => ({
 })
 
 /** The migration case's B, keyed by its own h then i, so a unit of h holds it apart from C, keyed by g. */
-const Bh = relation("B", { h: pg.integer, i: pg.integer, kind: pg.integer }, ["h", "i"])
+const Bh = relation("B", { h: int4, i: int4, kind: int4 }, ["h", "i"])
 
 /** The schema of one version of a migration case: B and C, the selected containment unless absent, native where B and C
  * are mutable, each in a unit of its own, so the containment reads the rows of two units, judged where neither is. */
@@ -393,7 +390,7 @@ export const versionOf = (discharge: MigrationCase["before"]): AnySchema =>
 						)
 					]),
 			...(discharge === "native"
-				? [groupUnit, unit("Hs", { h: pg.integer }), mutable(Bh), mutable(C)]
+				? [groupUnit, unit("Hs", { h: int4 }), mutable(Bh), mutable(C)]
 				: [])
 		]
 	)

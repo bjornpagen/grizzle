@@ -24,7 +24,7 @@ import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import { predicateTable } from "#compiler/ir/expr.ts"
 import { exprsOf } from "#compiler/ir/rel.ts"
 import { Fn } from "#compiler/public/compute.ts"
-import { closedId, pg, sha256 } from "#compiler/public/fields.ts"
+import { closedId, sha256, int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	type AnyFunction,
@@ -82,7 +82,7 @@ const Mood = closed.ordered("Mood", moods)
 /** The values a plain call's arguments read: Pick's at k0 and k1, NULL at k2. */
 const Pick = closed.relation(
 	"Pick",
-	{ key: closedId(Key), n: pg.integer, t: Text },
+	{ key: closedId(Key), n: int4, t: Text },
 	["key"],
 	[
 		{ key: "k0", n: 1, t: "x" },
@@ -94,7 +94,7 @@ const Pick = closed.relation(
 const Probe = relation("Probe", { key: closedId(Key), other: closedId(Key) }, ["key", "other"])
 
 /** A set-returning function's heading. */
-const Measured = rows({ v: pg.integer })
+const Measured = rows({ v: int4 })
 
 const signatures = ["plain", "coded"] as const
 type Signature = (typeof signatures)[number]
@@ -201,8 +201,8 @@ const bodyOf = (text: string): FunctionBody => fn.body(Object.assign([text], { r
 const functionOf = (c: StrictCase): AnyFunction =>
 	fn(nameOf(c), {
 		calls: [],
-		args: c.signature === "plain" ? { a: pg.integer, b: Text } : { d: sha256, m: closedId(Mood) },
-		returns: c.returns === "value" ? pg.integer : Measured,
+		args: c.signature === "plain" ? { a: int4, b: Text } : { d: sha256, m: closedId(Mood) },
+		returns: c.returns === "value" ? int4 : Measured,
 		volatility: "immutable",
 		nullInput: c.nullInput,
 		language: c.language,
@@ -215,8 +215,8 @@ const servedFunctionOf = (c: StrictCase) =>
 		? Option.some(
 				fn(nameOf(c), {
 					calls: [],
-					args: { a: pg.integer, b: Text },
-					returns: pg.integer,
+					args: { a: int4, b: Text },
+					returns: int4,
 					volatility: "immutable",
 					nullInput: c.nullInput,
 					language: c.language,

@@ -5,7 +5,7 @@ import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
 import { type PlanNode, planNodes, scannedRows } from "#bench/harness/explain.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, relation, schema } from "#compiler/public/schema.ts"
 import { fullWorldRole, servedRead, servedRun } from "#test/support/advice.ts"
@@ -19,15 +19,9 @@ import type { PgConnection } from "#test/support/pg.ts"
  * edullm's learning-commons crosswalk, as its Knowledge Graph stores it: which learning components support which
  * standard, and the pairs of a state standard and a hub standard that share components, with how many they share.
  */
-const Supports = relation("Supports", { component: pg.integer, item: pg.integer }, [
-	"component",
-	"item"
-])
+const Supports = relation("Supports", { component: int4, item: int4 }, ["component", "item"])
 
-const Pair = relation("Pair", { state: pg.integer, hub: pg.integer, shared: pg.integer }, [
-	"state",
-	"hub"
-])
+const Pair = relation("Pair", { state: int4, hub: int4, shared: int4 }, ["state", "hub"])
 
 const Stored = schema("FoldProbe", [Supports, Pair], [])
 
@@ -55,7 +49,7 @@ const crosswalkOf = (order: MatchOrder) =>
 		const { state, hub, shared } = v(Pair, "pair")
 		const stateCount = v(SupportCount, "stateCount")
 		const hubCount = v(SupportCount, "hubCount")
-		const standard = r.param("standard", pg.integer)
+		const standard = r.param("standard", int4)
 		const matched =
 			order === "pair first"
 				? r

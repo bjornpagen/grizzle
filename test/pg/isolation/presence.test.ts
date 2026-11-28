@@ -1,7 +1,7 @@
 /**
  * Presence's beacon against PostgreSQL 19 under real concurrency (docs/reads-and-writes.md "A window a put extends"): one put of the
  * window from the earliest start to the latest end of the call's clock reading and every window of its child's stage
- * within 3 s of it (r.span), which displaces each window it overlaps at the span key (write/delete/exact.ts
+ * within 3 s of it (r.range), which displaces each window it overlaps at the span key (write/delete/exact.ts
  * collidingAtKey), at the level the learner's put runs at, SERIALIZABLE, its span key having no READ COMMITTED form yet
  * (write/schedule/plan.ts readCommittedLack). The shape: Presence(child, stage, during) keyed (child, stage, during
  * WITHOUT OVERLAPS), mutable in the unit Learner(child), and the role `learner`, whose one member is the beacon, served

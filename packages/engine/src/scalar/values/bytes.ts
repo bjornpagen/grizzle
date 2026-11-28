@@ -2,7 +2,7 @@ import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { ValueFault } from "#compiler/core/errors.ts"
 import { sha256Hex } from "#compiler/core/sha256.ts"
-import { bytesMaxLength } from "#compiler/scalar/values/fault.ts"
+import { byteaMaxLength } from "#compiler/scalar/values/fault.ts"
 
 /**
  * A bytes host value: a Uint8Array over an ArrayBuffer of its own, PostgreSQL's bytea written and read back whole. Every
@@ -42,7 +42,7 @@ export class AdmittedBytes extends BytesDigest {
 /**
  * The encode-time boundary of a bytes value, which reads its length and nothing else: a value that is no Uint8Array, or
  * one over a detached buffer, which reads as no bytes at all, is bytesType; one longer than
- * bytesMaxLength, which no bytea holds, is bytesLength. A value it passes is the caller's array itself, whose bytes
+ * byteaMaxLength, which no bytea holds, is bytesLength. A value it passes is the caller's array itself, whose bytes
  * are read only once its input is known to fit its statement (write/normalize/normalize.ts), for its digest
  * (`AdmittedBytes`).
  */
@@ -54,7 +54,7 @@ export const checkBytes = (value: unknown): Result.Result<Uint8Array, ValueFault
 	if (buffer instanceof ArrayBuffer && buffer.detached) {
 		return Result.err("bytesType")
 	}
-	if (value.length > bytesMaxLength) {
+	if (value.length > byteaMaxLength) {
 		return Result.err("bytesLength")
 	}
 	return Result.ok(value)
@@ -82,7 +82,7 @@ export const isAdmittedBytes = (value: unknown): value is AdmittedBytes =>
  */
 export const digestOf = (value: unknown): string => {
 	if (!(value instanceof BytesDigest)) {
-		defect("a bytes column's value, its digest")
+		defect("a bytea column's value, its digest")
 	}
 	return value.digest
 }

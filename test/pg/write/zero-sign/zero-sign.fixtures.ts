@@ -3,7 +3,7 @@
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { float8, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { mutable, relation, schema, unit } from "#compiler/public/schema.ts"
 import { changeSetDesc } from "#compiler/write/changeset/value.ts"
@@ -34,26 +34,20 @@ import { checking } from "#test/support/policy.ts"
  * deletion of it removes nothing; of the same zero, a put and an insert change nothing and a deletion removes it. Two
  * facts of K at -0 and +0 share K's key and are refused on it, before any SQL.
  */
-const M = relation("M", { k: pg.bigint, g: pg.bigint, x: pg["double precision"] }, ["k"])
+const M = relation("M", { k: int8, g: int8, x: float8 }, ["k"])
 
-const I = relation("I", { k: pg.bigint, x: pg["double precision"] }, ["k"])
+const I = relation("I", { k: int8, x: float8 }, ["k"])
 
-export const K = relation("K", { x: pg["double precision"], n: pg.bigint }, ["x"])
+export const K = relation("K", { x: float8, n: int8 }, ["x"])
 
-const P = relation("P", { id: pg.bigint, x: pg["double precision"] }, ["id"])
+const P = relation("P", { id: int8, x: float8 }, ["id"])
 
-const C = relation("C", { id: pg.bigint, x: pg["double precision"] }, ["id"])
+const C = relation("C", { id: int8, x: float8 }, ["id"])
 
 export const Zeros = schema(
 	"Zeros",
 	[M, I, K, P, C],
-	[
-		mutable(M),
-		mutable(I),
-		mutable(K),
-		unit("Keyed", { k: pg.bigint }),
-		unit("Zero", { x: pg["double precision"] })
-	]
+	[mutable(M), mutable(I), mutable(K), unit("Keyed", { k: int8 }), unit("Zero", { x: float8 })]
 )
 
 /** M's facts of a relation parameter, matched whole. */
@@ -87,8 +81,8 @@ const programs = Object.freeze({
 			const { k, g, x } = v(M, "m")
 			return r
 				.match(M, { k, g, x })
-				.where(r.eq(k, r.param("k", pg.bigint)))
-				.find({ k, g, x: r.param("x", pg["double precision"]) })
+				.where(r.eq(k, r.param("k", int8)))
+				.find({ k, g, x: r.param("x", float8) })
 		})
 	),
 	putScoped: ChangeSet.empty(Zeros)
@@ -99,7 +93,7 @@ const programs = Object.freeze({
 				const { k, g, x } = v(M, "m")
 				return r
 					.match(M, { k, g, x })
-					.where(r.eq(g, r.param("g", pg.bigint)))
+					.where(r.eq(g, r.param("g", int8)))
 					.where(r.not(r.relation("rows", M), { k }))
 					.find({ k, g, x })
 			})

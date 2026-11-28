@@ -22,7 +22,7 @@ import { conservativeInput, flight } from "#compiler/lower/conservative/types.ts
 import { emptyCtePlan } from "#compiler/lower/optimize/cte-policy/index.ts"
 import { OptimizedDelivery, optimizedDispatch, ShapeState } from "#compiler/lower/shapes/index.ts"
 import { noKeys } from "#compiler/lower/shapes/share/keyed.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 import type { OperandBody, OperandSelect, EmittedSql } from "#compiler/sql/ast.ts"
 import { costChosen, sentText } from "#compiler/sql/emit.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -266,7 +266,7 @@ const decimalGen: Gen<DecimalCase> = oneOf<DecimalCase>([
 	constant({ kind: "nan" })
 ])
 
-const decimalText = (d: DecimalCase): string => {
+const numericText = (d: DecimalCase): string => {
 	if (d.kind === "nan") {
 		return "NaN"
 	}
@@ -276,7 +276,7 @@ const decimalText = (d: DecimalCase): string => {
 }
 
 /** numeric orders NaN above every number and equal to itself; numbers by value, whatever their scale. */
-export const value = (d: DecimalCase) => succeeded(Decimal.fromString(decimalText(d)))
+export const value = (d: DecimalCase) => succeeded(Numeric.fromString(numericText(d)))
 
 export const decimalOrder = (a: DecimalCase, b: DecimalCase): number => {
 	if (a.kind === "nan") {

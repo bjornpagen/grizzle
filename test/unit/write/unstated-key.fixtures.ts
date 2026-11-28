@@ -3,7 +3,7 @@
 import { nonEmpty } from "@bjornpagen/testing/assert"
 import { element, type Gen, int, subarray } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record } from "effect"
-import { drawn, generated, natural, pg } from "#compiler/public/fields.ts"
+import { drawn, generated, natural, int8 } from "#compiler/public/fields.ts"
 import { key, on, relation, unit } from "#compiler/public/schema.ts"
 import { Id } from "#test/support/ids.ts"
 
@@ -38,7 +38,7 @@ const unitsOf = (primary: Shape) => {
 		case "owner and x":
 			return [rowUnit, unit("Owned", { owner: Id })]
 		case "x and index":
-			return [rowUnit, unit("Xs", { x: pg.bigint })]
+			return [rowUnit, unit("Xs", { x: int8 })]
 		case "id alone":
 			return [rowUnit]
 	}
@@ -48,9 +48,9 @@ const unitsOf = (primary: Shape) => {
 export const memberOf = (primary: Shape) => {
 	const Member = relation.generated(
 		"Member",
-		{ id: Id, owner: Id, at: drawn(natural), x: pg.bigint },
+		{ id: Id, owner: Id, at: drawn(natural), x: int8 },
 		shapes[primary],
-		(r) => ({ y: generated(pg.bigint, r.x) })
+		(r) => ({ y: generated(int8, r.x) })
 	)
 	const declared = (shape: Declared) => {
 		switch (shape) {

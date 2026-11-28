@@ -285,7 +285,7 @@ export type PreconditionKind =
  * The test a PartialOperation's guard puts in Logic.when over its operand, which fits the operand's type: over a
  * number, Num.nonzero, Num.nonnegative, Num.positive, Num.isFinite, or Num.within between the bounds
  * the operation is defined within; over a text, Text.matches against the target's pattern, its lexical form, the
- * decimal text of a double (doubleText) or a decimal text (decimalText), or a bound on its UTF-8 bytes at the target's
+ * decimal text of a double (float8Text) or a decimal text (numericText), or a bound on its UTF-8 bytes at the target's
  * str.bytes bound or a form's, Num.within(Text.octetLength(x), 0, bytes), where octetLength stands; for an operand's
  * fraction digits, which no guard bounds, a value whose type has none, an integer's, numeric(p, 0)'s or a parse into
  * the integer target itself (`integral`);
@@ -304,7 +304,7 @@ export type GuardTest =
 	| { readonly kind: "within" }
 	| {
 			readonly kind: "matches"
-			readonly pattern: "target" | "lexicalForm" | "doubleText" | "decimalText"
+			readonly pattern: "target" | "lexicalForm" | "float8Text" | "numericText"
 	  }
 	| { readonly kind: "octets"; readonly bytes: number }
 	| { readonly kind: "integral" }
@@ -1005,7 +1005,7 @@ export const prose = (tag: ProseTag, at: SourceLoc, text: string): CompileReason
 
 /** Why an insert into `relation`, whose primary key holds a span, has no READ COMMITTED form (NoReadCommittedForm). */
 export const noReadCommittedFormText = (relation: string): string =>
-	`an insert into ${relation}, whose primary key holds a span, has no READ COMMITTED form: its exclusion constraint arbitrates by ON CONFLICT DO NOTHING alone, so no statement tells a requested fact it met from one it made, and it runs SERIALIZABLE`
+	`an insert into ${relation}, whose primary key holds a range, has no READ COMMITTED form: its exclusion constraint arbitrates by ON CONFLICT DO NOTHING alone, so no statement tells a requested fact it met from one it made, and it runs SERIALIZABLE`
 
 /** The sentence a reason states after its tag and location. */
 export const compileReasonText = (reason: CompileReason): string => {

@@ -41,7 +41,7 @@ const equatedVars = (region: NodeOf<"MatchRegion">, v: VarDecl): ReadonlySet<Var
  * bound to it and every variable it is equated with. Anything else, a computed column above all, is not carried.
  *
  * Native equality is the host's identity for every type: equal values decode to one host value (a numeric's 1.0 and
- * 1.00 are one Decimal, a float's -0 and 0 one zero), and no reading grizzle emits sees what tells them apart in
+ * 1.00 are one Numeric, a float's -0 and 0 one zero), and no reading grizzle emits sees what tells them apart in
  * PostgreSQL (registry.ts OperandReading). So a carried column turns into a filter or a stitched key whatever its
  * type, as a fused attachment copies a correlated column from its parent row (shapes/attach/index.ts fusedLayout).
  */

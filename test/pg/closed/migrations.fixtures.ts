@@ -41,7 +41,7 @@ import { draftCodebook, noRenames } from "#compiler/ir/codes.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { login } from "#compiler/program/workload/login.ts"
-import { bits, closedId, pg } from "#compiler/public/fields.ts"
+import { bit, closedId, int4 } from "#compiler/public/fields.ts"
 import {
 	type AnyClosed,
 	type AnyRelation,
@@ -345,10 +345,10 @@ export const builtOf = (name: string, m: Model, declaration: Declaration): Built
 		Arr.map(m.closedRows.from, (node) => ({ from: node, to: node }))
 	)
 	const law = contained(on(Edge, "from"), on(Allowed, "node"))
-	const Held = relation("Held", { id: pg.integer, tier: closedId(Tier) }, ["id"])
+	const Held = relation("Held", { id: int4, tier: closedId(Tier) }, ["id"])
 	const stored: Record<string, AnyRelation> = { Held }
 	if (m.sets.kind === "present") {
-		stored["Sets"] = relation("Sets", { id: pg.integer, members: bits(Tier) }, ["id"])
+		stored["Sets"] = relation("Sets", { id: int4, members: bit(Tier) }, ["id"])
 	}
 	const declared: Record<string, AnyRelation | AnyClosed> = { Tier, Node, Allowed, Edge, ...stored }
 	const base = schema(name, Rec.values(declared), [law])

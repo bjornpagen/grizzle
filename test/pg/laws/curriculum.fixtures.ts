@@ -21,7 +21,7 @@ import { quoteIdent } from "#compiler/core/text.ts"
 import type { CallError } from "#compiler/live/index.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Num, Text, Type } from "#compiler/public/compute.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int8 } from "#compiler/public/fields.ts"
 import { param, query, type Rule, v } from "#compiler/public/query.ts"
 import {
 	contained,
@@ -89,9 +89,9 @@ const Node = relation(
 	"Node",
 	{
 		package: PackageName,
-		start: pg.bigint,
-		end: pg.bigint,
-		parent: pg.bigint,
+		start: int8,
+		end: int8,
+		parent: int8,
 		kind: Chars,
 		chars: Chars
 	},

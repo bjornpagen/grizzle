@@ -307,7 +307,7 @@ const collidingAtKey = (
 	const span = keys.find((k) => k.field.name === shape.span.name)
 	if (!isNonEmpty(scalars) || span === undefined) {
 		defect(
-			`a span key of ${relation.name} without a scalar field before its span, or without its span`
+			`a range key of ${relation.name} without a scalar field before its range, or without its range`
 		)
 	}
 	return appendNonEmpty(

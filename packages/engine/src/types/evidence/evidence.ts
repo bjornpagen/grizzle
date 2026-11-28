@@ -998,7 +998,7 @@ type GenerationOver<G extends string, Reads, H> = Lost extends Reads
 		? never
 		: Generation<G, Reads & string>
 type ReadsFloat<Reads, H> = Reads extends keyof H
-	? H[Reads] extends { readonly sql: "real" | "double precision" }
+	? H[Reads] extends { readonly sql: "float4" | "float8" }
 		? true
 		: false
 	: false

@@ -13,7 +13,7 @@ import { splitStatements } from "#compiler/deploy/render/markers.ts"
 import { installed, type ManifestObject } from "#compiler/deploy/snapshot/objects.ts"
 import type { PhysicalKind } from "#compiler/ir/products.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
-import { closedId, pg } from "#compiler/public/fields.ts"
+import { closedId, int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	closed,
@@ -89,10 +89,8 @@ const noteText = str.regex("^[a-z\\t]{0,8}$", "u")
  */
 export const versionOf = (name: string) => {
 	const Kind = closed.ordered("Kind", ["plain", "tabbed"])
-	const Fact = relation("Fact", { id: Id, k: pg.integer, kind: closedId(Kind), note: noteText }, [
-		"id"
-	])
-	const T = relation("T", { k: pg.integer }, ["k"])
+	const Fact = relation("Fact", { id: Id, k: int4, kind: closedId(Kind), note: noteText }, ["id"])
+	const T = relation("T", { k: int4 }, ["k"])
 	const Base = schema(name, [Kind, Fact, T], [])
 	const Tabbed = derived(
 		"Tabbed",

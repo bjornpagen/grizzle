@@ -51,8 +51,8 @@ const unionOf = (values: ReadonlyArray<string>): string =>
  */
 const variantSubsetHeader = (): ReadonlyArray<string> => [
 	`export const Mark = closed.ordered("Mark", [${Arr.join(Arr.map(handles, jsonText), ", ")}])`,
-	'export const Some = variant("Some", Mark, { s: { n: pg.integer }, q: {} })',
-	'export const Held = relation.generated("Held", { id: pg.integer, value: Some }, ["id"], (r) => ({',
+	'export const Some = variant("Some", Mark, { s: { n: int4 }, q: {} })',
+	'export const Held = relation.generated("Held", { id: int4, value: Some }, ["id"], (r) => ({',
 	`\tkind: generated(closedId(Mark, { only: [${Arr.join(Arr.map(held, jsonText), ", ")}] }), Some.tag(r.value))`,
 	"}))",
 	'export const Marks = schema("Marks", [Mark, Held], [])',

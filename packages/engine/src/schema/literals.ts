@@ -52,7 +52,7 @@ export const literalsField = (
 			return defineField(
 				{},
 				carrier.sql,
-				{ kind: "pg", type: "boolean" },
+				{ kind: "pg", type: "bool" },
 				{ column: carrier.column },
 				loc,
 				env

@@ -70,7 +70,7 @@ import {
 	type RelationInfo,
 	sameNativeColumn,
 	scalarKeySet,
-	type SpanField,
+	type RangeField,
 	spanKeySet,
 	type StoredDerivedRelation,
 	type TheoryRelation,
@@ -431,7 +431,7 @@ const plannedPeriodReverse = (
 	subject: string,
 	loc: SourceLoc
 ): PlannedReverse => {
-	const spanDatum = defined(createdDatum(span), `the bounded datum of the span of ${subject}`)
+	const spanDatum = defined(createdDatum(span), `the bounded datum of the range of ${subject}`)
 	const spanEntry = { field: plannedText(span), datum: spanDatum }
 	const bounded = boundedColumns(scalars)
 	for (let n = Math.min(bounded.length, indexMaxKeys - 1); n >= 0; n--) {
@@ -474,7 +474,7 @@ const plannedGist = (
 		}
 		datums.push({ field: plannedText(c), datum: datum.value })
 	}
-	return gistEntry(datums.slice(0, -1), defined(datums.at(-1), "the span's datum"))
+	return gistEntry(datums.slice(0, -1), defined(datums.at(-1), "the range's datum"))
 }
 
 /** A side as a refusal names it: its terms over its relation, selected or whole. */
@@ -766,7 +766,7 @@ const storedKey = (
 export type PrimaryKeyPlan =
 	| Extract<NativePlan, { readonly kind: "PrimaryKey" }>
 	| (Omit<Extract<NativePlan, { readonly kind: "WithoutOverlaps" }>, "span" | "key"> & {
-			readonly span: FieldColumn<SpanField>
+			readonly span: FieldColumn<RangeField>
 			readonly key: {
 				readonly kind: "primary"
 				readonly scalars: NonEmptyReadonlyArray<FieldColumn>
@@ -1842,7 +1842,7 @@ const spanTermOf = (
 
 /** The coverage refusal of an unkeyed target: a temporal reference needs the target's spans disjoint within a key. */
 const coverageKeySentence =
-	"a coverage target needs a `WITHOUT OVERLAPS` key over its span; coalesce the spans, or key them"
+	"a coverage target needs a `WITHOUT OVERLAPS` key over its range; coalesce the ranges, or key them"
 
 /** A literal expression of a small natural, which every comparison of a family's drawn naturals reads. */
 const naturalLiteral = (value: 0n | 1n): ExprDesc => ({ kind: "literal", value })
@@ -2393,7 +2393,7 @@ export class Recognizer {
 			return [...lawColumns(columns), { kind: "Unique", relation, columns }]
 		}
 		const at = side.terms.indexOf(span)
-		const spanColumn = defined(columns[at], `the column of the span term of ${side.relation}`)
+		const spanColumn = defined(columns[at], `the column of the range term of ${side.relation}`)
 		const scalars = columns.filter((_, i) => i !== at)
 		judge(
 			this.keys,
@@ -2443,7 +2443,7 @@ export class Recognizer {
 					return refuse(
 						"UnsupportedLawFamily",
 						loc,
-						`a coverage law into a span-keyed stored relation; ${d.to.relation} is closed`
+						`a coverage law into a range-keyed stored relation; ${d.to.relation} is closed`
 					)
 				case "scalar":
 					return done(this.#intoClosed(d, fromRel, toRel, loc))
@@ -2662,8 +2662,8 @@ export class Recognizer {
 	#coverage(
 		d: Extract<TheoryLaw["detail"], { readonly kind: "containment" }>,
 		pairing: {
-			readonly from: SpanField
-			readonly to: SpanField
+			readonly from: RangeField
+			readonly to: RangeField
 			readonly pair: (typeof d.pairs)[number]
 		},
 		loc: SourceLoc
@@ -2677,20 +2677,20 @@ export class Recognizer {
 			return refuse(
 				"MalformedDescription",
 				loc,
-				"a coverage law whose span pair is one of its pairs"
+				"a coverage law whose range pair is one of its pairs"
 			)
 		}
 		const sourceColumns = sideColumns(from)
 		const targetColumns = sideColumns(to)
-		const sourceSpan = defined(sourceColumns[at], "a coverage source's span column")
-		const targetSpan = defined(targetColumns[at], "a coverage target's span column")
+		const sourceSpan = defined(sourceColumns[at], "a coverage source's range column")
+		const targetSpan = defined(targetColumns[at], "a coverage target's range column")
 		const sourceScalars = sourceColumns.filter((_, i) => i !== at)
 		const targetScalars = targetColumns.filter((_, i) => i !== at)
 		if (!isNonEmpty(sourceScalars) || !isNonEmpty(targetScalars)) {
 			return refuse(
 				"UnsupportedLawFamily",
 				loc,
-				`coverage grouped by at least one scalar field; ${from.relation} into ${to.relation} pairs only spans, an ungrouped span law`
+				`coverage grouped by at least one scalar field; ${from.relation} into ${to.relation} pairs only ranges, an ungrouped range law`
 			)
 		}
 		const toKey = spanKeySet(

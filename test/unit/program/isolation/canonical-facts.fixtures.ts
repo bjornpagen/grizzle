@@ -2,7 +2,7 @@
 
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	contained,
@@ -34,16 +34,9 @@ const writes = [
 /** A case: the change member the writer's workload holds. */
 export const writeGen: Gen<Write> = (source) => source.draw(element(writes))
 
-const Doc = relation("Doc", { doc: pg.integer, at: pg.integer, v: pg.integer }, ["doc", "at"])
-const Note = relation("Note", { doc: pg.integer, at: pg.integer, body: str.regex("^.*$", "su") }, [
-	"doc",
-	"at"
-])
-const Link = relation(
-	"Link",
-	{ doc: pg.integer, at: pg.integer, toDoc: pg.integer, toAt: pg.integer },
-	["doc", "at"]
-)
+const Doc = relation("Doc", { doc: int4, at: int4, v: int4 }, ["doc", "at"])
+const Note = relation("Note", { doc: int4, at: int4, body: str.regex("^.*$", "su") }, ["doc", "at"])
+const Link = relation("Link", { doc: int4, at: int4, toDoc: int4, toAt: int4 }, ["doc", "at"])
 
 /**
  * The login of a case as its change members compile (test/support/change-login.ts changeLogin), the schema of
@@ -54,7 +47,7 @@ const Link = relation(
  * holding each whole, so a read-back over the schema is its own and reads the join through its whole view.
  */
 export const canonicalLoginOf = (write: Write) => {
-	const base = schema("CanonicalFacts", [Doc, Note, Link], [unit("Document", { doc: pg.integer })])
+	const base = schema("CanonicalFacts", [Doc, Note, Link], [unit("Document", { doc: int4 })])
 	/** A place of a document with a note: a join within one document, a query of its unit alone. */
 	const noted = query(base).rule((r) => {
 		const { doc, at, v: x } = v(Doc, "place")

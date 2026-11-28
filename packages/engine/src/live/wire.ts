@@ -54,8 +54,8 @@ import {
 	uuidSpelling
 } from "#compiler/live/pattern.ts"
 import { moneyFractionDigits } from "#compiler/scalar/values/decimal.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
-import { bytesMaxLength } from "#compiler/scalar/values/fault.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
+import { byteaMaxLength } from "#compiler/scalar/values/fault.ts"
 import { binary32Max } from "#compiler/scalar/values/float.ts"
 import type { VariantValue } from "#compiler/scalar/values/identity.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
@@ -214,7 +214,7 @@ interface WireHost {
 	readonly int2: number
 	readonly int4: number
 	readonly int8: bigint
-	readonly numeric: Decimal
+	readonly numeric: Numeric
 	readonly float4: number
 	readonly float8: number
 	readonly money: Money
@@ -409,14 +409,14 @@ const isDecimalSpelling = (text: string): boolean => {
 }
 
 /** A finite decimal a caller's JSON spells in the wire's decimal grammar. */
-const finiteDecimalOf = (json: unknown): Result.Result<Decimal, WireFaultKind> => {
+const finiteDecimalOf = (json: unknown): Result.Result<Numeric, WireFaultKind> => {
 	if (typeof json !== "string") {
 		return Result.err("json")
 	}
 	if (!isDecimalSpelling(json)) {
 		return Result.err("spelling")
 	}
-	const parsed = Decimal.fromString(json)
+	const parsed = Numeric.fromString(json)
 	return parsed.ok ? Result.ok(parsed.value) : Result.err("range")
 }
 
@@ -428,10 +428,10 @@ const finiteDecimalOf = (json: unknown): Result.Result<Decimal, WireFaultKind> =
  * below 0, both of which PostgreSQL 15 and later declare.
  */
 const decimalFits = (
-	value: Decimal,
+	value: Numeric,
 	integerDigits: number,
 	scale: number
-): Result.Result<Decimal, WireFaultKind> => {
+): Result.Result<Numeric, WireFaultKind> => {
 	const parts = value.parts
 	if (parts.kind !== "finite") {
 		return Result.err("range")
@@ -457,9 +457,9 @@ const numericBounds = (
 		: { integerDigits: numeric.digits, scale: numeric.scale }
 
 /** A decimal of a decimal type a caller's JSON spells: NaN where numeric(p, s) holds it, else a finite value it holds. */
-const numericOf = (json: unknown, numeric: WireNumeric): Result.Result<Decimal, WireFaultKind> => {
+const numericOf = (json: unknown, numeric: WireNumeric): Result.Result<Numeric, WireFaultKind> => {
 	if (json === "NaN" && numeric.kind === "typmod") {
-		return Result.ok(Decimal.nan)
+		return Result.ok(Numeric.nan)
 	}
 	const { integerDigits, scale } = numericBounds(numeric)
 	return Result.flatMap(finiteDecimalOf(json), (value) => decimalFits(value, integerDigits, scale))
@@ -492,7 +492,7 @@ const moneyOf = (
 	})
 
 /** The minor units of a finite decimal of at most moneyFractionDigits fraction digits. */
-const minorUnitsOf = (value: Decimal): bigint => {
+const minorUnitsOf = (value: Numeric): bigint => {
 	const parts = value.parts
 	if (parts.kind !== "finite") {
 		defect("a finite amount of money")
@@ -616,7 +616,7 @@ const isNumber = (value: unknown): value is number => typeof value === "number"
 const isBigint = (value: unknown): value is bigint => typeof value === "bigint"
 const isString = (value: unknown): value is string => typeof value === "string"
 const isCalendarDate = (value: unknown): value is CalendarDate => toCalendarDate(value).ok
-const isDecimal = (value: unknown): value is Decimal => value instanceof Decimal
+const isDecimal = (value: unknown): value is Numeric => value instanceof Numeric
 const isMoney = (value: unknown): value is Money => value instanceof Money
 
 /** A calendar date a caller's JSON spells: `YYYY-MM-DD`, a day from 0001-01-01 to 9999-12-31. */
@@ -751,7 +751,7 @@ const carrierWire: CarrierWires = {
 		},
 		encode: (value) => value.toString(),
 		parse: (json, spec) => numericOf(json, spec.numeric),
-		decode: (json) => Decimal.fromOutput(trustedString(json)),
+		decode: (json) => Numeric.fromOutput(trustedString(json)),
 		is: isDecimal
 	},
 	float4: {
@@ -840,9 +840,9 @@ const carrierWire: CarrierWires = {
 		is: isString
 	},
 	bytes: {
-		schema: () => bytesSchema(bytesMaxLength),
+		schema: () => bytesSchema(byteaMaxLength),
 		encode: (value) => value.toBase64(),
-		parse: (json) => bytesOf(json, 0, bytesMaxLength),
+		parse: (json) => bytesOf(json, 0, byteaMaxLength),
 		decode: (json) => Uint8Array.fromBase64(trustedString(json)),
 		is: (value): value is Uint8Array<ArrayBuffer> =>
 			value instanceof Uint8Array && value.buffer instanceof ArrayBuffer
@@ -949,7 +949,7 @@ const carrierWire: CarrierWires = {
 	},
 	/**
 	 * A search document's text as PostgreSQL prints it, delivered as it is, and read as the host door reads a stored
-	 * document (pg.tsvector): exactly a text in tsvectorout's one form within tsvectorin's limits
+	 * document (tsvector): exactly a text in tsvectorout's one form within tsvectorin's limits
 	 * (scalar/values/tsvector.ts parseSearchDocument), the form and the limits its schema's gap.
 	 */
 	tsvector: {

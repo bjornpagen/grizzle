@@ -22,11 +22,11 @@ import { identity, type ParamPlace } from "#compiler/core/identity.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { paramDomainsOf } from "#compiler/physical/ddl/domains.ts"
 import { Logic } from "#compiler/public/compute.ts"
-import { contract, pg } from "#compiler/public/fields.ts"
+import { contract, int8, numeric } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { templateNeedBudget } from "#test/support/budgets.ts"
@@ -49,10 +49,10 @@ const Slug = str.regex("^[a-z]{1,8}$", "u")
 const Tag = str.regex("^#[0-9]{1,3}$", "u")
 
 const centsKey = Symbol("Cents")
-const Cents = contract<typeof centsKey>()("Cents", pg.bigint, (x) => Logic.between(x, 0n, 10_000n))
+const Cents = contract<typeof centsKey>()("Cents", int8, (x) => Logic.between(x, 0n, 10_000n))
 
 const rateKey = Symbol("Rate")
-const Rate = contract<typeof rateKey>()("Rate", pg.numeric(7, 6), (x) => Logic.between(x, 0n, 1n))
+const Rate = contract<typeof rateKey>()("Rate", numeric(7, 6), (x) => Logic.between(x, 0n, 1n))
 
 const Article = relation("Article", { id: Id, slug: Slug }, ["id"])
 
@@ -167,7 +167,7 @@ export const lookups: Arr.NonEmptyReadonlyArray<Lookup> = [
 		query: byRate,
 		param: "rate",
 		bind: (rate) => ({ rate }),
-		values: map(int(-1_000_100, 2_000_100), (n) => Decimal.of(`${n}e-6`)),
+		values: map(int(-1_000_100, 2_000_100), (n) => Numeric.of(`${n}e-6`)),
 		rule: { kind: "contract", contract: "Rate" }
 	},
 	{

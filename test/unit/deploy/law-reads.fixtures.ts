@@ -5,7 +5,7 @@ import { boolean, element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import { planFiles } from "#compiler/deploy/phases/files.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	check,
@@ -53,7 +53,7 @@ export type Reached =
 	| "a column renamed"
 
 /** T's fields but `pay`, which every law reads none of. */
-const read = Object.freeze({ doc: pg.integer, at: pg.integer, a: pg.integer, b: pg.integer })
+const read = Object.freeze({ doc: int4, at: int4, a: int4, b: int4 })
 
 /**
  * The schema of `shape` over T: S's references into D, T's facts by document and place with their `b`, selected by `a`
@@ -63,22 +63,18 @@ const read = Object.freeze({ doc: pg.integer, at: pg.integer, a: pg.integer, b: 
 const schemaOf = (shape: Shape, unread: "pay" | "paid" | "none") => {
 	const T = relation(
 		"T",
-		unread === "pay"
-			? { ...read, pay: pg.integer }
-			: unread === "paid"
-				? { ...read, paid: pg.integer }
-				: read,
+		unread === "pay" ? { ...read, pay: int4 } : unread === "paid" ? { ...read, paid: int4 } : read,
 		["doc", "at"]
 	)
-	const S = relation("S", { doc: pg.integer, at: pg.integer, ref: pg.integer }, ["doc", "at"])
-	const W = relation("W", { wdoc: pg.integer, at: pg.integer }, ["wdoc", "at"])
+	const S = relation("S", { doc: int4, at: int4, ref: int4 }, ["doc", "at"])
+	const W = relation("W", { wdoc: int4, at: int4 }, ["wdoc", "at"])
 	const Base = schema(
 		"law_reads",
 		[T, S, W],
 		shape.judge === "probed"
 			? [
-					unit("Document", { doc: pg.integer }),
-					unit("Ws", { wdoc: pg.integer }),
+					unit("Document", { doc: int4 }),
+					unit("Ws", { wdoc: int4 }),
 					mutable(T),
 					mutable(S),
 					mutable(W)

@@ -40,7 +40,7 @@ import {
 	wireFaults
 } from "#compiler/live/wire.ts"
 import { AdmittedBytes } from "#compiler/scalar/values/bytes.ts"
-import { moneyFractionDigits, Decimal } from "#compiler/scalar/values/decimal.ts"
+import { moneyFractionDigits, Numeric } from "#compiler/scalar/values/decimal.ts"
 import { binary32Max } from "#compiler/scalar/values/float.ts"
 import { type CarrierSpec } from "#compiler/scalar/values/identity.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
@@ -146,8 +146,8 @@ const specOf =
 const armCarriers = ["int4", "float8", "text", "bool", "code"] as const
 
 /** A decimal of `units` units of 10^-scale, as numeric_in reads its exponent spelling. */
-const decimalOf = (units: bigint, scale: number): Decimal =>
-	succeeded(Decimal.fromString(`${units}e${-scale}`), "a decimal's exponent spelling")
+const decimalOf = (units: bigint, scale: number): Numeric =>
+	succeeded(Numeric.fromString(`${units}e${-scale}`), "a decimal's exponent spelling")
 
 /**
  * The integer digits of a numeric spec's values, each below 10^digits in magnitude: p - s for numeric(p, s), negative
@@ -157,10 +157,10 @@ const integerDigitsOf = (numeric: WireSpec<"numeric">["numeric"]): number =>
 	numeric.kind === "typmod" ? numeric.precision - numeric.scale : numeric.digits
 
 /** The decimals below 10^integerDigits whose digits past the scale are zero: units of 10^-scale, fewer than p + s digits. */
-const decimalsGen = (integerDigits: number, scale: number): Gen<Decimal> => {
+const decimalsGen = (integerDigits: number, scale: number): Gen<Numeric> => {
 	const digits = integerDigits + scale
 	if (digits <= 0) {
-		return constant(Decimal.zero)
+		return constant(Numeric.zero)
 	}
 	const most = 10n ** BigInt(digits) - 1n
 	return (source) => decimalOf(source.draw(bigint(-most, most)), scale)
@@ -218,7 +218,7 @@ const valueOf =
 			case "numeric": {
 				const numeric = spec.numeric
 				if (numeric.kind === "typmod" && source.draw(int(0, 9)) === 0) {
-					return Decimal.nan
+					return Numeric.nan
 				}
 				return source.draw(decimalsGen(integerDigitsOf(numeric), numeric.scale))
 			}
@@ -329,7 +329,7 @@ export const featuresOf = (c: WireCase): ReadonlyArray<Feature> => {
 		}
 		if (
 			integerDigitsOf(numeric) < 0 &&
-			c.value instanceof Decimal &&
+			c.value instanceof Numeric &&
 			c.value.parts.kind === "finite" &&
 			c.value.parts.coefficient === 0n
 		) {

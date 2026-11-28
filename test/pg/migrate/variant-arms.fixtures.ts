@@ -11,7 +11,7 @@ import { variantRearranged } from "#compiler/deploy/diff/diff.ts"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { closedId, pg, variant } from "#compiler/public/fields.ts"
+import { closedId, variant, bool, int4, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { type AnyRoster, closed, login, relation, role, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -47,7 +47,7 @@ const Name = str.bytes(24, str.regex("^.*$", "su"))
 const picksOf = (Color: AnyRoster) => {
 	const PickKind = closed.unordered("PickKind", ["pick"])
 	const Picked = variant("Picked", PickKind, { pick: { color: closedId(Color) } })
-	const Picks = relation("Picks", { id: pg.integer, picked: Picked }, ["id"])
+	const Picks = relation("Picks", { id: int4, picked: Picked }, ["id"])
 	return { PickKind, Picks }
 }
 
@@ -61,11 +61,11 @@ const firstAt = (name: string) => {
 	const Color = closed.unordered("Color", ["green", "red"])
 	const Kind = closed.unordered("Kind", ["count", "flag", "pick"])
 	const Value = variant("Value", Kind, {
-		count: { value: pg.bigint },
-		flag: { on: pg.boolean },
+		count: { value: int8 },
+		flag: { on: bool },
 		pick: { color: closedId(Color) }
 	})
-	const Cell = relation("Cell", { id: pg.integer, value: Value }, ["id"])
+	const Cell = relation("Cell", { id: int4, value: Value }, ["id"])
 	const Seen = relation("Seen", { value: Value }, ["value"])
 	const { PickKind, Picks } = picksOf(Color)
 	const base = schema(name, [Color, Kind, PickKind, Cell, Seen, Picks], [])
@@ -88,13 +88,13 @@ const secondAt = (name: string) => {
 	const Color = closed.unordered("Color", ["red", "blue"])
 	const Kind = closed.unordered("Kind", ["count", "bit", "pick", "absent", "name"])
 	const Value = variant("Value", Kind, {
-		count: { value: pg.bigint },
-		bit: { on: pg.boolean },
+		count: { value: int8 },
+		bit: { on: bool },
 		pick: { color: closedId(Color) },
 		absent: {},
 		name: { text: Name }
 	})
-	const Cell = relation("Cell", { id: pg.integer, value: Value }, ["id"])
+	const Cell = relation("Cell", { id: int4, value: Value }, ["id"])
 	const Seen = relation("Seen", { value: Value }, ["value"])
 	const { PickKind, Picks } = picksOf(Color)
 	const base = schema(name, [Color, Kind, PickKind, Cell, Seen, Picks], [])
@@ -425,8 +425,8 @@ const modes = ["alpha", "beta", "delta", "gamma"] as const
 /** The subset's first version: Sub of alpha, an integer, and beta, of no field; Held, one value per id; and `desk`. */
 const subsetFirstAt = (name: string) => {
 	const Mode = closed.unordered("Mode", modes)
-	const Sub = variant("Sub", Mode, { alpha: { n: pg.integer }, beta: {} })
-	const Held = relation("Held", { id: pg.integer, value: Sub }, ["id"])
+	const Sub = variant("Sub", Mode, { alpha: { n: int4 }, beta: {} })
+	const Held = relation("Held", { id: int4, value: Sub }, ["id"])
 	const base = schema(name, [Mode, Held], [])
 	const writer = role(base, "writer", { Held }, { insert: ["Held"] })
 	const programs = { held: ChangeSet.empty(writer).insert(Held, []) }
@@ -441,8 +441,8 @@ const subsetFirstAt = (name: string) => {
  */
 const subsetSecondAt = (name: string) => {
 	const Mode = closed.unordered("Mode", modes)
-	const Sub = variant("Sub", Mode, { alpha: { n: pg.integer }, delta: {}, gamma: { text: Name } })
-	const Held = relation("Held", { id: pg.integer, value: Sub }, ["id"])
+	const Sub = variant("Sub", Mode, { alpha: { n: int4 }, delta: {}, gamma: { text: Name } })
+	const Held = relation("Held", { id: int4, value: Sub }, ["id"])
 	const base = schema(name, [Mode, Held], [])
 	const writer = role(base, "writer", { Held }, { insert: ["Held"] })
 	const programs = {
@@ -461,12 +461,12 @@ const subsetSecondAt = (name: string) => {
 const subsetTakenInBelowAt = (name: string): Version => {
 	const Mode = closed.unordered("Mode", modes)
 	const Sub = variant("Sub", Mode, {
-		alpha: { n: pg.integer },
-		beta: { on: pg.boolean },
+		alpha: { n: int4 },
+		beta: { on: bool },
 		delta: {},
 		gamma: { text: Name }
 	})
-	const Held = relation("Held", { id: pg.integer, value: Sub }, ["id"])
+	const Held = relation("Held", { id: int4, value: Sub }, ["id"])
 	const base = schema(name, [Mode, Held], [])
 	const writer = role(base, "writer", { Held }, { insert: ["Held"] })
 	const programs = { held: ChangeSet.empty(writer).insert(Held, []) }
@@ -479,8 +479,8 @@ const subsetTakenInBelowAt = (name: string): Version => {
 /** A version after the second the draft refuses: gamma, of a field, left out. */
 const subsetLeftOutAt = (name: string): Version => {
 	const Mode = closed.unordered("Mode", modes)
-	const Sub = variant("Sub", Mode, { alpha: { n: pg.integer }, delta: {} })
-	const Held = relation("Held", { id: pg.integer, value: Sub }, ["id"])
+	const Sub = variant("Sub", Mode, { alpha: { n: int4 }, delta: {} })
+	const Held = relation("Held", { id: int4, value: Sub }, ["id"])
 	const base = schema(name, [Mode, Held], [])
 	const writer = role(base, "writer", { Held }, { insert: ["Held"] })
 	const programs = { held: ChangeSet.empty(writer).insert(Held, []) }

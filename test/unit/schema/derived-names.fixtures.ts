@@ -12,7 +12,7 @@ import { array, element, type Gen, map, uniqueArray } from "@bjornpagen/testing/
 import { Array as Arr, String as Str } from "effect"
 import { conversionOf, maxIdentifierBytes } from "#compiler/core/identity.ts"
 import { closed, derivedName, relation } from "#compiler/public/dynamic.ts"
-import { bits, closedId, generated, pg } from "#compiler/public/fields.ts"
+import { bit, closedId, generated, int4 } from "#compiler/public/fields.ts"
 import { relation as rootRelation, schema } from "#compiler/public/schema.ts"
 import { type QueryValue, queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
@@ -139,7 +139,7 @@ export const alikeGen: Gen<Alike> = (source) => {
 /** The fields of a drawn relation beside its key and payload: a closed id and a set over `roster` where the level holds
  * one. */
 const rosterFields = (roster: AnyRoster | undefined): Readonly<Record<string, FieldBase>> =>
-	roster === undefined ? {} : { k: closedId(roster), s: bits(roster) }
+	roster === undefined ? {} : { k: closedId(roster), s: bit(roster) }
 
 /** The handles every drawn roster introduces. */
 const handles = ["a", "b"] as const
@@ -155,13 +155,13 @@ const rosterOf = (d: Drawn): AnyRoster =>
  * door's relation or relation.generated; a generated one's field `m` its payload's value.
  */
 const relationOf = (d: Drawn, roster: AnyRoster | undefined): AnyRelation => {
-	const fields = { id: pg.integer, n: pg.integer, ...rosterFields(roster) }
+	const fields = { id: int4, n: int4, ...rosterFields(roster) }
 	const builders =
 		d.naming === "derived"
 			? derivedName({ stem: d.stem, path: d.path })
 			: { relation, generated: relation.generated }
 	return d.kind === "generated"
-		? builders.generated(d.name, fields, ["id"], (row) => ({ m: generated(pg.integer, row.n) }))
+		? builders.generated(d.name, fields, ["id"], (row) => ({ m: generated(int4, row.n) }))
 		: builders.relation(d.name, fields, ["id"])
 }
 
@@ -207,7 +207,7 @@ export const keptCases = [
 export type KeptCase = (typeof keptCases)[number]
 
 /** A key field and a payload, the fields of every relation the records' query reads. */
-const K = pg.integer
+const K = int4
 
 /** The relation the records' root reads, and the one its attachment `key` reads, keyed by its parent's key. */
 const Sitting = rootRelation("Sitting", { id: K, n: K }, ["id"])

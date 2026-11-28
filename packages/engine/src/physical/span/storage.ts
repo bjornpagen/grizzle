@@ -307,7 +307,7 @@ const spanColumnConstraints = (b: InstallBuilder, c: SpanColumn): ReadonlyArray<
 			identity.spanCheck(relation, field, { kind: "shape" }),
 			spanShapePredicate(column, c.info.carrier)
 		),
-		reasons: [enforcement(`span shape of ${label}: nonempty, bounded and half-open`)]
+		reasons: [enforcement(`range shape of ${label}: nonempty, bounded and half-open`)]
 	}
 	const width = c.info.width
 	return [
@@ -323,7 +323,7 @@ const spanColumnConstraints = (b: InstallBuilder, c: SpanColumn): ReadonlyArray<
 							identity.spanCheck(relation, field, { kind: "width" }),
 							spanWidthPredicate(column, width, c.info.carrier)
 						),
-						reasons: [enforcement(`span width ${width} of ${label}`)]
+						reasons: [enforcement(`range width ${width} of ${label}`)]
 					} as const
 				]),
 		...c.endpoints.map((e): SpanConstraint => ({
@@ -338,7 +338,7 @@ const spanColumnConstraints = (b: InstallBuilder, c: SpanColumn): ReadonlyArray<
 			reasons:
 				e.laws.length > 0
 					? lawReasons(e.laws)
-					: [enforcement(`span endpoints of ${label} in contract ${e.contract.name}`)]
+					: [enforcement(`range endpoints of ${label} in contract ${e.contract.name}`)]
 		}))
 	]
 }

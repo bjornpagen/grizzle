@@ -9,7 +9,7 @@ import { silentPhases } from "#compiler/core/phase.ts"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { closedId, pg } from "#compiler/public/fields.ts"
+import { closedId, int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	closed,
@@ -71,10 +71,10 @@ export type Feature =
 	| "two roles"
 
 const Kind = closed.ordered("Kind", ["Low", "High"])
-const R = relation("R", { k: pg.integer, v: pg.integer, kind: closedId(Kind) }, ["k"])
-const Tag = relation("Tag", { r: pg.integer, label: pg.integer }, ["r"])
+const R = relation("R", { k: int4, v: int4, kind: closedId(Kind) }, ["k"])
+const Tag = relation("Tag", { r: int4, label: int4 }, ["r"])
 
-const Base = schema("served_executes", [Kind, R, Tag], [unit("Rs", { k: pg.integer }), mutable(R)])
+const Base = schema("served_executes", [Kind, R, Tag], [unit("Rs", { k: int4 }), mutable(R)])
 
 /** A role of the box: every relation whole, R and Tag written where it writes. */
 const roleOf = (name: string, writes: boolean) =>

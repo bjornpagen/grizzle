@@ -12,7 +12,7 @@
 import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { Array as Arr, Record as Rec } from "effect"
 import { Fn } from "#compiler/public/compute.ts"
-import { pg, variant } from "#compiler/public/fields.ts"
+import { variant, bool, int4 } from "#compiler/public/fields.ts"
 import { v } from "#compiler/public/query.ts"
 import { closed, fn, relation, row, rows, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -51,17 +51,17 @@ const Name = str.bytes(40, str.regex("^.*$", "su"))
 
 const Kind = closed.unordered("Kind", ["flag", "name"])
 /** The row's cell: a flag, or a name, the arm a cell reads. */
-const Value = variant("Value", Kind, { flag: { value: pg.boolean }, name: { text: Name } })
+const Value = variant("Value", Kind, { flag: { value: bool }, name: { text: Name } })
 export const Row = relation(
 	"Row",
-	{ id: pg.integer, cell: Value, list: Text, base: Text, lo: pg.integer, hi: pg.integer },
+	{ id: int4, cell: Value, list: Text, base: Text, lo: int4, hi: int4 },
 	["id"]
 )
 /** A declared function's rows of a list: each piece at its place, the rows PostgreSQL alone evaluates. */
 const pieces = fn("pieces", {
 	calls: [],
 	args: { t: Text },
-	returns: rows({ at: pg.integer, piece: Name }),
+	returns: rows({ at: int4, piece: Name }),
 	volatility: "immutable",
 	nullInput: "strict",
 	language: "sql",
@@ -71,7 +71,7 @@ const pieces = fn("pieces", {
 const parted = fn("parted", {
 	calls: [],
 	args: { t: Text },
-	returns: row(rows({ parts: rows({ at: pg.integer, piece: Name }) })),
+	returns: row(rows({ parts: rows({ at: int4, piece: Name }) })),
 	volatility: "immutable",
 	nullInput: "strict",
 	language: "sql",
@@ -239,7 +239,7 @@ export const cellQuery = (cell: Cell): unknown =>
 					)
 				)
 			)
-		return (cell.pinned ? matched.where(r.eq(f.id, r.param("id", pg.integer))) : matched).find(
+		return (cell.pinned ? matched.where(r.eq(f.id, r.param("id", int4))) : matched).find(
 			Rec.fromEntries([
 				["id", f.id] as const,
 				...Arr.flatMap(fields, ({ field, delivered }) =>

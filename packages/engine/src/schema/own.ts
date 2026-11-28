@@ -1226,7 +1226,7 @@ const ownKey = (
 				return fail(
 					"UnsupportedOperation",
 					loc,
-					`equality: a key over ${name}.${field}, of a type with no equality, as bytes is: no key holds one`
+					`equality: a key over ${name}.${field}, of a type with no equality, as bytea is: no key holds one`
 				)
 			}
 			return { field, desc: decl.type }
@@ -1988,7 +1988,7 @@ class Owner {
 				fail(
 					"UnsupportedOperation",
 					s.desc.loc,
-					`equality: ${statementLabel(s.desc)} reads ${side.relation}.${t.field}, of a type with no equality, as bytes is: no rule's side reads one`
+					`equality: ${statementLabel(s.desc)} reads ${side.relation}.${t.field}, of a type with no equality, as bytea is: no rule's side reads one`
 				)
 			}
 			if (t.kind === "pred" && (desc === undefined || !isNaturalDesc(desc))) {
@@ -2417,7 +2417,7 @@ class Owner {
 			fail(
 				"MalformedDescription",
 				s.desc.loc,
-				`${statementLabel(s.desc)} over a primary key of no span; ${r.name}.${spans.join(", ")} is a span, whose exclusion constraint PostgreSQL arbitrates by DO NOTHING alone, which yields no row an insertion met`
+				`${statementLabel(s.desc)} over a primary key of no range; ${r.name}.${spans.join(", ")} is a range, whose exclusion constraint PostgreSQL arbitrates by DO NOTHING alone, which yields no row an insertion met`
 			)
 		}
 		const drawn = key.filter((f) => {

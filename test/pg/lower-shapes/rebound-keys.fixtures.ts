@@ -4,7 +4,7 @@ import { assert } from "@bjornpagen/testing/assert"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
-import { pg } from "#compiler/public/fields.ts"
+import { int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -35,18 +35,17 @@ const Name = str.bytes(200, str.regex("^.+$", "su"))
  * A ledger shaped as metis's (lower/shapes/rebound-keys.fixtures.ts): each learner's sitting of a test by its stage,
  * the claim that names it, each presentation of an item in it and the sitting's moments, and the test's items.
  */
-const Claim = relation("Claim", { claim: pg.bigint, child: Person, stage: pg.bigint }, ["claim"])
-const Session = relation(
-	"Session",
-	{ child: Learner, stage: pg.bigint, package: Name, path: Name },
-	["child", "stage"]
-)
+const Claim = relation("Claim", { claim: int8, child: Person, stage: int8 }, ["claim"])
+const Session = relation("Session", { child: Learner, stage: int8, package: Name, path: Name }, [
+	"child",
+	"stage"
+])
 const Presented = relation(
 	"Presented",
-	{ child: Learner, stage: pg.bigint, at: pg.bigint, k: pg.bigint, package: Name, path: Name },
+	{ child: Learner, stage: int8, at: int8, k: int8, package: Name, path: Name },
 	["child", "stage", "at"]
 )
-const Moment = relation("Moment", { child: Learner, stage: pg.bigint, at: pg.bigint }, [
+const Moment = relation("Moment", { child: Learner, stage: int8, at: int8 }, [
 	"child",
 	"stage",
 	"at"
@@ -89,7 +88,7 @@ const durations = query(Ledger).rule((r) => {
 	const { item } = v(Member, "member")
 	const { until: end } = v(until, "until")
 	return r
-		.match(Claim, { claim: r.param("claim", pg.bigint), child, stage })
+		.match(Claim, { claim: r.param("claim", int8), child, stage })
 		.match(Session, { child, package: pkg, path: test, stage })
 		.match(Member, { package: pkg, path: test, item })
 		.match(until, { child, package: pkg, path: item, stage, until: end })

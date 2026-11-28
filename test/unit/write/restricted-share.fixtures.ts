@@ -3,7 +3,7 @@
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, String as Str } from "effect"
 import { Fn } from "#compiler/public/compute.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4, int8 } from "#compiler/public/fields.ts"
 import { query, type Rule, v } from "#compiler/public/query.ts"
 import { fn, relation, row, rows, schema } from "#compiler/public/schema.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
@@ -14,7 +14,7 @@ import { everyCallCount } from "#test/support/kernel/calls.ts"
 import { checking } from "#test/support/policy.ts"
 import { descOf } from "#test/support/unit/write/changeset/fixtures.ts"
 
-const A = rows({ k: pg.bigint, v: pg.bigint })
+const A = rows({ k: int8, v: int8 })
 
 /** machine: four rows arguments of (k, v), and one row of two fields of rows of (k, v). */
 const machine = fn("machine", {
@@ -32,18 +32,18 @@ const machine = fn("machine", {
  * restricts, as edullm's ledger's attributes hold every item's response declarations, and two relations the members
  * write.
  */
-const Item = relation("Item", { session: pg.integer, k: pg.bigint, v: pg.bigint }, ["session", "k"])
-const Done = relation("Done", { session: pg.integer, k: pg.bigint }, ["session", "k"])
-const Tag = relation("Tag", { k: pg.bigint, t: pg.integer }, ["k", "t"])
-const Label = relation("Label", { t: pg.integer, name: pg.integer }, ["t"])
-const fields = { session: pg.integer, k: pg.bigint, v: pg.bigint } as const
+const Item = relation("Item", { session: int4, k: int8, v: int8 }, ["session", "k"])
+const Done = relation("Done", { session: int4, k: int8 }, ["session", "k"])
+const Tag = relation("Tag", { k: int8, t: int4 }, ["k", "t"])
+const Label = relation("Label", { t: int4, name: int4 }, ["t"])
+const fields = { session: int4, k: int8, v: int8 } as const
 const Out0 = relation("Out0", fields, ["session", "k", "v"])
 const Out1 = relation("Out1", fields, ["session", "k", "v"])
 
 const Restricted = schema("RestrictedShare", [Item, Done, Tag, Label, Out0, Out1, machine], [])
 
 /** The sessions a write reads, a relation parameter each query binds to its own. */
-const sessions = { session: pg.integer } as const
+const sessions = { session: int4 } as const
 
 /** A query's binding of `sittings` to the sessions of the rule `r` reads it in: each import of it a copy of its own. */
 const bySession = (r: Rule<typeof Restricted>) => ({
@@ -153,7 +153,7 @@ const openMember = query(Restricted).rule((r) => {
 })
 
 /** The session the call names: the write's `sittings`. */
-const named = query(Restricted).rule((r) => r.find({ session: r.param("session", pg.integer) }))
+const named = query(Restricted).rule((r) => r.find({ session: r.param("session", int4) }))
 
 const reality = realityWrite(succeeded(testArtifacts(Restricted, testCompile)))
 

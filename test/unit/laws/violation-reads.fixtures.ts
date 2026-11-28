@@ -3,7 +3,7 @@
 import { boolean, element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import type { Step } from "#compiler/deploy/diff/plan.ts"
-import { closedId, pg } from "#compiler/public/fields.ts"
+import { closedId, int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	check,
@@ -27,17 +27,17 @@ import { inertVisitor, visitSelect } from "#compiler/sql/transform.ts"
 import type { Relation } from "#compiler/types/schema/relation.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
 
-const A = relation("A", { id: pg.integer, k: pg.integer, a: pg.integer }, ["id"])
+const A = relation("A", { id: int4, k: int4, a: int4 }, ["id"])
 
-const B = relation("B", { id: pg.integer, k: pg.integer, b: pg.integer }, ["id"])
+const B = relation("B", { id: int4, k: int4, b: int4 }, ["id"])
 
-const T = relation("T", { a: pg.integer, b: pg.integer }, ["a", "b"])
+const T = relation("T", { a: int4, b: int4 }, ["a", "b"])
 
 const Tier = closed.ordered("Tier", ["low", "high"])
 
 const TierRank = closed.relation(
 	"TierRank",
-	{ tier: closedId(Tier), rank: pg.integer },
+	{ tier: closedId(Tier), rank: int4 },
 	["tier"],
 	[
 		{ tier: "low", rank: 1 },
@@ -255,15 +255,9 @@ export const versionsOf = (c: MigrationCase): readonly [AnySchema, AnySchema] =>
 		case "kept":
 			return versionsOver(A, c.negated)
 		case "widened":
-			return versionsOver(
-				relation("A", { id: pg.integer, k: pg.integer, a: pg.integer }, ["id", "k"]),
-				c.negated
-			)
+			return versionsOver(relation("A", { id: int4, k: int4, a: int4 }, ["id", "k"]), c.negated)
 		case "moved":
-			return versionsOver(
-				relation("A", { id: pg.integer, k: pg.integer, a: pg.integer }, ["k", "a"]),
-				c.negated
-			)
+			return versionsOver(relation("A", { id: int4, k: int4, a: int4 }, ["k", "a"]), c.negated)
 	}
 }
 
@@ -509,13 +503,9 @@ export type Feature =
  * parent's, a join of three reads of the two; and over it, a key of its document, kind and base, a count of Known's
  * facts per key, an aggregate whose import is that join, or a check of its base, a rule over the join itself.
  */
-const Op = relation("Op", { doc: pg.integer, at: pg.integer, base: pg.integer }, ["doc", "at"])
+const Op = relation("Op", { doc: int4, at: int4, base: int4 }, ["doc", "at"])
 
-const Item = relation(
-	"Item",
-	{ doc: pg.integer, at: pg.integer, kind: pg.integer, parent: pg.integer },
-	["doc", "at"]
-)
+const Item = relation("Item", { doc: int4, at: int4, kind: int4, parent: int4 }, ["doc", "at"])
 
 const unitLaws = ["key", "check", "contained", "union contained", "contained once"] as const
 
@@ -692,11 +682,7 @@ export const unitSchemaOf = (c: UnitCase): AnySchema => {
 }
 
 /** A rare mark at an item: a few of the items, keyed as they are. */
-const Rare = relation(
-	"Rare",
-	{ doc: pg.integer, at: pg.integer, mark: pg.integer, note: pg.integer },
-	["doc", "at"]
-)
+const Rare = relation("Rare", { doc: int4, at: int4, mark: int4, note: int4 }, ["doc", "at"])
 
 const orderFirsts = ["Item", "Rare"] as const
 
@@ -868,22 +854,21 @@ export const chainReads = (query: OperandSelect): ReadonlyArray<string> => {
  * and Expr, a document's references and expressions under each placement of it (asm, inst), keyed by the placement and
  * the element's place; Element, a document's elements by place, each with its parent.
  */
-const Ref = relation(
-	"Ref",
-	{ doc: pg.integer, asm: pg.integer, inst: pg.integer, at: pg.integer, kind: pg.integer },
-	["doc", "asm", "inst", "at"]
-)
-
-const Expr = relation(
-	"Expr",
-	{ doc: pg.integer, asm: pg.integer, inst: pg.integer, at: pg.integer, base: pg.integer },
-	["doc", "asm", "inst", "at"]
-)
-
-const Element = relation("Element", { doc: pg.integer, at: pg.integer, parent: pg.integer }, [
+const Ref = relation("Ref", { doc: int4, asm: int4, inst: int4, at: int4, kind: int4 }, [
 	"doc",
+	"asm",
+	"inst",
 	"at"
 ])
+
+const Expr = relation("Expr", { doc: int4, asm: int4, inst: int4, at: int4, base: int4 }, [
+	"doc",
+	"asm",
+	"inst",
+	"at"
+])
+
+const Element = relation("Element", { doc: int4, at: int4, parent: int4 }, ["doc", "at"])
 
 /**
  * How Placed's rule walks from a reference: down to its expression child, Element at (doc, at: the expression's,

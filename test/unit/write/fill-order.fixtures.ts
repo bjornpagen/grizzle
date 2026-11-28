@@ -13,7 +13,7 @@ import type { LawModel } from "#compiler/laws/model/model.ts"
 import { installOptions } from "#compiler/physical/install/compile.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
 import { writeWorldOf } from "#compiler/program/write-world.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { bindWrite } from "#compiler/runtime/write/bind.ts"
 import type { Cells } from "#compiler/runtime/write/cells.ts"
@@ -454,7 +454,7 @@ const neededBy = (
 /** A put's rows from a query over `value`: the rows of a relation parameter, which the host never sees. */
 const restated = (value: ReturnType<ReturnType<typeof buildFill>["rename"]>) =>
 	query(value).rule((r) => {
-		const rows = r.relation("rows", { id: Id, v: pg.bigint })
+		const rows = r.relation("rows", { id: Id, v: int8 })
 		const row = v(rows, "row")
 		return r.match(rows, { id: row.id, v: row.v }).find({ id: row.id, v: row.v })
 	})

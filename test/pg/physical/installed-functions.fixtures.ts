@@ -4,7 +4,7 @@
 import { element, type Gen, subset } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { Crypto, Logic, Text, Xml } from "#compiler/public/compute.ts"
-import { Bits, bits, closedId, pg, sha256 } from "#compiler/public/fields.ts"
+import { Bit, bit, closedId, sha256, int4 } from "#compiler/public/fields.ts"
 import { check, closed, key, login, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { generatedField } from "#compiler/schema/relation.ts"
@@ -108,8 +108,8 @@ const unreadSchemaOf = (held: ReadonlyArray<Handle>, at: Handle) => {
 		["k"],
 		Arr.map(held, (h) => ({ k: h, f: h }))
 	)
-	const T = relation.generated("T", { id: pg.integer }, ["id"], () => ({
-		g: generatedField(bits(H), Bits.singleton(Picks.at("f", at)), [])
+	const T = relation.generated("T", { id: int4 }, ["id"], () => ({
+		g: generatedField(bit(H), Bit.singleton(Picks.at("f", at)), [])
 	}))
 	return schema("Unread", [H, Picks, T], [])
 }

@@ -40,7 +40,7 @@ import {
 import { noClosedRelations } from "#compiler/scalar/compute/typing.ts"
 import { type PlainCarrier, plainType } from "#compiler/scalar/native.ts"
 import { bareEnv, scalarTypeOf } from "#compiler/scalar/registry.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { AnalyzedPatterns } from "#compiler/text/refinement.ts"
 import { noExtension } from "#test/support/compute.ts"
@@ -403,7 +403,7 @@ const numberLiteral = (carrier: Carrier, n: number): LiteralDesc => {
 		case "exactInteger":
 			return BigInt(n)
 		case "numeric":
-			return Decimal.of(BigInt(n))
+			return Numeric.of(BigInt(n))
 		case "money":
 		case "exactMoney":
 			return Money.of(BigInt(n) * 100n)
@@ -916,7 +916,7 @@ const plainOutput = (r: Resolved): ExprDesc => {
 		subject: r.desc,
 		proved: {
 			kind: "cast",
-			to: { kind: "pg", type: integer ? "bigint" : "money" },
+			to: { kind: "pg", type: integer ? "int8" : "money" },
 			arg: guardedExpr(guard, r.desc)
 		},
 		otherwise: literalOf(integer ? "int8" : "money", 0)

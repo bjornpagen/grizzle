@@ -69,7 +69,7 @@ import { workloadExtension } from "#compiler/physical/access/extension.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
 import { servedAccess } from "#compiler/program/workload/compile.ts"
-import { closedId, pg } from "#compiler/public/fields.ts"
+import { closedId, bool, int4 } from "#compiler/public/fields.ts"
 import { closed, login, type Relation, role, schema } from "#compiler/public/schema.ts"
 import { installationsOf, ownLogin } from "#compiler/schema/own.ts"
 import { relationBuilder } from "#compiler/schema/relation.ts"
@@ -906,9 +906,9 @@ const rosterOf = (spec: SchemaSpec) =>
 const fieldOf = (kind: FieldKind, roster: ReturnType<typeof rosterOf>): FieldBase => {
 	switch (kind) {
 		case "int4":
-			return pg.integer
+			return int4
 		case "bool":
-			return pg.boolean
+			return bool
 		case "uuid":
 			return Id
 		case "code":

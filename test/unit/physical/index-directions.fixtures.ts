@@ -4,7 +4,7 @@ import { defined } from "@bjornpagen/testing/assert"
 import { array, boolean, element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { type Direction, directions, opposite } from "#compiler/core/order.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { paged } from "#compiler/public/workload.ts"
@@ -13,7 +13,7 @@ import { Id } from "#test/support/ids.ts"
 /** A direction vector over the order's three columns, a, b and id, in that order. */
 type Vector = readonly [Direction, Direction, Direction]
 
-const T = relation("T", { id: Id, g: Id, a: pg.integer, b: pg.integer }, ["id"])
+const T = relation("T", { id: Id, g: Id, a: int4, b: int4 }, ["id"])
 
 export const Dirs = schema("Dirs", [T], [])
 

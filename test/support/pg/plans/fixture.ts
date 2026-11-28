@@ -1,4 +1,4 @@
-import { closedId, pg } from "#compiler/public/fields.ts"
+import { closedId, bool, int8 } from "#compiler/public/fields.ts"
 import { closed, key, on, relation, schema, select } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { Id } from "#test/support/ids.ts"
@@ -7,15 +7,12 @@ const text = str.regex("^.*$", "su")
 
 const Kind = closed.ordered("Kind", ["Automatic", "Manual"])
 const Account = relation("Account", { id: Id, name: text }, ["id"])
-const Posting = relation("Posting", { id: Id, account: Id, amount: pg.bigint }, ["id"])
-const Entry = relation("Entry", { account: Id, seq: pg.bigint, amount: pg.bigint }, [
-	"account",
-	"seq"
-])
-const Item = relation("Item", { id: Id, amount: pg.bigint }, ["id"])
+const Posting = relation("Posting", { id: Id, account: Id, amount: int8 }, ["id"])
+const Entry = relation("Entry", { account: Id, seq: int8, amount: int8 }, ["account", "seq"])
+const Item = relation("Item", { id: Id, amount: int8 }, ["id"])
 export const Task = relation("Task", { id: Id, account: Id, kind: closedId(Kind) }, ["id"])
 const Ticket = relation("Ticket", { id: Id }, ["id"])
-export const Note = relation("Note", { id: Id, ticket: Id, open: pg.boolean }, ["id"])
+export const Note = relation("Note", { id: Id, ticket: Id, open: bool }, ["id"])
 
 /**
  * The plans schema, over the public builders, whose selection keys test/unit/lower/selection-key.fixtures.ts compiles:

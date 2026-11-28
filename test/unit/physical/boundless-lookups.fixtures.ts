@@ -5,7 +5,7 @@ import { defaultOpclass } from "#compiler/ir/law.ts"
 import type { AccessIndexRequest } from "#compiler/ir/products.ts"
 import { installOptions } from "#compiler/physical/install/compile.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
-import { bytes, natural } from "#compiler/public/fields.ts"
+import { bytea, natural } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, relation, schema, sealed, unit } from "#compiler/public/schema.ts"
 import { Id } from "#test/support/ids.ts"
@@ -13,7 +13,7 @@ import { owning } from "#test/support/policy.ts"
 import { requesting } from "#test/support/unit/physical/fixtures.ts"
 
 /** Each account's notes, keyed by the account first, sealed at founding, so a relation over them stands in the unit. */
-const Note = relation("Note", { account: Id, at: natural, body: bytes, label: bytes }, [
+const Note = relation("Note", { account: Id, at: natural, body: bytea, label: bytea }, [
 	"account",
 	"at"
 ])

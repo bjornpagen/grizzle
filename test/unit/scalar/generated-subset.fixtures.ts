@@ -9,7 +9,7 @@ import { firstCodebook } from "#compiler/ir/codes.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
 import { Logic, Num, Type } from "#compiler/public/compute.ts"
-import { type ClosedIdField, closedId, generated, pg, variant } from "#compiler/public/fields.ts"
+import { type ClosedIdField, closedId, generated, variant, int4 } from "#compiler/public/fields.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { own, rostersOf } from "#compiler/schema/own.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
@@ -25,7 +25,7 @@ export type Handle = (typeof handles)[number]
 const Mark = closed.ordered("Mark", handles)
 
 /** A variant over the subset p, q of Mark: its tag is a closed id of p and q. */
-const V = variant("V", Mark, { p: {}, q: { n: pg.integer } })
+const V = variant("V", Mark, { p: {}, q: { n: int4 } })
 
 /** A variant whose arm p holds a closed id of the subset p, which its domain's CHECK holds to p's code. */
 const W = variant("W", Mark, { p: { c: closedId(Mark, { only: ["p"] }) }, q: {} })
@@ -196,7 +196,7 @@ const installedOf = (build: () => unknown): Installed => {
 /** The installation of a case: T of the written fields, its generated field `g` the case's. */
 export const installedCase = (c: GeneratedCase): Installed => {
 	const written = {
-		k: pg.integer,
+		k: int4,
 		src: closedId(Mark, { only: ["p"] }),
 		full: closedId(Mark),
 		v: V,

@@ -6,7 +6,7 @@ import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { type PlanNode, planNodes } from "#bench/harness/explain.ts"
 import { Fn, type Term } from "#compiler/public/compute.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { bool, int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, fn, key, on, relation, rows, schema, unit } from "#compiler/public/schema.ts"
 import {
@@ -24,7 +24,7 @@ import { readWork, standUpJudge } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import type { PgConnection } from "#test/support/pg.ts"
 
-const i = pg.integer
+const i = int4
 
 /**
  * A ledger shaped as edullm's: each child's item sessions, each at a stage and keyed by it too (edullm's ItemSession key
@@ -56,12 +56,12 @@ const Seat = relation("Seat", { seat: i, child: i, user: i, since: i }, ["child"
  */
 const SeatGrade = relation("SeatGrade", { seat: i, grade: i, track: i }, ["seat"])
 /** The flags a seat may hold: a relation of booleans, an open one, whose key a seat's flag is contained in. */
-const Flag = relation("Flag", { open: pg.boolean }, ["open"])
+const Flag = relation("Flag", { open: bool }, ["open"])
 /**
  * A seat's flag and when it was set, keyed by the flag and the seat, its flag contained in the flags: a code, a boolean
  * every child's seats share, which its containment maps onto an open relation's key all the same.
  */
-const SeatFlag = relation("SeatFlag", { open: pg.boolean, seat: i, set: i }, ["open", "seat"])
+const SeatFlag = relation("SeatFlag", { open: bool, seat: i, set: i }, ["open", "seat"])
 /** A course, its grade, track and title, the content every child's seats of the grade share: metis's catalog test. */
 const Course = relation("Course", { course: i, grade: i, track: i, title: i }, ["course"])
 /**
@@ -128,8 +128,8 @@ const latest = query(Ledger).rule((r) => {
 
 /** The marks of the latest attempts of a head row's child's stage, the attachment both reads read at each head row. */
 const marksOf = (head: {
-	readonly child: Term<number, unknown, unknown, "integer">
-	readonly stage: Term<number, unknown, unknown, "integer">
+	readonly child: Term<number, unknown, unknown, "int4">
+	readonly stage: Term<number, unknown, unknown, "int4">
 }) =>
 	query(Ledger).rule((r) => {
 		const { n, at } = v(latest, "theirs")
@@ -241,7 +241,7 @@ const openRead = query(Ledger).rule((r) => {
 	const { set } = v(SeatFlag, "flag")
 	return r
 		.match(range, { seat, place })
-		.match(SeatFlag, { seat, open: r.param("open", pg.boolean), set })
+		.match(SeatFlag, { seat, open: r.param("open", bool), set })
 		.find({ seat, place, set })
 })
 

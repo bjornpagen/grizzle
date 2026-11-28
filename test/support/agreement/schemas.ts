@@ -42,15 +42,26 @@ import {
 } from "#compiler/ir/scalar.ts"
 import { parseSchemaInput } from "#compiler/program/input.ts"
 import { type SchemaArtifacts } from "#compiler/program/schema.ts"
-import { bits, closedId, Decimal, Money, Vector } from "#compiler/public/fields.ts"
+import { bit, closedId, Numeric, Money, Vector } from "#compiler/public/fields.ts"
 import { type QueryValue, queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { dateDescriptor } from "#compiler/scalar/date.ts"
 import { literalDescFor } from "#compiler/scalar/literal.ts"
-import { mintedRefusal, unnamedIdRefusal } from "#compiler/scalar/minted.ts"
+import { minted, mintedRefusal, unnamedIdRefusal } from "#compiler/scalar/minted.ts"
 import { naturalDescriptor } from "#compiler/scalar/natural.ts"
-import { pgDescriptors } from "#compiler/scalar/pg.ts"
+import {
+	bool,
+	cidr,
+	float4,
+	float8,
+	inet,
+	int2,
+	int4,
+	int8,
+	money,
+	numeric
+} from "#compiler/scalar/pg.ts"
 import {
 	carrierSql,
 	describeField,
@@ -60,6 +71,7 @@ import {
 import { uuidDescriptor } from "#compiler/scalar/uuid.ts"
 import { toUuid } from "#compiler/scalar/values/uuid.ts"
 import { admitEncodable } from "#compiler/scalar/values/vector.ts"
+import { vector } from "#compiler/scalar/vector.ts"
 import {
 	accumulatedField,
 	admitClosedRelation,
@@ -126,6 +138,25 @@ import {
 	type Entry as ProgramEntry
 } from "#test/support/types/batch/batch.ts"
 import { upTo } from "#test/support/up-to.ts"
+
+/** PostgreSQL's plain descriptors, by their pg_type names. */
+const plainDescriptors = {
+	int2,
+	int4,
+	int8,
+	numeric,
+	float4,
+	float8,
+	money,
+	bool,
+	inet,
+	cidr,
+	vector,
+	smallserial: minted,
+	serial: minted,
+	bigserial: minted,
+	uuidv7: minted
+} as const
 /**
  * The schema agreement: schemas drawn as data, each with the engine's verdict on it and on probe statements beside it,
  * and the one TypeScript program that states every verdict as types, which the type tier checks
@@ -221,7 +252,7 @@ type SchemaConstruct = (typeof schemaConstructs)[number]
  * over a key field and over an accumulated one, a closed relation keyed by one, two or three closed ids, its rows with
  * one stated twice, a role over a base declaring one, a concat fold valid and over a number, a fold whose accumulators
  * are another refinement of its step's carrier, generated fields whose terms are another refinement of theirs, and a
- * numeric field at scale 0, whose host is a bigint where every other scale's is a Decimal.
+ * numeric field at scale 0, whose host is a bigint where every other scale's is a Numeric.
  */
 const schemaForms = [
 	"slotsMirrors",
@@ -548,7 +579,7 @@ const refusals: { readonly [F in SchemaFault | KeptFault]: Refusing } = {
 		"drawn(type): natural or a contract over an integer, the types a family's index and count are of"
 	),
 	accumulatedWriting: named(
-		"an accumulated field is of a value type: no span, vector or field of a writing of its own"
+		"an accumulated field is of a value type: no range, vector or field of a writing of its own"
 	),
 	accumulatedStart: structural(
 		{ tag: "MalformedDescription" },
@@ -670,7 +701,7 @@ const refusals: { readonly [F in SchemaFault | KeptFault]: Refusing } = {
 	),
 	slotNotClosed: structural(
 		{ tag: "MalformedDescription" },
-		"a slot is a closed id, and pg.integer lacks a closed id's roster"
+		"a slot is a closed id, and int4 lacks a closed id's roster"
 	),
 	familyOverClosed: named(
 		"a family counts by an ordinary relation's drawn count: a closed relation's count numbers the slots of its key"
@@ -871,14 +902,14 @@ const reasonKey = (reason: CompileReason): string => {
 }
 /** A pg descriptor a field may be spelled by, each type's one name. */
 const pgSpellings = [
-	"smallint",
-	"integer",
-	"bigint",
+	"int2",
+	"int4",
+	"int8",
 	"numeric",
-	"real",
-	"double precision",
+	"float4",
+	"float8",
 	"money",
-	"boolean"
+	"bool"
 ] as const
 type PgSpelling = (typeof pgSpellings)[number]
 
@@ -886,7 +917,7 @@ type PgSpelling = (typeof pgSpellings)[number]
 const mintedSpellings = ["smallserial", "serial", "bigserial", "uuidv7"] as const
 
 /** The integer spellings a span's endpoint may be. */
-const endpointSpellings = ["integer", "bigint"] as const
+const endpointSpellings = ["int4", "int8"] as const
 type EndpointSpelling = (typeof endpointSpellings)[number]
 
 /**
@@ -1187,7 +1218,7 @@ const slotRelations = (slots: SlotsSpec): readonly [RelationSpec, RelationSpec] 
 			{ name: "id", type: { kind: "uuid" }, writing: callerWriting },
 			{ name: "children", type: { kind: "natural" }, writing: callerWriting },
 			{ name: "label", type: { kind: "text", pattern: slotLabel }, writing: callerWriting },
-			{ name: "size", type: { kind: "pg", spelling: "bigint" }, writing: callerWriting },
+			{ name: "size", type: { kind: "pg", spelling: "int8" }, writing: callerWriting },
 			{ name: "kind", type: { kind: "closedId", roster: slots.roster }, writing: callerWriting }
 		],
 		key: ["id"]
@@ -1237,7 +1268,7 @@ const slotStatements = (slots: SlotsSpec): ReadonlyArray<StatementSpec> => [
 ]
 
 /** A public value of the fields and text barrels: a descriptor, or a constructor that makes one. */
-const publicValues = ["numeric", "vector", "integer", "str", "uuid", "natural", "date"] as const
+const publicValues = ["numeric", "vector", "int4", "str", "uuid", "natural", "date"] as const
 type PublicValue = (typeof publicValues)[number]
 
 const spellingsOf: Arr.NonEmptyReadonlyArray<PgSpelling> = pgSpellings
@@ -1247,8 +1278,8 @@ const publicSource = (v: PublicValue): string => {
 	switch (v) {
 		case "numeric":
 		case "vector":
-		case "integer":
-			return `Fi.pg.${v}`
+		case "int4":
+			return `Fi.${v}`
 		case "str":
 			return "Tx.str"
 		case "uuid":
@@ -1262,8 +1293,8 @@ const publicValue = (v: PublicValue): unknown => {
 	switch (v) {
 		case "numeric":
 		case "vector":
-		case "integer":
-			return pgDescriptors[v]
+		case "int4":
+			return plainDescriptors[v]
 		case "str":
 			return str
 		case "uuid":
@@ -1295,7 +1326,7 @@ const closedArityForm: { readonly [A in 1 | 2 | 3]: SchemaForm } = {
 }
 
 /** The drawn payload field's type. */
-type Payload = "smallint" | "bigint" | "text"
+type Payload = "int2" | "int8" | "text"
 
 const payloadType = (p: Payload): FieldType =>
 	p === "text"
@@ -1305,9 +1336,9 @@ const payloadType = (p: Payload): FieldType =>
 /** A payload value of each row: its source and its host value. */
 const payloadValue = (p: Payload): readonly [string, unknown] => {
 	switch (p) {
-		case "smallint":
+		case "int2":
 			return ["1", 1]
-		case "bigint":
+		case "int8":
 			return ["1n", 1n]
 		case "text":
 			return ['"a"', "a"]
@@ -1402,7 +1433,7 @@ const contractBaseOf = (
 	return nested
 		? { kind: "contract", name: d.from(Arr.map(contracts, (c) => c.name)) }
 		: d.from<FieldType>([
-				{ kind: "pg", spelling: d.from(["bigint", "integer"] as const) },
+				{ kind: "pg", spelling: d.from(["int8", "int4"] as const) },
 				{ kind: "numeric", precision: 7, scale: 2 },
 				{ kind: "text", pattern: d.from(patterns) },
 				{ kind: "uuid" },
@@ -1486,7 +1517,7 @@ const fieldTypeOf = (
 				const spelling =
 					endpoint.kind === "pg" ? endpoint.spelling : integerEnd(contracts, endpoint.name)
 				const width: Width =
-					spelling === "bigint" ? { host: "bigint", value: 7n } : { host: "number", value: 7 }
+					spelling === "int8" ? { host: "bigint", value: 7n } : { host: "number", value: 7 }
 				return { kind: "span", endpoint, width: d.upTo(1) === 1 ? width : undefined }
 			}
 		],
@@ -1513,7 +1544,7 @@ const fieldTypeOf = (
 const keyable = (t: FieldType, contracts: ReadonlyArray<ContractSpec>): boolean => {
 	switch (t.kind) {
 		case "pg":
-			return !Arr.contains(["numeric", "real", "double precision", "money"] as const, t.spelling)
+			return !Arr.contains(["numeric", "float4", "float8", "money"] as const, t.spelling)
 		case "uuid":
 		case "date":
 		case "natural":
@@ -1579,7 +1610,7 @@ const relationOf = (
 ): RelationSpec => {
 	const idType = d.from<FieldType>([
 		{ kind: "uuid" },
-		{ kind: "pg", spelling: d.from(["bigint", "integer"] as const) }
+		{ kind: "pg", spelling: d.from(["int8", "int4"] as const) }
 	])
 	const names = Arr.take(d.some(fieldNames), 1 + d.upTo(3))
 	const fields = Arr.map(names, (field): FieldSpec => ({
@@ -1600,7 +1631,7 @@ const relationOf = (
 const aggregatable = (t: FieldType, contracts: ReadonlyArray<ContractSpec>): boolean => {
 	switch (t.kind) {
 		case "pg":
-			return !Arr.contains(["money", "boolean"] as const, t.spelling)
+			return !Arr.contains(["money", "bool"] as const, t.spelling)
 		case "numeric":
 			return true
 		case "contract": {
@@ -1709,14 +1740,14 @@ const typeText = (t: FieldType): string => {
 }
 
 const pgCanonical: { readonly [S in PgSpelling]: string } = {
-	smallint: "smallint",
-	integer: "integer",
-	bigint: "bigint",
+	int2: "int2",
+	int4: "int4",
+	int8: "int8",
 	numeric: "numeric",
-	real: "real",
-	"double precision": "double precision",
+	float4: "float4",
+	float8: "float8",
 	money: "money",
-	boolean: "boolean"
+	bool: "bool"
 }
 
 /**
@@ -1770,9 +1801,9 @@ const familyPackOf = (
 			? (["Order", "Line", "order", "qty"] as const)
 			: (["Pool", "Item", "pool", "v"] as const)
 	const monoids = kind === "ordered" ? d.some(orderedMonoids) : d.some(["count", "sum"] as const)
-	const sumType: FieldType = { kind: "pg", spelling: d.from(["bigint", "integer"] as const) }
+	const sumType: FieldType = { kind: "pg", spelling: d.from(["int8", "int4"] as const) }
 	const start = (t: FieldType): Start =>
-		t.kind === "pg" && t.spelling === "integer"
+		t.kind === "pg" && t.spelling === "int4"
 			? { kind: "integer", value: 0 }
 			: { kind: "bigint", value: 0n }
 	const pair = kind === "ordered" && d.upTo(1) === 1
@@ -1900,7 +1931,7 @@ const treePack = (): {
 					drawn("children"),
 					drawn("start"),
 					drawn("end"),
-					{ name: "label", type: { kind: "pg", spelling: "integer" }, writing: callerWriting }
+					{ name: "label", type: { kind: "pg", spelling: "int4" }, writing: callerWriting }
 				],
 				key: ["doc", "start"]
 			}
@@ -2009,7 +2040,7 @@ const baseOf = (d: Drawing): Base => {
 								upTo(closedArity, () => sameRoster),
 								"a closed key holds a roster for each of its arity's places"
 							),
-					payload: d.from(["smallint", "bigint", "text"] as const),
+					payload: d.from(["int2", "int8", "text"] as const),
 					generated: d.keep("generated")
 				}
 	const roles = rolesOf(d, ordinary, mutable)
@@ -2052,7 +2083,7 @@ const closedValue = (c: ClosedSpec, rosters: ReadonlyMap<string, RosterValue>) =
 	const names = closedKeyNames(c)
 	const fields: Readonly<Record<string, FieldBase>> = {
 		...closedIdFields(c, rosters),
-		w: pgDescriptors.integer,
+		w: int4,
 		x: fieldValue(payloadType(c.payload), rosters, new Map())
 	}
 	return closedRelation(
@@ -2128,11 +2159,11 @@ const generatedValue = (
 ): AnyRelation =>
 	generatedRelation(
 		"Gen",
-		{ id: Id, ...closedIdFields(c, rosters), depth: pgDescriptors.integer },
+		{ id: Id, ...closedIdFields(c, rosters), depth: int4 },
 		["id"],
 		(row: Readonly<Record<string, unknown>>) => ({
 			weight: generatedField(
-				pgDescriptors.integer,
+				int4,
 				closedRead(
 					rule,
 					"w",
@@ -2141,18 +2172,14 @@ const generatedValue = (
 				[]
 			),
 			flags: generatedField(
-				bits(got(rosters, Arr.lastNonEmpty(c.key).name)),
+				bit(got(rosters, Arr.lastNonEmpty(c.key).name)),
 				closedRow(
 					rule,
 					Arr.map(Arr.initNonEmpty(closedKeyNames(c)), (k) => row[k])
 				),
 				[]
 			),
-			next: generatedField(
-				pgDescriptors.bigint,
-				computeCore.cast(computeCore.add(row["depth"], 1), pgDescriptors.bigint),
-				[]
-			)
+			next: generatedField(int8, computeCore.cast(computeCore.add(row["depth"], 1), int8), [])
 		}),
 		[]
 	)
@@ -2184,7 +2211,7 @@ const got = <A>(map: ReadonlyMap<string, A>, name: string): A =>
 
 /** The descriptor of an endpoint spelling or of a contract, as the engine's span core reads it. */
 const endpointValue = (e: Endpoint, contracts: ReadonlyMap<string, FieldBase>): FieldBase =>
-	e.kind === "pg" ? pgDescriptors[e.spelling] : got(contracts, e.name)
+	e.kind === "pg" ? plainDescriptors[e.spelling] : got(contracts, e.name)
 
 /** A field type's descriptor, built as a JavaScript caller builds it. */
 const fieldValue = (
@@ -2194,7 +2221,7 @@ const fieldValue = (
 ): FieldBase => {
 	switch (t.kind) {
 		case "pg":
-			return pgDescriptors[t.spelling]
+			return plainDescriptors[t.spelling]
 		case "uuid":
 			return Id
 		case "date":
@@ -2202,9 +2229,9 @@ const fieldValue = (
 		case "natural":
 			return naturalDescriptor
 		case "numeric":
-			return pgDescriptors.numeric(t.precision, t.scale)
+			return numeric(t.precision, t.scale)
 		case "vector":
-			return pgDescriptors.vector(t.dims)
+			return vector(t.dims)
 		case "text":
 			return regexField(t.pattern.source, t.pattern.flags === "default" ? [] : [t.pattern.flags])
 		case "contract":
@@ -2212,7 +2239,7 @@ const fieldValue = (
 		case "closedId":
 			return closedId(got(rosters, t.roster))
 		case "bits":
-			return bits(got(rosters, t.roster))
+			return bit(got(rosters, t.roster))
 		case "span":
 			return t.width === undefined
 				? spanDescriptor(endpointValue(t.endpoint, contracts))
@@ -2363,7 +2390,7 @@ const definitionOf = (
 				case "max":
 					return rule.max(vars[x.field])
 				case "literal":
-					return computeCore.literal(pgDescriptors.integer, 1)
+					return computeCore.literal(int4, 1)
 			}
 		}
 		return rule
@@ -2451,9 +2478,9 @@ type Ids = (name: string) => string
 const literalUnion = (values: ReadonlyArray<string>): string =>
 	Arr.isReadonlyArrayNonEmpty(values) ? Arr.join(Arr.map(values, jsonText), " | ") : "never"
 
-/** A numeric(p, s) field's host, its scale's: a bigint at scale 0, whose values are integers, a Decimal at any other. */
+/** A numeric(p, s) field's host, its scale's: a bigint at scale 0, whose values are integers, a Numeric at any other. */
 const numericHost = (typmod: NumericTypmod): string =>
-	typmod.scale === 0 ? "bigint" : "Fi.Decimal"
+	typmod.scale === 0 ? "bigint" : "Fi.Numeric"
 
 /**
  * The host type of a field as the engine describes it (ir/desc.ts FieldDesc), as TypeScript: what its column delivers,
@@ -2469,7 +2496,7 @@ const hostOfDesc = (desc: FieldDesc, base: Base, ids: Ids): string => {
 		case "exact":
 			return desc.carrier === "exactInteger" ? "bigint" : "Fi.Money"
 		case "computedNumeric":
-			return "Fi.Decimal"
+			return "Fi.Numeric"
 		case "uuid":
 			return "Fi.Uuid"
 		case "sha256":
@@ -2487,7 +2514,7 @@ const hostOfDesc = (desc: FieldDesc, base: Base, ids: Ids): string => {
 				? hostOfDesc(desc.base, base, ids)
 				: `Fi.Marked<${hostOfDesc(desc.base, base, ids)}, ${keyText(desc.name)}>`
 		case "span":
-			return `Fi.Span<${hostOfDesc(desc.endpoint, base, ids)}>`
+			return `Cp.Range<${hostOfDesc(desc.endpoint, base, ids)}>`
 		case "closedId":
 			return literalUnion(rosterNamed(base, desc.roster).handles)
 		case "bits":
@@ -2522,14 +2549,14 @@ const builtinScalar = (t: ScalarType): boolean =>
 
 /** The host type of each PostgreSQL scalar type a pg descriptor declares. */
 const pgHost: { readonly [T in Extract<FieldDesc, { readonly kind: "pg" }>["type"]]: string } = {
-	smallint: "number",
-	integer: "number",
-	real: "number",
-	"double precision": "number",
-	bigint: "bigint",
-	numeric: "Fi.Decimal",
+	int2: "number",
+	int4: "number",
+	float4: "number",
+	float8: "number",
+	int8: "bigint",
+	numeric: "Fi.Numeric",
 	money: "Fi.Money",
-	boolean: "boolean",
+	bool: "boolean",
 	date: "Fi.CalendarDate",
 	inet: "Fi.Inet",
 	cidr: "Fi.Cidr"
@@ -2635,7 +2662,7 @@ const hostOfScalar = (t: ScalarType, ids: Ids): string => {
 			return "bigint"
 		case "numeric": {
 			const typmod = integerTypmodOf(t)
-			return typmod === undefined ? "Fi.Decimal" : numericHost(typmod)
+			return typmod === undefined ? "Fi.Numeric" : numericHost(typmod)
 		}
 		case "money":
 		case "exactMoney":
@@ -2670,7 +2697,7 @@ const hostOfScalar = (t: ScalarType, ids: Ids): string => {
 		case "range4":
 		case "range8":
 		case "rangeDate":
-			return `Fi.Span<${hostOfScalar(t.span.endpoint, ids)}>`
+			return `Cp.Range<${hostOfScalar(t.span.endpoint, ids)}>`
 		case "vector":
 			return `Fi.Vector<${t.typmod.dims}>`
 		case "tsvector":
@@ -2824,7 +2851,7 @@ const quoted = (names: ReadonlyArray<string>): string => Arr.join(Arr.map(names,
 const fieldSource = (t: FieldType, ids: Ids): string => {
 	switch (t.kind) {
 		case "pg":
-			return t.spelling === "double precision" ? 'Fi.pg["double precision"]' : `Fi.pg.${t.spelling}`
+			return `Fi.${t.spelling}`
 		case "uuid":
 			return "Fi.Id"
 		case "date":
@@ -2832,9 +2859,9 @@ const fieldSource = (t: FieldType, ids: Ids): string => {
 		case "natural":
 			return "Fi.natural"
 		case "numeric":
-			return `Fi.pg.numeric(${t.precision}, ${t.scale})`
+			return `Fi.numeric(${t.precision}, ${t.scale})`
 		case "vector":
-			return `Fi.pg.vector(${t.dims})`
+			return `Fi.vector(${t.dims})`
 		case "text":
 			return `Tx.str.regex(${jsonText(t.pattern.source)}${t.pattern.flags === "default" ? "" : `, ${jsonText(t.pattern.flags)}`})`
 		case "contract":
@@ -2842,11 +2869,10 @@ const fieldSource = (t: FieldType, ids: Ids): string => {
 		case "closedId":
 			return `Fi.closedId(${ids(t.roster)})`
 		case "bits":
-			return `Fi.bits(${ids(t.roster)})`
+			return `Fi.bit(${ids(t.roster)})`
 		case "span": {
-			const endpoint =
-				t.endpoint.kind === "pg" ? `Fi.pg.${t.endpoint.spelling}` : ids(t.endpoint.name)
-			return `Fi.span(${endpoint}${t.width === undefined ? "" : t.width.host === "bigint" ? `, ${t.width.value}n` : `, ${t.width.value}`})`
+			const endpoint = t.endpoint.kind === "pg" ? `Fi.${t.endpoint.spelling}` : ids(t.endpoint.name)
+			return `Fi.range(${endpoint}${t.width === undefined ? "" : t.width.host === "bigint" ? `, ${t.width.value}n` : `, ${t.width.value}`})`
 		}
 	}
 }
@@ -2881,7 +2907,7 @@ const startSource = (s: Start, ids: Ids): string => {
 		case "handle":
 			return jsonText(s.handle)
 		case "noHandles":
-			return `Fi.Bits.of(${ids(s.roster)}, [])`
+			return `Fi.Bit.of(${ids(s.roster)}, [])`
 		case "text":
 			return jsonText(s.value)
 	}
@@ -3515,7 +3541,7 @@ const definitionSource = (
 			"total: r.count()",
 			...Arr.map(extras, (x) =>
 				x.kind === "literal"
-					? `${x.name}: Cp.Type.literal(Fi.pg.integer, 1)`
+					? `${x.name}: Cp.Type.literal(Fi.int4, 1)`
 					: `${x.name}: r.${x.kind}(${x.field})`
 			)
 		],
@@ -4136,10 +4162,10 @@ const predicateProbe = (d: Drawing, base: Base): Probe => {
 }
 /** A field type a literal probe's target may be, and its descriptor's spelling. */
 const literalTargets = [
-	"integer",
-	"bigint",
+	"int4",
+	"int8",
 	"numeric",
-	"boolean",
+	"bool",
 	"closedId",
 	"uuid",
 	"text",
@@ -4172,9 +4198,9 @@ const literalsAt = (t: LiteralTarget): Arr.NonEmptyReadonlyArray<LiteralValue> =
 
 const targetType = (t: LiteralTarget, roster: string): FieldType => {
 	switch (t) {
-		case "integer":
-		case "bigint":
-		case "boolean":
+		case "int4":
+		case "int8":
+		case "bool":
 		case "money":
 			return { kind: "pg", spelling: t }
 		case "numeric":
@@ -4212,7 +4238,7 @@ const literalOf = (
 				value: "00000000-0000-4000-8000-000000000001"
 			}
 		case "decimalValue":
-			return { source: 'Fi.Decimal.of("1.5")', value: Decimal.of("1.5") }
+			return { source: 'Fi.Numeric.of("1.5")', value: Numeric.of("1.5") }
 		case "moneyValue":
 			return { source: "Fi.Money.of(150n)", value: Money.of(150n) }
 	}
@@ -4403,10 +4429,10 @@ const foldProbe = (d: Drawing, base: Base, { fault, refined, order, monoid }: Fo
 		kind: "pg",
 		spelling:
 			fault === "contractEnd"
-				? "bigint"
+				? "int8"
 				: order === "counted"
-					? "integer"
-					: d.from(["bigint", "integer"] as const)
+					? "int4"
+					: d.from(["int8", "int4"] as const)
 	}
 	/** An accumulator's type: the step's, a text of another pattern, or the planted contract. */
 	const accumulatorOf = (t: FieldType): FieldType =>
@@ -4423,20 +4449,20 @@ const foldProbe = (d: Drawing, base: Base, { fault, refined, order, monoid }: Fo
 	const zero = (t: FieldType): Start =>
 		t.kind === "text"
 			? { kind: "text", value: "" }
-			: t.kind === "pg" && t.spelling === "integer"
+			: t.kind === "pg" && t.spelling === "int4"
 				? { kind: "integer", value: 0 }
 				: { kind: "bigint", value: 0n }
 	const noHandles: Start = { kind: "noHandles", roster: roster.name }
 	const value: FieldType | undefined = (() => {
 		switch (monoid) {
 			case "concat":
-				return fault === "monoidMismatch" ? { kind: "pg", spelling: "bigint" } : text
+				return fault === "monoidMismatch" ? { kind: "pg", spelling: "int8" } : text
 			case "sum":
-				return fault === "monoidMismatch" ? { kind: "pg", spelling: "double precision" } : sumType
+				return fault === "monoidMismatch" ? { kind: "pg", spelling: "float8" } : sumType
 			case "count":
 				return undefined
 			case "or":
-				return fault === "monoidMismatch" ? { kind: "pg", spelling: "bigint" } : set
+				return fault === "monoidMismatch" ? { kind: "pg", spelling: "int8" } : set
 			case "twos":
 				return set
 			case "max":
@@ -4456,7 +4482,7 @@ const foldProbe = (d: Drawing, base: Base, { fault, refined, order, monoid }: Fo
 				return fault === "monoidMismatch"
 					? [
 							[
-								{ kind: "pg", spelling: "double precision" },
+								{ kind: "pg", spelling: "float8" },
 								{ kind: "integer", value: 0 }
 							]
 						]
@@ -4472,7 +4498,7 @@ const foldProbe = (d: Drawing, base: Base, { fault, refined, order, monoid }: Fo
 				return fault === "monoidMismatch"
 					? [
 							[
-								{ kind: "pg", spelling: "bigint" },
+								{ kind: "pg", spelling: "int8" },
 								{ kind: "bigint", value: 0n }
 							]
 						]
@@ -4538,7 +4564,7 @@ const foldProbe = (d: Drawing, base: Base, { fault, refined, order, monoid }: Fo
 			{ name: "g", type: { kind: "uuid" }, writing: callerWriting },
 			order === "ordered"
 				? { name: "at", type: { kind: "natural" }, writing: { kind: "drawn" } }
-				: { name: "k", type: { kind: "pg", spelling: "integer" }, writing: callerWriting },
+				: { name: "k", type: { kind: "pg", spelling: "int4" }, writing: callerWriting },
 			...valueField,
 			...pairFields
 		],
@@ -4562,7 +4588,7 @@ const foldProbe = (d: Drawing, base: Base, { fault, refined, order, monoid }: Fo
 			const declarations = [
 				...(fault === "contractEnd"
 					? [
-							`export const ${own}_${tallyName} = Fi.contract<typeof Key>()(${jsonText(tallyName)}, Fi.pg.bigint)`
+							`export const ${own}_${tallyName} = Fi.contract<typeof Key>()(${jsonText(tallyName)}, Fi.int8)`
 						]
 					: []),
 				`export const ${own}_O = ${relationSource(owner, mine, quoted(owner.key))}`,
@@ -4582,7 +4608,7 @@ const foldProbe = (d: Drawing, base: Base, { fault, refined, order, monoid }: Fo
 					fault === "contractEnd"
 						? new Map<string, FieldBase>([
 								...env.contracts,
-								[tallyName, admitContract(tallyName, pgDescriptors.bigint, [])]
+								[tallyName, admitContract(tallyName, int8, [])]
 							])
 						: env.contracts
 				const relations = new Map([
@@ -4630,7 +4656,7 @@ const countedSideProbe = (): Probe => {
 		name: "M",
 		fields: [
 			{ name: "g", type: { kind: "uuid" }, writing: callerWriting },
-			{ name: "k", type: { kind: "pg", spelling: "integer" }, writing: callerWriting }
+			{ name: "k", type: { kind: "pg", spelling: "int4" }, writing: callerWriting }
 		],
 		key: ["g", "k"]
 	}
@@ -4671,7 +4697,7 @@ const selectedMemberProbe = (fault: KeptFault): Probe => {
 	})
 	const flag: FieldSpec = {
 		name: "flag",
-		type: { kind: "pg", spelling: "boolean" },
+		type: { kind: "pg", spelling: "bool" },
 		writing: callerWriting
 	}
 	const owner: RelationSpec = {
@@ -4683,7 +4709,7 @@ const selectedMemberProbe = (fault: KeptFault): Probe => {
 		name: "M",
 		fields: [
 			{ name: "g", type: { kind: "uuid" }, writing: callerWriting },
-			{ name: "k", type: { kind: "pg", spelling: "integer" }, writing: callerWriting },
+			{ name: "k", type: { kind: "pg", spelling: "int4" }, writing: callerWriting },
 			drawnNatural("i"),
 			flag
 		],
@@ -4765,7 +4791,7 @@ const treeProbe = (d: Drawing): Probe => {
 	})
 	const sideField = (name: "parent" | "at"): FieldSpec =>
 		name === written
-			? { name, type: { kind: "pg", spelling: "integer" }, writing: callerWriting }
+			? { name, type: { kind: "pg", spelling: "int4" }, writing: callerWriting }
 			: drawnField(name)
 	const node: RelationSpec = {
 		name: "T",
@@ -4839,22 +4865,22 @@ const fieldCallSource = (call: FieldCall, ids: Ids): string => {
 		case "contract":
 			return `Fi.contract<typeof Key>()("Probe", ${fieldSource(call.base, ids)})`
 		case "span":
-			return `Fi.span(${fieldSource(call.endpoint, ids)}${call.width === "none" ? "" : call.width === "number" ? ", 7" : ", 7n"})`
+			return `Fi.range(${fieldSource(call.endpoint, ids)}${call.width === "none" ? "" : call.width === "number" ? ", 7" : ", 7n"})`
 		case "numeric":
-			return call.arguments === 1 ? "Fi.pg.numeric(5)" : "Fi.pg.numeric(5, 2)"
+			return call.arguments === 1 ? "Fi.numeric(5)" : "Fi.numeric(5, 2)"
 		case "typmod": {
 			const first = (value: number) => (call.text ? jsonText(String(value)) : String(value))
 			switch (call.of) {
 				case "numeric":
-					return `Fi.pg.numeric(${first(18)}, 0)`
+					return `Fi.numeric(${first(18)}, 0)`
 				case "vector":
-					return `Fi.pg.vector(${first(3)})`
+					return `Fi.vector(${first(3)})`
 			}
 		}
 		case "lookAlike":
 			return `Sc.relation("LookAlike", { id: ${lookAlikeSource} }, ["id"])`
 		case "crossSet":
-			return `Fi.accumulated(Fi.bits(${ids(call.roster.name)}), Fi.Bits.of(Sc.closed.ordered("Other", [${quoted(call.roster.handles)}]), []))`
+			return `Fi.accumulated(Fi.bit(${ids(call.roster.name)}), Fi.Bit.of(Sc.closed.ordered("Other", [${quoted(call.roster.handles)}]), []))`
 	}
 }
 
@@ -4889,25 +4915,23 @@ const fieldCallValue = (call: FieldCall, env: Env): unknown => {
 						call.width === "number" ? 7 : 7n
 					)
 		case "numeric":
-			return call.arguments === 1
-				? Reflect.apply(pgDescriptors.numeric, undefined, [5])
-				: pgDescriptors.numeric(5, 2)
+			return call.arguments === 1 ? Reflect.apply(numeric, undefined, [5]) : numeric(5, 2)
 		case "typmod": {
 			const first = (value: number): number | string => (call.text ? String(value) : value)
 			switch (call.of) {
 				case "numeric": {
-					const numeric: unknown = Reflect.apply(pgDescriptors.numeric, undefined, [first(18), 0])
-					return numeric
+					const typmodded: unknown = Reflect.apply(numeric, undefined, [first(18), 0])
+					return typmodded
 				}
 				case "vector": {
-					const vector: unknown = Reflect.apply(pgDescriptors.vector, undefined, [first(3)])
-					return vector
+					const dimensioned: unknown = Reflect.apply(vector, undefined, [first(3)])
+					return dimensioned
 				}
 			}
 		}
 		case "crossSet":
 			return accumulatedField(
-				bits(got(env.rosters, call.roster.name)),
+				bit(got(env.rosters, call.roster.name)),
 				bitsOf(closed("Other", call.roster.handles, "ordered", []), [], []),
 				[]
 			)
@@ -4939,14 +4963,14 @@ const fieldProbe = (d: Drawing, base: Base): Probe => {
 			fault: "drawnUndrawable",
 			call: {
 				kind: "drawn",
-				type: { kind: "pg", spelling: d.from(["integer", "bigint"] as const) }
+				type: { kind: "pg", spelling: d.from(["int4", "int8"] as const) }
 			}
 		},
 		{
 			fault: undefined,
 			call: {
 				kind: "accumulated",
-				type: { kind: "pg", spelling: "bigint" },
+				type: { kind: "pg", spelling: "int8" },
 				start: { kind: "bigint", value: 0n }
 			}
 		},
@@ -4966,7 +4990,7 @@ const fieldProbe = (d: Drawing, base: Base): Probe => {
 			fault: "accumulatedStart",
 			call: {
 				kind: "accumulated",
-				type: { kind: "pg", spelling: "bigint" },
+				type: { kind: "pg", spelling: "int8" },
 				start: { kind: "integer", value: 0 }
 			}
 		},
@@ -4974,7 +4998,7 @@ const fieldProbe = (d: Drawing, base: Base): Probe => {
 			fault: "accumulatedStart",
 			call: {
 				kind: "accumulated",
-				type: { kind: "pg", spelling: "integer" },
+				type: { kind: "pg", spelling: "int4" },
 				start: { kind: "bigint", value: 0n }
 			}
 		},
@@ -4983,7 +5007,7 @@ const fieldProbe = (d: Drawing, base: Base): Probe => {
 			call: {
 				kind: "contract",
 				base: d.from<FieldType>([
-					{ kind: "pg", spelling: "bigint" },
+					{ kind: "pg", spelling: "int8" },
 					{ kind: "uuid" },
 					{ kind: "closedId", roster: roster.name }
 				])
@@ -4999,18 +5023,18 @@ const fieldProbe = (d: Drawing, base: Base): Probe => {
 		},
 		{
 			fault: undefined,
-			call: { kind: "span", endpoint: { kind: "pg", spelling: "integer" }, width: "number" }
+			call: { kind: "span", endpoint: { kind: "pg", spelling: "int4" }, width: "number" }
 		},
 		{
 			fault: undefined,
-			call: { kind: "span", endpoint: { kind: "pg", spelling: "bigint" }, width: "bigint" }
+			call: { kind: "span", endpoint: { kind: "pg", spelling: "int8" }, width: "bigint" }
 		},
 		{
 			fault: "endpointType",
 			call: {
 				kind: "span",
 				endpoint: d.from<FieldType>([
-					{ kind: "pg", spelling: "smallint" },
+					{ kind: "pg", spelling: "int2" },
 					{ kind: "pg", spelling: "money" },
 					{ kind: "numeric", precision: 10, scale: 0 }
 				]),
@@ -5019,11 +5043,11 @@ const fieldProbe = (d: Drawing, base: Base): Probe => {
 		},
 		{
 			fault: "widthType",
-			call: { kind: "span", endpoint: { kind: "pg", spelling: "integer" }, width: "bigint" }
+			call: { kind: "span", endpoint: { kind: "pg", spelling: "int4" }, width: "bigint" }
 		},
 		{
 			fault: "widthType",
-			call: { kind: "span", endpoint: { kind: "pg", spelling: "bigint" }, width: "number" }
+			call: { kind: "span", endpoint: { kind: "pg", spelling: "int8" }, width: "number" }
 		},
 		{ fault: undefined, call: { kind: "numeric", arguments: 2 } },
 		{ fault: "numericArity", call: { kind: "numeric", arguments: 1 } },
@@ -5077,8 +5101,8 @@ const closedRelationProbe = (d: Drawing, base: Base): Probe => {
 		d.note("closedRepeatedRow")
 	}
 	const value = d.from<readonly [FieldType, string, unknown, string, unknown]>([
-		[{ kind: "pg", spelling: "integer" }, "1", 1, "2", 2],
-		[{ kind: "pg", spelling: "bigint" }, "1n", 1n, "2n", 2n],
+		[{ kind: "pg", spelling: "int4" }, "1", 1, "2", 2],
+		[{ kind: "pg", spelling: "int8" }, "1n", 1n, "2n", 2n],
 		[{ kind: "text", pattern: { source: "^.*$", flags: "su" } }, '"a"', "a", '"b"', "b"]
 	])
 	const [payload, source, host, otherSource, otherHost] = value
@@ -5213,19 +5237,19 @@ const closedDeclarations = (c: ClosedSpec, ids: Ids): ReadonlyArray<readonly [st
 	return [
 		[
 			"Rule",
-			`Sc.closed.relation("Rule", { ${idFields}, w: Fi.pg.integer, x: ${fieldSource(payloadType(c.payload), ids)} }, [${quoted(names)}], [${Arr.join(rows, ", ")}])`
+			`Sc.closed.relation("Rule", { ${idFields}, w: Fi.int4, x: ${fieldSource(payloadType(c.payload), ids)} }, [${quoted(names)}], [${Arr.join(rows, ", ")}])`
 		],
 		...(c.generated
 			? [
 					[
 						"Gen",
-						`Sc.relation.generated("Gen", { id: Fi.Id, ${idFields}, depth: Fi.pg.integer }, ["id"], (r) => ({ weight: Fi.generated(Fi.pg.integer, ${ids("Rule")}.at("w", ${Arr.join(
+						`Sc.relation.generated("Gen", { id: Fi.Id, ${idFields}, depth: Fi.int4 }, ["id"], (r) => ({ weight: Fi.generated(Fi.int4, ${ids("Rule")}.at("w", ${Arr.join(
 							Arr.map(names, (name) => `r.${name}`),
 							", "
-						)})), flags: Fi.generated(Fi.bits(${ids(Arr.lastNonEmpty(c.key).name)}), ${ids("Rule")}.row(${Arr.join(
+						)})), flags: Fi.generated(Fi.bit(${ids(Arr.lastNonEmpty(c.key).name)}), ${ids("Rule")}.row(${Arr.join(
 							Arr.map(Arr.initNonEmpty(names), (name) => `r.${name}`),
 							", "
-						)})), next: Fi.generated(Fi.pg.bigint, Cp.Type.cast(Cp.Num.add(r.depth, 1), Fi.pg.bigint)) }))`
+						)})), next: Fi.generated(Fi.int8, Cp.Type.cast(Cp.Num.add(r.depth, 1), Fi.int8)) }))`
 					] as const
 				]
 			: []),
@@ -5458,7 +5482,7 @@ const valueDescriptorType = (desc: FieldDesc, base: Base, ids: Ids): string => {
 			return 'Fi.Field<Fi.Uuid, "uuid">'
 		case "sha256":
 		case "bytes":
-			return "Fi.BytesField"
+			return "Fi.ByteaField"
 		case "text":
 			return `Tx.RegexText<${hostOfDesc(desc, base, ids)}>`
 		case "pattern":
@@ -5472,11 +5496,11 @@ const valueDescriptorType = (desc: FieldDesc, base: Base, ids: Ids): string => {
 			return `Fi.Contract<${jsonText(desc.name)}, ${valueDescriptorType(desc.base, base, ids)}, ${keyText(desc.name)}>`
 		}
 		case "span":
-			return `Fi.SpanField<${hostOfDesc(desc.endpoint, base, ids)}, Ph.DomainOf<${valueDescriptorType(desc.endpoint, base, ids)}>>`
+			return `Fi.RangeField<${hostOfDesc(desc.endpoint, base, ids)}, Ph.DomainOf<${valueDescriptorType(desc.endpoint, base, ids)}>>`
 		case "closedId":
 			return `Fi.ClosedIdField<typeof ${ids(desc.roster)}>`
 		case "bits":
-			return `Fi.BitsField<typeof ${ids(desc.roster)}>`
+			return `Fi.BitField<typeof ${ids(desc.roster)}>`
 		case "vector":
 			return `Fi.VectorField<${desc.dimensions}>`
 		case "search":
@@ -5488,7 +5512,7 @@ const valueDescriptorType = (desc: FieldDesc, base: Base, ids: Ids): string => {
 
 /**
  * The literal a field's comparison takes, as the engine admits one (scalar/literal.ts literalDescFor): its base's host
- * value, a contract's literal its base's, and a numeric's a Decimal, a bigint or an exact decimal string, at scale 0 a
+ * value, a contract's literal its base's, and a numeric's a Numeric, a bigint or an exact decimal string, at scale 0 a
  * bigint alone, its host (types/fields LiteralOf). A vector's, a buffer of its dimensions, has a type the public
  * barrels do not name, so a vector field's is not asserted.
  */
@@ -5503,9 +5527,9 @@ const literalType = (
 				? hostOfDesc(desc, base, ids)
 				: literalType(desc.base, base, ids)
 		case "numeric":
-			return desc.scale === 0 ? "bigint" : "Fi.Decimal | bigint | string"
+			return desc.scale === 0 ? "bigint" : "Fi.Numeric | bigint | string"
 		case "computedNumeric":
-			return "Fi.Decimal | bigint | string"
+			return "Fi.Numeric | bigint | string"
 		case "bits":
 			return `ReadonlySet<${literalUnion(rosterNamed(base, desc.roster).handles)}>`
 		case "pg":
@@ -5524,16 +5548,16 @@ const literalType = (
 	}
 }
 
-/** The literal a pg type's comparison takes: its host value, and numeric's a Decimal, a bigint or an exact decimal string. */
+/** The literal a pg type's comparison takes: its host value, and numeric's a Numeric, a bigint or an exact decimal string. */
 const pgLiteral: { readonly [T in Extract<FieldDesc, { readonly kind: "pg" }>["type"]]: string } = {
-	smallint: "number",
-	integer: "number",
-	real: "number",
-	"double precision": "number",
-	bigint: "bigint",
-	numeric: "Fi.Decimal | bigint | string",
+	int2: "number",
+	int4: "number",
+	float4: "number",
+	float8: "number",
+	int8: "bigint",
+	numeric: "Fi.Numeric | bigint | string",
 	money: "Fi.Money",
-	boolean: "boolean",
+	bool: "boolean",
 	date: "Fi.CalendarDate",
 	inet: "Fi.Inet",
 	cidr: "Fi.Cidr"
@@ -5546,14 +5570,14 @@ const pgLiteral: { readonly [T in Extract<FieldDesc, { readonly kind: "pg" }>["t
 const pgDescriptorType: {
 	readonly [T in Extract<FieldDesc, { readonly kind: "pg" }>["type"]]: string
 } = {
-	smallint: 'Fi.Field<number, "smallint">',
-	integer: 'Fi.Field<number, "integer">',
-	real: 'Fi.Field<number, "real">',
-	"double precision": 'Fi.Field<number, "double precision">',
-	bigint: 'Fi.Field<bigint, "bigint">',
+	int2: 'Fi.Field<number, "int2">',
+	int4: 'Fi.Field<number, "int4">',
+	float4: 'Fi.Field<number, "float4">',
+	float8: 'Fi.Field<number, "float8">',
+	int8: 'Fi.Field<bigint, "int8">',
 	numeric: "Fi.NumericField",
 	money: 'Fi.Field<Fi.Money, "money">',
-	boolean: 'Fi.Field<boolean, "boolean">',
+	bool: 'Fi.Field<boolean, "bool">',
 	date: 'Fi.Field<Fi.CalendarDate, "date">',
 	inet: 'Fi.Field<Fi.Inet, "inet">',
 	cidr: 'Fi.Field<Fi.Cidr, "cidr">'
@@ -5837,7 +5861,7 @@ const textAssertions = (
 
 /**
  * Each relation's type, its fields' descriptors' types as the engine describes them under its name and primary key;
- * each caller field's host as a span endpoint, whether the engine's span core admits it, and its literal; each
+ * each caller field's host as a range endpoint, whether the engine's span core admits it, and its literal; each
  * contract's descriptor type and host.
  */
 const descriptorAssertions = (base: Base, env: Env, ids: Ids): ReadonlyArray<string> => {
@@ -5874,7 +5898,7 @@ const descriptorAssertions = (base: Base, env: Env, ids: Ids): ReadonlyArray<str
 					),
 					expect(
 						`endpoint_${r.name}_${name}`,
-						`[${fieldOfR(name)}] extends [Fi.SpanEndpointLike] ? true : false`,
+						`[${fieldOfR(name)}] extends [Fi.RangeEndpointLike] ? true : false`,
 						endpoint ? "true" : "false"
 					),
 					...(decl.type.kind === "vector"
@@ -5907,7 +5931,7 @@ const descriptorAssertions = (base: Base, env: Env, ids: Ids): ReadonlyArray<str
 
 /**
  * Whether a public value is a field descriptor, as the engine's descriptor registry admits one (scalar/registry.ts
- * describeField): a constructor such as pg.numeric or str is none; and whether one pg spelling's descriptor is another's,
+ * describeField): a constructor such as numeric or str is none; and whether one pg spelling's descriptor is another's,
  * as the engine describes them: the same Description, written the same way or by its caller where the other is.
  */
 const publicAssertions = (base: Base, ids: Ids): ReadonlyArray<string> => {
@@ -5926,12 +5950,11 @@ const publicAssertions = (base: Base, ids: Ids): ReadonlyArray<string> => {
 		)
 	})
 	const pairs = Arr.map(base.spellings, ([x, y], i) => {
-		const [dx, dy] = [describedAs(pgDescriptors[x]), describedAs(pgDescriptors[y])]
+		const [dx, dy] = [describedAs(plainDescriptors[x]), describedAs(plainDescriptors[y])]
 		const same = dx !== undefined && dy !== undefined && dx.ok && dy.ok && dx.value === dy.value
-		const wy = writingOf(pgDescriptors[y]).kind
-		const assignable = same && (wy === "caller" || writingOf(pgDescriptors[x]).kind === wy)
-		const spelled = (s: PgSpelling) =>
-			s === "double precision" ? 'Fi.pg["double precision"]' : `Fi.pg.${s}`
+		const wy = writingOf(plainDescriptors[y]).kind
+		const assignable = same && (wy === "caller" || writingOf(plainDescriptors[x]).kind === wy)
+		const spelled = (s: PgSpelling) => `Fi.${s}`
 		return expect(
 			`spelling_${i}`,
 			`[typeof ${spelled(x)}] extends [typeof ${spelled(y)}] ? true : false`,
@@ -6223,7 +6246,7 @@ const bitsProbe = (d: Drawing, base: Base): Probe => {
 		construct: "valueProbe",
 		refused: fault,
 		text: (ids, own) =>
-			oneLine(`export const ${own} = Fi.Bits.of(${ids(roster.name)}, [${quoted(written)}])`),
+			oneLine(`export const ${own} = Fi.Bit.of(${ids(roster.name)}, [${quoted(written)}])`),
 		judge: (env) => building(() => bitsOf(got(env.rosters, roster.name), written, []))
 	}
 }
@@ -6248,7 +6271,7 @@ const contractNameProbe = (d: Drawing): Probe => {
 		refused: several ? "contractName" : undefined,
 		text: (_ids, own) => ({
 			head: [`export declare const ${own}_name: ${type}`],
-			line: `export const ${own} = Fi.contract<typeof Key>()(${own}_name, Fi.pg.bigint)`,
+			line: `export const ${own} = Fi.contract<typeof Key>()(${own}_name, Fi.int8)`,
 			tail: []
 		}),
 		judge: () => {
@@ -6262,10 +6285,7 @@ const contractNameProbe = (d: Drawing): Probe => {
 			const types = Arr.map(
 				names,
 				(name) =>
-					describeFieldOrThrow(
-						admitContract(name, pgDescriptors.bigint, []),
-						SourceLoc("contract name", [])
-					).scalar
+					describeFieldOrThrow(admitContract(name, int8, []), SourceLoc("contract name", [])).scalar
 			)
 			const [first, ...rest] = types
 			return first !== undefined && Arr.every(rest, (t) => sameScalarType(first, t))
@@ -6376,7 +6396,7 @@ const closedReadProbe = (d: Drawing, base: Base): Probe | undefined => {
 					const reads = Arr.map(echoNames, (name) => `, r.${name}`)
 					return {
 						head: [`export const ${own}_Echo = Sc.closed.ordered("Echo", [${quoted(k1.handles)}])`],
-						line: `export const ${own} = Sc.relation.generated("Echoed", { id: Fi.Id, echo: Fi.closedId(${roster})${Arr.join(restFields, "")} }, ["id"], (r) => ({ w: Fi.generated(Fi.pg.integer, ${ids("Rule")}.at("w", r.echo${Arr.join(reads, "")})) }))`,
+						line: `export const ${own} = Sc.relation.generated("Echoed", { id: Fi.Id, echo: Fi.closedId(${roster})${Arr.join(restFields, "")} }, ["id"], (r) => ({ w: Fi.generated(Fi.int4, ${ids("Rule")}.at("w", r.echo${Arr.join(reads, "")})) }))`,
 						tail: []
 					}
 				}
@@ -6412,7 +6432,7 @@ const closedReadProbe = (d: Drawing, base: Base): Probe | undefined => {
 							["id"],
 							(row: Readonly<Record<string, unknown>>) => ({
 								w: generatedField(
-									pgDescriptors.integer,
+									int4,
 									closedRead(
 										rule,
 										"w",
@@ -6467,38 +6487,36 @@ const generatedProbe = (d: Drawing, base: Base): Probe => {
 	if (form === "refinedGenerated") {
 		d.note("refinedGenerated")
 	}
-	const successorSource = "Cp.Type.cast(Cp.Num.add(r.depth, 1), Fi.pg.bigint)"
-	const nextSource = `Fi.generated(Fi.pg.bigint, ${successorSource})`
+	const successorSource = "Cp.Type.cast(Cp.Num.add(r.depth, 1), Fi.int8)"
+	const nextSource = `Fi.generated(Fi.int8, ${successorSource})`
 	const callbackSource = (set: string, tally: string): string => {
 		switch (form) {
 			case "readsCaller":
-				return `{ g: Fi.generated(${set}, Fi.Bits.union(r.w, r.w)) }`
+				return `{ g: Fi.generated(${set}, Fi.Bit.union(r.w, r.w)) }`
 			case "refinedGenerated":
 				return `{ t: Fi.generated(Tx.str.regex(${jsonText(doubledPattern)}), Cp.Text.concat(r.word, r.word)) }`
 			case "generatedContract":
 				return `{ c: Fi.generated(${tally}, ${successorSource}) }`
 			case "generatedReadsGenerated":
-				return `{ next: ${nextSource}, twice: Fi.generated(Fi.pg.bigint, r.next) }`
+				return `{ next: ${nextSource}, twice: Fi.generated(Fi.int8, r.next) }`
 			case "generatedWrongType":
-				return "{ label: Fi.generated(Fi.pg.bigint, r.depth) }"
+				return "{ label: Fi.generated(Fi.int8, r.depth) }"
 			case "generatedTwiceNamed":
-				return "{ depth: Fi.generated(Fi.pg.integer, r.depth) }"
+				return "{ depth: Fi.generated(Fi.int4, r.depth) }"
 		}
 	}
 	return {
 		construct: "generatedProbe",
 		refused: form === "readsCaller" || form === "refinedGenerated" ? undefined : form,
 		text: (ids, own) => {
-			const set = `Fi.bits(${ids(roster.name)})`
+			const set = `Fi.bit(${ids(roster.name)})`
 			const tally = `${own}_${tallyName}`
 			return {
 				head:
 					form === "generatedContract"
-						? [
-								`export const ${tally} = Fi.contract<typeof Key>()(${jsonText(tallyName)}, Fi.pg.bigint)`
-							]
+						? [`export const ${tally} = Fi.contract<typeof Key>()(${jsonText(tallyName)}, Fi.int8)`]
 						: [],
-				line: `export const ${own} = Sc.relation.generated("Generated", { id: Fi.Id, depth: Fi.pg.integer, w: ${set}${form === "refinedGenerated" ? `, word: Tx.str.regex(${jsonText(wordPattern)})` : ""} }, ["id"], (r) => (${callbackSource(set, tally)}))`,
+				line: `export const ${own} = Sc.relation.generated("Generated", { id: Fi.Id, depth: Fi.int4, w: ${set}${form === "refinedGenerated" ? `, word: Tx.str.regex(${jsonText(wordPattern)})` : ""} }, ["id"], (r) => (${callbackSource(set, tally)}))`,
 				tail: []
 			}
 		},
@@ -6506,9 +6524,9 @@ const generatedProbe = (d: Drawing, base: Base): Probe => {
 			compiling(() => {
 				const set = fieldValue({ kind: "bits", roster: roster.name }, env.rosters, env.contracts)
 				const successor = (row: Readonly<Record<string, unknown>>) =>
-					computeCore.cast(computeCore.add(row["depth"], 1), pgDescriptors.bigint)
+					computeCore.cast(computeCore.add(row["depth"], 1), int8)
 				const next = (row: Readonly<Record<string, unknown>>) =>
-					generatedField(pgDescriptors.bigint, successor(row), [])
+					generatedField(int8, successor(row), [])
 				const callback = (
 					row: Readonly<Record<string, unknown>>
 				): Readonly<Record<string, unknown>> => {
@@ -6525,28 +6543,24 @@ const generatedProbe = (d: Drawing, base: Base): Probe => {
 							}
 						case "generatedContract":
 							return {
-								c: generatedField(
-									admitContract(tallyName, pgDescriptors.bigint, []),
-									successor(row),
-									[]
-								)
+								c: generatedField(admitContract(tallyName, int8, []), successor(row), [])
 							}
 						case "generatedReadsGenerated":
 							return {
 								next: next(row),
-								twice: generatedField(pgDescriptors.bigint, row["next"], [])
+								twice: generatedField(int8, row["next"], [])
 							}
 						case "generatedWrongType":
-							return { label: generatedField(pgDescriptors.bigint, row["depth"], []) }
+							return { label: generatedField(int8, row["depth"], []) }
 						case "generatedTwiceNamed":
-							return { depth: generatedField(pgDescriptors.integer, row["depth"], []) }
+							return { depth: generatedField(int4, row["depth"], []) }
 					}
 				}
 				const made: unknown = Reflect.apply(generatedRelation, undefined, [
 					"Generated",
 					{
 						id: Id,
-						depth: pgDescriptors.integer,
+						depth: int4,
 						w: set,
 						...(form === "refinedGenerated" ? { word: regexField(wordPattern, []) } : {})
 					},
@@ -6626,7 +6640,7 @@ const slotKeyProbe = (d: Drawing): Probe => {
 							", "
 						)}])`,
 						tail: [
-							`export const ${own}_Step = Sc.relation.generated("Step", { id: Fi.pg.integer, version: Fi.closedId(${own}_Version), from: Fi.closedId(${own}_Position) }, ["id"], (r) => ({ next: Fi.generated(Fi.bits(${own}_Position), ${own}.row(r.version, r.from)) }))`,
+							`export const ${own}_Step = Sc.relation.generated("Step", { id: Fi.int4, version: Fi.closedId(${own}_Version), from: Fi.closedId(${own}_Position) }, ["id"], (r) => ({ next: Fi.generated(Fi.bit(${own}_Position), ${own}.row(r.version, r.from)) }))`,
 							`export const ${own}_Slotted = Sc.schema("Slotted", [${own}_Version, ${own}_Position, ${own}_Model, ${own}, ${own}_Step], [])`,
 							`export type ${own}_key = Expect<Equals<(typeof ${own})["key"], readonly ["version", "from", "to"]>>`,
 							`export type ${own}_next = Expect<Equals<Sc.Fact<typeof ${own}_Step>["next"], Ff.Bits<typeof ${own}_Position>>>`
@@ -6638,7 +6652,7 @@ const slotKeyProbe = (d: Drawing): Probe => {
 					return {
 						head: [
 							...head,
-							`export const ${own}_Owner = Sc.relation("Owner", { id: Fi.pg.integer, n: Fi.drawn(Fi.natural) }, ["id"])`
+							`export const ${own}_Owner = Sc.relation("Owner", { id: Fi.int4, n: Fi.drawn(Fi.natural) }, ["id"])`
 						],
 						line: `export const ${own} = Fi.slot(Fi.closedId(${own}_Position), Sc.fin(${own}_Owner, "n"))`,
 						tail: []
@@ -6646,7 +6660,7 @@ const slotKeyProbe = (d: Drawing): Probe => {
 				case "slotNotClosed":
 					return {
 						head,
-						line: `export const ${own} = Fi.slot(Fi.pg.integer, Sc.fin(${own}_Model, "positions"))`,
+						line: `export const ${own} = Fi.slot(Fi.int4, Sc.fin(${own}_Model, "positions"))`,
 						tail: []
 					}
 				case "familyOverClosed":
@@ -6687,11 +6701,11 @@ const slotKeyProbe = (d: Drawing): Probe => {
 					)
 					const step = generatedRelation(
 						"Step",
-						{ id: pgDescriptors.integer, version: closedId(version), from: closedId(position) },
+						{ id: int4, version: closedId(version), from: closedId(position) },
 						["id"],
 						(row: Readonly<Record<string, unknown>>) => ({
 							next: generatedField(
-								bits(position),
+								bit(position),
 								closedCall(follow.row, follow, [row["version"], row["from"]]),
 								[]
 							)
@@ -6709,7 +6723,7 @@ const slotKeyProbe = (d: Drawing): Probe => {
 					return building(() => {
 						const owner = relation(
 							"Owner",
-							{ id: pgDescriptors.integer, n: drawnField(naturalDescriptor, []) },
+							{ id: int4, n: drawnField(naturalDescriptor, []) },
 							["id"],
 							[]
 						)
@@ -6718,7 +6732,7 @@ const slotKeyProbe = (d: Drawing): Probe => {
 				case "slotNotClosed":
 					return building(() => {
 						const made: unknown = Reflect.apply(slotField, undefined, [
-							pgDescriptors.integer,
+							int4,
 							finBuilder(model, "positions"),
 							[]
 						])
@@ -6752,17 +6766,17 @@ const mintedProbe = (d: Drawing): Probe => {
 	d.note("mintedProbe")
 	const spelling = d.from(mintedSpellings)
 	const site = d.from(["field", "contract", "span"] as const)
-	const refusal = pgDescriptors[spelling]
+	const refusal = plainDescriptors[spelling]
 	return {
 		construct: "mintedProbe",
 		refused: "mintedId",
 		text: (_ids, own) =>
 			oneLine(
 				site === "field"
-					? `export const ${own} = Sc.relation("Minted", { id: Fi.pg.${spelling} }, ["id"])`
+					? `export const ${own} = Sc.relation("Minted", { id: Fi.${spelling} }, ["id"])`
 					: site === "contract"
-						? `export const ${own} = Fi.contract<typeof Key>()("Minted", Fi.pg.${spelling})`
-						: `export const ${own} = Fi.span(Fi.pg.${spelling})`
+						? `export const ${own} = Fi.contract<typeof Key>()("Minted", Fi.${spelling})`
+						: `export const ${own} = Fi.range(Fi.${spelling})`
 			),
 		judge: () =>
 			building((): unknown =>
@@ -6884,8 +6898,8 @@ const ruleProbe = (d: Drawing, base: Base): Probe => {
 		text: (ids, own) => {
 			const lit = `${own}_Lit`
 			const head = [
-				`export const ${own}_Cents = Fi.contract<${keyText("Cents")}>()("Cents", Fi.pg.bigint)`,
-				`export const ${lit} = Sc.relation("Lit", { id: Fi.Id, f: ${fieldSource(type, ids)}, n: Fi.pg.bigint, c: ${own}_Cents, i: Fi.pg.integer }, ["id"])`,
+				`export const ${own}_Cents = Fi.contract<${keyText("Cents")}>()("Cents", Fi.int8)`,
+				`export const ${lit} = Sc.relation("Lit", { id: Fi.Id, f: ${fieldSource(type, ids)}, n: Fi.int8, c: ${own}_Cents, i: Fi.int4 }, ["id"])`,
 				`export const ${own}_P = Sc.schema("P", [${Arr.join(
 					[...Arr.map(base.rosters, (r) => ids(r.name)), lit],
 					", "
@@ -6991,15 +7005,15 @@ const ruleProbe = (d: Drawing, base: Base): Probe => {
 			}
 		},
 		judge: (env) => {
-			const cents = admitContract("Cents", pgDescriptors.bigint, [])
+			const cents = admitContract("Cents", int8, [])
 			const lit = relation(
 				"Lit",
 				{
 					id: Id,
 					f: fieldValue(type, env.rosters, env.contracts),
-					n: pgDescriptors.bigint,
+					n: int8,
 					c: cents,
-					i: pgDescriptors.integer
+					i: int4
 				},
 				["id"],
 				[]
@@ -7143,13 +7157,13 @@ const ruleProbe = (d: Drawing, base: Base): Probe => {
 /** The literal values of a literal target's own type: those a literal probe's engine admits at it. */
 const literalsOfTarget = (t: LiteralTarget): Arr.NonEmptyReadonlyArray<LiteralValue> => {
 	switch (t) {
-		case "integer":
+		case "int4":
 			return ["number"]
-		case "bigint":
+		case "int8":
 			return ["bigint"]
 		case "numeric":
 			return ["bigint", "decimal", "decimalValue"]
-		case "boolean":
+		case "bool":
 			return ["boolean"]
 		case "closedId":
 			return ["handle"]
@@ -7163,7 +7177,7 @@ const literalsOfTarget = (t: LiteralTarget): Arr.NonEmptyReadonlyArray<LiteralVa
 }
 
 /** The integer types a cast probe's operand and target are drawn from. */
-const castTypes = ["smallint", "integer", "bigint"] as const
+const castTypes = ["int2", "int4", "int8"] as const
 
 /**
  * A generated field of an integer type whose value is its row's integer plus one, cast to the field's type: the engine
@@ -7178,20 +7192,20 @@ const castProbe = (d: Drawing): Probe => {
 		refused: "castFits",
 		text: (_ids, own) =>
 			oneLine(
-				`export const ${own} = Sc.relation.generated("Cast", { id: Fi.Id, depth: Fi.pg.${from} }, ["id"], (r) => ({ next: Fi.generated(Fi.pg.${to}, Cp.Type.cast(Cp.Num.add(r.depth, ${from === "bigint" ? "1n" : "1"}), Fi.pg.${to})) }))`
+				`export const ${own} = Sc.relation.generated("Cast", { id: Fi.Id, depth: Fi.${from} }, ["id"], (r) => ({ next: Fi.generated(Fi.${to}, Cp.Type.cast(Cp.Num.add(r.depth, ${from === "int8" ? "1n" : "1"}), Fi.${to})) }))`
 			),
 		judge: () =>
 			compiling(() => {
 				const cast = generatedRelation(
 					"Cast",
-					{ id: Id, depth: pgDescriptors[from] },
+					{ id: Id, depth: plainDescriptors[from] },
 					["id"],
 					(row: Readonly<Record<string, unknown>>) => ({
 						next: generatedField(
-							pgDescriptors[to],
+							plainDescriptors[to],
 							computeCore.cast(
-								computeCore.add(row["depth"], from === "bigint" ? 1n : 1),
-								pgDescriptors[to]
+								computeCore.add(row["depth"], from === "int8" ? 1n : 1),
+								plainDescriptors[to]
 							),
 							[]
 						)
@@ -7290,7 +7304,7 @@ const fixedTargetProbe = (d: Drawing): Probe => {
 			const statement = fixedTargetText(form, src, tgt)
 			return {
 				head: [
-					`export const ${tgt} = Sc.relation("Tgt", { id: Fi.Id, ref: Fi.Id, flag: Fi.pg.boolean, n: Fi.natural }, ["id"])`,
+					`export const ${tgt} = Sc.relation("Tgt", { id: Fi.Id, ref: Fi.Id, flag: Fi.bool, n: Fi.natural }, ["id"])`,
 					`export const ${src} = Sc.relation("Src", { t: Fi.Id, m: Fi.natural }, ["t"])`
 				],
 				line: `export const ${own} = ${statement.line}`,
@@ -7307,7 +7321,7 @@ const fixedTargetProbe = (d: Drawing): Probe => {
 					{
 						id: Id,
 						ref: Id,
-						flag: pgDescriptors.boolean,
+						flag: bool,
 						n: naturalDescriptor
 					},
 					["id"],

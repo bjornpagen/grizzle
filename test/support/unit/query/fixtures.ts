@@ -1,7 +1,7 @@
 import { Array as Arr, Formatter, Record as Rec } from "effect"
 import { hasProperties, isList } from "#compiler/core/record.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
-import { pg, span } from "#compiler/public/fields.ts"
+import { range, bool, int8, vector } from "#compiler/public/fields.ts"
 import { contained, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { queryValueDesc } from "#compiler/query/build/query.ts"
@@ -13,12 +13,12 @@ import { Id } from "#test/support/ids.ts"
  * query value's canonical Description.
  */
 
-export const Preference = relation("Preference", { account: Id, enabled: pg.boolean }, ["account"])
+export const Preference = relation("Preference", { account: Id, enabled: bool }, ["account"])
 export const Settings = schema("Settings", [Preference], [])
 
 /** The span example. */
-const RoomOpen = relation("RoomOpen", { room: Id, during: span(pg.bigint) }, ["room", "during"])
-export const Booking = relation("Booking", { room: Id, during: span(pg.bigint), guest: Id }, [
+const RoomOpen = relation("RoomOpen", { room: Id, during: range(int8) }, ["room", "during"])
+export const Booking = relation("Booking", { room: Id, during: range(int8), guest: Id }, [
 	"room",
 	"during"
 ])
@@ -30,20 +30,20 @@ export const Schedule = schema(
 )
 
 /** The vector example. */
-const DocumentVector = pg.vector(4)
+const DocumentVector = vector(4)
 export const Document = relation(
 	"Document",
 	{ id: Id, account: Id, title: str.regex("^.+$", "su") },
 	["id"]
 )
 
-export const DocumentCurrent = relation("DocumentCurrent", { document: Id, revision: pg.bigint }, [
+export const DocumentCurrent = relation("DocumentCurrent", { document: Id, revision: int8 }, [
 	"document"
 ])
 
 export const DocumentEmbedding = relation(
 	"DocumentEmbedding",
-	{ document: Id, revision: pg.bigint, value: DocumentVector },
+	{ document: Id, revision: int8, value: DocumentVector },
 	["document", "revision"]
 )
 

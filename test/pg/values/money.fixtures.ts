@@ -5,7 +5,7 @@ import { array, element, type Gen, int, weighted } from "@bjornpagen/testing/gen
 import { bigint } from "@bjornpagen/testing/values"
 import { Effect, Result } from "effect"
 import { int8Max, int8Min } from "#compiler/ir/carriers.ts"
-import { moneyFractionDigits, Decimal } from "#compiler/scalar/values/decimal.ts"
+import { moneyFractionDigits, Numeric } from "#compiler/scalar/values/decimal.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { pgErrorFields } from "#test/support/substrate/errors.ts"
 import type { CaseSession } from "#test/support/substrate/session.ts"
@@ -17,10 +17,10 @@ export const units = weighted([
 ])
 
 /** An amount anywhere: a minor-unit count of up to 21 digits at a scale of up to six places. */
-export const amount: Gen<Decimal> = (source) => {
+export const amount: Gen<Numeric> = (source) => {
 	const minor = source.draw(bigint(-(10n ** 21n), 10n ** 21n))
 	const scale = source.draw(int(0, 6))
-	return succeeded(Decimal.fromParts(minor < 0n, minor < 0n ? -minor : minor, scale))
+	return succeeded(Numeric.fromParts(minor < 0n, minor < 0n ? -minor : minor, scale))
 }
 
 /** How many places past money's two an edge amount's fraction reaches: on numeric_cash's tie and either side of it. */
@@ -30,7 +30,7 @@ const edgePlaces = 2
  * An amount at the edge of money's range: a minor-unit count within a few units of int8's either bound, with a
  * fraction of a unit past it, so it lands on, below and above the tie that rounds it out of range.
  */
-export const edge: Gen<Decimal> = (source) => {
+export const edge: Gen<Numeric> = (source) => {
 	const bound = source.draw(element([int8Max, int8Min]))
 	const minor = bound + source.draw(bigint(-2n, 2n))
 	const fraction = source.draw(
@@ -38,7 +38,7 @@ export const edge: Gen<Decimal> = (source) => {
 	)
 	const scaled = minor * 10n ** BigInt(edgePlaces) + fraction
 	return succeeded(
-		Decimal.fromParts(scaled < 0n, scaled < 0n ? -scaled : scaled, moneyFractionDigits + edgePlaces)
+		Numeric.fromParts(scaled < 0n, scaled < 0n ? -scaled : scaled, moneyFractionDigits + edgePlaces)
 	)
 }
 
@@ -50,7 +50,7 @@ export const batchOf = <A>(values: Gen<A>, max: number): Gen<ReadonlyArray<A>> =
 export type EdgeFeature = "out of range" | "admitted at the edge"
 
 /** PostgreSQL's answer to one amount cast alone: its money's numeric text, or the SQLSTATE it refused it with. */
-export const castAlone = (db: CaseSession, d: Decimal) =>
+export const castAlone = (db: CaseSession, d: Numeric) =>
 	Effect.map(
 		Effect.result(db.values("SELECT ($1::text::numeric::money)::numeric::text", [d.toString()])),
 		(rows): string =>

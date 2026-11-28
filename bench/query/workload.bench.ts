@@ -33,7 +33,7 @@ import { installOptions } from "#compiler/physical/install/compile.ts"
 import { parseIdent } from "#compiler/physical/obligations/graph.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
 import { workload } from "#compiler/program/workload/value.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -62,10 +62,10 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
  * - "A justified index is still work": each index's size, and the cost of inserting a batch of tasks into
  *   the installation with its workload indexes against one with its key and law indexes only, are recorded.
  */
-const Account = relation("Account", { id: pg.bigint, region: pg.integer }, ["id"])
+const Account = relation("Account", { id: int8, region: int4 }, ["id"])
 const Task = relation(
 	"Task",
-	{ id: pg.bigint, account: pg.bigint, priority: pg.integer, title: str.regex("^.{1,80}$", "su") },
+	{ id: int8, account: int8, priority: int4, title: str.regex("^.{1,80}$", "su") },
 	["id"]
 )
 
@@ -79,7 +79,7 @@ const urgentTasks = query(Workload).rule((r) => {
 	const { id, priority } = v(Task, "task")
 	return r
 		.match(Task, { id, priority })
-		.where(r.ge(priority, r.param("min", pg.integer)))
+		.where(r.ge(priority, r.param("min", int4)))
 		.find({ id, priority })
 })
 
@@ -87,7 +87,7 @@ const regionAccounts = query(Workload).rule((r) => {
 	const { id, region } = v(Account, "account")
 	return r
 		.match(Account, { id, region })
-		.where(r.eq(region, r.param("region", pg.integer)))
+		.where(r.eq(region, r.param("region", int4)))
 		.find({ id })
 })
 

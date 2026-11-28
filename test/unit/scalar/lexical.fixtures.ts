@@ -10,18 +10,23 @@ import { Logic, Text, Type } from "#compiler/public/compute.ts"
 import {
 	accumulated,
 	date,
-	Decimal,
+	Numeric,
 	drawn,
 	exactInteger,
 	generated,
 	natural,
-	pg
+	bool,
+	float8,
+	int2,
+	int4,
+	int8,
+	numeric
 } from "#compiler/public/fields.ts"
 import { type AnyRelation, relation } from "#compiler/public/schema.ts"
 import { type lexicalForm, str } from "#compiler/public/text.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { toFloat } from "#compiler/scalar/compute/cast.ts"
-import { decimalTextMaxBytes, formSource, type LexicalTarget } from "#compiler/scalar/lexical.ts"
+import { numericTextMaxBytes, formSource, type LexicalTarget } from "#compiler/scalar/lexical.ts"
 import { generatedField } from "#compiler/schema/relation.ts"
 import { regexField } from "#compiler/text/field.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -92,13 +97,13 @@ export const checkTargets: Arr.NonEmptyReadonlyArray<readonly [LexicalTarget, Pa
 		(pattern, route) =>
 			relation.generated("R", { id: Id, t: typedText(pattern, route) }, ["id"], (r) => ({
 				n: generated(
-					pg.smallint,
+					int2,
 					route === "type"
-						? Type.cast(r.t, pg.smallint)
+						? Type.cast(r.t, int2)
 						: Logic.when(
 								Text.matches(r.t, Text.pattern(pattern)),
-								(t) => Type.cast(t, pg.smallint),
-								Type.literal(pg.smallint, 0)
+								(t) => Type.cast(t, int2),
+								Type.literal(int2, 0)
 							)
 				)
 			}))
@@ -108,29 +113,29 @@ export const checkTargets: Arr.NonEmptyReadonlyArray<readonly [LexicalTarget, Pa
 		(pattern, route) =>
 			relation.generated("R", { id: Id, t: typedText(pattern, route) }, ["id"], (r) => ({
 				n: generated(
-					pg.numeric(3, 1),
+					numeric(3, 1),
 					route === "type"
-						? Type.cast(r.t, pg.numeric(3, 1))
+						? Type.cast(r.t, numeric(3, 1))
 						: Logic.when(
 								Text.matches(r.t, Text.pattern(pattern)),
-								(t) => Type.cast(t, pg.numeric(3, 1)),
-								Type.literal(pg.numeric(3, 1), "0")
+								(t) => Type.cast(t, numeric(3, 1)),
+								Type.literal(numeric(3, 1), "0")
 							)
 				)
 			}))
 	],
 	[
-		{ kind: "doubleText" },
+		{ kind: "float8Text" },
 		(pattern, route) =>
 			relation.generated("R", { id: Id, t: typedText(pattern, route) }, ["id"], (r) => ({
 				n: generated(
-					pg["double precision"],
+					float8,
 					route === "type"
-						? Text.parseDouble(r.t)
+						? Text.parseFloat8(r.t)
 						: Logic.when(
 								Text.matches(r.t, Text.pattern(pattern)),
-								(t) => Text.parseDouble(t),
-								Type.literal(pg["double precision"], 0)
+								(t) => Text.parseFloat8(t),
+								Type.literal(float8, 0)
 							)
 				)
 			}))
@@ -140,13 +145,13 @@ export const checkTargets: Arr.NonEmptyReadonlyArray<readonly [LexicalTarget, Pa
 		(pattern, route) =>
 			relation.generated("R", { id: Id, t: typedText(pattern, route) }, ["id"], (r) => ({
 				n: generated(
-					pg.boolean,
+					bool,
 					route === "type"
-						? Type.cast(r.t, pg.boolean)
+						? Type.cast(r.t, bool)
 						: Logic.when(
 								Text.matches(r.t, Text.pattern(pattern)),
-								(t) => Type.cast(t, pg.boolean),
-								Type.literal(pg.boolean, false)
+								(t) => Type.cast(t, bool),
+								Type.literal(bool, false)
 							)
 				)
 			}))
@@ -165,7 +170,7 @@ export type DecimalFeature =
 /** A bound of none, a few bytes, or one byte either side of the most the form's members hold. */
 export const decimalBoundGen: Gen<DecimalBound> = weighted<DecimalBound>([
 	[2, constant({ kind: "none" })],
-	[3, map(int(-1, 1), (offset) => ({ kind: "bytes", bytes: decimalTextMaxBytes + offset }))],
+	[3, map(int(-1, 1), (offset) => ({ kind: "bytes", bytes: numericTextMaxBytes + offset }))],
 	[1, map(int(0, 12), (bytes) => ({ kind: "bytes", bytes }))]
 ])
 
@@ -179,23 +184,23 @@ export const decimalRelation = (
 	route: Route,
 	bound: DecimalBound
 ): AnyRelation => {
-	const no = computeCore.literal(pg.boolean, false)
+	const no = computeCore.literal(bool, false)
 	const parsedSign = (t: unknown): unknown =>
 		computeCore.cond(
-			computeCore.ge(computeCore.parseDecimal(t), 0n),
-			computeCore.literal(pg.boolean, true),
+			computeCore.ge(computeCore.parseNumeric(t), 0n),
+			computeCore.literal(bool, true),
 			no
 		)
 	if (route === "type") {
 		const typed = regexField<string>(pattern, [])
 		const t = bound.kind === "none" ? typed : str.bytes(bound.bytes, typed)
 		return relation.generated("R", { id: Id, t }, ["id"], (r) => ({
-			n: generatedField(pg.boolean, parsedSign(r.t), [])
+			n: generatedField(bool, parsedSign(r.t), [])
 		}))
 	}
 	return relation.generated("R", { id: Id, t: typedText(pattern, route) }, ["id"], (r) => ({
 		n: generatedField(
-			pg.boolean,
+			bool,
 			computeCore.when(
 				computeCore.matches(r.t, computeCore.pattern(pattern)),
 				(t: unknown) =>
@@ -217,7 +222,7 @@ export const decimalRelation = (
  * The most characters a member of `nfa`'s language of at most `chars` characters takes, 0 where none is that short, by
  * the host matcher's walk (subset.ts Configurations closure) over every text at once: the configurations some text of
  * n characters reaches, a text of n characters a member where a walk of it reached the accepting state before its end,
- * or reaches it at its end. A language inside decimalText is ASCII, a character a byte, so for one it is the most bytes
+ * or reaches it at its end. A language inside numericText is ASCII, a character a byte, so for one it is the most bytes
  * a value of its text within `chars` bytes takes, which the parse compares with the form's bound.
  */
 export const longestMember = (nfa: Nfa, chars: number): number => {
@@ -285,17 +290,13 @@ type LexicalType = Parameters<typeof lexicalForm>[0]
 const declaredOf = (target: TypeTarget): LexicalType => {
 	switch (target.kind) {
 		case "integer":
-			return target.carrier === "int2"
-				? pg.smallint
-				: target.carrier === "int4"
-					? pg.integer
-					: pg.bigint
+			return target.carrier === "int2" ? int2 : target.carrier === "int4" ? int4 : int8
 		case "decimal":
-			return pg.numeric(target.typmod.precision, target.typmod.scale)
+			return numeric(target.typmod.precision, target.typmod.scale)
 		case "double":
-			return pg["double precision"]
+			return float8
 		case "boolean":
-			return pg.boolean
+			return bool
 		case "date":
 			return date
 		case "exactInteger":
@@ -309,7 +310,7 @@ const startOf = (target: StartedTarget): unknown => {
 		case "integer":
 			return target.carrier === "int8" ? 0n : 0
 		case "decimal":
-			return Decimal.of("0")
+			return Numeric.of("0")
 		case "double":
 			return 0
 		case "boolean":

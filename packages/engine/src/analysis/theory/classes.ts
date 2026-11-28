@@ -59,7 +59,7 @@ class FieldNode {
  * inclusion is one law under the base's equality; a family's, a fold's and a tree's their nominal identity, contract
  * and closed roster included (compatible). So every member of a class shares its base carrier. Two fields a pairing
  * does not admit never pair: the compiler never adds a cast to make them join, so such a pairing is refused. Contracts
- * and refinements stay per member and are not merged: natural and pg.bigint, or two text fields, can admit different
+ * and refinements stay per member and are not merged: natural and int8, or two text fields, can admit different
  * value subsets, and a numeric typmod does not change identity. A key determines values; it never merges classes by
  * itself.
  */

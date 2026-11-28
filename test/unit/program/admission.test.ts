@@ -103,7 +103,7 @@ export const admissionRefusesEveryValueItsColumnsTypeRefusesAtItsFieldByTheCodec
 				file: "packages/engine/src/program/evaluate.ts",
 				original: "\t\tconst read = readField(field.spec, row, field.name)",
 				replacement:
-					'\t\tconst read = field.spec.carrier === "bytes" ? (() => { throw defect("a bytes value travels in binary, never as a parameter text") })() : readField(field.spec, row, field.name)',
+					'\t\tconst read = field.spec.carrier === "bytes" ? (() => { throw defect("a bytea value travels in binary, never as a parameter text") })() : readField(field.spec, row, field.name)',
 				why: "Admission reads a stated field as the codec writes its parameter text (codec/scalar.ts hostText), not as the write reads a fact's field (scalar/values/identity.ts readField): a bytes value has no parameter text, so admitting a row of a relation with a bytes field throws a defect, and the admitted row fails."
 			},
 			{

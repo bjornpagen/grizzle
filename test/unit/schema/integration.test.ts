@@ -20,7 +20,7 @@ import { bigint } from "@bjornpagen/testing/values"
 import { Effect } from "effect"
 import { isCompileError } from "#compiler/core/errors.ts"
 import { Logic, Num, Text } from "#compiler/public/compute.ts"
-import { contract, pg } from "#compiler/public/fields.ts"
+import { contract, int8 } from "#compiler/public/fields.ts"
 import { key, on, relation } from "#compiler/public/schema.ts"
 import { own } from "#compiler/schema/own.ts"
 import { schemaBuilder as schema, schemaDescOf } from "#compiler/schema/schema.ts"
@@ -129,7 +129,7 @@ export const rowChecksOverTheFieldRegistryAndComputeRefusesARowFieldsLiteralOfAn
 									/** A contract's name is one literal by its type: the other identity is written here. */
 									const Pair = relation(
 										"Pair",
-										{ a: Cents, b: contract<typeof otherKey>()("Other", pg.bigint) },
+										{ a: Cents, b: contract<typeof otherKey>()("Other", int8) },
 										["a"]
 									)
 									return checkBuilder("mixed", Pair, (r: SamePairRow) =>

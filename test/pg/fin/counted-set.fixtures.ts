@@ -6,11 +6,11 @@ import { type Swarm, swarm, swarmChoice } from "@bjornpagen/testing/swarm"
 import { Array as Arr, Option } from "effect"
 import {
 	accumulated,
-	Bits,
-	bits,
+	Bit,
+	bit,
 	drawn as drawnField,
 	natural,
-	pg
+	int4
 } from "#compiler/public/fields.ts"
 import {
 	counted,
@@ -28,7 +28,7 @@ import { str } from "#compiler/public/text.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { type FoldMonoid, foldStoredOf } from "#test/support/families/fold.ts"
 import { fullWorldTemplate } from "#test/support/installed.ts"
-import { int4, setOf, Tag } from "#test/support/pg/fin/folds.ts"
+import { int4Carrier, setOf, Tag } from "#test/support/pg/fin/folds.ts"
 
 /**
  * A counted SET keyed by three fields and a name, its owner keyed by (text, text, int), with folds over it, under
@@ -71,11 +71,11 @@ export const Owner = relation(
 	{
 		a: Name,
 		b: Name,
-		k: pg.integer,
-		label: pg.integer,
+		k: int4,
+		label: int4,
 		n: drawnField(natural),
-		total: accumulated(pg.integer, 0),
-		seen: accumulated(bits(Tag), Bits.of(Tag, [])),
+		total: accumulated(int4, 0),
+		seen: accumulated(bit(Tag), Bit.of(Tag, [])),
 		positive: accumulated(natural, 0n)
 	},
 	["a", "b", "k"]
@@ -83,7 +83,7 @@ export const Owner = relation(
 
 export const Attr = relation(
 	"Attr",
-	{ a: Name, b: Name, k: pg.integer, name: Name, x: pg.integer, flags: bits(Tag) },
+	{ a: Name, b: Name, k: int4, name: Name, x: int4, flags: bit(Tag) },
 	["a", "b", "k", "name"]
 )
 
@@ -110,7 +110,7 @@ export const declaredSchema = (name: string) =>
 			),
 			mutable(Owner),
 			mutable(Attr),
-			unit("Held", { a: Name, b: Name, k: pg.integer })
+			unit("Held", { a: Name, b: Name, k: int4 })
 		]
 	)
 
@@ -436,7 +436,9 @@ export const ownerRowsOf = (state: State): ReadonlyArray<Readonly<Record<string,
 			k: o.k,
 			label: o.label,
 			n: BigInt(mine.length),
-			total: int4.toHost(endOf(sumMonoid, mine, (x) => ({ x: BigInt(x.x), selected: true }))),
+			total: int4Carrier.toHost(
+				endOf(sumMonoid, mine, (x) => ({ x: BigInt(x.x), selected: true }))
+			),
 			seen: setOf(5).toHost(endOf(orMonoid, mine, (x) => ({ x: BigInt(x.flags), selected: true }))),
 			positive: endOf(countMonoid, mine, (x) => ({ x: 0n, selected: x.x > 0 }))
 		}

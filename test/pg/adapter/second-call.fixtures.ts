@@ -7,7 +7,7 @@ import { Array as Arr, Effect, Formatter } from "effect"
 import { memberCalls } from "#adapter/db/handles.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	check,
@@ -37,14 +37,14 @@ import { fullWorld } from "#test/support/worlds.ts"
  * choose.ts candidateKey): both statements read the call's facts, which the program stages in a carrier of its own
  * (write/program/slot-carriers.ts), its transaction's settings, filled at each call.
  */
-const Fixed = relation("Fixed", { id: pg.integer, w: pg.integer }, ["id"])
+const Fixed = relation("Fixed", { id: int4, w: int4 }, ["id"])
 
 /** The bound the rule over a query holds every w under: no write of second-call.test.ts's first property reaches it. */
 const bound = 1_000_000
 
 /** The level Fixed stands in, mutable, which states no rule over a query. */
 const baseOf = (name: string) =>
-	schema(name, [Fixed], [key(on(Fixed, "w")), mutable(Fixed), unit("Row", { id: pg.integer })])
+	schema(name, [Fixed], [key(on(Fixed, "w")), mutable(Fixed), unit("Row", { id: int4 })])
 
 /**
  * Fixed's level (`baseOf`) and a level over it stating a rule over a query of its rows, Bounded, so a write of Fixed is

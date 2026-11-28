@@ -61,7 +61,7 @@ const leadingZeros = regex("^0+", "u")
 
 const trailingZeros = regex("0+$", "u")
 
-interface Decimal {
+interface Numeric {
 	readonly digits: string
 	readonly exponent: number
 }
@@ -69,7 +69,7 @@ interface Decimal {
 /**
  * The value as `digits * 10^exponent` with no leading or trailing zeros in `digits`; sign ignored.
  */
-const decimalOf = (token: string): Decimal | undefined => {
+const decimalOf = (token: string): Numeric | undefined => {
 	const groups = numberToken.exec(token)?.groups
 
 	if (groups === undefined) {
@@ -84,7 +84,7 @@ const decimalOf = (token: string): Decimal | undefined => {
 	return Str.isEmpty(digits) ? { digits: "", exponent: 0 } : { digits, exponent }
 }
 
-const sameDecimal = (left: Decimal, right: Decimal): boolean =>
+const sameDecimal = (left: Numeric, right: Numeric): boolean =>
 	left.digits === right.digits && left.exponent === right.exponent
 
 /**

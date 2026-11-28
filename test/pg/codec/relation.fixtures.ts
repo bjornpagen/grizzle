@@ -7,7 +7,7 @@ import { emptyCodebook } from "#compiler/ir/codes.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { anyNumeric, wildcardText } from "#compiler/scalar/compute/types.ts"
 import { plainType } from "#compiler/scalar/native.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 import type { HeadingField } from "#compiler/scalar/values/identity.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
@@ -24,7 +24,7 @@ const scale52 = 2
 const numeric52 = scalarOf({ kind: "numeric", precision: 5, scale: scale52 }, {})
 
 const range4 = scalarOf(
-	{ kind: "span", endpoint: { kind: "pg", type: "integer" }, width: undefined },
+	{ kind: "span", endpoint: { kind: "pg", type: "int4" }, width: undefined },
 	{}
 )
 
@@ -64,13 +64,13 @@ export const fields: ReadonlyArray<{
 const factGen = (source: Source) => ({
 	n: source.draw(
 		map(element(["1", "1.0", "1.00", "-0", "0.000", "NaN", "Infinity", "2", "1e1", "10"]), (s) =>
-			Decimal.of(s)
+			Numeric.of(s)
 		)
 	),
 	m: source.draw(
 		map(element([-123n, 0n, 1n, 120n, 123n, 124n, 99_999n]), (hundredths) =>
 			succeeded(
-				Decimal.fromParts(hundredths < 0n, hundredths < 0n ? -hundredths : hundredths, scale52),
+				Numeric.fromParts(hundredths < 0n, hundredths < 0n ? -hundredths : hundredths, scale52),
 				"a numeric(5,2) value"
 			)
 		)
@@ -112,7 +112,7 @@ export const collidingFactsGen = (maxLength: number) => (source: Source) => {
 }
 
 export const rawSpelling = (name: string, value: unknown): string => {
-	if (value instanceof Decimal) {
+	if (value instanceof Numeric) {
 		return value.toString()
 	}
 	if (typeof value === "number") {

@@ -5,7 +5,7 @@ import { catchCompileError } from "#compiler/core/canonical.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import type { Card } from "#compiler/ir/rel.ts"
 import { Crypto, Num, Text } from "#compiler/public/compute.ts"
-import { generated, pg, sha256 } from "#compiler/public/fields.ts"
+import { generated, sha256, float8, int4 } from "#compiler/public/fields.ts"
 import { key, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
@@ -74,12 +74,12 @@ export const generatedKeysBoxItems: Arr.NonEmptyReadonlyArray<Cell> = nonEmpty(
 const anyText = str.regex("^.*$", "su")
 const Ref = relation.generated(
 	"Ref",
-	{ id: pg.integer, a: anyText, b: anyText, x: pg["double precision"] },
+	{ id: int4, a: anyText, b: anyText, x: float8 },
 	["id"],
 	(row) => ({
 		ad: generated(sha256, Crypto.sha256(row.a)),
 		abd: generated(sha256, Crypto.sha256(Text.concat(row.a, row.b))),
-		xd: generated(pg["double precision"], Num.neg(row.x))
+		xd: generated(float8, Num.neg(row.x))
 	})
 )
 const Refs = schema("Refs", [Ref], [key(on(Ref, "ad", "abd")), key(on(Ref, "xd"))])
@@ -96,7 +96,7 @@ const paramTypes: Readonly<Record<Column, { readonly value: unknown; readonly sp
 		x: { value: Ref.fields.x, spelled: "Ref.fields.x" },
 		ad: { value: sha256, spelled: "sha256" },
 		abd: { value: sha256, spelled: "sha256" },
-		xd: { value: pg["double precision"], spelled: 'pg["double precision"]' }
+		xd: { value: float8, spelled: "float8" }
 	}
 const artifacts = succeeded(
 	testArtifacts(Refs, testCompile),
@@ -157,12 +157,12 @@ const prelude = await Effect.runPromise(preludeAt("test/support/programs/generat
 const generatedKeysHeader = `export const anyText = str.regex("^.*$", "su")
 export const Ref = relation.generated(
 	"Ref",
-	{ id: pg.integer, a: anyText, b: anyText, x: pg["double precision"] },
+	{ id: int4, a: anyText, b: anyText, x: float8 },
 	["id"],
 	(row) => ({
 		ad: generated(sha256, Crypto.sha256(row.a)),
 		abd: generated(sha256, Crypto.sha256(Text.concat(row.a, row.b))),
-		xd: generated(pg["double precision"], Num.neg(row.x))
+		xd: generated(float8, Num.neg(row.x))
 	})
 )
 export const Refs = schema("Refs", [Ref], [key(on(Ref, "ad", "abd")), key(on(Ref, "xd"))])

@@ -6,7 +6,7 @@ import { constant, element, type Gen, subset } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Formatter, Option, Order, Result } from "effect"
 import type { CallError, WriteOutcome } from "#compiler/live/index.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { drawn, natural, pg, place } from "#compiler/public/fields.ts"
+import { drawn, natural, place, int4 } from "#compiler/public/fields.ts"
 import { param, query, v } from "#compiler/public/query.ts"
 import {
 	fin,
@@ -27,10 +27,10 @@ import { rigTemplate } from "#test/support/schedules/rig.ts"
 export const Session = relation(
 	"Session",
 	{
-		child: pg.integer,
-		item: pg.integer,
+		child: int4,
+		item: int4,
 		n: place.by("stage"),
-		stage: pg.integer,
+		stage: int4,
 		marks: drawn(natural)
 	},
 	["child", "item", "n"]
@@ -39,12 +39,12 @@ export const Session = relation(
 /** A session's marks, its ordered family, each carrying its session's (child, item, n): the place its insert stamps. */
 export const Mark = relation(
 	"Mark",
-	{ child: pg.integer, item: pg.integer, n: natural, at: drawn(natural), v: pg.integer },
+	{ child: int4, item: int4, n: natural, at: drawn(natural), v: int4 },
 	["child", "item", "n", "at"]
 )
 
 /** The relation a held call inserts last, which the owner's SHARE lock holds it at. */
-export const Gate = relation("Gate", { n: pg.integer }, ["n"])
+export const Gate = relation("Gate", { n: int4 }, ["n"])
 
 /** The schema, the role `writer`, which inserts Session and Gate and nothing else, and its two logins. */
 export const places = (name: string) => {
@@ -304,11 +304,11 @@ export const stampedDeparture = (
 }
 
 /** A child's note of an item at its place `n` within the child's item: a place's relation that owns no family. */
-export const Note = relation(
-	"Note",
-	{ child: pg.integer, item: pg.integer, n: place, w: pg.integer },
-	["child", "item", "n"]
-)
+export const Note = relation("Note", { child: int4, item: int4, n: place, w: int4 }, [
+	"child",
+	"item",
+	"n"
+])
 
 /**
  * The schema of the clearing property: Session and its marks, and Note, which owns no family, each open, mutable inside
@@ -324,7 +324,7 @@ export const cleared = (name: string) => {
 		[
 			key(on(Session, "child", "item", "stage")),
 			ordered(on(Mark, "child", "item", "n", "at"), fin(Session, "marks")),
-			unit("Item", { child: pg.integer, item: pg.integer }),
+			unit("Item", { child: int4, item: int4 }),
 			mutable(Session),
 			mutable(Mark),
 			mutable(Note)
@@ -356,10 +356,10 @@ export const cleared = (name: string) => {
 				}),
 				workload(clearer, {
 					clear: ChangeSet.empty(base).deleteWhere({
-						Session: { child: param("child", pg.integer), item: param("item", pg.integer) }
+						Session: { child: param("child", int4), item: param("item", int4) }
 					}),
 					clearNotes: ChangeSet.empty(base).deleteWhere({
-						Note: { child: param("child", pg.integer), item: param("item", pg.integer) }
+						Note: { child: param("child", int4), item: param("item", int4) }
 					})
 				})
 			]

@@ -21,7 +21,7 @@ import { decodeKey, encodeKey } from "#compiler/live/codec.ts"
 import { formOf, keyOf } from "#compiler/live/key.ts"
 import { type MemberWire, slotSchemas } from "#compiler/live/shape.ts"
 import { scalarSchema } from "#compiler/live/wire.ts"
-import { closedId, pg } from "#compiler/public/fields.ts"
+import { closedId, bool, float8, int4, int8, numeric } from "#compiler/public/fields.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { queryOver, type QueryValue, varsOver } from "#compiler/query/build/query.ts"
@@ -76,14 +76,14 @@ const Text = str.regex("^.{0,4}$", "su")
 export const Cell = relation(
 	"Cell",
 	{
-		id: pg.integer,
-		n: pg.integer,
-		b: pg.bigint,
-		t: pg.boolean,
+		id: int4,
+		n: int4,
+		b: int8,
+		t: bool,
 		s: Text,
 		h: closedId(Kind),
-		x: pg.numeric(10, 2),
-		f: pg["double precision"]
+		x: numeric(10, 2),
+		f: float8
 	},
 	["id"]
 )

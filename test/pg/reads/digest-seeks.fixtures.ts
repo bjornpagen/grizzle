@@ -4,7 +4,7 @@ import { type Gen, int, uniqueKeys, element } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order, String as Str } from "effect"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Crypto } from "#compiler/public/compute.ts"
-import { generated, pg, sha256 } from "#compiler/public/fields.ts"
+import { generated, sha256, int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -20,17 +20,12 @@ const Word = str.regex("^[a-z]{1,40}$")
  * T(k, g, t, t2) keyed by k, two texts of no byte bound, each with its declared digest, `h = Crypto.sha256(t)` and
  * `h2 = Crypto.sha256(t2)`, and S(s, u) keyed by s, whose text `u` a joined read and a negation equate with T's.
  */
-const T = relation.generated(
-	"T",
-	{ k: pg.integer, g: pg.integer, t: Path, t2: Path },
-	["k"],
-	(row) => ({
-		h: generated(sha256, Crypto.sha256(row.t)),
-		h2: generated(sha256, Crypto.sha256(row.t2))
-	})
-)
+const T = relation.generated("T", { k: int4, g: int4, t: Path, t2: Path }, ["k"], (row) => ({
+	h: generated(sha256, Crypto.sha256(row.t)),
+	h2: generated(sha256, Crypto.sha256(row.t2))
+}))
 
-const S = relation("S", { s: pg.integer, u: Path }, ["s"])
+const S = relation("S", { s: int4, u: Path }, ["s"])
 
 export const Digests = schema("DigestReads", [S, T], [])
 
@@ -94,7 +89,7 @@ const programs = Object.freeze({
 		const { k, g, t } = v(T, "t")
 		const { u } = v(S, "s")
 		return r
-			.match(S, { s: r.param("s", pg.integer), u })
+			.match(S, { s: r.param("s", int4), u })
 			.match(T, { k, g, t })
 			.where(r.eq(t, u))
 			.find({ k, g })
@@ -103,7 +98,7 @@ const programs = Object.freeze({
 		const { k, g } = v(T, "t")
 		const { u } = v(S, "s")
 		return r
-			.match(S, { s: r.param("s", pg.integer), u })
+			.match(S, { s: r.param("s", int4), u })
 			.match(T, { k, g, t2: u })
 			.find({ k, g })
 	}),
@@ -137,7 +132,7 @@ const programs = Object.freeze({
 		const { k, g } = v(Carried, "carried")
 		const { u } = v(S, "s")
 		return r
-			.match(S, { s: r.param("s", pg.integer), u })
+			.match(S, { s: r.param("s", int4), u })
 			.match(Carried, { k, g, t2: u })
 			.find({ k, g })
 	}),

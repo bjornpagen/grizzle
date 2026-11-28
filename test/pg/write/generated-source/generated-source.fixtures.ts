@@ -5,7 +5,7 @@ import { array, element, type Gen, int, oneOf, shuffled } from "@bjornpagen/test
 import { Array as Arr, Option } from "effect"
 import { ChangeSet, type Law } from "#compiler/public/changeset.ts"
 import { Type } from "#compiler/public/compute.ts"
-import { closedId, date, generated, pg } from "#compiler/public/fields.ts"
+import { closedId, date, generated, int4, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, key, mutable, on, relation, schema, unit } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -23,7 +23,7 @@ const Tier = closed.ordered("Tier", tiers)
 
 const Rate = closed.relation(
 	"Rate",
-	{ tier: closedId(Tier), rate: pg.integer },
+	{ tier: closedId(Tier), rate: int4 },
 	["tier"],
 	[
 		{ tier: "low", rate: 1 },
@@ -37,24 +37,24 @@ const NumeralText = str.regex("^[0-9]{1,6}$", "u")
 const DayText = str.regex("^2024-0[1-9]-1[0-9]$", "u")
 
 const written = Object.freeze({
-	id: pg.integer,
-	v: pg.bigint,
+	id: int4,
+	v: int8,
 	tier: closedId(Tier),
 	k: NumeralText,
 	day: DayText
 })
 
 const Item = relation.generated("Item", written, ["id"], (r) => ({
-	copy: generated(pg.bigint, r.v),
-	rate: generated(pg.integer, Rate.at("rate", r.tier)),
-	parsed: generated(pg.bigint, Type.cast(r.k, pg.bigint)),
+	copy: generated(int8, r.v),
+	rate: generated(int4, Rate.at("rate", r.tier)),
+	parsed: generated(int8, Type.cast(r.k, int8)),
 	when: generated(date, Type.cast(r.day, date))
 }))
 
 const Spot = relation.generated("Spot", written, ["id"], (r) => ({
-	copy: generated(pg.bigint, r.v),
-	rate: generated(pg.integer, Rate.at("rate", r.tier)),
-	parsed: generated(pg.bigint, Type.cast(r.k, pg.bigint)),
+	copy: generated(int8, r.v),
+	rate: generated(int4, Rate.at("rate", r.tier)),
+	parsed: generated(int8, Type.cast(r.k, int8)),
 	when: generated(date, Type.cast(r.day, date))
 }))
 
@@ -65,7 +65,7 @@ const spotNumeral = key(on(Spot, "k"))
 export const Items = schema(
 	"Items",
 	[Tier, Rate, Item, Spot],
-	[itemNumeral, spotNumeral, mutable(Spot), unit("Row", { id: pg.integer })]
+	[itemNumeral, spotNumeral, mutable(Spot), unit("Row", { id: int4 })]
 )
 
 /**

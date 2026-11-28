@@ -1,7 +1,7 @@
 /** What the properties of attnums.test.ts read: its spaces, models and helpers. */
 
 import { Array as Arr, Record as Rec } from "effect"
-import { pg } from "#compiler/public/fields.ts"
+import { int2, int4 } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { tableMaxColumns } from "#compiler/write/carriers/carriers.ts"
 import { upTo } from "#test/support/up-to.ts"
@@ -20,7 +20,7 @@ export const wide = (name: string, columns: ReadonlyArray<string>) =>
 		[
 			relation(
 				"Wide",
-				{ id: pg.integer, ...Rec.fromEntries(Arr.map(columns, (c) => [c, pg.smallint] as const)) },
+				{ id: int4, ...Rec.fromEntries(Arr.map(columns, (c) => [c, int2] as const)) },
 				["id"]
 			)
 		],

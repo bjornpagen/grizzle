@@ -18,7 +18,7 @@ import {
 	hostEvaluator,
 	type HostNode
 } from "#compiler/runtime/write/fill.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
 import { own, rostersOf } from "#compiler/schema/own.ts"
@@ -118,7 +118,7 @@ const descOf = (carrier: Carrier, v: bigint): LiteralDesc => {
 			return v
 		case "numeric": {
 			const magnitude = v < 0n ? -v : v
-			return Decimal.of(`${v < 0n ? "-" : ""}${magnitude / 10n}.${magnitude % 10n}`)
+			return Numeric.of(`${v < 0n ? "-" : ""}${magnitude / 10n}.${magnitude % 10n}`)
 		}
 		case "money":
 			return succeeded(Money.make(v))
@@ -147,7 +147,7 @@ const hostOf = (carrier: Carrier, v: bigint): unknown => {
 
 /** A host value's canonical text, which two host values of one carrier share exactly when they are equal. */
 const textOf = (value: unknown): string => {
-	if (value instanceof Decimal) {
+	if (value instanceof Numeric) {
 		return `numeric ${value.text}`
 	}
 	if (value instanceof Money) {

@@ -7,7 +7,7 @@ import { isList, isRecord } from "#compiler/core/record.ts"
 import { noClock, transactionClock } from "#compiler/ir/clock.ts"
 import { installOptions } from "#compiler/physical/install/compile.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { key, on, schema } from "#compiler/public/schema.ts"
 import { relationBuilder } from "#compiler/schema/relation.ts"
 import { printedOnce } from "#compiler/sql/print-once.ts"
@@ -55,7 +55,7 @@ const nodesOf = (v: unknown): number =>
  */
 export const wideInsert = (n: number): Planned => {
 	const relations = upTo(n, (i) =>
-		relationBuilder(`R${i}`, { id: pg.integer, ref: pg.integer, v: pg.integer }, ["id"], [])
+		relationBuilder(`R${i}`, { id: int4, ref: int4, v: int4 }, ["id"], [])
 	)
 	const wide = schema(
 		"W",

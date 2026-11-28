@@ -54,7 +54,7 @@ const rosterGenericHeader = (): ReadonlyArray<string> => [
 		`export const ${c.roster} = closed.${c.order}(${jsonText(c.roster)}, [${Arr.join(Arr.map(c.handles, jsonText), ", ")}])`,
 		`export const ${c.relation} = closed.relation(${jsonText(c.relation)}, { code: closedId(${c.roster}), lexical: Text }, ["code"], ${c.roster}.handles.map((code) => ({ code, lexical: code })))`
 	]),
-	'export const Attribute = relation("Attribute", { id: pg.integer, name: Text, value: Text }, ["id"])',
+	'export const Attribute = relation("Attribute", { id: int4, name: Text, value: Text }, ["id"])',
 	`export const Qti = schema("Qti", [${Arr.join(
 		Arr.flatMap(rosterGenericBoxItems, (c) => [c.roster, c.relation]),
 		", "

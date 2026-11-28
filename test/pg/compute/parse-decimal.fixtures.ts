@@ -10,14 +10,14 @@ import { jsonText } from "#compiler/core/trusted.ts"
 import { predicateTable } from "#compiler/ir/expr.ts"
 import { type Installation, installOptions } from "#compiler/physical/install/compile.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { bool, int4, numeric } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
-import { decimalText, decimalTextMaxBytes, str } from "#compiler/public/text.ts"
+import { numericText, numericTextMaxBytes, str } from "#compiler/public/text.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { compiledExpr, noParamLeaf } from "#compiler/scalar/compute/evaluate.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { describeFieldOrThrow } from "#compiler/scalar/registry.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 import { numericMaxFractionDigits } from "#compiler/scalar/values/fault.ts"
 import { generatedField } from "#compiler/schema/relation.ts"
 import { regexField } from "#compiler/text/field.ts"
@@ -83,7 +83,7 @@ interface Pair {
 /** The most bytes of a low end whose value the relation stores, and the numeric(p, s) that holds every such value. */
 export const storedBytes = 500
 
-const Stored = pg.numeric(storedBytes * 2, storedBytes - 1)
+const Stored = numeric(storedBytes * 2, storedBytes - 1)
 
 /** A text's value by the reference mapping: every drawn text is a member of the grammar. */
 export const valueOf = (text: string): DecimalValue =>
@@ -122,7 +122,7 @@ const highGen =
 			canonicalDecimal(shifted(value, false)),
 			low
 		]
-		const within = Arr.filter(neighbours, (text) => text.length <= decimalTextMaxBytes)
+		const within = Arr.filter(neighbours, (text) => text.length <= numericTextMaxBytes)
 		return source.draw(
 			weighted([
 				[4, element(nonEmpty(within, "the low end itself is within the form"))],
@@ -146,7 +146,7 @@ export const textFeatures = (text: string): ReadonlyArray<Feature> => {
 	const facts: ReadonlyArray<readonly [Feature, boolean]> = [
 		["past 256 integer digits", significant.integer > 256],
 		["past 255 fraction digits", significant.fraction > 255],
-		["the form's last byte", text.length === decimalTextMaxBytes],
+		["the form's last byte", text.length === numericTextMaxBytes],
 		["numeric's most fraction digits", significant.fraction === numericMaxFractionDigits],
 		["a negative zero", Str.startsWith("-")(text) && value.digits === 0n],
 		["leading zeros", Str.startsWith("0")(integer) && integer.length > 1],
@@ -162,15 +162,15 @@ export const textFeatures = (text: string): ReadonlyArray<Feature> => {
 }
 
 /** A decimal text the parse reads total: the form's pattern within its bytes. */
-const KeyText = str.bytes(decimalTextMaxBytes, regexField<string>(decimalText.source, []))
+const KeyText = str.bytes(numericTextMaxBytes, regexField<string>(numericText.source, []))
 
-/** The host evaluator's parse of a text: the evaluation, as a check lowers it, of parseDecimal(v). */
+/** The host evaluator's parse of a text: the evaluation, as a check lowers it, of parseNumeric(v). */
 const keyField = field(describeFieldOrThrow(KeyText, SourceLoc("KeyText", [])).desc, "text")
 
 const lowered = succeeded(
 	lowerWith(
 		"check",
-		spelledExpr(computeCore.parseDecimal(v("v", keyField)).expr),
+		spelledExpr(computeCore.parseNumeric(v("v", keyField)).expr),
 		{ v: { kind: "column", type: keyField.scalar } },
 		false,
 		baseParams
@@ -194,9 +194,9 @@ export const hostValue = (text: string): DecimalValue => {
 		),
 		"the host evaluates it"
 	)
-	return value instanceof Decimal
+	return value instanceof Numeric
 		? valueOf(value.toString())
-		: assert.fail(`a Decimal, not ${Formatter.format(value)}`)
+		: assert.fail(`a Numeric, not ${Formatter.format(value)}`)
 }
 
 /**
@@ -204,32 +204,28 @@ export const hostValue = (text: string): DecimalValue => {
  * end's and whether the two are one value, and the low end's value where a guard bounds its text within storedBytes.
  */
 const holds = (predicate: unknown): unknown =>
-	computeCore.cond(
-		predicate,
-		computeCore.literal(pg.boolean, true),
-		computeCore.literal(pg.boolean, false)
-	)
+	computeCore.cond(predicate, computeCore.literal(bool, true), computeCore.literal(bool, false))
 
 const Ranges = relation.generated(
 	"Ranges",
-	{ id: pg.integer, low: KeyText, high: KeyText },
+	{ id: int4, low: KeyText, high: KeyText },
 	["id"],
 	(r) => ({
 		below: generatedField(
-			pg.boolean,
-			holds(computeCore.lt(computeCore.parseDecimal(r.low), computeCore.parseDecimal(r.high))),
+			bool,
+			holds(computeCore.lt(computeCore.parseNumeric(r.low), computeCore.parseNumeric(r.high))),
 			[]
 		),
 		same: generatedField(
-			pg.boolean,
-			holds(computeCore.eq(computeCore.parseDecimal(r.low), computeCore.parseDecimal(r.high))),
+			bool,
+			holds(computeCore.eq(computeCore.parseNumeric(r.low), computeCore.parseNumeric(r.high))),
 			[]
 		),
 		stored: generatedField(
 			Stored,
 			computeCore.when(
 				computeCore.within(computeCore.octetLength(r.low), 0, storedBytes),
-				() => computeCore.cast(computeCore.parseDecimal(r.low), Stored),
+				() => computeCore.cast(computeCore.parseNumeric(r.low), Stored),
 				computeCore.literal(Stored, "0")
 			),
 			[]

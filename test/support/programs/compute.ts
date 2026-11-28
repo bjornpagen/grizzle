@@ -16,8 +16,8 @@ export {
 	Type,
 	Xml
 } from "#compiler/public/compute.ts"
-export { Bits, bytes, Decimal, generated, Money, sha256, uuid } from "#compiler/public/fields.ts"
-export type { CalendarDate, Span, Uuid, Vector } from "#compiler/public/fields.ts"
+export { Bit, bytea, Numeric, generated, Money, sha256, uuid } from "#compiler/public/fields.ts"
+export type { CalendarDate, Uuid, Vector } from "#compiler/public/fields.ts"
 export { query, v } from "#compiler/public/query.ts"
 export type { HeadOf, ParamsOf, ParamType, Rule } from "#compiler/public/query.ts"
 export { relation, schema } from "#compiler/public/schema.ts"

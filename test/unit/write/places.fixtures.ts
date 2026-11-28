@@ -3,7 +3,7 @@
 import { int as between, element, type Gen, map } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import type { PlaceRule } from "#compiler/core/causes.ts"
-import { drawn, instant, natural, type PlaceField, pg, place } from "#compiler/public/fields.ts"
+import { drawn, instant, natural, type PlaceField, place, int4 } from "#compiler/public/fields.ts"
 import { param, query, v } from "#compiler/public/query.ts"
 import {
 	contained,
@@ -25,27 +25,26 @@ import { checking } from "#test/support/policy.ts"
 import { descOf } from "#test/support/unit/write/changeset/fixtures.ts"
 
 /** A stage decision of a child, at its clock of child `child`. */
-const Stage = relation("Stage", { child: pg.integer, at: instant }, ["child", "at"])
+const Stage = relation("Stage", { child: int4, at: instant }, ["child", "at"])
 /** A child's session of an item, at its place `n` within the child's item, its stage a reference to Stage's clock. */
 const Session = relation(
 	"Session",
-	{ child: pg.integer, item: pg.integer, n: place.by("stage"), stage: instant },
+	{ child: int4, item: int4, n: place.by("stage"), stage: instant },
 	["child", "item", "n"]
 )
 /** A child's turn at its place `n`, its moves its ordered family: an owner whose delete removes its moves with it. */
-const Turn = relation(
-	"Turn",
-	{ child: pg.integer, n: place, x: pg.integer, moves: drawn(natural) },
-	["child", "n"]
-)
+const Turn = relation("Turn", { child: int4, n: place, x: int4, moves: drawn(natural) }, [
+	"child",
+	"n"
+])
 /** A move of a turn, at its place among the turn's moves. */
-const Move = relation(
-	"Move",
-	{ child: pg.integer, n: natural, at: drawn(natural), y: pg.integer },
-	["child", "n", "at"]
-)
+const Move = relation("Move", { child: int4, n: natural, at: drawn(natural), y: int4 }, [
+	"child",
+	"n",
+	"at"
+])
 /** A mark at its place within a group that holds a clock: `at`, of child `child`. */
-const Mark = relation("Mark", { child: pg.integer, at: instant, n: place.by("x"), x: pg.integer }, [
+const Mark = relation("Mark", { child: int4, at: instant, n: place.by("x"), x: int4 }, [
 	"child",
 	"at",
 	"n"
@@ -61,7 +60,7 @@ export const Placed = schema(
 		contained(on(Session, "child", "stage"), on(Stage, "child", "at")),
 		key(on(Session, "child", "item", "stage")),
 		key(on(Mark, "child", "at", "x")),
-		unit("Child", { child: pg.integer }),
+		unit("Child", { child: int4 }),
 		mutable(Session),
 		mutable(Turn),
 		mutable(Move)
@@ -69,30 +68,30 @@ export const Placed = schema(
 )
 
 /** A stage's fields but its clock. */
-const stage = query(Placed).rule((r) => r.find({ child: r.param("child", pg.integer) }))
+const stage = query(Placed).rule((r) => r.find({ child: r.param("child", int4) }))
 /** A session's fields but its place and its stage, which Stage's clock stamps. */
 const session = query(Placed).rule((r) =>
-	r.find({ child: r.param("child", pg.integer), item: r.param("item", pg.integer) })
+	r.find({ child: r.param("child", int4), item: r.param("item", int4) })
 )
 /** A session of each stored stage, its stage a stored instant, its place left out. */
 const sessionOfStored = query(Placed).rule((r) => {
 	const { child, at } = v(Stage, "stage")
-	return r.match(Stage, { child, at }).find({ child, item: r.param("item", pg.integer), stage: at })
+	return r.match(Stage, { child, at }).find({ child, item: r.param("item", int4), stage: at })
 })
 /** A session stating its place. */
 const sessionAt = query(Placed).rule((r) => {
 	const { child, at } = v(Stage, "stage")
 	return r
 		.match(Stage, { child, at })
-		.find({ child, item: r.param("item", pg.integer), n: r.param("n", natural), stage: at })
+		.find({ child, item: r.param("item", int4), n: r.param("n", natural), stage: at })
 })
 /** A turn's fields but its place and its moves. */
 const turn = query(Placed).rule((r) =>
-	r.find({ child: r.param("child", pg.integer), x: r.param("x", pg.integer) })
+	r.find({ child: r.param("child", int4), x: r.param("x", int4) })
 )
 /** A mark's fields but its clock and its place. */
 const mark = query(Placed).rule((r) =>
-	r.find({ child: r.param("child", pg.integer), x: r.param("x", pg.integer) })
+	r.find({ child: r.param("child", int4), x: r.param("x", int4) })
 )
 
 const empty = ChangeSet.empty(Placed)
@@ -155,20 +154,20 @@ const writeCases: readonly [PlaceWriteCase, ...ReadonlyArray<PlaceWriteCase>] = 
 	},
 	{
 		name: "a delete of its relation's whole groups, by a field of its group",
-		changeSet: () => empty.deleteWhere({ Session: { child: param("child", pg.integer) } }),
+		changeSet: () => empty.deleteWhere({ Session: { child: param("child", int4) } }),
 		verdict: compiled
 	},
 	{
 		name: "a delete of its relation's whole groups, by its group's every field",
 		changeSet: () =>
 			empty.deleteWhere({
-				Session: { child: param("child", pg.integer), item: param("item", pg.integer) }
+				Session: { child: param("child", int4), item: param("item", int4) }
 			}),
 		verdict: compiled
 	},
 	{
 		name: "a delete of a family owner's whole groups, its members with them",
-		changeSet: () => empty.deleteWhere({ Turn: { child: param("child", pg.integer) } }),
+		changeSet: () => empty.deleteWhere({ Turn: { child: param("child", int4) } }),
 		verdict: compiled
 	},
 	{
@@ -311,11 +310,11 @@ export const placeSchemaOf = (c: PlaceSchemaCase) => {
 	const Declared = relation(
 		"Session",
 		{
-			child: pg.integer,
-			item: pg.integer,
+			child: int4,
+			item: int4,
 			n: c.order.kind === "unordered" ? place : place.by(c.order.by),
-			stage: pg.integer,
-			note: pg.integer
+			stage: int4,
+			note: int4
 		},
 		c.primaryKey
 	)
@@ -379,7 +378,7 @@ export const orderedPlaceFeatures = (c: OrderedPlaceCase): ReadonlyArray<Ordered
 /** The case's relation with its place `n` as `n` declares it, and its schema. */
 const twinOf = (c: OrderedPlaceCase, n: PlaceField) => {
 	if (c.group === 1) {
-		const Twin = relation("Twin", { a: pg.integer, n, o: pg.integer }, ["a", "n"])
+		const Twin = relation("Twin", { a: int4, n, o: int4 }, ["a", "n"])
 		return {
 			Twin,
 			schema: schema(
@@ -389,7 +388,7 @@ const twinOf = (c: OrderedPlaceCase, n: PlaceField) => {
 			)
 		}
 	}
-	const Twin = relation("Twin", { a: pg.integer, b: pg.integer, n, o: pg.integer }, ["a", "b", "n"])
+	const Twin = relation("Twin", { a: int4, b: int4, n, o: int4 }, ["a", "b", "n"])
 	return {
 		Twin,
 		schema: schema(
@@ -455,11 +454,8 @@ export const stampedNestingOf = (c: StampedNesting) => {
 	const s = place
 	const carried = natural
 	if (!c.full) {
-		const Owner = relation("Owner", { g: pg.integer, s, x: pg.integer, ms: drawn(natural) }, [
-			"g",
-			"s"
-		])
-		const M1 = relation("M1", { g: pg.integer, s: carried, at: drawn(natural), v: pg.integer }, [
+		const Owner = relation("Owner", { g: int4, s, x: int4, ms: drawn(natural) }, ["g", "s"])
+		const M1 = relation("M1", { g: int4, s: carried, at: drawn(natural), v: int4 }, [
 			"g",
 			"s",
 			"at"
@@ -475,26 +471,22 @@ export const stampedNestingOf = (c: StampedNesting) => {
 			changeSet: () => ChangeSet.empty(Nested).insert(Owner, [])
 		}
 	}
-	const Owner = relation(
-		"Owner",
-		{ g: pg.integer, s, x: pg.integer, ms: drawn(natural), ns: drawn(natural) },
-		["g", "s"]
-	)
+	const Owner = relation("Owner", { g: int4, s, x: int4, ms: drawn(natural), ns: drawn(natural) }, [
+		"g",
+		"s"
+	])
 	const M1 = relation(
 		"M1",
-		{ g: pg.integer, s: carried, at: drawn(natural), v: pg.integer, ks: drawn(natural) },
+		{ g: int4, s: carried, at: drawn(natural), v: int4, ks: drawn(natural) },
 		["g", "s", "at"]
 	)
-	const M2 = relation(
-		"M2",
-		{ g: pg.integer, s: carried, at: natural, bt: drawn(natural), w: pg.integer },
-		["g", "s", "at", "bt"]
-	)
-	const N1 = relation("N1", { g: pg.integer, s: carried, ct: drawn(natural), u: pg.integer }, [
+	const M2 = relation("M2", { g: int4, s: carried, at: natural, bt: drawn(natural), w: int4 }, [
 		"g",
 		"s",
-		"ct"
+		"at",
+		"bt"
 	])
+	const N1 = relation("N1", { g: int4, s: carried, ct: drawn(natural), u: int4 }, ["g", "s", "ct"])
 	const Nested = schema(
 		"Nested",
 		[Owner, M1, M2, N1],

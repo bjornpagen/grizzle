@@ -6,7 +6,7 @@ import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { planNodes, rowsTouched } from "#bench/harness/explain.ts"
 import { identifierOf } from "#compiler/core/identity.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { check, derived, relation, schema } from "#compiler/public/schema.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
@@ -24,16 +24,16 @@ import type { SubstrateTemplate } from "#test/support/substrate/substrate.ts"
  * two kinds, at (pkg, path, start): Placed's unit variables reach the outer rule's only through Read's head equalities,
  * which inlining Read states.
  */
-const Node = relation(
-	"Node",
-	{ pkg: pg.integer, path: pg.integer, start: pg.integer, kind: pg.integer },
-	["pkg", "path", "start"]
-)
-const Ref = relation(
-	"Ref",
-	{ pkg: pg.integer, path: pg.integer, start: pg.integer, name: pg.integer },
-	["pkg", "path", "start"]
-)
+const Node = relation("Node", { pkg: int4, path: int4, start: int4, kind: int4 }, [
+	"pkg",
+	"path",
+	"start"
+])
+const Ref = relation("Ref", { pkg: int4, path: int4, start: int4, name: int4 }, [
+	"pkg",
+	"path",
+	"start"
+])
 const Base = schema("UnitBound", [Node, Ref], [])
 const Placed = query(Base)
 	.rule((r) => {

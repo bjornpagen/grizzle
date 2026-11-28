@@ -10,7 +10,7 @@ import { silentPhases } from "#compiler/core/phase.ts"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { check, derived, login, relation, schema, wholeEntriesOf } from "#compiler/public/schema.ts"
 import { roleBuilder as role } from "#compiler/schema/world.ts"
@@ -20,7 +20,7 @@ import { offlineOwner } from "#test/support/pg/cli/support.ts"
 import { file } from "#test/support/unit/cli/served-certified.fixtures.ts"
 
 /** A row of a unit, `package` its unit: its id, and the value x it states. Immutable, so its rules are judged whole. */
-const T = relation("T", { package: pg.integer, id: pg.integer, x: pg.integer }, ["package", "id"])
+const T = relation("T", { package: int4, id: int4, x: int4 }, ["package", "id"])
 
 /** The aggregates a whole rule's query may fold its unit's rows by, each over x but the count. */
 const folds = ["count", "sum", "min", "max"] as const

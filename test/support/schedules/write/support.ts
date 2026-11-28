@@ -12,7 +12,7 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { transactionClock } from "#compiler/ir/clock.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { pg, span } from "#compiler/public/fields.ts"
+import { range, int4, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	contained,
@@ -73,19 +73,16 @@ export const threeKeys: Gen<Three> = (source) => {
 	return source.draw(element(orders))([low, low + first, low + first + second])
 }
 
-export const Item = relation("Item", { id: pg.integer, label }, ["id"])
-export const Note = relation("Note", { id: pg.integer, label }, ["id"])
-export const Code = relation("Code", { id: pg.integer, code: pg.integer }, ["id"])
-export const Room = relation("Room", { room: pg.integer, during: span(pg.bigint), label }, [
-	"room",
-	"during"
-])
-export const Ref = relation("Ref", { id: pg.integer, item: pg.integer }, ["id"])
-export const Zed = relation("Zed", { id: pg.integer }, ["id"])
-export const Badge = relation("Badge", { id: pg.integer, code: pg.integer }, ["id"])
-export const Gate = relation("Gate", { id: pg.integer }, ["id"])
-export const Claim = relation("Claim", { id: pg.integer, holder: pg.integer }, ["id"])
-export const Seat = relation("Seat", { id: pg.integer, holder: pg.integer }, ["id"])
+export const Item = relation("Item", { id: int4, label }, ["id"])
+export const Note = relation("Note", { id: int4, label }, ["id"])
+export const Code = relation("Code", { id: int4, code: int4 }, ["id"])
+export const Room = relation("Room", { room: int4, during: range(int8), label }, ["room", "during"])
+export const Ref = relation("Ref", { id: int4, item: int4 }, ["id"])
+export const Zed = relation("Zed", { id: int4 }, ["id"])
+export const Badge = relation("Badge", { id: int4, code: int4 }, ["id"])
+export const Gate = relation("Gate", { id: int4 }, ["id"])
+export const Claim = relation("Claim", { id: int4, holder: int4 }, ["id"])
+export const Seat = relation("Seat", { id: int4, holder: int4 }, ["id"])
 
 /** Code's candidate key, and Ref's foreign key into Item, which the write model reads off the schema's own description
  * (races.test.ts lawsOf). */
@@ -100,8 +97,8 @@ const relations = { ...shared, Badge, Gate, Claim, Seat } as const
  * write lists. */
 const writes = { insert: ["Ref"], write: ["Item", "Note", "Code", "Room", "Zed"] } as const
 const statements = [
-	unit("Id", { id: pg.integer }),
-	unit("Room", { room: pg.integer }),
+	unit("Id", { id: int4 }),
+	unit("Room", { room: int4 }),
 	mutable(Item),
 	mutable(Note),
 	mutable(Code),

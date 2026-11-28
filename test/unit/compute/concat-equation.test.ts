@@ -2,7 +2,7 @@
  * A text's equation with a concatenation of any number of parts, `t = p1 || … || pn` (scalar/compute/typing.ts
  * concatEquation): its concatenation's nested concatenations read through as its parts, decided as an equality of t
  * with the parts built in order, `octet_length(t) = Σ octet_length(pi) AND t = CASE WHEN Σ octet_length(pi) >
- * bytesMaxLength THEN '' ELSE p1 || … || pn END`, so a probe reads t by its key, in a query as in a check.
+ * byteaMaxLength THEN '' ELSE p1 || … || pn END`, so a probe reads t by its key, in a query as in a check.
  *
  * - Property: over equations of two to five parts drawn as concatenation trees of any bracketing (concat-equation.
  *   fixtures.ts), each part a text column, bounded or not, a bare literal, a translation a query refuses or an integer
@@ -35,7 +35,7 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { textBoundsOf } from "#compiler/ir/scalar.ts"
-import { bytesMaxLength } from "#compiler/scalar/values/fault.ts"
+import { byteaMaxLength } from "#compiler/scalar/values/fault.ts"
 import {
 	analogueDesc,
 	anyEquationGen,
@@ -225,7 +225,7 @@ export const aConcatenationTermStandsInAQueryExactlyWhereItsPartsBoundItsBytesWi
 			Effect.sync(() => {
 				const label = Formatter.format({ parts: c.parts, shape: c.shape })
 				const bytes = termBytes(c)
-				const held = bytes !== undefined && bytes <= bytesMaxLength
+				const held = bytes !== undefined && bytes <= byteaMaxLength
 				for (const feature of termFeatures(c)) {
 					k.note(feature)
 				}
@@ -234,7 +234,7 @@ export const aConcatenationTermStandsInAQueryExactlyWhereItsPartsBoundItsBytesWi
 					assert.equal(
 						lowered.ok,
 						mode === "check" || held,
-						`${mode}: holds the term exactly where ${mode === "check" ? "always" : `its bytes are bounded within ${bytesMaxLength}, here ${Formatter.format(bytes)}`}: ${label}`
+						`${mode}: holds the term exactly where ${mode === "check" ? "always" : `its bytes are bounded within ${byteaMaxLength}, here ${Formatter.format(bytes)}`}: ${label}`
 					)
 					if (!lowered.ok) {
 						assert.equal(
@@ -280,7 +280,7 @@ export const aConcatenationTermStandsInAQueryExactlyWhereItsPartsBoundItsBytesWi
 			{
 				file: "packages/engine/src/scalar/compute/typing.ts",
 				original:
-					'\t\tif (bytes === undefined || bytes > bytesMaxLength) {\n\t\t\tthis.refusedAt(\n\t\t\t\t"query",\n\t\t\t\tat,\n\t\t\t\t`concat in a query',
+					'\t\tif (bytes === undefined || bytes > byteaMaxLength) {\n\t\t\tthis.refusedAt(\n\t\t\t\t"query",\n\t\t\t\tat,\n\t\t\t\t`concat in a query',
 				replacement:
 					'\t\tif (bytes === undefined) {\n\t\t\tthis.refusedAt(\n\t\t\t\t"query",\n\t\t\t\tat,\n\t\t\t\t`concat in a query',
 				why: "A query holds a concatenation whose parts' bounds sum past the most bytes one varlena holds, so a read of long enough texts fails on its value, where it must be refused where it compiles."

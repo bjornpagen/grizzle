@@ -7,7 +7,7 @@ import { Array as Arr, Effect, Formatter, Option, Result } from "effect"
 import { planNodes } from "#bench/harness/explain.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { Text } from "#compiler/public/compute.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, derived, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -39,11 +39,11 @@ import type { SubstrateTemplate } from "#test/support/substrate/substrate.ts"
 const Short = str.bytes(64, str.regex("^.*$", "su"))
 const Identifier = str.bytes(256, str.regex("^.*$", "su"))
 
-const Ref = relation(
-	"Ref",
-	{ package: Short, path: Short, start: pg.integer, identifier: Identifier },
-	["package", "path", "start"]
-)
+const Ref = relation("Ref", { package: Short, path: Short, start: int4, identifier: Identifier }, [
+	"package",
+	"path",
+	"start"
+])
 const Var = relation("Var", { package: Short, scope: Short, variable: Short }, [
 	"package",
 	"scope",

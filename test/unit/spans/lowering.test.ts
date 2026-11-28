@@ -22,7 +22,7 @@ import { Array as Arr, Effect } from "effect"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import { identity } from "#compiler/core/identity.ts"
 
-import { pg, span } from "#compiler/public/fields.ts"
+import { range, int4, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { pointIn } from "#compiler/query/build/terms.ts"
 
@@ -59,14 +59,11 @@ export const spanParametersAndWindowsAdmitsAPointInOfTwoParametersExactlyWhereTh
 						const built = catchCompileError(() =>
 							query(Spans).rule((r) => {
 								const { id } = v(Slot, "slot")
-								const point =
-									pointType === "integer"
-										? r.param("point", pg.integer)
-										: r.param("point", pg.bigint)
+								const point = pointType === "int4" ? r.param("point", int4) : r.param("point", int8)
 								const window =
-									endpoint === "integer"
-										? r.param("window", span(pg.integer))
-										: r.param("window", span(pg.bigint))
+									endpoint === "int4"
+										? r.param("window", range(int4))
+										: r.param("window", range(int8))
 								return r.match(Slot, { id }).where(pointIn(point, window)).find({ id })
 							})
 						)

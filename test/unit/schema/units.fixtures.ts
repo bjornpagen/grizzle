@@ -3,7 +3,7 @@
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import type { SideDesc } from "#compiler/ir/desc.ts"
 import { Logic } from "#compiler/public/compute.ts"
-import { contract, natural, pg, uuid } from "#compiler/public/fields.ts"
+import { contract, natural, uuid, bool, int4, int8 } from "#compiler/public/fields.ts"
 import { mutable, relation, schema, sealed, series, unit } from "#compiler/public/schema.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
 import type { Statement } from "#compiler/types/schema/statements.ts"
@@ -94,7 +94,7 @@ const OtherId = contract<typeof otherIdKey>()("OtherId", uuid)
 
 const testNumberKey = Symbol("TestNumber")
 /** A number kept in an int4, bounded below the int4 serial's greatest value, as a test's number is. */
-const TestNumber = contract<typeof testNumberKey>()("TestNumber", pg.integer, (n) =>
+const TestNumber = contract<typeof testNumberKey>()("TestNumber", int4, (n) =>
 	Logic.and([Logic.ge(n, 0), Logic.le(n, 2147483646)])
 )
 
@@ -102,13 +102,13 @@ const TestNumber = contract<typeof testNumberKey>()("TestNumber", pg.integer, (n
 const memberR = (key: (typeof leads)[number]) => {
 	switch (key) {
 		case "leads":
-			return relation("R", { k: Id, n: pg.integer }, ["k", "n"])
+			return relation("R", { k: Id, n: int4 }, ["k", "n"])
 		case "otherType":
-			return relation("R", { k: OtherId, n: pg.integer }, ["k", "n"])
+			return relation("R", { k: OtherId, n: int4 }, ["k", "n"])
 		case "second":
-			return relation("R", { n: pg.integer, k: Id }, ["n", "k"])
+			return relation("R", { n: int4, k: Id }, ["n", "k"])
 		case "otherName":
-			return relation("R", { other: Id, n: pg.integer }, ["other", "n"])
+			return relation("R", { other: Id, n: int4 }, ["other", "n"])
 	}
 }
 
@@ -116,13 +116,13 @@ const memberR = (key: (typeof leads)[number]) => {
 const unitsOf = (pair: (typeof pairs)[number]) => {
 	switch (pair) {
 		case "nested":
-			return [unit("U", { k: Id }), unit("V", { k: Id, j: pg.integer })]
+			return [unit("U", { k: Id }), unit("V", { k: Id, j: int4 })]
 		case "sameHeading":
 			return [unit("U", { k: Id }), unit("V", { k: Id })]
 		case "sameName":
-			return [unit("U", { k: Id }), unit("U", { j: pg.integer })]
+			return [unit("U", { k: Id }), unit("U", { j: int4 })]
 		case "apart":
-			return [unit("U", { k: Id }), unit("V", { j: pg.integer })]
+			return [unit("U", { k: Id }), unit("V", { j: int4 })]
 	}
 }
 
@@ -131,7 +131,7 @@ const numberTypes = {
 	natural,
 	integerContract: TestNumber,
 	wide: natural,
-	bigint: pg.bigint,
+	bigint: int8,
 	uuidContract: OtherId
 } as const
 
@@ -139,7 +139,7 @@ const numberTypes = {
 const seriesS = (key: (typeof seriesKeys)[number]) =>
 	relation(
 		"S",
-		{ number: numberTypes[key], held: pg.boolean },
+		{ number: numberTypes[key], held: bool },
 		key === "wide" ? ["number", "held"] : ["number"]
 	)
 
@@ -148,10 +148,10 @@ const sealedU = sealed(unit("U", { k: Id }))
 
 /** The relations of a sealed case: R and Q, each keyed (k) alone; S and T, keyed (k, n). */
 const sealedRelations = {
-	R: relation("R", { k: Id, title: pg.integer }, ["k"]),
-	S: relation("S", { k: Id, n: pg.integer }, ["k", "n"]),
-	T: relation("T", { k: Id, n: pg.integer }, ["k", "n"]),
-	Q: relation("Q", { k: Id, other: pg.integer }, ["k"])
+	R: relation("R", { k: Id, title: int4 }, ["k"]),
+	S: relation("S", { k: Id, n: int4 }, ["k", "n"]),
+	T: relation("T", { k: Id, n: int4 }, ["k", "n"]),
+	Q: relation("Q", { k: Id, other: int4 }, ["k"])
 } as const
 
 /**
@@ -194,12 +194,12 @@ export const schemaOf = (
 				sealed: undefined
 			}
 		case "pair": {
-			const R = relation("R", { k: Id, j: pg.integer }, ["k", "j"])
+			const R = relation("R", { k: Id, j: int4 }, ["k", "j"])
 			return { schema: schema("Units", [R], unitsOf(c.pair)), series: undefined, sealed: undefined }
 		}
 		case "level": {
-			const R = relation("R", { k: Id, n: pg.integer }, ["k", "n"])
-			const T = relation("T", { t: pg.integer }, ["t"])
+			const R = relation("R", { k: Id, n: int4 }, ["k", "n"])
+			const T = relation("T", { t: int4 }, ["t"])
 			if (c.at === "same") {
 				const base = schema("Units", [R], [unit("U", { k: Id })])
 				return {

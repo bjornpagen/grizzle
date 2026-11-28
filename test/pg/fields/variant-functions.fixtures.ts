@@ -15,7 +15,7 @@ import { quoteIdent } from "#compiler/core/text.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Fn } from "#compiler/public/compute.ts"
-import { Decimal, exactInteger, pg, variant } from "#compiler/public/fields.ts"
+import { Numeric, exactInteger, variant, bool, int4, numeric } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, fn, login, relation, role, schema } from "#compiler/public/schema.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
@@ -34,7 +34,7 @@ import { withLayer } from "#test/support/with-layer.ts"
 export type Application = "one" | "two"
 
 /** The root under `name`: Base(id), which the library level extends. */
-const rootOf = (name: string) => schema(name, [relation("Base", { id: pg.integer }, ["id"])], [])
+const rootOf = (name: string) => schema(name, [relation("Base", { id: int4 }, ["id"])], [])
 
 /**
  * The application's own level's relation, App(id). Each level above the root is declared under the name a test's
@@ -42,7 +42,7 @@ const rootOf = (name: string) => schema(name, [relation("Base", { id: pg.integer
  * compiled to under its declared names names the roles the installation holds; the two applications are two
  * installations, of two histories.
  */
-const appRelation = () => relation("App", { id: pg.integer }, ["id"])
+const appRelation = () => relation("App", { id: int4 }, ["id"])
 
 /**
  * The first version of the application `one`: the library level's roster Kind of c alone, an unordered roster, so c
@@ -51,8 +51,8 @@ const appRelation = () => relation("App", { id: pg.integer }, ["id"])
  */
 const beforeLibrary = (name: string): Version => {
 	const Kind = closed.unordered("Kind", ["c"])
-	const Value = variant("Value", Kind, { c: { flag: pg.boolean } })
-	const Held = relation("Held", { id: pg.integer, value: Value }, ["id"])
+	const Value = variant("Value", Kind, { c: { flag: bool } })
+	const Held = relation("Held", { id: int4, value: Value }, ["id"])
 	const library = schema.extend([rootOf(name)], `${name}_1`, [Kind, Held], [])
 	const app = schema.extend([library], `${name}_2`, [appRelation()], [])
 	const writer = role(app, "writer", { Held }, { insert: ["Held"] })
@@ -68,12 +68,12 @@ const beforeLibrary = (name: string): Version => {
  */
 const libraryOf = (name: string) => {
 	const Kind = closed.unordered("Kind", ["b", "c"])
-	const Value = variant("Value", Kind, { b: { n: pg.integer }, c: { flag: pg.boolean } })
-	const Held = relation("Held", { id: pg.integer, value: Value }, ["id"])
+	const Value = variant("Value", Kind, { b: { n: int4 }, c: { flag: bool } })
+	const Held = relation("Held", { id: int4, value: Value }, ["id"])
 	const functions = [
 		fn("make_b", {
 			calls: [],
-			args: { n: pg.integer },
+			args: { n: int4 },
 			returns: Value,
 			volatility: "immutable",
 			nullInput: "strict",
@@ -82,7 +82,7 @@ const libraryOf = (name: string) => {
 		}),
 		fn("make_c", {
 			calls: [],
-			args: { flag: pg.boolean },
+			args: { flag: bool },
 			returns: Value,
 			volatility: "immutable",
 			nullInput: "strict",
@@ -92,7 +92,7 @@ const libraryOf = (name: string) => {
 		fn("is_b", {
 			calls: [],
 			args: { value: Value },
-			returns: pg.boolean,
+			returns: bool,
 			volatility: "immutable",
 			nullInput: "strict",
 			language: "sql",
@@ -101,7 +101,7 @@ const libraryOf = (name: string) => {
 		fn("n_of", {
 			calls: [],
 			args: { value: Value },
-			returns: pg.integer,
+			returns: int4,
 			volatility: "immutable",
 			nullInput: "strict",
 			language: "plpgsql",
@@ -243,10 +243,10 @@ export const applicationCase = (application: Application, k: FunctionsCase) =>
 const exactArmOf = (name: string) => {
 	const WholeKind = closed.unordered("WholeKind", ["whole", "none"])
 	const Amount = variant("Amount", WholeKind, { whole: { value: exactInteger }, none: {} })
-	const Amounts = relation("Amounts", { id: pg.integer, amount: Amount }, ["id"])
+	const Amounts = relation("Amounts", { id: int4, amount: Amount }, ["id"])
 	const amountOf = fn("amount_of", {
 		calls: [],
-		args: { x: pg.numeric(10, 1) },
+		args: { x: numeric(10, 1) },
 		returns: Amount,
 		volatility: "immutable",
 		nullInput: "strict",
@@ -262,7 +262,7 @@ const exactArmOf = (name: string) => {
 			return r.match(Amounts, { id, amount }).find({ id, amount })
 		}),
 		amountOf: query(writer).rule((r) =>
-			r.find({ amount: Fn.call(amountOf, { x: r.param("x", pg.numeric(10, 1)) }) })
+			r.find({ amount: Fn.call(amountOf, { x: r.param("x", numeric(10, 1)) }) })
 		)
 	}
 	const desk = login(app, "desk", [writer], { workload: [workload(writer, programs)] })
@@ -352,7 +352,7 @@ export const exactArmCase = (w: ExactArmWrite) =>
 				return Option.some(Arr.map(rows, (row): unknown => row.amount))
 			}
 			const answered = yield* Effect.result(
-				rowsOf(db.workload.amountOf.once({ params: { x: Decimal.of(w.value) }, facts: {} }))
+				rowsOf(db.workload.amountOf.once({ params: { x: Numeric.of(w.value) }, facts: {} }))
 			)
 			if (Result.isSuccess(answered)) {
 				return Option.some(Arr.map(answered.success, (row): unknown => row.amount))

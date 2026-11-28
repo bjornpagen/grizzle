@@ -7,7 +7,7 @@ import { type CompileError, isCompileError } from "#compiler/core/errors.ts"
 import { installOptions } from "#compiler/physical/install/compile.ts"
 import { parseSchemaInput } from "#compiler/program/input.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
-import { instant, natural, pg, place } from "#compiler/public/fields.ts"
+import { instant, natural, place, int4 } from "#compiler/public/fields.ts"
 import { str } from "#compiler/public/text.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import {
@@ -40,7 +40,7 @@ import { ownInput } from "#test/support/policy.ts"
 export type Writing = "caller" | "drawn" | "accumulated" | "place"
 
 /**
- * What a field's value is, so the generation can read it: a text it reads as itself, an integer (pg.integer), a natural
+ * What a field's value is, so the generation can read it: a text it reads as itself, an integer (int4), a natural
  * (a drawn field's or a place's type, whose literals are bigints).
  */
 type Form = "text" | "integer" | "natural"
@@ -136,7 +136,7 @@ const ordered: Template = {
 				after: accumulatedField(Piece, "", []),
 				name: Name,
 				body: Body,
-				k: pg.integer
+				k: int4
 			},
 			["doc", slot],
 			generation
@@ -193,7 +193,7 @@ const tree: Template = {
 				total: accumulatedField(Piece, "", []),
 				name: Name,
 				body: Body,
-				k: pg.integer
+				k: int4
 			},
 			["doc", slot, "start"],
 			generation
@@ -231,7 +231,7 @@ const placed: Template = {
 	declare: (slot, generation) => {
 		const Mark = keyedRelation(
 			"Mark",
-			{ child: pg.integer, n: place, x: pg.integer, name: Name, body: Body },
+			{ child: int4, n: place, x: int4, name: Name, body: Body },
 			["child", slot, "n"],
 			generation
 		)
@@ -407,7 +407,7 @@ const instantSchema = (read: InstantRead): unknown =>
 		[
 			keyedRelation(
 				"Seen",
-				{ id: pg.integer, at: instant, seen: instant.stored, body: Body },
+				{ id: int4, at: instant, seen: instant.stored, body: Body },
 				["id", "at", "g"],
 				(row) => {
 					const value = row[instantField[read]]
@@ -484,7 +484,7 @@ const memberGroupSchema = (c: MemberGroupCase): unknown => {
 		path: Body,
 		alias: Body,
 		at: drawnField(natural, []),
-		word: pg.integer
+		word: int4
 	}
 	const Line =
 		c.member === "copied"

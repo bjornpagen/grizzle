@@ -42,7 +42,7 @@ import {
 	settle
 } from "#bench/query/support/kit.ts"
 import { outline, planOf, scansOf, summaryOf } from "#bench/query/support/plans.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { programAsts } from "#test/support/compile.ts"
@@ -65,7 +65,7 @@ import type { RawSession } from "#test/support/substrate/session.ts"
  * arms' weights as an IN list. The 12-edge path and its handwritten chain are explained and run to completion once
  * each.
  */
-const Edge = relation("Edge", { src: pg.bigint, dst: pg.bigint, w: pg.integer }, ["src", "dst"])
+const Edge = relation("Edge", { src: int8, dst: int8, w: int4 }, ["src", "dst"])
 const Plan = schema("Plan", [Edge], [])
 
 const path2 = query(Plan).rule((r) => {
@@ -146,14 +146,14 @@ const union2 = query(Plan)
 		const { src, dst, w } = v(Edge, "edge")
 		return r
 			.match(Edge, { src, dst, w })
-			.where(r.eq(w, 0), r.lt(src, r.param("below", pg.bigint)))
+			.where(r.eq(w, 0), r.lt(src, r.param("below", int8)))
 			.find({ src, dst })
 	})
 	.rule((r) => {
 		const { src, dst, w } = v(Edge, "edge")
 		return r
 			.match(Edge, { src, dst, w })
-			.where(r.eq(w, 1), r.lt(src, r.param("below", pg.bigint)))
+			.where(r.eq(w, 1), r.lt(src, r.param("below", int8)))
 			.find({ src, dst })
 	})
 
@@ -162,14 +162,14 @@ const union4 = union2
 		const { src, dst, w } = v(Edge, "edge")
 		return r
 			.match(Edge, { src, dst, w })
-			.where(r.eq(w, 2), r.lt(src, r.param("below", pg.bigint)))
+			.where(r.eq(w, 2), r.lt(src, r.param("below", int8)))
 			.find({ src, dst })
 	})
 	.rule((r) => {
 		const { src, dst, w } = v(Edge, "edge")
 		return r
 			.match(Edge, { src, dst, w })
-			.where(r.eq(w, 3), r.lt(src, r.param("below", pg.bigint)))
+			.where(r.eq(w, 3), r.lt(src, r.param("below", int8)))
 			.find({ src, dst })
 	})
 
@@ -178,28 +178,28 @@ const union8 = union4
 		const { src, dst, w } = v(Edge, "edge")
 		return r
 			.match(Edge, { src, dst, w })
-			.where(r.eq(w, 4), r.lt(src, r.param("below", pg.bigint)))
+			.where(r.eq(w, 4), r.lt(src, r.param("below", int8)))
 			.find({ src, dst })
 	})
 	.rule((r) => {
 		const { src, dst, w } = v(Edge, "edge")
 		return r
 			.match(Edge, { src, dst, w })
-			.where(r.eq(w, 5), r.lt(src, r.param("below", pg.bigint)))
+			.where(r.eq(w, 5), r.lt(src, r.param("below", int8)))
 			.find({ src, dst })
 	})
 	.rule((r) => {
 		const { src, dst, w } = v(Edge, "edge")
 		return r
 			.match(Edge, { src, dst, w })
-			.where(r.eq(w, 6), r.lt(src, r.param("below", pg.bigint)))
+			.where(r.eq(w, 6), r.lt(src, r.param("below", int8)))
 			.find({ src, dst })
 	})
 	.rule((r) => {
 		const { src, dst, w } = v(Edge, "edge")
 		return r
 			.match(Edge, { src, dst, w })
-			.where(r.eq(w, 7), r.lt(src, r.param("below", pg.bigint)))
+			.where(r.eq(w, 7), r.lt(src, r.param("below", int8)))
 			.find({ src, dst })
 	})
 

@@ -4,7 +4,7 @@ import { array, constant, element, type Gen, int, weighted } from "@bjornpagen/t
 import { Array as Arr, String as Str } from "effect"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Net } from "#compiler/public/compute.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { cidr, inet, int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	attested,
@@ -21,7 +21,7 @@ import { ordinarySession } from "#test/support/ambient.ts"
 import { generatedTemplate } from "#test/support/install-migrate.ts"
 
 /**
- * pg.inet and pg.cidr written and read through grizzle, and an inet context's address, from a token's claim or attested
+ * inet and cidr written and read through grizzle, and an inet context's address, from a token's claim or attested
  * by the server, filtering a cidr relation by Net.within.
  *
  * README, "Tables and types", network types, and "Contexts of a role". A Host is keyed by its inet, a Network holds a
@@ -31,14 +31,14 @@ import { generatedTemplate } from "#test/support/install-migrate.ts"
  * serves the inserts of hosts and networks, the reads of each, and the networks within which Where's address and
  * Origin's lie.
  */
-const Host = relation("Host", { id: pg.integer, address: pg.inet }, ["address"])
-export const Network = relation("Network", { id: pg.integer, network: pg.cidr }, ["id"])
+const Host = relation("Host", { id: int4, address: inet }, ["address"])
+export const Network = relation("Network", { id: int4, network: cidr }, ["id"])
 
 /** The address a token claims, from its nested `net` object: a client's statement. */
-const Where = context("Where", { address: pg.inet }, { claim: "net" })
+const Where = context("Where", { address: inet }, { claim: "net" })
 
 /** The address the server attests a request reached it from: never a token's claim. */
-const Origin = attested("Origin", { address: pg.inet })
+const Origin = attested("Origin", { address: inet })
 
 export const campusAt = (name: string) => {
 	const base = schema(name, [Host, Network], [])

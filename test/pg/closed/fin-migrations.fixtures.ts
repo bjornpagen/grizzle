@@ -16,7 +16,7 @@ import { Array as Arr, Effect, Option, Order, Result } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"
-import { closedId, natural, pg, slot } from "#compiler/public/fields.ts"
+import { closedId, natural, slot, int4 } from "#compiler/public/fields.ts"
 import { closed, contained, fin, on, relation, schema } from "#compiler/public/schema.ts"
 import { migrated } from "#test/support/installed.ts"
 import { sameIdentity, type ValueIdentity } from "#test/support/kernel/identity.ts"
@@ -193,7 +193,7 @@ const schemaAt = (name: string, stage: Stage) => {
 		rows
 	)
 	const probe = {
-		id: pg.integer,
+		id: int4,
 		version: closedId(Version),
 		parent: closedId(Kind),
 		at: closedId(Position)

@@ -8,7 +8,7 @@ import { type PlanNode, planNodes } from "#bench/harness/explain.ts"
 import { temporarySchema } from "#compiler/core/temporary.ts"
 import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, type Rule, v } from "#compiler/public/query.ts"
 import { check, derived, relation, schema, unit } from "#compiler/public/schema.ts"
 import { objectName } from "#compiler/sql/build.ts"
@@ -24,15 +24,12 @@ import { openSession, type RawSession } from "#test/support/substrate/session.ts
 import { ownerSession, type SubstrateCase } from "#test/support/substrate/substrate.ts"
 
 /** The rows of a document, each of a kind. */
-const T = relation("T", { doc: pg.integer, at: pg.integer, kind: pg.integer, b: pg.integer }, [
-	"doc",
-	"at"
-])
+const T = relation("T", { doc: int4, at: int4, kind: int4, b: int4 }, ["doc", "at"])
 
 /** The rows of a document a stored relation keeps those of one kind of, each of a kind. */
-const U = relation("U", { doc: pg.integer, at: pg.integer, kind: pg.integer }, ["doc", "at"])
+const U = relation("U", { doc: int4, at: int4, kind: int4 }, ["doc", "at"])
 
-const Base = schema("delta_selection", [T, U], [unit("Document", { doc: pg.integer })])
+const Base = schema("delta_selection", [T, U], [unit("Document", { doc: int4 })])
 
 /** The kinds a case writes: each judged kind and two no rule reads. */
 const kinds = [1, 2, 3, 4, 5] as const

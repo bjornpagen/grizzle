@@ -32,9 +32,10 @@ import { vectorMaxDimensions } from "#compiler/ir/carriers.ts"
 import { decodeDesc } from "#compiler/ir/desc.ts"
 import { decodeScalarType } from "#compiler/ir/scalar-shape.ts"
 import { capsOf, Roster, rosterOf, sameScalarType, spanOf } from "#compiler/ir/scalar.ts"
-import { admitNumericTypmod, pgDescriptors } from "#compiler/scalar/pg.ts"
+import { admitNumericTypmod } from "#compiler/scalar/pg.ts"
 import { carrierSql, describeField } from "#compiler/scalar/registry.ts"
 import { checkNumericTypmod } from "#compiler/scalar/values/decimal.ts"
+import { vector } from "#compiler/scalar/vector.ts"
 import { admitVectorDimensions } from "#compiler/scalar/vector.ts"
 import { admittedClosedId, closedBuilder } from "#compiler/schema/relation.ts"
 import { succeeded, throwsRefused } from "#test/support/assert.ts"
@@ -300,7 +301,7 @@ export const typmodValidationAdmitsVectorDimensions116000AloneAndRefusesTheRest 
 					) {
 						c.note("admitted")
 						admitVectorDimensions(dimensions, [])
-						assert.equal(pgDescriptors.vector(dimensions).dimensions, dimensions)
+						assert.equal(vector(dimensions).dimensions, dimensions)
 					} else {
 						c.note("refused")
 						throwsRefused(() => admitVectorDimensions(dimensions, extra), "MalformedDescription")
@@ -317,14 +318,14 @@ export const typmodValidationAdmitsVectorDimensions116000AloneAndRefusesTheRest 
 				file: "packages/engine/src/scalar/vector.ts",
 				original: "\t\tdimensions > vectorMaxDimensions",
 				replacement: "\t\tdimensions > vectorMaxDimensions + 1",
-				why: "pg.vector admits one dimension past pgvector's greatest; the typmods property fails."
+				why: "vector admits one dimension past pgvector's greatest; the typmods property fails."
 			}
 		]
 	}
 )
 
 /**
- * Typmod validation admits a positive span width of the endpoint's base type, and refuses the rest.
+ * Typmod validation admits a positive range width of the endpoint's base type, and refuses the rest.
  *
  * Budget: its suite's count before the conversion (unit/scalar/span-width: 1000 independent cases and 0 steered,
  * Vitest at grizzle 4ca3036a).
@@ -421,7 +422,7 @@ export const spanEndpointEligibilityAdmitsIntegerBigintAndContractsOverThemAsInt
 			}),
 		oracle: {
 			kind: "specification",
-			name: "the README's span endpoints: integer or bigint, or a contract over one"
+			name: "the README's range endpoints: integer or bigint, or a contract over one"
 		},
 		budget: { runs: 1000, steered: 0 },
 		kept: [],

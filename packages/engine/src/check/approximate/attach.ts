@@ -150,7 +150,7 @@ const correlatedRefusal = (
  */
 const pipelinedOnly = (child: RelNode): string | undefined => {
 	if (child.heading.some((column) => column.type.carrier === "bytes")) {
-		return "a child delivering bytes delivers each value in chunks, which no array carries"
+		return "a child delivering bytea delivers each value in chunks, which no array carries"
 	}
 	const seen = new Set<RelNode>([child])
 	const queue = [child]

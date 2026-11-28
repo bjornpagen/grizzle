@@ -2,14 +2,14 @@
 
 import { aimed, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import type { NumericBound } from "#compiler/ir/scalar.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 import { numericMaxFractionDigits, numericMaxIntegerDigits } from "#compiler/scalar/values/fault.ts"
 import { succeeded } from "#test/support/assert.ts"
 
 /** A drawn case: a bound, and a value at or about its edges, or a special. */
 export interface BoundCase {
 	readonly bound: NumericBound
-	readonly value: Decimal
+	readonly value: Numeric
 }
 
 /** A bound as a sum's or a mean's proves one: some integer digits, below one among them, and a scale. */
@@ -20,7 +20,7 @@ const bound: Gen<NumericBound> = (s) => ({ digits: s.draw(int(-4, 14)), scale: s
  * more or fewer, at a scale about the bound's, signed either way.
  */
 const finiteAbout =
-	(b: NumericBound): Gen<Decimal> =>
+	(b: NumericBound): Gen<Numeric> =>
 	(s) => {
 		const scale = Math.max(0, b.scale + s.draw(int(-2, 2)))
 		const digits = Math.max(1, b.digits + scale + s.draw(int(-2, 1)))
@@ -28,7 +28,7 @@ const finiteAbout =
 		const coefficient = nines
 			? 10n ** BigInt(digits) - 1n
 			: 10n ** BigInt(digits - 1) + BigInt(s.draw(int(0, 9)))
-		return succeeded(Decimal.fromParts(s.draw(element([false, true])), coefficient, scale))
+		return succeeded(Numeric.fromParts(s.draw(element([false, true])), coefficient, scale))
 	}
 
 const cases: Gen<BoundCase> = (s) => {
@@ -36,21 +36,21 @@ const cases: Gen<BoundCase> = (s) => {
 	return {
 		bound: b,
 		value: s.draw(
-			weighted<Decimal>([
+			weighted<Numeric>([
 				[8, finiteAbout(b)],
-				[1, element([Decimal.nan, Decimal.infinity, Decimal.negativeInfinity, Decimal.zero])]
+				[1, element([Numeric.nan, Numeric.infinity, Numeric.negativeInfinity, Numeric.zero])]
 			])
 		)
 	}
 }
 
-/** A case at numeric's own limits, whose bound admits every value: its widest finite values, as pg.numeric holds them. */
+/** A case at numeric's own limits, whose bound admits every value: its widest finite values, as numeric holds them. */
 const ownLimits: Gen<BoundCase> = (s) => ({
 	bound: { digits: numericMaxIntegerDigits, scale: numericMaxFractionDigits },
 	value: s.draw(
 		element([
-			succeeded(Decimal.fromParts(false, 10n ** BigInt(numericMaxIntegerDigits) - 1n, 0)),
-			succeeded(Decimal.fromParts(true, 1n, numericMaxFractionDigits))
+			succeeded(Numeric.fromParts(false, 10n ** BigInt(numericMaxIntegerDigits) - 1n, 0)),
+			succeeded(Numeric.fromParts(true, 1n, numericMaxFractionDigits))
 		])
 	)
 })
@@ -73,7 +73,7 @@ export const boundSpace = aimed(cases, [["numeric's own limits admitted", ownLim
  * reads: NaN or an infinity; or c / 10^m, its coefficient c and scale m, with m at most the bound's scale and
  * c < 10^(digits + m), so |value| < 10^digits.
  */
-export const modelWithin = (value: Decimal, b: NumericBound): boolean => {
+export const modelWithin = (value: Numeric, b: NumericBound): boolean => {
 	const p = value.parts
 	if (p.kind !== "finite") {
 		return true
@@ -119,7 +119,7 @@ export const boundFeatures = (c: BoundCase): ReadonlyArray<BoundFeature> => {
 
 /**
  * A cast's case: the operand field's numeric(p, s), which bounds its values below 10^(p - s) at s fraction digits, and
- * the bound the cast's target states (pg.numeric.within), each about the other.
+ * the bound the cast's target states (numeric.within), each about the other.
  */
 export interface CastCase {
 	readonly precision: number

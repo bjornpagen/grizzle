@@ -41,7 +41,7 @@ import { DecimalText, isDecimalLike, isDecimalPayload } from "#compiler/ir/decim
 import { predicateProblems } from "#compiler/ir/expr.ts"
 import { decodeScalarType } from "#compiler/ir/scalar-shape.ts"
 import { isRefined } from "#compiler/ir/scalar.ts"
-import { compareDecimal, Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
+import { compareDecimal, Numeric, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
 import { placeOf, refusalLoc, succeeded } from "#test/support/assert.ts"
@@ -254,7 +254,7 @@ export const literalsNumericLiteralsUnderATypmodAdmitsExactlyTheValuesNumericPSS
 				(_, c: Case<TypmodFeature>) =>
 				([text, precision, scale]) =>
 					Effect.sync(() => {
-						const d = Decimal.of(text)
+						const d = Numeric.of(text)
 						const stored = normalizeNumeric(d, { precision, scale })
 						const unchanged = stored.ok && compareDecimal(stored.value, d) === 0
 						if (scale < 0) {
@@ -514,7 +514,7 @@ export const decimalsAdmitOnlyTheCanonicalNumericOutTextAndTheSpecialValuesAndKe
 		>,
 		check: (_, c: Case<"a payload" | "a special value" | "no payload">) => (text) =>
 			Effect.sync(() => {
-				assert.equal(isDecimalPayload(text), Decimal.fromCanonical(text).ok, text)
+				assert.equal(isDecimalPayload(text), Numeric.fromCanonical(text).ok, text)
 				const d = DecimalText.parse(text)
 				if (d === undefined) {
 					c.note("no payload")
@@ -527,7 +527,7 @@ export const decimalsAdmitOnlyTheCanonicalNumericOutTextAndTheSpecialValuesAndKe
 			}),
 		oracle: {
 			kind: "second-implementation",
-			name: "the IR's decimal payload grammar (isDecimalPayload) beside the reviver (Decimal.fromCanonical)"
+			name: "the IR's decimal payload grammar (isDecimalPayload) beside the reviver (Numeric.fromCanonical)"
 		},
 		kept: [],
 		kills: [

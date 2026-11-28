@@ -1,5 +1,5 @@
 /**
- * pg.inet and pg.cidr on PostgreSQL 19, and an inet context's address filtering a cidr relation by Net.within.
+ * inet and cidr on PostgreSQL 19, and an inet context's address filtering a cidr relation by Net.within.
  *
  * 1. Values. Over a batch of drawn texts, IPv4 and IPv6, masked and not, PostgreSQL's spellings beside its values' own
  *    (a cidr's class-based shorthand and hexadecimal form, an inet's trailing dot, an embedded IPv4 tail, leading
@@ -93,7 +93,7 @@ const byId = <R extends { readonly id: number }>(rows: ReadonlyArray<R>): Readon
 		Order.mapInput(Order.Number, (r: R) => r.id)
 	)
 
-/** pg.inet and pg.cidr on PostgreSQL 19, grizzle reads every text as PostgreSQL does and stores and reads back each value as its one text. */
+/** inet and cidr on PostgreSQL 19, grizzle reads every text as PostgreSQL does and stores and reads back each value as its one text. */
 export const pgInetAndPgCidrOnPostgreSQL19GrizzleReadsEveryTextAsPostgreSQLDoesAndStoresAndReadsBackEachValueAsItsOneText =
 	property.explore(spellings, {
 		needs: { campus: Substrate.fresh(campusTemplate) },

@@ -6,7 +6,7 @@ import { constant, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, Order } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
-import { accumulated, drawn, natural, pg } from "#compiler/public/fields.ts"
+import { accumulated, drawn, natural, int4, int8 } from "#compiler/public/fields.ts"
 import { check, counted, fin, fold, Monoid, on, relation, schema } from "#compiler/public/schema.ts"
 import { migrated } from "#test/support/installed.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
@@ -21,12 +21,11 @@ const firstBound = 10
 const secondBound = 100
 
 /** M's members, each of an owner `o`, with the amounts `x` and `y`. */
-const membersOf = () =>
-	relation("M", { member: pg.integer, o: pg.integer, x: pg.bigint, y: pg.bigint }, ["member"])
+const membersOf = () => relation("M", { member: int4, o: int4, x: int8, y: int8 }, ["member"])
 
 /** The plain version, its rows stored before any family: O's owners and M's members. */
 const plainOf = (name: string) =>
-	schema(name, [relation("O", { id: pg.integer }, ["id"]), membersOf()], [])
+	schema(name, [relation("O", { id: int4 }, ["id"]), membersOf()], [])
 
 /**
  * A folded version: O's counted members M, each owner's `total` the sum of its members' `x` (the first) or `y` (the
@@ -34,11 +33,7 @@ const plainOf = (name: string) =>
  * under Bounded defined otherwise.
  */
 const foldedOf = (version: "first" | "second") => (name: string) => {
-	const O = relation(
-		"O",
-		{ id: pg.integer, n: drawn(natural), total: accumulated(pg.bigint, 0n) },
-		["id"]
-	)
+	const O = relation("O", { id: int4, n: drawn(natural), total: accumulated(int8, 0n) }, ["id"])
 	const M = membersOf()
 	const members = counted(on(M, "o"), fin(O, "n"))
 	const bound = BigInt(version === "first" ? firstBound : secondBound)

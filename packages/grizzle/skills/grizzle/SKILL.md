@@ -131,9 +131,9 @@ export default defineConfig({
   from a stored instant (docs/reads-and-writes.md "Instants"). A read delivers an instant as an `Instant`, a bigint only a read mints;
   `instant.stored` is a field of instant's type its caller writes as it read it, the database drawing nothing, so a
   read's rows can be kept with their instants: a bare bigint at it is a type error. Kept beside it, a read's search
-  document is `pg.tsvector(configuration)`, its `SearchDocument` written back as PostgreSQL printed it (any other text
-  `searchDocumentForm`), and a read's sum or mean is `pg.numeric.within(digits, scale)`, numeric of no typmod checked to
-  the bound its query proves, a `Decimal` past it `numericBound`; numeric's own limits are `pg.numeric` (docs/schema.md "Tables
+  document is `tsvector(configuration)`, its `SearchDocument` written back as PostgreSQL printed it (any other text
+  `searchDocumentForm`), and a read's sum or mean is `numeric.within(digits, scale)`, numeric of no typmod checked to
+  the bound its query proves, a `Numeric` past it `numericBound`; numeric's own limits are `numeric` (docs/schema.md "Tables
   and types"). A row's place in its group is `place`, last in its primary key after the
   group: an insert leaving it out stamps one past the group's greatest, 0 first, so a group's places are gapless from 0
   in commit order; no put writes its relation, and a delete only whole groups, its rows stating fields of the group
@@ -156,13 +156,13 @@ export default defineConfig({
   the statements: `unit("Sitting", { number: AssignmentNo })`. Every stored relation whose primary key leads with the
   heading's fields, by name and type in order, sits under it, at its level or any above, which states nothing more; so
   lead each member's key with the unit's fields, and give the key a named domain (a contract of its own,
-  `contract<typeof assignmentNoKey>()("AssignmentNo", pg.bigint, …)`), since a field of the same name and type that means something else joins the
+  `contract<typeof assignmentNoKey>()("AssignmentNo", int8, …)`), since a field of the same name and type that means something else joins the
   unit too, a coarser lock. A write of a unit's rows holds its key exclusively and a read of a unit it does not write
   holds it shared, as generate derives from the ChangeSet: no borrow is written. Refused (`MalformedDescription`): a unit
   whose heading leads with another's or that another's leads with (no unit nests: each relation sits under one at
   most), one name over two headings, and a unit stated above a level whose relation leads with its heading (state it at
   that level). A gapless number, one past the greatest, is `series(R)` over a relation keyed by one field of a type
-  grizzle draws, `natural` or a contract over an integer (an int4 number keeps its `contract<typeof key>()(…, pg.integer, …)`, whose
+  grizzle draws, `natural` or a contract over an integer (an int4 number keeps its `contract<typeof key>()(…, int4, …)`, whose
   CHECK refuses one past its bound): it states the predecessor law itself and every write of R holds its one lock, the
   only lock no key splits (docs/schema.md "Units").
 - A relation is closed or open. Closed, the default: its facts are inserted, never changed or deleted; a role that
@@ -578,7 +578,7 @@ schema or workload that does not compile) are `check`'s alone.
 | the login has no OpenAPI document beside snapshot.json (an ungenerated change) | run grizzle generate, which writes the OpenAPI document |
 | the OpenAPI document is of a login the configuration does not list over the schema | run grizzle generate, which removes the OpenAPI document |
 | the schema or a login's workload does not compile | fix the schema or workload it names, then run grizzle generate |
-| grizzle mints no ids (a `pg.serial` or `pg.uuidv7` field) | key the relation by what identifies its fact: its parent's key and its own name or place, `sha256` of its content, a published name and version, or an outside system's id under a contract of its own (docs/schema.md "Identity: natural keys") |
+| grizzle mints no ids (a `serial` or `uuidv7` field) | key the relation by what identifies its fact: its parent's key and its own name or place, `sha256` of its content, a published name and version, or an outside system's id under a contract of its own (docs/schema.md "Identity: natural keys") |
 | a variant's arms changed otherwise than in place: an arm of a code past every arm's (appended to its roster or taken into its subset), an arm of no field taken in or left out, or a field appended to the arm of its greatest code migrate in place; an arm with fields left out of the subset or taken in below an arm's code, and a field removed, retyped or added to another arm, rewrite every stored value: a custom migration | write a custom migration (`generate --custom`) that converts the stored values, or append the change as a new arm |
 | say whose id this is (a bare `uuid` column) | `contract<typeof clerkUserKey>()("ClerkUserId", uuid)`: name the system the id is of, so two systems' ids are two types; its values are the key's mint's, `mintOf(clerkUserKey)` |
 | a plain value, or another contract's, where a contract's value is written (a fact, a parameter, a closed row, `Type.literal`, a conditional's arm; a type error) | make it with the contract's key's mint, `mintOf(key)`, in the module that holds the key; a value compared with a contract's term is its base's |
@@ -788,23 +788,23 @@ to fix, or the compiler's refusal of a schema or login with its fix, and no line
   where nothing decides which of them the row broke: at least one did. Its `witness` is the key of a row you stated
   that breaks them, or `unreported` where grizzle cannot tell which row did, such as two family owners the write
   inserts without reading them, either of which may be a stored one inserted again: never assume a key is there.
-- No read raises an arithmetic error on a row, but arithmetic over a `pg.numeric`, an `exactInteger` or an
+- No read raises an arithmetic error on a row, but arithmetic over a `numeric`, an `exactInteger` or an
   `exactMoney` field, whose result past numeric's own limit PostgreSQL refuses with 22003: catch no other 22003, nor
   22012 or 2201F, around a query. Integer arithmetic is
   exact and delivers `bigint`, money arithmetic exact `Money`, and floats are IEEE 754 (`x / 0.0` is ±Infinity). A
   partial operation needs its precondition proved, by a literal's type (`Num.div(x, 7n)`), by a contract that
-  declares it (`contract<typeof divisorKey>()("Divisor", pg.bigint, (v) => Logic.ne(v, 0n), { proves: ["nonzero"] })`) or by a guard:
+  declares it (`contract<typeof divisorKey>()("Divisor", int8, (v) => Logic.ne(v, 0n), { proves: ["nonzero"] })`) or by a guard:
   `Logic.when(Num.nonzero(b), (b) => Num.div(a, b), 0n)`, the guards `Num.nonzero`,
   `Num.nonnegative`, `Num.positive`, `Num.isFinite` and `Num.within(x, low, high)`. A guard's subject
   may be a parameter (`Logic.when(Num.nonzero(d), (d) => Num.div(x, d), 0n)` over `r.param("d",
-  pg.bigint)`), and a parameter of a contract that declares a fact has it, so
+  int8)`), and a parameter of a contract that declares a fact has it, so
   `Num.div(x, Type.base(r.param("d", Divisor)))` needs no guard. A parameter is a term of its declared type
   everywhere, first operand included. An unproved
   divisor is a type error naming the guard; an unproved narrowing or power is `CompileError` reason
   `PartialOperation`, whose `guard` is the code to write. A contract's facts are exactly its `proves`: a fact its
   predicate implies but `proves` leaves out is refused, and the refusal names the declaration to add. Narrow an exact
   integer into an integer field with
-  `Type.cast` under `Num.within`, and a sum, a mean or numeric arithmetic into a `pg.numeric(p, s)` field the
+  `Type.cast` under `Num.within`, and a sum, a mean or numeric arithmetic into a `numeric(p, s)` field the
   same way: a ChangeSet member writes each field at its own type, a numeric of another precision or scale included.
 - Test text with `Text.matches(x, pattern)`, `Text.startsWith`, `Text.endsWith` and `Text.contains`, never a regex
   or a LIKE in your code. `Text.contains(haystack, needle)` reads its needle as characters, so a parameter's `%`, `_`
@@ -814,7 +814,7 @@ to fix, or the compiler's refusal of a schema or login with its fix, and no line
   closed relation's text payload, `Text.matches(lexical, ValueDomain.at("pattern", domain))`, every value of which
   the compiler measures; a pattern held in an ordinary field or a parameter is refused. A `Text.pattern`'s match is a
   guard: `Logic.when(Text.matches(x, digits), (x) => …, otherwise)`. `Text.concat` builds text in checks,
-  generated fields and folds, and in a query over operands whose types bound its bytes within `bytesMaxLength`, a
+  generated fields and folds, and in a query over operands whose types bound its bytes within `byteaMaxLength`, a
   head among them (`find({ module: Text.concat(path, ".js") })` over a `str.bytes`-bounded `path`); over texts of any
   length, compare a text with a concatenation (`Logic.eq(t, Text.concat(a, b))`)
   and it is decided as t's equality with the concatenation built under its bytes' guard, so a probe reads t by its
@@ -862,7 +862,7 @@ to fix, or the compiler's refusal of a schema or login with its fix, and no line
   first and refuses one the server lacks (22023). The local day is `(w - intoDay) / 86400000` with `intoDay = ((w %
   86400000) + 86400000) % 86400000`, its weekday `((day + 4) % 7 + 7) % 7`, Sunday 0, and its date
   `Time.dateOfEpochDay(day)`; `Time.epochDay(date)` is a date's days after 1970-01-01. A stored `instant` counts
-  microseconds: pass `Type.cast(Num.div(Type.base(at), 1000n), pg.bigint)`.
+  microseconds: pass `Type.cast(Num.div(Type.base(at), 1000n), int8)`.
 - Join patterns a text must all match, XML Schema's pattern facets among them, with
   `str.and(str.regex(p), str.regex(q))`, never one regex you intersect by hand: each pattern is held to PostgreSQL's
   limits alone and its domain tests each in turn, so a conjunction costs the sum of its patterns, never their product,
@@ -887,7 +887,7 @@ to fix, or the compiler's refusal of a schema or login with its fix, and no line
   filter, a parameter, a contract, a generated or accumulated field, or a scalar term but `Crypto.sha256(x)`, its
   SHA-256 digest, a `sha256` value of 32 bytes (`Sha256` on the host), never a hex text. Store a digest PostgreSQL
   computes from the bytes, never one the caller sends: `generated(sha256, Crypto.sha256(row.content))`. A value holds at most 1,073,741,819
-  bytes (`bytesMaxLength`), PostgreSQL's longest bytea, and is read back in chunks, one round trip still; a write reads
+  bytes (`byteaMaxLength`), PostgreSQL's longest bytea, and is read back in chunks, one round trip still; a write reads
   back only its SHA-256 digest. grizzle copies a value once, as the call is sent; one changed
   before then is `bytesChanged`. An attachment whose rows hold one is a statement of its own, so under rows that read
   `.approximateNearest` attach in a second query instead.
@@ -908,25 +908,25 @@ to fix, or the compiler's refusal of a schema or login with its fix, and no line
   `{ total: Num.add(total, amount) }`, a `generated(exactInteger, Num.mul(a, b))` or a derived relation's money sum needs no
   `Type.cast`. Each is numeric of no typmod, its column CHECKed to scale 0 or to money's 2, so a direct writer's 1.5,
   5.0, NaN or infinity is 23514. Never key, UNIQUE or axis by one (`UnrepresentableKey`, exactValue): key by a
-  `pg.numeric(p, 0)` or `pg.bigint`, or a `pg.numeric(p, 2)` or `pg.money`. No contract is over one, and no closed
+  `numeric(p, 0)` or `int8`, or a `numeric(p, 2)` or `money`. No contract is over one, and no closed
   relation's, context's or declared function's field is one. Read a `Money` past a signed 64-bit count with its
   `minorUnits`; `Money.exact(cents)` writes one.
-- A numeric field declares its precision and scale, `pg.numeric(p, s)`, or is `pg.numeric`, PostgreSQL's numeric of
-  no typmod, a `Decimal` passed as it is: type a declared function that `returns numeric` `returns: pg.numeric`, never
-  a typmod it does not state, which rounds its value. No key holds a `pg.numeric`, which has no byte bound: key by
-  `pg.numeric(p, s)`, whose precision bounds it. A sum, a mean or an operation's
+- A numeric field declares its precision and scale, `numeric(p, s)`, or is `numeric`, PostgreSQL's numeric of
+  no typmod, a `Numeric` passed as it is: type a declared function that `returns numeric` `returns: numeric`, never
+  a typmod it does not state, which rounds its value. No key holds a `numeric`, which has no byte bound: key by
+  `numeric(p, s)`, whose precision bounds it. A sum, a mean or an operation's
   numeric result carries the digits its computation proves, and one past 131,072 integer digits is `ResourceBound`,
-  but over a `pg.numeric` operand, where PostgreSQL's own limit refuses a value past it (22003). Convert an integer, money or a float to numeric with `Num.numeric(x)`, never a cast to
+  but over a `numeric` operand, where PostgreSQL's own limit refuses a value past it (22003). Convert an integer, money or a float to numeric with `Num.numeric(x)`, never a cast to
   a typmod you do not mean.
-- Parse an `xs:decimal` text with `Text.parseDecimal(x)`, the exact numeric of any digits, never a cast into the
-  widest `pg.numeric(p, s)` with a lexical form, whose form ends at 256 integer and 255 fraction digits. Its text is
-  `decimalText` within `decimalTextMaxBytes` (16,384) bytes: type it `str.bytes(16384, str.regex(decimalText.source))`, or
-  guard it, `Logic.when(Text.matches(x, decimalText), (x) => Logic.when(Num.within(Text.octetLength(x),
-  0, 16384), () => Text.parseDecimal(x), otherwise), otherwise)`. A double's text of any digits is
-  `Text.parseDouble(x)` over `doubleText`. Never make an `otherwise` stand for a value, an infinity or a sentinel:
+- Parse an `xs:decimal` text with `Text.parseNumeric(x)`, the exact numeric of any digits, never a cast into the
+  widest `numeric(p, s)` with a lexical form, whose form ends at 256 integer and 255 fraction digits. Its text is
+  `numericText` within `numericTextMaxBytes` (16,384) bytes: type it `str.bytes(16384, str.regex(numericText.source))`, or
+  guard it, `Logic.when(Text.matches(x, numericText), (x) => Logic.when(Num.within(Text.octetLength(x),
+  0, 16384), () => Text.parseNumeric(x), otherwise), otherwise)`. A double's text of any digits is
+  `Text.parseFloat8(x)` over `float8Text`. Never make an `otherwise` stand for a value, an infinity or a sentinel:
   a rule over it then passes on a text that does not parse. State what the rule holds of such a text in the rule.
   Parse a padded value as XML Schema reads it, collapsed first:
-  `Logic.when(Text.matches(Text.collapse(x), doubleText), (x) => Text.parseDouble(x), otherwise)`.
+  `Logic.when(Text.matches(Text.collapse(x), float8Text), (x) => Text.parseFloat8(x), otherwise)`.
 - Each login is a PostgreSQL role, `roleNameOf(login, connection)`, and each role a PostgreSQL role that cannot log
   in, `roleNameOf(role, connection)`, with its schema of views, `schemaNameOf(role)`; the schema's own is
   `schemaNameOf(schema)`. Take every one from there, never spell or rebuild one: each is the name the installation
@@ -950,7 +950,7 @@ to fix, or the compiler's refusal of a schema or login with its fix, and no line
   claims (one of `{ claim: "act" }` from the nested `act` object, no row where the token has none), an
   `attested(...)` from what the server attests (`Db.open`'s `attested`, `httpHandler`'s `attest(request)`), never a
   token's claim: a fact a client must not choose, a request's address from the edge's header among them
-  (`attested("Origin", { address: pg.inet })`, `Inet.parse(header)`), is attested, never claimed. Its query entries
+  (`attested("Origin", { address: inet })`, `Inet.parse(header)`), is attested, never claimed. Its query entries
   and the programs on it match only those. A program over the
   schema that matches `Session` runs on every full role declaring `Session`: write it once over the schema, never once
   per role, and never add a query entry only to make a context available. A query entry matching an undeclared context
@@ -983,7 +983,7 @@ to fix, or the compiler's refusal of a schema or login with its fix, and no line
   `member M, statement N, relation R` (N the statement's place among those a call of ChangeSet M sends); or, where it
   fails none by itself, a line `fix login L, role R first (<counts>)` per role that runs SERIALIZABLE and gives it one
   (`laws`, a SERIALIZABLE ChangeSet reading what it writes, and `writers`): fix those roles first. The fixes:
-  - `form`: move each ChangeSet that inserts into a relation whose primary key holds a span to a role of its own, which runs SERIALIZABLE: such a write has no READ COMMITTED form
+  - `form`: move each ChangeSet that inserts into a relation whose primary key holds a range to a role of its own, which runs SERIALIZABLE: such a write has no READ COMMITTED form
   - `facts`: name no table or function in the role's ChangeSets that is no relation of the installation; where grizzle named it (a function of its own, named __), report the line to grizzle
   - `members`: write through a ChangeSet in the login's workload, or state neither write nor insert on the role: a role that writes by direct SQL alone is judged to write all its grants permit
   - `privileges`: state insert, not write, on the relation, and let no role update or delete a relation the role writes: record each change as an inserted fact

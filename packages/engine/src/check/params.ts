@@ -62,7 +62,7 @@ const sameHeading = (a: Heading, b: Heading): boolean =>
  * PostgreSQL's own common-type rule does. Its placeholder is bound as the base type, plain text for regex text. A
  * relation parameter has a declared heading, and every use declares the same one. One parameter is never both a
  * scalar and a relation parameter, and no parameter is bytes or holds a bytes field. `take("batch")` joins the
- * parameters as pg.integer.
+ * parameters as int4.
  */
 export class ParamCell {
 	readonly name: string

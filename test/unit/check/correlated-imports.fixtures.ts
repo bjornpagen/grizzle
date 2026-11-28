@@ -7,13 +7,13 @@ import { topoOrder } from "#compiler/ir/dag.ts"
 import type { InferredQuery } from "#compiler/ir/desc.ts"
 import { queryInput } from "#compiler/program/input.ts"
 import { Fn } from "#compiler/public/compute.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { fn, relation, row, rows, schema } from "#compiler/public/schema.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
 
-const A = rows({ k: pg.bigint, v: pg.bigint })
+const A = rows({ k: int8, v: int8 })
 
 /** run: three rows arguments of (k, v), and one row of four fields of rows of (k, v). */
 const run = fn("run", {
@@ -27,8 +27,8 @@ const run = fn("run", {
 })
 
 /** Items, and each item's values, which every argument of a run reads by the item's id. */
-const Item = relation("Item", { id: pg.integer, kind: pg.integer }, ["id"])
-const Value = relation("Value", { item: pg.integer, k: pg.bigint, v: pg.bigint }, ["item", "k"])
+const Item = relation("Item", { id: int4, kind: int4 }, ["id"])
+const Value = relation("Value", { item: int4, k: int8, v: int8 }, ["item", "k"])
 
 const Correlated = schema("CorrelatedImports", [Item, Value, run], [])
 
@@ -37,7 +37,7 @@ const argumentOf = (j: bigint) =>
 	query(Correlated).rule((r) => {
 		const { k, v: x } = v(Value, "value")
 		return r
-			.match(Value, { item: r.param("item", pg.integer), k, v: x })
+			.match(Value, { item: r.param("item", int4), k, v: x })
 			.where(r.ge(x, j))
 			.find({ k, v: x })
 	})
@@ -70,7 +70,7 @@ const fieldsQueryOf = (bound: Bound, fields: Fields): InferredQuery => {
 					const arg = (j: bigint) =>
 						j < BigInt(bound)
 							? argumentOf(j).bind({ item: item.id })
-							: argumentOf(j).bind({ item: r.param("item", pg.integer) })
+							: argumentOf(j).bind({ item: r.param("item", int4) })
 					const ran = Fn.row(run, { in0: arg(0n), in1: arg(1n), in2: arg(2n) })
 					const first = ran.out0
 					const { k, v: x } = v(first, "out0")
@@ -92,7 +92,7 @@ export const checkedNodes = (bound: Bound, fields: Fields): number =>
 	).length
 
 /** A session's seeds, by its id: Seed is each item's seed. */
-const Seed = relation("Seed", { id: pg.integer, seed: pg.integer }, ["id"])
+const Seed = relation("Seed", { id: int4, seed: int4 }, ["id"])
 
 const Nested = schema("NestedCorrelatedImports", [Item, Seed], [])
 
@@ -104,14 +104,14 @@ const lookupFor = (size: LookupSize) =>
 	size === "small"
 		? query(Nested).rule((r) => {
 				const { seed } = v(Seed, "seed")
-				return r.match(Seed, { id: r.param("id", pg.integer), seed }).find({ seed })
+				return r.match(Seed, { id: r.param("id", int4), seed }).find({ seed })
 			})
 		: query(Nested).rule((r) => {
 				const { seed } = v(Seed, "seed")
 				return r
-					.match(Seed, { id: r.param("id", pg.integer), seed })
-					.match(Seed, { id: r.param("id", pg.integer), seed })
-					.match(Seed, { id: r.param("id", pg.integer), seed })
+					.match(Seed, { id: r.param("id", int4), seed })
+					.match(Seed, { id: r.param("id", int4), seed })
+					.match(Seed, { id: r.param("id", int4), seed })
 					.find({ seed })
 			})
 
@@ -121,7 +121,7 @@ const lookups = { small: lookupFor("small"), large: lookupFor("large") } as cons
 /** The `j`-th read of an item's seed: its own query, importing the lookup bound to its own parameter. */
 const readOf = (size: LookupSize, j: number) =>
 	query(Nested).rule((r) => {
-		const looked = lookups[size].bind({ id: r.param("id", pg.integer) })
+		const looked = lookups[size].bind({ id: r.param("id", int4) })
 		const { seed } = v(looked, "looked")
 		return r.match(looked, { seed }).where(r.ge(seed, j)).find({ seed })
 	})

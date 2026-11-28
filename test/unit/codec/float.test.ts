@@ -34,7 +34,7 @@ import {
 	type Binary32Feature,
 	bitsOf,
 	decimal,
-	decimalText,
+	numericText,
 	decimalToBinary32Reference,
 	doubles,
 	exactMidpoint,
@@ -126,7 +126,7 @@ export const exactBinary32ReadingReadsADecimalAtOrBesideABinary32MidpointOnceTie
 						 */
 						const scale = 10n ** 20n
 						const nudge = side === "above" ? 1n : side === "below" ? -1n : 0n
-						const text = `${negative ? "-" : ""}${decimalText(numerator * scale + nudge, denominator * scale)}`
+						const text = `${negative ? "-" : ""}${numericText(numerator * scale + nudge, denominator * scale)}`
 						const lowerEven = (bitsOf(f) & 1) === 0
 						const nearer = side === "above" ? g : side === "below" ? f : lowerEven ? f : g
 						const expected = negative ? -nearer : nearer

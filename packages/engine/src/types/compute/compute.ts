@@ -18,7 +18,7 @@ import type {
 } from "#compiler/scalar/compute/tables.ts"
 import type { guarded } from "#compiler/scalar/compute/term.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
-import type { Decimal } from "#compiler/scalar/values/decimal.ts"
+import type { Numeric } from "#compiler/scalar/values/decimal.ts"
 import type { Sha256 } from "#compiler/scalar/values/sha256.ts"
 import type { Span } from "#compiler/scalar/values/span.ts"
 import type {
@@ -137,7 +137,7 @@ type SpanEndpoint<E, H, ES extends SqlTag> = [ES] extends [EndpointSql]
  * Whether a divisor B is proved nonzero where a quotient over S needs it: a float's never does, since its quotient by
  * zero is defined.
  */
-type NonzeroDivisor<S extends SqlTag, B> = [S] extends ["real" | "double precision"]
+type NonzeroDivisor<S extends SqlTag, B> = [S] extends ["float4" | "float8"]
 	? true
 	: Proves<B, "nonzero">
 
@@ -169,7 +169,7 @@ type IsFinite<S extends SqlTag, V, FX extends Facts, LV> =
  * or money, finite by its type or proved so (IsFinite).
  */
 type FiniteCast<S extends SqlTag, F extends SqlTag, V, FX extends Facts, LV> = [F] extends [
-	"smallint" | "integer" | "bigint" | "money"
+	"int2" | "int4" | "int8" | "money"
 ]
 	? IsFinite<S, V, FX, LV>
 	: true
@@ -189,10 +189,10 @@ type MayBeNonFinite<S extends SqlTag, V> =
  * them from numeric(p, 0), by its type (FiniteByType).
  */
 type CastFacts<S extends SqlTag, F extends SqlTag, V, FX extends Facts> = [F] extends [
-	"real" | "double precision"
+	"float4" | "float8"
 ]
 	? Facts
-	: [S] extends ["smallint" | "integer" | "bigint" | "exact integer" | "money" | "exact money"]
+	: [S] extends ["int2" | "int4" | "int8" | "exact integer" | "money" | "exact money"]
 		? FX & { readonly finite: true }
 		: Omit<FX, "nonzero"> &
 				Facts &
@@ -288,7 +288,7 @@ type Bounds<A, Lo, Hi, F extends SqlTag, L> = Every<
 /** Whether a conditional takes its test C, its first branch A, of type (X, S, L), and its other branch. */
 type Conditional<C, A, Otherwise, X, S extends SqlTag, L> = Every<
 	[
-		Takes<C, PredicateBase | Meets<boolean, "boolean">>,
+		Takes<C, PredicateBase | Meets<boolean, "bool">>,
 		TakesFirst<A, SqlTag>,
 		Takes<Otherwise, ValueOperand<X, S, L>>
 	]
@@ -318,11 +318,11 @@ type ValueAt<A, B, X, S extends SqlTag, F extends SqlTag> = ContractAdmits<
 >
 /**
  * The values an operand delivers opposite a term whose column delivers V: a term's column's; a JavaScript value its own
- * where it is one of V, and otherwise V, into which the column converts it, as a bigint opposite a numeric is a Decimal.
+ * where it is one of V, and otherwise V, into which the column converts it, as a bigint opposite a numeric is a Numeric.
  */
 type ValuesOf<A, V> = A extends TermBase ? ValueOfTerm<A> : A extends V ? A : V
 /** The SQL types of the exact families: the integers with the exact integer, money with exact money. */
-type IntegerFamily = "smallint" | "integer" | "bigint" | "exact integer"
+type IntegerFamily = "int2" | "int4" | "int8" | "exact integer"
 /**
  * Whether a term B opposite a first operand of SQL type S is of S's exact family without sharing S: an exact value
  * beside a plain one, in either order, which share no type (the engine's MalformedDescription); never for a value.
@@ -378,13 +378,13 @@ type Between<A, Lo, Hi> = Every<
  * The SQL types whose values are ordered: every one but a set's, whose bit string has no order in grizzle. A closed id
  * of a closed.unordered roster is of one, and has no order of its own (HasOrder).
  */
-type OrderedSql = Exclude<SqlTag, "bits">
+type OrderedSql = Exclude<SqlTag, "bit">
 /**
  * An ordering's first operand: a term of an ordered type, never a set (OrderedSql), and, where the ordering takes its
  * other operands (Taken), a term with an order (HasOrder): a closed id of a closed.unordered roster is refused by
  * OrderedOperand's refusal (types/compute/scalar.ts), which the engine states once it has every operand.
  */
-type Ordered<A, Taken extends boolean> = [SqlOfTerm<A>] extends ["bits"]
+type Ordered<A, Taken extends boolean> = [SqlOfTerm<A>] extends ["bit"]
 	? never
 	: Precondition<
 			Taken,
@@ -401,7 +401,7 @@ type Orders<A, B> = Every<[Compares<A, B, OrderedSql>, HasOrder<A>]>
  * Crypto, Distance (over vectors), Search (text search documents and queries), Bits (the set algebra), Net (the network
  * types' containment), Time (zones' wall clocks and epoch days) and Fn (declared functions). Each is the runtime
  * builders of packages/engine/src/scalar/compute bound to its public signature here (TypeApi, NumApi, LogicApi, RangeApi,
- * TextApi, XmlApi, CryptoApi, DistanceApi, SearchApi, BitsApi, NetApi, TimeApi, FnApi) by the public barrels
+ * TextApi, XmlApi, CryptoApi, DistanceApi, SearchApi, BitApi, NetApi, TimeApi, FnApi) by the public barrels
  * public/compute.ts and public/fields.ts (Bits, beside Bits.of); what follows holds of all thirteen.
  *
  * Every method threads the parameter maps of its operands into its result, and types its result as PostgreSQL's
@@ -528,11 +528,11 @@ export interface NumApi {
 	): Admitted<
 		TakesFirst<A, NumericSql>,
 		Term<
-			Decimal,
+			Numeric,
 			PA,
 			UnhostedOrigin<OA>,
 			"numeric",
-			Decimal,
+			Numeric,
 			CastFacts<S, "numeric", ValueOfTerm<A>, FX>
 		>
 	>
@@ -623,7 +623,7 @@ export interface NumApi {
 			>
 	): Admitted<
 		Reads<A, B, X, "numeric", "numeric">,
-		Term<Decimal, PA & P<B>, UnhostedOrigin<OA | O<B>>, "numeric">
+		Term<Numeric, PA & P<B>, UnhostedOrigin<OA | O<B>>, "numeric">
 	>
 	rem<A extends TermBase | FirstValue, X, PA, OA, const B>(
 		a: A & First<A, [B]> & InputTerm<X, PA, OA, "numeric">,
@@ -636,7 +636,7 @@ export interface NumApi {
 			>
 	): Admitted<
 		Reads<A, B, X, "numeric", "numeric">,
-		Term<Decimal, PA & P<B>, UnhostedOrigin<OA | O<B>>, "numeric">
+		Term<Numeric, PA & P<B>, UnhostedOrigin<OA | O<B>>, "numeric">
 	>
 	abs<A extends TermBase | FirstValue, X, PA, OA, S extends SignedSql>(
 		a: A & FirstTerm<A> & InputTerm<X, PA, OA, S>
@@ -657,21 +657,21 @@ export interface NumApi {
 		scale?: Fit<Sc, NoInfer<number>>
 	): Admitted<
 		Every<[TakesFirst<A, "numeric">, Takes<Sc, number>]>,
-		Term<Decimal, PA, UnhostedOrigin<OA>, "numeric">
+		Term<Numeric, PA, UnhostedOrigin<OA>, "numeric">
 	>
 	trunc<A extends TermBase | FirstValue, X, PA, OA, const Sc = number>(
 		a: A & First<A, [Sc]> & InputTerm<X, PA, OA, "numeric">,
 		scale?: Fit<Sc, NoInfer<number>>
 	): Admitted<
 		Every<[TakesFirst<A, "numeric">, Takes<Sc, number>]>,
-		Term<Decimal, PA, UnhostedOrigin<OA>, "numeric">
+		Term<Numeric, PA, UnhostedOrigin<OA>, "numeric">
 	>
 	ceil<A extends TermBase | FirstValue, X, PA, OA>(
 		a: A & FirstTerm<A> & InputTerm<X, PA, OA, "numeric">
-	): Admitted<TakesFirst<A, "numeric">, Term<Decimal, PA, UnhostedOrigin<OA>, "numeric">>
+	): Admitted<TakesFirst<A, "numeric">, Term<Numeric, PA, UnhostedOrigin<OA>, "numeric">>
 	floor<A extends TermBase | FirstValue, X, PA, OA>(
 		a: A & FirstTerm<A> & InputTerm<X, PA, OA, "numeric">
-	): Admitted<TakesFirst<A, "numeric">, Term<Decimal, PA, UnhostedOrigin<OA>, "numeric">>
+	): Admitted<TakesFirst<A, "numeric">, Term<Numeric, PA, UnhostedOrigin<OA>, "numeric">>
 	/** Integer and numeric; over smallint they are the integer forms cast back. */
 	gcd<A extends TermBase | FirstValue, X, PA, OA, S extends IntegralSql, B>(
 		a: A & First<A, [B]> & InputTerm<X, PA, OA, S>,
@@ -789,7 +789,7 @@ export interface NumApi {
 		count: Fit<C, NoInfer<Meets<number, SqlTag>>>
 	): Admitted<
 		Buckets<AX, AL, AH, C>,
-		Term<number, PX & PL & PH & P<C>, UnhostedOrigin<OX | OL | OH | O<C>>, "integer">
+		Term<number, PX & PL & PH & P<C>, UnhostedOrigin<OX | OL | OH | O<C>>, "int4">
 	>
 	/** min_scale of a value proved finite. */
 	minScale<A extends TermBase | FirstValue, X, PA, OA, FA extends Facts, LA>(
@@ -803,7 +803,7 @@ export interface NumApi {
 				IsFinite<"numeric", ValueOfTerm<A>, FA, LA>,
 				"a value proved finite: guard it with Logic.when(Num.isFinite(x), (x) => …, otherwise)"
 			>
-	): Admitted<TakesFirst<A, "numeric">, Term<number, PA, UnhostedOrigin<OA>, "integer">>
+	): Admitted<TakesFirst<A, "numeric">, Term<number, PA, UnhostedOrigin<OA>, "int4">>
 
 	/** A guard that its subject, a numeric-family term, is nonzero: `x <> 0`. */
 	nonzero<
@@ -912,12 +912,12 @@ export interface NumApi {
 	 * doubleToLongBits reads them; `floatBits(value)` is the same function on the host. Two floats have one image
 	 * exactly when they are one value: -0 and 0 differ, where Logic.eq holds them equal. IMMUTABLE and defined on
 	 * every float, it stands in row checks, selections, generated fields and queries, so a key over a float by identity
-	 * is a key over its image: a stated `bits: pg.bigint` in the key, held by `check(name, R, (r) => r.eq(r.bits,
+	 * is a key over its image: a stated `bits: int8` in the key, held by `check(name, R, (r) => r.eq(r.bits,
 	 * Num.floatBits(r.value)))`, the float kept beside it for reads by `=`.
 	 */
 	floatBits<A extends TermBase | FirstValue, X, PA, OA, S extends FloatSql>(
 		x: A & FirstTerm<A> & InputTerm<X, PA, OA, S>
-	): Admitted<TakesFirst<A, FloatSql>, Term<bigint, PA, ComputedOrigin<OA>, "bigint">>
+	): Admitted<TakesFirst<A, FloatSql>, Term<bigint, PA, ComputedOrigin<OA>, "int8">>
 }
 
 /**
@@ -989,10 +989,10 @@ export interface LogicApi {
 	 * conditional delivers either's values. An exact value and a plain one of its family share no type, in either order
 	 * (SharesType): PostgreSQL widens the plain branch, grizzle asks for Type.cast of the exact one into the plain
 	 * one's type. A boolean field is a predicate here, so
-	 * r.sum(Logic.cond(passed, Type.literal(pg.integer, 1), 0)) is a conditional count.
+	 * r.sum(Logic.cond(passed, Type.literal(int4, 1), 0)) is a conditional count.
 	 */
 	cond<
-		C extends PredicateBase | Meets<boolean, "boolean">,
+		C extends PredicateBase | Meets<boolean, "bool">,
 		A extends TermBase | FirstValue,
 		X,
 		PT,
@@ -1150,7 +1150,7 @@ export interface RangeApi {
 			Precondition<
 				TakesFirst<A, "range">,
 				SpanEndpoint<E, D, ES>,
-				"the span's own endpoint descriptor: a descriptor of another type is no endpoint of the span"
+				"the range's own endpoint descriptor: a descriptor of another type is no endpoint of the range"
 			>
 	): Admitted<
 		Every<[TakesFirst<A, "range">, SpanEndpoint<E, D, ES>]>,
@@ -1162,7 +1162,7 @@ export interface RangeApi {
 			Precondition<
 				TakesFirst<A, "range">,
 				SpanEndpoint<E, D, ES>,
-				"the span's own endpoint descriptor: a descriptor of another type is no endpoint of the span"
+				"the range's own endpoint descriptor: a descriptor of another type is no endpoint of the range"
 			>
 	): Admitted<
 		Every<[TakesFirst<A, "range">, SpanEndpoint<E, D, ES>]>,
@@ -1180,7 +1180,7 @@ export interface RangeApi {
 			Precondition<
 				TakesFirst<A, "range">,
 				SpanEndpoint<E, D, SqlOfDescriptor<Ep>>,
-				"the span's own endpoint descriptor: a descriptor of another type is no endpoint of the span"
+				"the range's own endpoint descriptor: a descriptor of another type is no endpoint of the range"
 			>
 	): Admitted<
 		Every<[TakesFirst<A, "range">, SpanEndpoint<E, D, SqlOfDescriptor<Ep>>]>,
@@ -1196,7 +1196,7 @@ export interface TextApi {
 	/** char_length; admitted only in contract predicates and row checks, never in a query. */
 	charLength<A extends TermBase | FirstValue, X, PA, OA>(
 		s: A & FirstTerm<A> & InputTerm<X, PA, OA, "text">
-	): Admitted<TakesFirst<A, "text">, Scalar<number, PA, ComputedOrigin<OA>, "integer">>
+	): Admitted<TakesFirst<A, "text">, Scalar<number, PA, ComputedOrigin<OA>, "int4">>
 	/**
 	 * octet_length, the text's UTF-8 bytes, total, so admitted everywhere, a query included. A contract's octetLength
 	 * bound bounds the text's bytes in a key exactly, and a guard on it, `Logic.when(Num.within(Text.octetLength(x),
@@ -1205,7 +1205,7 @@ export interface TextApi {
 	 */
 	octetLength<A extends TermBase | FirstValue, X, PA, OA>(
 		s: A & FirstTerm<A> & InputTerm<X, PA, OA, "text">
-	): Admitted<TakesFirst<A, "text">, Scalar<number, PA, ComputedOrigin<OA>, "integer">>
+	): Admitted<TakesFirst<A, "text">, Scalar<number, PA, ComputedOrigin<OA>, "int4">>
 	/**
 	 * A text's UTF-16 code units, JavaScript's String.length: its code points, and its supplementary ones once more,
 	 * `char_length(x) + regexp_count(x, '[\U00010000-\U0010FFFF]')`; admitted only in contract predicates and row
@@ -1217,7 +1217,7 @@ export interface TextApi {
 	 */
 	utf16Length<A extends TermBase | FirstValue, X, PA, OA>(
 		s: A & FirstTerm<A> & InputTerm<X, PA, OA, "text">
-	): Admitted<TakesFirst<A, "text">, Scalar<number, PA, ComputedOrigin<OA>, "integer">>
+	): Admitted<TakesFirst<A, "text">, Scalar<number, PA, ComputedOrigin<OA>, "int4">>
 	/**
 	 * a || b, PostgreSQL's textcat: text of no pattern, which compilation reads within a's bytes and b's where both are
 	 * bounded, a string or a typed constant by its own; a literal compared with it, in an equation or an IN list, of more
@@ -1243,7 +1243,7 @@ export interface TextApi {
 		b: Fit<B, NoInfer<Meets<X, "text"> | string>>
 	): Admitted<
 		Every<[TakesFirst<A, "text">, Takes<B, Meets<X, "text"> | string>]>,
-		Term<boolean, PA & P<B>, ComputedOrigin<OA | O<B>>, "boolean">
+		Term<boolean, PA & P<B>, ComputedOrigin<OA | O<B>>, "bool">
 	>
 	/** Whether a ends with b: `right(a, char_length(b)) = b`, since PostgreSQL has no ends_with. */
 	endsWith<A extends TermBase | FirstValue, X, PA, OA, const B>(
@@ -1251,7 +1251,7 @@ export interface TextApi {
 		b: Fit<B, NoInfer<Meets<X, "text"> | string>>
 	): Admitted<
 		Every<[TakesFirst<A, "text">, Takes<B, Meets<X, "text"> | string>]>,
-		Term<boolean, PA & P<B>, ComputedOrigin<OA | O<B>>, "boolean">
+		Term<boolean, PA & P<B>, ComputedOrigin<OA | O<B>>, "bool">
 	>
 	/**
 	 * Whether haystack holds needle, its characters together: `strpos(haystack, needle) > 0`. No pattern: the needle is
@@ -1266,7 +1266,7 @@ export interface TextApi {
 		needle: Fit<B, NoInfer<Meets<X, "text"> | string>>
 	): Admitted<
 		Every<[TakesFirst<A, "text">, Takes<B, Meets<X, "text"> | string>]>,
-		Term<boolean, PA & P<B>, ComputedOrigin<OA | O<B>>, "boolean">
+		Term<boolean, PA & P<B>, ComputedOrigin<OA | O<B>>, "bool">
 	>
 	/**
 	 * PostgreSQL's translate, by characters: x with each character of from replaced by the character of to at its
@@ -1390,34 +1390,34 @@ export interface TextApi {
 	 * The double a decimal text names, IEEE 754-2019's conversion from decimal character sequences: the text's exact
 	 * value rounded to the nearest double, ties to even, ±Infinity past the greatest finite double and a zero of the
 	 * mantissa's sign below half the least subnormal; `INF`, `-INF` and `NaN` name themselves. Its text is
-	 * `doubleText`, XML Schema 1.0's xs:double lexical space, of any digits and any exponent:
+	 * `float8Text`, XML Schema 1.0's xs:double lexical space, of any digits and any exponent:
 	 * compilation proves the operand's pattern lies inside it, or refuses the parse as PartialOperation (`lexical`),
-	 * remedied by `Logic.when(Text.matches(x, doubleText), (x) => Text.parseDouble(x), otherwise)`. Admitted
+	 * remedied by `Logic.when(Text.matches(x, float8Text), (x) => Text.parseFloat8(x), otherwise)`. Admitted
 	 * in contract predicates, row checks, generated fields and queries.
 	 */
-	parseDouble<A extends TermBase | FirstValue, X, PA, OA>(
+	parseFloat8<A extends TermBase | FirstValue, X, PA, OA>(
 		x: A & FirstTerm<A> & InputTerm<X, PA, OA, "text">
-	): Admitted<TakesFirst<A, "text">, Term<number, PA, ComputedOrigin<OA>, "double precision">>
+	): Admitted<TakesFirst<A, "text">, Term<number, PA, ComputedOrigin<OA>, "float8">>
 	/**
 	 * The numeric a decimal text names, exactly, by XML Schema's xs:decimal lexical mapping: its digits, signed, over ten
 	 * to the count of its fraction digits, a computed numeric of no typmod, so no count of digits changes its value. Its
-	 * text is `decimalText`, the grammar of XML Schema 1.1's xs:decimal lexical space, within `decimalTextMaxBytes`
+	 * text is `numericText`, the grammar of XML Schema 1.1's xs:decimal lexical space, within `numericTextMaxBytes`
 	 * UTF-8 bytes, 16,384, past which a text may name a value numeric does not hold: compilation proves the operand's
-	 * pattern lies inside it and its bytes within them, by its type (`str.bytes(16384, str.regex(decimalText.source))` or a
-	 * refinement of it) or by guards, `Logic.when(Text.matches(x, decimalText), (x) =>
-	 * Logic.when(Num.within(Text.octetLength(x), 0, 16384), () => Text.parseDecimal(x), otherwise),
+	 * pattern lies inside it and its bytes within them, by its type (`str.bytes(16384, str.regex(numericText.source))` or a
+	 * refinement of it) or by guards, `Logic.when(Text.matches(x, numericText), (x) =>
+	 * Logic.when(Num.within(Text.octetLength(x), 0, 16384), () => Text.parseNumeric(x), otherwise),
 	 * otherwise)`, or refuses the parse as PartialOperation (`lexical`). Its result has at most as many integer digits
 	 * as the operand has bytes, and one fewer fraction digits. Admitted in contract predicates, row checks, generated
 	 * fields and queries.
 	 */
-	parseDecimal<A extends TermBase | FirstValue, X, PA, OA>(
+	parseNumeric<A extends TermBase | FirstValue, X, PA, OA>(
 		x: A & FirstTerm<A> & InputTerm<X, PA, OA, "text">
-	): Admitted<TakesFirst<A, "text">, Term<Decimal, PA, ComputedOrigin<OA>, "numeric">>
+	): Admitted<TakesFirst<A, "text">, Term<Numeric, PA, ComputedOrigin<OA>, "numeric">>
 	/**
 	 * A pattern for Text.matches: `source` in grizzle's grammar under the flags "u", which the grammar check reads at
 	 * the type level as str.regex's does, admitted once, here, inside PostgreSQL's regex compile space and matched by
 	 * some text, so a refused source throws where it is written and every match over the pattern reads its admission.
-	 * doubleText, decimalText and lexicalForm(T) are grizzle's own.
+	 * float8Text, numericText and lexicalForm(T) are grizzle's own.
 	 */
 	pattern<const S extends string>(source: PatternValidate<S>): Pattern<S>
 	/**
@@ -1457,7 +1457,7 @@ export interface XmlApi {
 	 */
 	isPattern<A extends TermBase | FirstValue, X, PA, OA>(
 		x: A & FirstTerm<A> & InputTerm<X, PA, OA, "text">
-	): Admitted<TakesFirst<A, "text">, Term<boolean, PA, ComputedOrigin<OA>, "boolean">>
+	): Admitted<TakesFirst<A, "text">, Term<boolean, PA, ComputedOrigin<OA>, "bool">>
 	/**
 	 * A pattern for Text.matches written in XML Schema 1.0's dialect, a pattern facet (Part 2, Appendix F): read by
 	 * grizzle's one front end of that dialect, anchored at both ends as XML Schema reads every facet, its `\\i` and `\\c` XML
@@ -1493,7 +1493,7 @@ export interface DistanceApi {
 		b: Fit<B, NoInfer<Operand<X, "vector">>>
 	): Admitted<
 		Binary<A, B, X, "vector", "vector">,
-		Term<number, PA & P<B>, UnhostedOrigin<OA | O<B>>, "double precision"> & Scored<OA, O<B>>
+		Term<number, PA & P<B>, UnhostedOrigin<OA | O<B>>, "float8"> & Scored<OA, O<B>>
 	>
 }
 
@@ -1536,7 +1536,7 @@ export interface SearchApi {
 		query: Q
 	): Admitted<
 		TakesFirst<A, "tsvector">,
-		Term<number, PA & ParamsOfTerm<Q>, UnhostedOrigin<OA | OriginOfTerm<Q>>, "real">
+		Term<number, PA & ParamsOfTerm<Q>, UnhostedOrigin<OA | OriginOfTerm<Q>>, "float4">
 	>
 	/** A search document's cover density rank for a query, ts_rank_cd(d, q), as textRank's. */
 	rankCd<A extends TermBase | FirstValue, X, PA, OA, Q extends TextQuery<never>>(
@@ -1544,59 +1544,59 @@ export interface SearchApi {
 		query: Q
 	): Admitted<
 		TakesFirst<A, "tsvector">,
-		Term<number, PA & ParamsOfTerm<Q>, UnhostedOrigin<OA | OriginOfTerm<Q>>, "real">
+		Term<number, PA & ParamsOfTerm<Q>, UnhostedOrigin<OA | OriginOfTerm<Q>>, "float4">
 	>
 }
 
 /**
  * The Bits namespace's set algebra over sets of one roster's handles, beside Bits.of, the set value (public/fields.ts).
  */
-export interface BitsApi {
+export interface BitApi {
 	/**
 	 * The set algebra over sets of one roster: the second operand is a set term of the first's roster, or a set value
 	 * (Bits.of), which takes the first operand's type. union is a | b, intersection a & b, difference a & ~b; no
 	 * complement is public, since ~a would hold the codes the roster has removed.
 	 */
 	union<A extends TermBase | FirstValue, X, PA, OA, V, L, const B>(
-		a: A & First<A, [B]> & Term<X, PA, OA, "bits", V, Facts, L>,
-		b: Fit<B, NoInfer<Operand<X, "bits", L>>>
+		a: A & First<A, [B]> & Term<X, PA, OA, "bit", V, Facts, L>,
+		b: Fit<B, NoInfer<Operand<X, "bit", L>>>
 	): Admitted<
-		Binary<A, B, X, "bits", "bits", L>,
-		Term<X, PA & P<B>, ComputedOrigin<OA | O<B>>, "bits", V, Facts, L>
+		Binary<A, B, X, "bit", "bit", L>,
+		Term<X, PA & P<B>, ComputedOrigin<OA | O<B>>, "bit", V, Facts, L>
 	>
 	intersection<A extends TermBase | FirstValue, X, PA, OA, V, L, const B>(
-		a: A & First<A, [B]> & Term<X, PA, OA, "bits", V, Facts, L>,
-		b: Fit<B, NoInfer<Operand<X, "bits", L>>>
+		a: A & First<A, [B]> & Term<X, PA, OA, "bit", V, Facts, L>,
+		b: Fit<B, NoInfer<Operand<X, "bit", L>>>
 	): Admitted<
-		Binary<A, B, X, "bits", "bits", L>,
-		Term<X, PA & P<B>, ComputedOrigin<OA | O<B>>, "bits", V, Facts, L>
+		Binary<A, B, X, "bit", "bit", L>,
+		Term<X, PA & P<B>, ComputedOrigin<OA | O<B>>, "bit", V, Facts, L>
 	>
 	difference<A extends TermBase | FirstValue, X, PA, OA, V, L, const B>(
-		a: A & First<A, [B]> & Term<X, PA, OA, "bits", V, Facts, L>,
-		b: Fit<B, NoInfer<Operand<X, "bits", L>>>
+		a: A & First<A, [B]> & Term<X, PA, OA, "bit", V, Facts, L>,
+		b: Fit<B, NoInfer<Operand<X, "bit", L>>>
 	): Admitted<
-		Binary<A, B, X, "bits", "bits", L>,
-		Term<X, PA & P<B>, ComputedOrigin<OA | O<B>>, "bits", V, Facts, L>
+		Binary<A, B, X, "bit", "bit", L>,
+		Term<X, PA & P<B>, ComputedOrigin<OA | O<B>>, "bit", V, Facts, L>
 	>
 	/** The count of a set's handles, bit_count. */
 	cardinality<A extends TermBase | FirstValue, X, PA, OA>(
-		a: A & FirstTerm<A> & InputTerm<X, PA, OA, "bits">
-	): Admitted<TakesFirst<A, "bits">, Term<bigint, PA, ComputedOrigin<OA>, "bigint">>
+		a: A & FirstTerm<A> & InputTerm<X, PA, OA, "bit">
+	): Admitted<TakesFirst<A, "bit">, Term<bigint, PA, ComputedOrigin<OA>, "int8">>
 	/** Whether every handle of a is one of b's: bit_count(a & ~b) = 0. */
 	subset<A extends TermBase | FirstValue, X, PA, OA, const B>(
-		a: A & First<A, [B]> & InputTerm<X, PA, OA, "bits">,
-		b: Fit<B, NoInfer<Operand<X, "bits">>>
+		a: A & First<A, [B]> & InputTerm<X, PA, OA, "bit">,
+		b: Fit<B, NoInfer<Operand<X, "bit">>>
 	): Admitted<
-		Binary<A, B, X, "bits", "bits">,
-		Term<boolean, PA & P<B>, ComputedOrigin<OA | O<B>>, "boolean">
+		Binary<A, B, X, "bit", "bit">,
+		Term<boolean, PA & P<B>, ComputedOrigin<OA | O<B>>, "bool">
 	>
 	/** Whether a and b share no handle: bit_count(a & b) = 0. */
 	disjoint<A extends TermBase | FirstValue, X, PA, OA, const B>(
-		a: A & First<A, [B]> & InputTerm<X, PA, OA, "bits">,
-		b: Fit<B, NoInfer<Operand<X, "bits">>>
+		a: A & First<A, [B]> & InputTerm<X, PA, OA, "bit">,
+		b: Fit<B, NoInfer<Operand<X, "bit">>>
 	): Admitted<
-		Binary<A, B, X, "bits", "bits">,
-		Term<boolean, PA & P<B>, ComputedOrigin<OA | O<B>>, "boolean">
+		Binary<A, B, X, "bit", "bit">,
+		Term<boolean, PA & P<B>, ComputedOrigin<OA | O<B>>, "bool">
 	>
 	/**
 	 * The set over a closed id's roster holding exactly its handle: the empty set with the id's code's bit set,
@@ -1606,7 +1606,7 @@ export interface BitsApi {
 	 */
 	singleton<A extends TermBase | FirstValue, X, PA, OA, L>(
 		id: A & FirstTerm<A> & Term<X, PA, OA, "code", unknown, Facts, L>
-	): Admitted<TakesFirst<A, "code">, Term<SetOver<X, L>, PA, ComputedOrigin<OA>, "bits">>
+	): Admitted<TakesFirst<A, "code">, Term<SetOver<X, L>, PA, ComputedOrigin<OA>, "bit">>
 }
 
 /**
@@ -1625,25 +1625,25 @@ export interface TimeApi {
 	 * refuses it.
 	 */
 	wall<A extends TermBase | FirstValue, X, PA, OA, Z extends Zoned, PZ, OZ>(
-		instant: A & FirstTerm<A> & InputTerm<X, PA, OA, "bigint"> & NotInstant<X>,
+		instant: A & FirstTerm<A> & InputTerm<X, PA, OA, "int8"> & NotInstant<X>,
 		zone: Term<Z, PZ, OZ, "code", unknown, Facts, unknown>
-	): Admitted<TakesFirst<A, "bigint">, Term<bigint, PA & PZ, ComputedOrigin<OA | OZ>, "bigint">>
+	): Admitted<TakesFirst<A, "int8">, Term<bigint, PA & PZ, ComputedOrigin<OA | OZ>, "int8">>
 	/**
 	 * A date's days after 1970-01-01, negative before it, `x - '1970-01-01'::date`: an integer, defined on every date,
 	 * standing in a query, a check and a generated field alike.
 	 */
 	epochDay<A extends TermBase | FirstValue, X, PA, OA>(
 		date: A & FirstTerm<A> & InputTerm<X, PA, OA, "date">
-	): Admitted<TakesFirst<A, "date">, Term<number, PA, ComputedOrigin<OA>, "integer">>
+	): Admitted<TakesFirst<A, "date">, Term<number, PA, ComputedOrigin<OA>, "int4">>
 	/**
 	 * The date an integer or bigint term counts days after 1970-01-01, `'1970-01-01'::date + n`: defined where n is the
 	 * epoch day of a date of 0001-01-01 to 9999-12-31, which its bounds prove or a Num.within guard. An exact integer is
-	 * cast into a bigint first, Type.cast(n, pg.bigint).
+	 * cast into a bigint first, Type.cast(n, int8).
 	 */
-	dateOfEpochDay<A extends TermBase | FirstValue, X, PA, OA, S extends "integer" | "bigint">(
+	dateOfEpochDay<A extends TermBase | FirstValue, X, PA, OA, S extends "int4" | "int8">(
 		days: A & FirstTerm<A> & InputTerm<X, PA, OA, S>
 	): Admitted<
-		TakesFirst<A, "integer" | "bigint">,
+		TakesFirst<A, "int4" | "int8">,
 		Term<PlainHost["date"], PA, ComputedOrigin<OA>, "date">
 	>
 }

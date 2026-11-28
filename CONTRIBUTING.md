@@ -632,7 +632,7 @@ text match. A type agreement's requirements are its property's situations, which
 | Choosing features and options with a floor for every choice; Live, Stale and Wild values at a public boundary | `@bjornpagen/testing/swarm`, `lsw` |
 | A wait that observes a fact | `@bjornpagen/testing/fact` |
 | N implementations agreeing modulo a declared equivalence (exact, order, a set that fails on a repeated item, a projection) | `@bjornpagen/testing/oracle` |
-| grizzle's delivered values compared exactly: a Decimal by `equals`, its one form | `test/support/equivalence.ts` |
+| grizzle's delivered values compared exactly: a Numeric by `equals`, its one form | `test/support/equivalence.ts` |
 | Picks over 0..0xffff, a choice's floor among options | `test/support/pick.ts` |
 | Identifier and literal dictionaries, admitted by the production validators | `test/support/kernel/dict.ts` |
 | Emitted SQL by structure: `shapeOf` | `test/support/kernel/shape.ts` |

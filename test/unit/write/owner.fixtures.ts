@@ -7,7 +7,7 @@ import { noClock, transactionClock } from "#compiler/ir/clock.ts"
 import type { WriteOp } from "#compiler/ir/desc.ts"
 import { installOptions } from "#compiler/physical/install/compile.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
-import { accumulated, drawn as drawnField, natural, pg } from "#compiler/public/fields.ts"
+import { accumulated, drawn as drawnField, natural, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	check,
@@ -34,11 +34,11 @@ import { descOf, uuidOf } from "#test/support/unit/write/changeset/fixtures.ts"
 /** Ledger(id, total, n drawn, t accumulated): the owner of the counted family of Entry. */
 const Ledger = relation(
 	"Ledger",
-	{ id: Id, total: pg.bigint, n: drawnField(natural), t: accumulated(pg.bigint, 0n) },
+	{ id: Id, total: int8, n: drawnField(natural), t: accumulated(int8, 0n) },
 	["id"]
 )
 
-const Entry = relation("Entry", { id: Id, ledger: Id, x: pg.bigint }, ["id"])
+const Entry = relation("Entry", { id: Id, ledger: Id, x: int8 }, ["id"])
 
 const entries = counted(on(Entry, "ledger"), fin(Ledger, "n"))
 
@@ -57,7 +57,7 @@ const Books = schema(
 
 /** Ledgers read from the relation parameter `given`: facts no row need hold, so a write of them may insert each. */
 const givenLedgers = query(Books).rule((r) => {
-	const given = r.relation("given", { id: Id, total: pg.bigint })
+	const given = r.relation("given", { id: Id, total: int8 })
 	const { id, total } = v(Ledger, "ledger")
 	return r.match(given, { id, total }).find({ id, total })
 })
@@ -68,7 +68,7 @@ const restatedLedger = query(Books).rule((r) => {
 	return r
 		.match(Ledger, { id, total })
 		.where(r.eq(id, r.param("ledger", Id)))
-		.find({ id, total: r.param("total", pg.bigint) })
+		.find({ id, total: r.param("total", int8) })
 })
 
 /** Where a write's ledgers come from: a query that may insert one, a query of stored ledgers alone, or stated facts. */

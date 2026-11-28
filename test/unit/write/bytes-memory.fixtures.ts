@@ -5,7 +5,7 @@ import type { Need } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import { byteaElementBytes, byteaHeaderBytes } from "#compiler/codec/bytea.ts"
-import { bytes, pg } from "#compiler/public/fields.ts"
+import { bytea, int4 } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { inForce, type Transport } from "#compiler/runtime/write/transport.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -23,9 +23,9 @@ export const valueLength = 1024 * 1024
  */
 export const transport: Transport = { ...inForce(bindFrame), messageBytes: 16 * valueLength }
 
-export const One = relation("One", { id: pg.integer, body: bytes }, ["id"])
+export const One = relation("One", { id: int4, body: bytea }, ["id"])
 
-export const Two = relation("Two", { id: pg.integer, body: bytes, more: bytes }, ["id"])
+export const Two = relation("Two", { id: int4, body: bytea, more: bytea }, ["id"])
 
 export const Large = schema("BytesMemory", [One, Two], [])
 

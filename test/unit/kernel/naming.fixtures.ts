@@ -22,7 +22,7 @@ import type { FieldDesc, SchemaDesc, StatementDesc } from "#compiler/ir/desc.ts"
 import type { OpenExpr } from "#compiler/ir/open.ts"
 import type { ConstraintOwner } from "#compiler/ir/products.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	type AnySchema,
@@ -168,7 +168,7 @@ export const shapeFeatures = (shape: Shape, underOr: boolean): ReadonlyArray<Sha
 	return [...own, ...Arr.flatMap(shape.args, (arg) => shapeFeatures(arg, shape.kind === "or"))]
 }
 
-export const Item = relation("Item", { id: pg.integer, t: str.regex("^[a-c]{0,3}$") }, ["id"])
+export const Item = relation("Item", { id: int4, t: str.regex("^[a-c]{0,3}$") }, ["id"])
 
 /** A row check has no parameters, so its predicate's parameter map is unknown. */
 const predicateOf = (shape: Shape, r: RowScalars<typeof Item>): Predicate => {
@@ -270,7 +270,7 @@ const familySchema = (spacePick: number, variantPick: number): AnySchema => {
 }
 
 /** A stored relation, and the level that holds it alone. */
-const Reading = relation("Reading", { id: pg.integer, n: pg.integer }, ["id"])
+const Reading = relation("Reading", { id: int4, n: int4 }, ["id"])
 const RuleBase = schema("Rules", [Reading], [])
 
 /** Every Reading, as a derived relation of the level above: a statement over it is a rule over a query. */
@@ -314,12 +314,12 @@ export const subjectOf = (
 							relation(
 								"Line",
 								{
-									id: pg.integer,
+									id: int4,
 									...Rec.fromEntries(
 										Arr.map(
 											sub.contracts,
 											(k, i) =>
-												[`f${i}`, rawContract(k.name, pg.bigint, boundOf(k.atLeastZero))] as const
+												[`f${i}`, rawContract(k.name, int8, boundOf(k.atLeastZero))] as const
 										)
 									)
 								},

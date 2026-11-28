@@ -62,7 +62,7 @@ const boxCases: ReadonlyArray<TimeCase> = [
 		verdict: {
 			kind: "refusal",
 			refusal:
-				"an instant is the database's clock's alone: no parameter, literal, constant, cast, contract or span is of its type"
+				"an instant is the database's clock's alone: no parameter, literal, constant, cast, contract or range is of its type"
 		}
 	},
 	{
@@ -137,7 +137,7 @@ const prelude = await Effect.runPromise(preludeAt("test/support/programs/time.ts
 /** Zone, a zone roster, Mood, an ordered one, Probe over both, and the three queries whose rows the cells read. */
 const timeHeader = `export const Zone = closed.zones("Zone", ["America/Chicago", "Asia/Kolkata"])
 export const Mood = closed.ordered("Mood", ["sad", "happy"])
-export const Probe = relation("Probe", { id: pg.integer, at: pg.bigint, n: pg.integer, day: date, zone: closedId(Zone), mood: closedId(Mood), stamp: instant }, ["id", "stamp"])
+export const Probe = relation("Probe", { id: int4, at: int8, n: int4, day: date, zone: closedId(Zone), mood: closedId(Mood), stamp: instant }, ["id", "stamp"])
 export const S = schema("S", [Zone, Mood, Probe], [])
 export const walls = ${over("w: Time.wall(at, zone)")}
 export const epochs = ${over("e: Time.epochDay(day)")}

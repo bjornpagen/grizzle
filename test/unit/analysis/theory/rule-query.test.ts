@@ -17,14 +17,14 @@
  * the equality of their bytes whatever patterns refine them, so each correlation is admitted, as a stored foreign key
  * between them is.
  *
- * A third box reads a head literal: a derived relation of Item whose two arms deliver a text or a Decimal as a
+ * A third box reads a head literal: a derived relation of Item whose two arms deliver a text or a Numeric as a
  * JavaScript literal, one in both or one each, the union's discriminant, read directly and through Item's semijoin with
  * it binding it by a variable a stored match binds, by a literal, or by a variable minted from the relation itself,
  * which only the head literal defines, under a check, a key and a selection that read it, and a containment into it,
  * on its pair or on its id alone, the semijoin's definition then fixing the stored column it reads to the literal. The
- * Decimal is finite, NaN, an infinity, or one past every numeric(p, s), of one integer digit more than its greatest
+ * Numeric is finite, NaN, an infinity, or one past every numeric(p, s), of one integer digit more than its greatest
  * precision or one fraction digit more than its greatest scale. A
- * bare head literal takes its column's type, a Decimal's the computed numeric of the bound its analysis proves, which
+ * bare head literal takes its column's type, a Numeric's the computed numeric of the bound its analysis proves, which
  * no numeric(p, s) states for any but the finite one, so it stands wherever a term of the column does; a variable only
  * a head literal defines is that literal. A trigger probe reads the union by arm, so a fact of one arm meets each arm's
  * literal: bound to it where the arm delivers the same literal, compared with it in the arm's own query where the arm
@@ -32,7 +32,7 @@
  * no fact of the arm meets, which the checker refuses. A selection over Read compares Read's amount, Amount's
  * numeric(4, 2), with the bare literal, which takes that type as written: an infinity, or one past its precision or
  * scale, is refused for it (scalar/compute/literal.ts oppositeLiteralProblem), never rounded or compared at another.
- * A Decimal read by a variable Amount's match binds is refused at the semijoin's definition, the variable bound to
+ * A Numeric read by a variable Amount's match binds is refused at the semijoin's definition, the variable bound to
  * Amount's numeric(4, 2) and the literal's computed numeric, neither guaranteeing the other (31664c74c6).
  *
  * A fourth box negates: a derived relation of Item whose definition negates Mark, a join of Mark and Note (a query),
@@ -211,13 +211,13 @@ const outsideAmount: ReadonlySet<string> = new Set([
 ])
 
 /**
- * Whether a case's definition binds one variable to Amount's numeric(4, 2) and to the column a Decimal head literal
+ * Whether a case's definition binds one variable to Amount's numeric(4, 2) and to the column a Numeric head literal
  * types, the computed numeric of the bound its analysis proves, neither of which guarantees the other's
  * (check/refinement guarantees: a numeric only its own typmod, and a bound only the values within it, where every
- * Decimal's bound, its own or its hull with 2.25, holds fewer than numeric(4, 2)'s two integer and two fraction
+ * Numeric's bound, its own or its hull with 2.25, holds fewer than numeric(4, 2)'s two integer and two fraction
  * digits): since 31664c74c6 a variable settles on the one of its columns' types that guarantees the others
  * (check/checker.ts RuleCheck #settle), so the checker refuses the definition itself, naming both, as the schema's
- * defect, never a rule's. A Decimal read by a variable Amount's match binds.
+ * defect, never a rule's. A Numeric read by a variable Amount's match binds.
  */
 const bindsAcrossNumerics = (c: { readonly literal: string; readonly read: string }): boolean =>
 	c.literal !== "text" && c.read === "variable"
@@ -283,7 +283,7 @@ export const aRuleOverAQueryCompilesWheneverTheBuildersAdmitItAHeadLiteralReadWh
 			kind: "specification",
 			name: "the builders' admission: a schema schema.extend builds compiles to its artifacts"
 		},
-		box: "every check, key and selection over, and containment into, on its pair or its id alone, a derived relation of Item whose two arms deliver a text or Decimal head literal, the Decimal finite, NaN, an infinity, or one past numeric(p, s)'s greatest precision or scale, one in both or a discriminant, and over its semijoin binding it by a variable a stored match binds, a literal, or a variable only its head literal defines",
+		box: "every check, key and selection over, and containment into, on its pair or its id alone, a derived relation of Item whose two arms deliver a text or Numeric head literal, the Numeric finite, NaN, an infinity, or one past numeric(p, s)'s greatest precision or scale, one in both or a discriminant, and over its semijoin binding it by a variable a stored match binds, a literal, or a variable only its head literal defines",
 		kept: [],
 		kills: [
 			{

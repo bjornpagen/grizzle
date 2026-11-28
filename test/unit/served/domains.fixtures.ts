@@ -12,7 +12,7 @@ import { firstCodebook } from "#compiler/ir/codes.ts"
 import { fieldColumnType } from "#compiler/ir/physical.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Fn, Type } from "#compiler/public/compute.ts"
-import { contract, pg } from "#compiler/public/fields.ts"
+import { contract, int4, numeric } from "#compiler/public/fields.ts"
 import { param, query, v } from "#compiler/public/query.ts"
 import { derived, fn, mutable, relation, row, rows, schema, unit } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -93,11 +93,11 @@ const Word = str.bytes(64, str.regex("^.*$", "su"))
 
 const countKey = Symbol("Count")
 /** A contract the functions' results carry: grizzle's exact integer of QTI's range, edullm's QtiInteger. */
-const Count = contract<typeof countKey>()("Count", pg.numeric(613, 0))
+const Count = contract<typeof countKey>()("Count", numeric(613, 0))
 
 const rankKey = Symbol("Rank")
 /** A contract only a query declares, the target of its checked cast. */
-const Rank = contract<typeof rankKey>()("Rank", pg.integer)
+const Rank = contract<typeof rankKey>()("Rank", int4)
 
 /**
  * The case's login: Item(item), the items a function is called at; Doc(doc, list), lists of tokens; Out(item, value),
@@ -109,10 +109,10 @@ const Rank = contract<typeof rankKey>()("Rank", pg.integer)
  */
 const loginOf = (c: TextDomainCase) => {
 	const R = refinements[c.refinement]
-	const Item = relation("Item", { item: pg.integer }, ["item"])
-	const Doc = relation("Doc", { doc: pg.integer, list: Word }, ["doc"])
-	const Out = relation("Out", { item: pg.integer, value: Word }, ["item", "value"])
-	const Coded = relation("Coded", { item: pg.integer, code: R, count: Count }, ["item"])
+	const Item = relation("Item", { item: int4 }, ["item"])
+	const Doc = relation("Doc", { doc: int4, list: Word }, ["doc"])
+	const Out = relation("Out", { item: int4, value: Word }, ["item", "value"])
+	const Coded = relation("Coded", { item: int4, code: R, count: Count }, ["item"])
 	const Judged = rows({ code: R, count: Count })
 	/** Each body returns a member of the refinement, alpha or beta for the alternation and ab or cd for the others. */
 	const words = c.refinement === "an alternation"
@@ -120,7 +120,7 @@ const loginOf = (c: TextDomainCase) => {
 		"judge",
 		{
 			calls: [],
-			args: { item: pg.integer },
+			args: { item: int4 },
 			returns: Judged,
 			volatility: "immutable",
 			nullInput: "called",
@@ -135,7 +135,7 @@ const loginOf = (c: TextDomainCase) => {
 		"judgeRow",
 		{
 			calls: [],
-			args: { item: pg.integer },
+			args: { item: int4 },
 			returns: row(rows({ codes: Judged })),
 			volatility: "immutable",
 			nullInput: "called",
@@ -148,7 +148,7 @@ const loginOf = (c: TextDomainCase) => {
 	)
 	const judgeOne = fn("judgeOne", {
 		calls: [],
-		args: { item: pg.integer },
+		args: { item: int4 },
 		returns: R,
 		volatility: "immutable",
 		nullInput: "called",
@@ -161,7 +161,7 @@ const loginOf = (c: TextDomainCase) => {
 		"countOne",
 		{
 			calls: [],
-			args: { item: pg.integer },
+			args: { item: int4 },
 			returns: Count,
 			volatility: "immutable",
 			nullInput: "called",
@@ -182,7 +182,7 @@ const loginOf = (c: TextDomainCase) => {
 			judgeOne,
 			countOne
 		],
-		[unit("Items", { item: pg.integer }), mutable(Out)]
+		[unit("Items", { item: int4 }), mutable(Out)]
 	)
 	/**
 	 * The items whose codes `judge` gives, a stored definition of its rows that finds none of their fields, in the unit
@@ -198,10 +198,10 @@ const loginOf = (c: TextDomainCase) => {
 		})
 	)
 	const s = schema.extend([base], "TextDomainsTop", [Judging], [])
-	const item = param("item", pg.integer)
+	const item = param("item", int4)
 	/** The codes `judge` gives the item a parameter names. */
 	const codes = query(s).rule((r) => {
-		const run = Fn.rows(judge, { item: r.param("item", pg.integer) })
+		const run = Fn.rows(judge, { item: r.param("item", int4) })
 		const { code } = v(run, "run")
 		return r.match(run, { code }).find({ code })
 	})
@@ -211,7 +211,7 @@ const loginOf = (c: TextDomainCase) => {
 		const split = r.tokens(list)
 		const { token } = v(split, "token")
 		return r
-			.match(Doc, { doc: r.param("doc", pg.integer), list })
+			.match(Doc, { doc: r.param("doc", int4), list })
 			.match(split, { token })
 			.find({ token })
 	})
@@ -272,7 +272,7 @@ const loginOf = (c: TextDomainCase) => {
 					return codes
 				case "a field of a function's row found":
 					return query(s).rule((r) => {
-						const read = Fn.row(judgeRow, { item: r.param("item", pg.integer) }).codes
+						const read = Fn.row(judgeRow, { item: r.param("item", int4) }).codes
 						const { code } = v(read, "read")
 						return r.match(read, { code }).find({ code })
 					})

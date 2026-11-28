@@ -6,7 +6,7 @@ import { exact } from "@bjornpagen/testing/oracle"
 import { Array as Arr, Option, Record as Rec } from "effect"
 import { clockOrders, probeRows, proofsOf } from "#compiler/analysis/theory/query.ts"
 import type { InferredExpr, InferredQuery, InferredRule } from "#compiler/ir/desc.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, derived, mutable, on, relation, schema, unit } from "#compiler/public/schema.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -55,20 +55,20 @@ export const features: Arr.NonEmptyReadonlyArray<Feature> = [
 const schemaOf = (shape: Shape) => {
 	const T = relation(
 		"T",
-		{ k1: pg.integer, k2: pg.integer, a: pg.integer, b: pg.integer },
+		{ k1: int4, k2: int4, a: int4, b: int4 },
 		shape.composite ? ["k1", "k2"] : ["k1"]
 	)
-	const S = relation("S", { id: pg.integer, a: pg.integer }, ["id"])
-	const G = relation("G", { x: pg.integer }, ["x"])
+	const S = relation("S", { id: int4, a: int4 }, ["id"])
+	const G = relation("G", { x: int4 }, ["x"])
 	/** Mutable, each under the unit of its key's first field, so the containment over them is no unit-local rule but a
 	 * probed one, whose probes the test reads. */
 	const Base = schema(
 		"probe_held",
 		[T, S, G],
 		[
-			unit("Ts", { k1: pg.integer }),
-			unit("Ss", { id: pg.integer }),
-			unit("Gs", { x: pg.integer }),
+			unit("Ts", { k1: int4 }),
+			unit("Ss", { id: int4 }),
+			unit("Gs", { x: int4 }),
 			mutable(T),
 			mutable(S),
 			mutable(G)

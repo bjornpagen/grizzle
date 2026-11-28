@@ -4,7 +4,7 @@ import { array, element, type Gen, int, uniqueKeys } from "@bjornpagen/testing/g
 import { Array as Arr, Option, Order, String as Str } from "effect"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Crypto } from "#compiler/public/compute.ts"
-import { generated, pg, sha256 } from "#compiler/public/fields.ts"
+import { generated, sha256, int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { key, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -27,7 +27,7 @@ const boundedText = str.bytes(1024, str.regex("^.*$", "su"))
 
 const Ref = relation.generated(
 	"Ref",
-	{ id: pg.integer, pkg: boundedText, path: boundedText, note: pg.integer },
+	{ id: int4, pkg: boundedText, path: boundedText, note: int4 },
 	["id"],
 	(row) => ({
 		pkgDigest: generated(sha256, Crypto.sha256(row.pkg)),
@@ -35,7 +35,7 @@ const Ref = relation.generated(
 	})
 )
 
-const Use = relation("Use", { n: pg.integer, pkg: boundedText, path: boundedText }, ["n"])
+const Use = relation("Use", { n: int4, pkg: boundedText, path: boundedText }, ["n"])
 
 export const Digests = schema("Digests", [Ref, Use], [key(on(Ref, "pkgDigest", "pathDigest"))])
 

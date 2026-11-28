@@ -15,7 +15,7 @@ import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import * as N from "#compiler/scalar/compute/numeric.ts"
 import { plainType } from "#compiler/scalar/native.ts"
-import type { Decimal } from "#compiler/scalar/values/decimal.ts"
+import type { Numeric } from "#compiler/scalar/values/decimal.ts"
 
 import { assert } from "@bjornpagen/testing/assert"
 import { Money } from "#compiler/scalar/values/money.ts"
@@ -286,7 +286,7 @@ const roundedTotal = (xs: Arr.NonEmptyReadonlyArray<number>): number => {
 	const total = Arr.reduce(
 		Arr.tailNonEmpty(xs),
 		exactDouble(Arr.headNonEmpty(xs)),
-		(t: Decimal, x): Decimal => {
+		(t: Numeric, x): Numeric => {
 			const sum = N.add(t, exactDouble(x))
 			if (!sum.ok) {
 				throw new Error(`no exact sum: ${sum.error}`)

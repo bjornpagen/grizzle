@@ -9,7 +9,7 @@ import type { ServedLogin } from "#adapter/types/layer.ts"
 import type { CallError, CallErrorKind } from "#compiler/live/index.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	type AnyLogin,
@@ -48,9 +48,9 @@ const untagged = ["", "abcdefghi", "Abc", "a-b", "é", "a b"] as const
 
 /** The notebook under `name`: its schema, its writer's login and the direct writer's. */
 export const notebook = (name: string) => {
-	const Session = context("Session", { sub: pg.integer })
-	const Note = relation("Note", { id: pg.integer, author: pg.integer, body: pg.integer }, ["id"])
-	const base = schema(name, [Note], [mutable(Note), unit("Noted", { id: pg.integer })])
+	const Session = context("Session", { sub: int4 })
+	const Note = relation("Note", { id: int4, author: int4, body: int4 }, ["id"])
+	const base = schema(name, [Note], [mutable(Note), unit("Noted", { id: int4 })])
 	const mine = query(base).rule((r) => {
 		const { id, author, body } = v(Note, "note")
 		return r

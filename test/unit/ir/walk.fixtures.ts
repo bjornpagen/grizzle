@@ -78,7 +78,7 @@ const name = element(["a", "b", "c"])
 
 const loc = SourceLoc("a walked expression", ["walk"])
 
-const integer = { kind: "pg", type: "integer" } as const
+const integer = { kind: "pg", type: "int4" } as const
 
 const leaf: Gen<InferredExpr> = oneOf<InferredExpr>([
 	map(name, (v) => ({ kind: "var", var: v })),

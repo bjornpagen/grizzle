@@ -11,7 +11,7 @@ import type { ParamDecl } from "#compiler/ir/products.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import { type RosterOrder, type ScalarType, spanOf } from "#compiler/ir/scalar.ts"
 import * as computeApi from "#compiler/public/compute.ts"
-import { Bits, bytes, Decimal, Money, sha256 } from "#compiler/public/fields.ts"
+import { Bit, bytea, Numeric, Money, sha256 } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { lexicalForm, str } from "#compiler/public/text.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
@@ -116,7 +116,7 @@ const digitsPattern: Lit = { text: '"^[0-9]+$"', value: "^[0-9]+$" }
 /**
  * The JavaScript values a case draws, the values the catalogue's literal typing branches on: numbers whole and not,
  * zero and negative; bigints; exact decimal strings and other text, patterns well formed and not; a boolean; a uuid; a
- * Decimal, a Money, a set of Tone's handles, and a string TypeScript types as string (widened).
+ * Numeric, a Money, a set of Tone's handles, and a string TypeScript types as string (widened).
  */
 const lits: Arr.NonEmptyReadonlyArray<Lit> = [
 	{ text: "0", value: 0 },
@@ -135,9 +135,9 @@ const lits: Arr.NonEmptyReadonlyArray<Lit> = [
 	{ text: '"a("', value: "a(" },
 	{ text: "true", value: true },
 	{ text: '"00000000-0000-4000-8000-000000000001"', value: "00000000-0000-4000-8000-000000000001" },
-	{ text: 'Decimal.of("0.25")', value: Decimal.of("0.25") },
+	{ text: 'Numeric.of("0.25")', value: Numeric.of("0.25") },
 	{ text: "Money.of(5n)", value: Money.of(5n) },
-	{ text: 'Bits.of(Tone, ["low"])', value: Bits.of(Tone, ["low"]) },
+	{ text: 'Bit.of(Tone, ["low"])', value: Bit.of(Tone, ["low"]) },
 	widened
 ]
 
@@ -197,7 +197,7 @@ const compares = ["eq", "ne", "lt", "le", "gt", "ge"] as const
 type Compare = (typeof compares)[number]
 const aggregates = ["sum", "mean", "min", "max"] as const
 type AggregateFn = (typeof aggregates)[number]
-const values = ["Decimal.of", "Money.of"] as const
+const values = ["Numeric.of", "Money.of"] as const
 type ValueCtor = (typeof values)[number]
 
 /**
@@ -244,7 +244,7 @@ const computeFeatures = [
 	...aggregates,
 	...values,
 	"catalogue member",
-	"Decimal member",
+	"Numeric member",
 	"parts member",
 	"literal first",
 	"byte guard",
@@ -269,7 +269,7 @@ const refusalNotes = {
 	"PostgreSQL has no cast between these types that grizzle admits": "refused: a cast",
 	"a term first: a literal takes its place opposite a term, never first":
 		"refused: a literal first",
-	"the span's own endpoint descriptor: a descriptor of another type is no endpoint of the span":
+	"the range's own endpoint descriptor: a descriptor of another type is no endpoint of the range":
 		"refused: an endpoint",
 	"a value its contract refuses: it lacks a fact the contract declares":
 		"refused: a contract's value",
@@ -675,10 +675,10 @@ type PredSpec =
 	| { readonly kind: "guard"; readonly guard: GuardSpec }
 
 /**
- * A member read off a host value: a catalogue member, a Decimal's or its parts', each named from the runtime's own
+ * A member read off a host value: a catalogue member, a Numeric's or its parts', each named from the runtime's own
  * members and the names a reader may reach for that it lacks.
  */
-type Holder = "catalogue" | "Decimal" | "parts"
+type Holder = "catalogue" | "Numeric" | "parts"
 
 type CaseSpec =
 	| { readonly kind: "term"; readonly term: TermSpec }
@@ -879,7 +879,7 @@ const fieldOf = (o: Operand): FieldName | undefined =>
  */
 const languageLits = (field: FieldName): Arr.NonEmptyReadonlyArray<Lit> => {
 	const host = (l: Lit): string =>
-		l.value instanceof Decimal
+		l.value instanceof Numeric
 			? "decimal"
 			: l.value instanceof Money
 				? "money"
@@ -891,12 +891,12 @@ const languageLits = (field: FieldName): Arr.NonEmptyReadonlyArray<Lit> => {
 		return Arr.isReadonlyArrayNonEmpty(held) ? held : lits
 	}
 	switch (Cell.fields[field].sql) {
-		case "smallint":
-		case "integer":
-		case "real":
-		case "double precision":
+		case "int2":
+		case "int4":
+		case "float4":
+		case "float8":
 			return of(["number"])
-		case "bigint":
+		case "int8":
 			return of(["bigint"])
 		case "numeric":
 			return of(["bigint", "string", "decimal"])
@@ -907,9 +907,9 @@ const languageLits = (field: FieldName): Arr.NonEmptyReadonlyArray<Lit> => {
 		case "date":
 		case "code":
 			return of(["string"])
-		case "boolean":
+		case "bool":
 			return of(["boolean"])
-		case "bits":
+		case "bit":
 			return of(["set"])
 		case "range":
 		case "vector":
@@ -1196,8 +1196,8 @@ const baseDecimals = (): Arr.NonEmptyReadonlyArray<Lit> => {
 		lits,
 		(l) =>
 			typeof l.value === "bigint" ||
-			l.value instanceof Decimal ||
-			(typeof l.value === "string" && decimalText.test(l.value))
+			l.value instanceof Numeric ||
+			(typeof l.value === "string" && numericText.test(l.value))
 	)
 	if (!Arr.isReadonlyArrayNonEmpty(held)) {
 		throw new Error("the dictionary holds no decimal")
@@ -1845,18 +1845,18 @@ const memberNames: { readonly [H in Holder]: Arr.NonEmptyReadonlyArray<string> }
 		"Text.isPattern",
 		"Xml.matchesPattern"
 	],
-	Decimal: ["text", "parts", "isFinite", "equals", "scale", "identityText", "displayScale"],
+	Numeric: ["text", "parts", "isFinite", "equals", "scale", "identityText", "displayScale"],
 	parts: ["kind", "coefficient", "minScale", "exponent"]
 }
 
 /**
  * The catalogue's namespaces, by the names a program reads them by: every namespace the public compute module exports,
  * read off the module, so a namespace it adds is the catalogue's at once, where a list here lacked Time and Net once
- * they were added; and Bits, the field barrel's.
+ * they were added; and Bit, the field barrel's.
  */
 const catalogue: Readonly<Record<string, object>> = {
 	...Rec.filter(computeApi, (exported) => typeof exported === "object"),
-	Bits
+	Bit
 }
 
 /** The catalogue's own members, each as a program spells it: its namespace and its name there. */
@@ -1865,12 +1865,12 @@ const computeMembers: Arr.NonEmptyReadonlyArray<string> = [
 	...Rec.values(spelling)
 ]
 
-const memberFeatures = ["catalogue member", "Decimal member", "parts member"] as const
+const memberFeatures = ["catalogue member", "Numeric member", "parts member"] as const
 type MemberFeature = (typeof memberFeatures)[number]
 
 const holderOf: { readonly [M in MemberFeature]: Holder } = {
 	"catalogue member": "catalogue",
-	"Decimal member": "Decimal",
+	"Numeric member": "Numeric",
 	"parts member": "parts"
 }
 
@@ -2027,7 +2027,7 @@ const digestOf = (d: Drawing): CaseSpec => ({
  * field is the case's digest.
  */
 const digestSchemaText = (spec: Extract<CaseSpec, { readonly kind: "digest" }>): string =>
-	`schema("Digests", [relation.generated("Media", { id: Id, content: bytes, text: Cell.fields.text, word: Cell.fields.word, body: Cell.fields.body }, ["id"], (r) => ({ stored: generated(sha256, Crypto.sha256(r.${spec.operand})) }))], [])`
+	`schema("Digests", [relation.generated("Media", { id: Id, content: bytea, text: Cell.fields.text, word: Cell.fields.word, body: Cell.fields.body }, ["id"], (r) => ({ stored: generated(sha256, Crypto.sha256(r.${spec.operand})) }))], [])`
 
 /** The engine's reading of a digest case: the same schema, built by the public constructors and the scalar core. */
 const digestSchema = (spec: Extract<CaseSpec, { readonly kind: "digest" }>): FixtureSchema =>
@@ -2038,7 +2038,7 @@ const digestSchema = (spec: Extract<CaseSpec, { readonly kind: "digest" }>): Fix
 				"Media",
 				{
 					id: Id,
-					content: bytes,
+					content: bytea,
 					text: Cell.fields.text,
 					word: Cell.fields.word,
 					body: Cell.fields.body
@@ -2587,7 +2587,7 @@ const claimOf = (reason: CompileReason): Claim => {
 					? {
 							kind: "refusal",
 							refusal:
-								"the span's own endpoint descriptor: a descriptor of another type is no endpoint of the span"
+								"the range's own endpoint descriptor: a descriptor of another type is no endpoint of the range"
 						}
 					: { kind: "prose", why: `the engine: ${oneLine(reason.what)}` }
 	}
@@ -2617,12 +2617,12 @@ type Imported =
 	| "bytes"
 	| "closed"
 	| "widened"
-	| "Bits"
-	| "Decimal"
+	| "Bit"
+	| "Numeric"
 	| "Money"
 	| "Uuid"
 	| "CalendarDate"
-	| "Span"
+	| "Range"
 	| "Vector"
 	| "Infer"
 	| "Rostered"
@@ -2755,8 +2755,8 @@ const hostText = (t: ScalarType, uses: Set<Imported>, position: "term" | "delive
 		case "exactInteger":
 			return "bigint"
 		case "numeric":
-			uses.add("Decimal")
-			return "Decimal"
+			uses.add("Numeric")
+			return "Numeric"
 		case "money":
 		case "exactMoney":
 			uses.add("Money")
@@ -2780,8 +2780,8 @@ const hostText = (t: ScalarType, uses: Set<Imported>, position: "term" | "delive
 		case "range4":
 		case "range8":
 		case "rangeDate":
-			uses.add("Span")
-			return `Span<${hostText(t.span.endpoint, uses, position)}>`
+			uses.add("Range")
+			return `Range<${hostText(t.span.endpoint, uses, position)}>`
 		case "vector":
 			uses.add("Vector")
 			return `Vector<${t.typmod.dims}>`
@@ -3101,15 +3101,15 @@ const engineQuery = (
  * The host constructors as a JavaScript caller reaches them, with whatever value it passes: their own answer to a value
  * their signature refuses is the oracle the types are held to.
  */
-const hostDecimal: { of(input: unknown): Decimal } = Decimal
+const hostDecimal: { of(input: unknown): Numeric } = Numeric
 const hostMoney: { of(input: unknown): Money } = Money
 const hostLexical: { lexicalForm(type: unknown): Pattern } = { lexicalForm }
 
-/** The values a parts member is read off: a finite Decimal and the specials its parts may be. */
-const decimals: Arr.NonEmptyReadonlyArray<Decimal> = [
-	Decimal.of("1.5"),
-	Decimal.of("NaN"),
-	Decimal.of("Infinity")
+/** The values a parts member is read off: a finite Numeric and the specials its parts may be. */
+const decimals: Arr.NonEmptyReadonlyArray<Numeric> = [
+	Numeric.of("1.5"),
+	Numeric.of("NaN"),
+	Numeric.of("Infinity")
 ]
 
 /** Whether every value a member's holder may be has the member: the runtime's answer the types must give. */
@@ -3121,7 +3121,7 @@ const hasMember = (holder: Holder, name: string): boolean => {
 				([namespace, members]) =>
 					Str.startsWith(`${namespace}.`)(name) && Str.slice(namespace.length + 1)(name) in members
 			)
-		case "Decimal":
+		case "Numeric":
 			return Arr.every(decimals, (x) => name in x)
 		case "parts":
 			return Arr.every(decimals, (x) => name in x.parts)
@@ -3137,7 +3137,7 @@ const engineVerdict = (
 	switch (spec.kind) {
 		case "value": {
 			const made = Result.try(() =>
-				spec.ctor === "Decimal.of" ? hostDecimal.of(spec.lit.value) : hostMoney.of(spec.lit.value)
+				spec.ctor === "Numeric.of" ? hostDecimal.of(spec.lit.value) : hostMoney.of(spec.lit.value)
 			)
 			return Result.isFailure(made)
 				? decidedOr(made.failure, undefined)
@@ -3518,7 +3518,7 @@ const refuses = (refusal: ValueRefusal, field: FieldName, value: unknown): boole
 			return typeof value === "number" && !Number.isInteger(value)
 		case "digits":
 			return (
-				(typeof value === "string" && !Decimal.fromString(value).ok) || value instanceof Pattern
+				(typeof value === "string" && !Numeric.fromString(value).ok) || value instanceof Pattern
 			)
 		case "calendar":
 			return (
@@ -3534,12 +3534,12 @@ const refuses = (refusal: ValueRefusal, field: FieldName, value: unknown): boole
 }
 
 /** An exact decimal's text as the types read one (scalar.ts DecimalSign): a sign, digits, and a point with digits. */
-const decimalText = regex("^[+-]?[0-9]+(\\.[0-9]+)?$")
+const numericText = regex("^[+-]?[0-9]+(\\.[0-9]+)?$")
 
 /**
  * The range guard bounds whose value the types cannot see at a type, reading each as a residue (WithinFacts), every
  * fact admitted at a low end and nothing proved at a high one, though the engine reads its value: at a numeric, a
- * Decimal, a string-typed value and a string that spells no decimal the types read; at money, a Money.
+ * Numeric, a string-typed value and a string that spells no decimal the types read; at money, a Money.
  */
 type UnseenBound = "decimal" | "money"
 
@@ -3549,8 +3549,8 @@ const unseenBy = (unseen: UnseenBound, l: Lit): boolean => {
 		case "decimal":
 			return (
 				l === widened ||
-				(typeof l.value === "string" && !decimalText.test(l.value)) ||
-				l.value instanceof Decimal
+				(typeof l.value === "string" && !numericText.test(l.value)) ||
+				l.value instanceof Numeric
 			)
 		case "money":
 			return l.value instanceof Money
@@ -3584,7 +3584,7 @@ const integerReading: Reading = {
 
 const numericReading: Reading = {
 	kind: "stood in",
-	standIn: { text: 'Decimal.of("1")', value: Decimal.of("1") },
+	standIn: { text: 'Numeric.of("1")', value: Numeric.of("1") },
 	refusals: ["digits"],
 	unseen: ["decimal"]
 }
@@ -4046,8 +4046,8 @@ const caseOf = ({ spec, reached }: Drawn): ComputeCase => {
 			)
 			break
 	}
-	if (Str.includes("Bits.of(")(expression)) {
-		uses.add("Bits")
+	if (Str.includes("Bit.of(")(expression)) {
+		uses.add("Bit")
 	}
 	if (rendering.lexical || spec.kind === "lexical") {
 		uses.add("lexicalForm")
@@ -4061,8 +4061,8 @@ const caseOf = ({ spec, reached }: Drawn): ComputeCase => {
 	if (Str.includes(widened.text)(expression)) {
 		uses.add("widened")
 	}
-	if (Str.includes("Decimal.")(expression)) {
-		uses.add("Decimal")
+	if (Str.includes("Numeric.")(expression)) {
+		uses.add("Numeric")
 	}
 	if (Str.includes("Money.")(expression)) {
 		uses.add("Money")
@@ -4102,7 +4102,7 @@ const expressionOf = (rendering: Rendering, spec: CaseSpec): string => {
 		case "member":
 			return spec.holder === "catalogue"
 				? spec.name
-				: spec.holder === "Decimal"
+				: spec.holder === "Numeric"
 					? `x.${spec.name}`
 					: `x.parts.${spec.name}`
 	}
@@ -4200,7 +4200,7 @@ const constructsOf: { readonly [N in ComputeNote]?: ReadonlyArray<ComputeFeature
 	"decided: a language": ["byte guard"],
 	"decided: a power's range": ["power", "when"],
 	"decided: a text function's place": ["octetLength", "replaceWhitespace", "charLength", "concat"],
-	"decided: a decimal's digits": ["quot", "rem", "Decimal.of"],
+	"decided: a decimal's digits": ["quot", "rem", "Numeric.of"],
 	"decided: a pattern's values": ["matches"],
 	"a CASE of an exact branch first beside a plain one": ["cond", "when"],
 	"a CASE of a plain branch first beside an exact one": ["cond", "when"],
@@ -4459,7 +4459,7 @@ const arithmeticKept: ReadonlyArray<Extract<CaseSpec, { readonly kind: "term" }>
  * in one of a text: a conditional on whether Rate matches a constant of Rate that spells no decimal, drawn at
  * TEST_SEED=1502858097. The engine refuses the constant's digits, and "x"'s too, so the oracle held the types to
  * admitting it, a decimal's digits, while they refuse a match over a subject of no text. Read at its own type
- * (readings), the constant stands in as Rate's Decimal.of("1"), and the case is refused on both sides, by the engine
+ * (readings), the constant stands in as Rate's Numeric.of("1"), and the case is refused on both sides, by the engine
  * for its subject. Every run holds it.
  */
 const patternKept: ReadonlyArray<Extract<CaseSpec, { readonly kind: "term" }>> = [
@@ -4577,7 +4577,7 @@ const blockOf = (c: ComputeCase, i: number): string => {
 					...(verdict.kind === "refused" || verdict.kind === "contested"
 						? []
 						: [
-								`export type T${i} = Expect<Equals<typeof t${i}, ${c.spec.ctor === "Decimal.of" ? "Decimal" : "Money"}>>`
+								`export type T${i} = Expect<Equals<typeof t${i}, ${c.spec.ctor === "Numeric.of" ? "Numeric" : "Money"}>>`
 							]),
 					""
 				],
@@ -4588,7 +4588,7 @@ const blockOf = (c: ComputeCase, i: number): string => {
 				[
 					c.spec.holder === "catalogue"
 						? `export const t${i} =`
-						: `export const t${i} = (x: Decimal) =>`,
+						: `export const t${i} = (x: Numeric) =>`,
 					...directive,
 					`\t${c.expression}`,
 					""

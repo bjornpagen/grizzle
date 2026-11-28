@@ -46,7 +46,7 @@ const noFault = (): undefined => undefined
  * property's descriptor, of the argument and of each unfrozen record and array it holds, at any depth. A value whose
  * reading throws, or that holds a getter or a setter, is refused as MalformedDescription at the entry's label. What
  * passes holds data properties only, so every later read of it is a read of data: it runs no caller code and answers
- * the same each time. A frozen object (a value the builder or the schema package made, a Decimal, a Money) is read one
+ * the same each time. A frozen object (a value the builder or the schema package made, a Numeric, a Money) is read one
  * level deep, since nothing it holds can change. A query or ordered query the builder made is read not at all: its
  * Description is a getter of the builder's own over its state (query.ts), and the builder trusts exactly the values it
  * made (state.ts). A function is the caller's callback, run as the entry documents.

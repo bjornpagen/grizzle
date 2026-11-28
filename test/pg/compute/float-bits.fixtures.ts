@@ -10,7 +10,7 @@ import { doubleOrSpecial } from "@bjornpagen/testing/values"
 import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
 import { compileInstallation } from "#compiler/program/install.ts"
 import { floatBits, Num } from "#compiler/public/compute.ts"
-import { generated, pg } from "#compiler/public/fields.ts"
+import { generated, float8, int4, int8 } from "#compiler/public/fields.ts"
 import { check, contained, key, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
@@ -29,16 +29,15 @@ const Short = str.bytes(16, str.regex("^.*$", "su"))
  * for reads by `=`. A tally names a bag row by the same image, a generated `Num.floatBits(value)` it holds a key
  * over and a containment over (variable, bits) reads, a foreign key into the bag's primary key.
  */
-const Bag = relation(
-	"Bag",
-	{ variable: Short, bits: pg.bigint, value: pg["double precision"], count: pg.integer },
-	["variable", "bits"]
-)
+const Bag = relation("Bag", { variable: Short, bits: int8, value: float8, count: int4 }, [
+	"variable",
+	"bits"
+])
 const Tally = relation.generated(
 	"Tally",
-	{ variable: Short, value: pg["double precision"], at: pg.integer },
+	{ variable: Short, value: float8, at: int4 },
 	["variable", "at"],
-	(t) => ({ bits: generated(pg.bigint, Num.floatBits(t.value)) })
+	(t) => ({ bits: generated(int8, Num.floatBits(t.value)) })
 )
 
 const bagSchema = schema(

@@ -5,7 +5,7 @@
  * - Decoding: over drawn typmods across numeric's box, scale 0 one in two, and drawn values of each, a numeric(p, s)
  *   descriptor's column (scalar/values/convert.ts numericColumn), which a caller's reads deliver, and its codec's reader
  *   (codec/read.ts scalarReader), which the engine's own reads take, each convert numeric_out's text of a value to the
- *   host value its value space gives: numeric(p, 0)'s integer as that bigint, any other value as its Decimal.
+ *   host value its value space gives: numeric(p, 0)'s integer as that bigint, any other value as its Numeric.
  * - NaN at every door: for a drawn numeric(p, 0), NaN is refused by the codec's parse of a caller's value, a stored
  *   literal (scalar/literal.ts storedLiteral), a typed literal (scalar/compute/literal.ts irLiteral), the typmod's one
  *   rule the evaluator's cast coerces by (decimal.ts normalizeNumeric and parseNumeric), the proof a cast into the type
@@ -27,12 +27,12 @@ import { scalarReader } from "#compiler/codec/read.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { wireScalarOf } from "#compiler/live/member.ts"
 import { parseScalar } from "#compiler/live/wire.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { numeric } from "#compiler/public/fields.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { irLiteral } from "#compiler/scalar/compute/literal.ts"
 import { storedLiteral } from "#compiler/scalar/literal.ts"
 import { converterOf } from "#compiler/scalar/values/convert.ts"
-import { Decimal, normalizeNumeric, parseNumeric } from "#compiler/scalar/values/decimal.ts"
+import { Numeric, normalizeNumeric, parseNumeric } from "#compiler/scalar/values/decimal.ts"
 import { faulted } from "#test/support/assert.ts"
 import { codecOf } from "#test/support/unit/codec/support.ts"
 import {
@@ -52,11 +52,11 @@ import {
 	valueGen
 } from "#test/unit/scalar/integer-numeric.fixtures.ts"
 
-/** Whether a converted value is the model's: a bigint by identity, a Decimal by its own equality. */
-const sameValue = (converted: unknown, model: Decimal | bigint): boolean =>
+/** Whether a converted value is the model's: a bigint by identity, a Numeric by its own equality. */
+const sameValue = (converted: unknown, model: Numeric | bigint): boolean =>
 	typeof model === "bigint"
 		? converted === model
-		: converted instanceof Decimal && converted.equals(model)
+		: converted instanceof Numeric && converted.equals(model)
 
 /** A numeric(p, s) descriptor's column and its codec's reader read numeric_out's text as its value space's host value. */
 export const aNumericDescriptorsColumnAndItsReaderReadItsOutputAsItsValueSpacesHostValue =
@@ -75,7 +75,7 @@ export const aNumericDescriptorsColumnAndItsReaderReadItsOutputAsItsValueSpacesH
 				({ typmod, written }) =>
 					Effect.sync(() => {
 						c.note(scaleFeatureOf(typmod.scale))
-						const field = described(pg.numeric(typmod.precision, typmod.scale))
+						const field = described(numeric(typmod.precision, typmod.scale))
 						const column = field.column
 						assert.ok(column.kind === "convert", "a numeric's column converts its text")
 						const shown = `numeric(${typmod.precision}, ${typmod.scale}) of ${written.text}`
@@ -103,13 +103,13 @@ export const aNumericDescriptorsColumnAndItsReaderReadItsOutputAsItsValueSpacesH
 					original:
 						'\tconvertColumn({ carrier: isIntegerTypmod(typmod) ? "exactInteger" : "numeric" })',
 					replacement: '\tconvertColumn({ carrier: "numeric" })',
-					why: "A numeric(p, 0) descriptor's column decodes as the general numeric, a Decimal where its host type is a bigint; the column's value differs."
+					why: "A numeric(p, 0) descriptor's column decodes as the general numeric, a Numeric where its host type is a bigint; the column's value differs."
 				},
 				{
 					file: "packages/engine/src/codec/scalar.ts",
 					original: "\t\t\t\t: isIntegerTypmod(type.typmod)",
 					replacement: "\t\t\t\t: false",
-					why: "A numeric(p, 0)'s codec spec is the general numeric's, so the engine's reader decodes a Decimal where the column delivers a bigint; the reader's value differs."
+					why: "A numeric(p, 0)'s codec spec is the general numeric's, so the engine's reader decodes a Numeric where the column delivers a bigint; the reader's value differs."
 				}
 			]
 		}
@@ -143,16 +143,16 @@ export const numericP0RefusesNaNAtEveryDoor = property.explore(int(1, 1000), {
 			const type = integer.scalar
 			const typmod = { precision, scale: 0 }
 			const shown = `numeric(${precision}, 0)`
-			faulted(codecOf(type, firstCodebook([])).encode(Decimal.nan), "integerType", shown)
+			faulted(codecOf(type, firstCodebook([])).encode(Numeric.nan), "integerType", shown)
 			c.note("the codec refuses NaN")
-			for (const nan of [Decimal.nan, "NaN"]) {
+			for (const nan of [Numeric.nan, "NaN"]) {
 				assert.ok(!storedLiteral(type, nan).ok, `${shown}: a stored literal ${String(nan)}`)
 			}
 			c.note("a stored literal refuses NaN")
-			assert.ok(!irLiteral(Decimal.nan, type).ok, `${shown}: a typed literal NaN`)
+			assert.ok(!irLiteral(Numeric.nan, type).ok, `${shown}: a typed literal NaN`)
 			c.note("a typed literal refuses NaN")
-			faulted(normalizeNumeric(Decimal.nan, typmod), "numericNaN", `${shown}: its coercion`)
-			faulted(parseNumeric(Decimal.nan, typmod), "numericNaN", `${shown}: its parse`)
+			faulted(normalizeNumeric(Numeric.nan, typmod), "numericNaN", `${shown}: its coercion`)
+			faulted(parseNumeric(Numeric.nan, typmod), "numericNaN", `${shown}: its parse`)
 			c.note("the typmod's rule refuses NaN")
 			/** A cast into numeric(p, 0) from numeric(p, 1), whose values round inside it and hold NaN, and from itself. */
 			const castFrom = (scale: number) =>

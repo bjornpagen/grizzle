@@ -76,7 +76,7 @@ const prelude = await Effect.runPromise(preludeAt("test/support/programs/anchors
 
 /** The page every cell anchors a window of, its Db, and the anchor type its window takes. */
 const anchorHeader: ReadonlyArray<string> = [
-	'export const Item = relation("Item", { id: pg.integer, label: pg.integer }, ["id"])',
+	'export const Item = relation("Item", { id: int4, label: int4 }, ["id"])',
 	'export const Root = schema("Root", [Item], [])',
 	'export const level = role(Root, "level", wholeEntriesOf(Root))',
 	"export const ranked = paged(",

@@ -1,8 +1,8 @@
 /**
- * The value carriers' laws, Decimal, Money and Vector together.
+ * The value carriers' laws, Numeric, Money and Vector together.
  *
  * - Equality: equals, compare, the identity text and the parts of each carrier agree with the value they hold, and
- *   equal values have one identity text. Oracle: a second implementation per carrier, a Decimal's exact rational by
+ *   equal values have one identity text. Oracle: a second implementation per carrier, a Numeric's exact rational by
  *   cross multiplication, a Money's count, a Vector's components one by one.
  * - Frozen: every value a constructor returns, the carriers, scalar types of every text check and the public field
  *   descriptors, is frozen, and so is every object it reaches. Oracle: universal, Object.isFrozen over the reachable
@@ -67,7 +67,7 @@ export const theValueCarriersLawsEqualityIsValueIdentityEveryImplementationAgree
 			}),
 		oracle: {
 			kind: "second-implementation",
-			name: "a Decimal's exact rational by cross multiplication, a Money's count, a Vector's components"
+			name: "a Numeric's exact rational by cross multiplication, a Money's count, a Vector's components"
 		},
 		kept: [],
 		kills: [
@@ -86,7 +86,7 @@ export const theValueCarriersLawsEveryValueAConstructorReturnsIsFrozenAndSoIsEve
 		needs: {},
 		budget: { runs: 400, steered: 400 },
 		situations: [
-			"Decimal.fromString",
+			"Numeric.fromString",
 			"Money.fromCanonical",
 			"makeSpan",
 			"Vector.canonical",

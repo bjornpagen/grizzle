@@ -66,7 +66,7 @@ export const contractCall = (...first: ReadonlyArray<unknown>): typeof contractD
 }
 
 /**
- * span(endpoint) or span(endpoint, width), as a JavaScript caller calls it: the descriptor holds the width it was
+ * range(endpoint) or range(endpoint, width), as a JavaScript caller calls it: the descriptor holds the width it was
  * given, as given, and its Description the normalized width. Its column converts endpoints with the admitted
  * endpoint's column.
  */

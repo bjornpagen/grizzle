@@ -85,7 +85,7 @@ export const theClosedMonoidsAdmitExactlyTheCarriersWhoseIdentityAndCombineTheir
 				`${name} admits`,
 				`${name} refuses`
 			]),
-			"sum admits pg.numeric"
+			"sum admits numeric"
 		] satisfies ReadonlyArray<Reached<AdmitsFeature>>,
 		check:
 			(_, c: Case<AdmitsFeature>) =>
@@ -95,7 +95,7 @@ export const theClosedMonoidsAdmitExactlyTheCarriersWhoseIdentityAndCombineTheir
 					const admitted = spec.admits(carrier)
 					c.note(`${name} ${admitted ? "admits" : "refuses"}`)
 					if (admitted && name === "sum" && isPgNumeric(carrier)) {
-						c.note("sum admits pg.numeric")
+						c.note("sum admits numeric")
 					}
 					if (admitted) {
 						assert.ok(
@@ -127,7 +127,7 @@ export const theClosedMonoidsAdmitExactlyTheCarriersWhoseIdentityAndCombineTheir
 					'const summable = (t: ScalarType): boolean => {\n\tswitch (baseOf(t).carrier) {\n\t\tcase "int2":\n\t\tcase "int4":\n\t\tcase "int8":\n\t\tcase "numeric":\n\t\t\treturn true',
 				replacement:
 					'const summable = (t: ScalarType): boolean => {\n\tconst base = baseOf(t)\n\tswitch (base.carrier) {\n\t\tcase "int2":\n\t\tcase "int4":\n\t\tcase "int8":\n\t\t\treturn true\n\t\tcase "numeric":\n\t\t\treturn base.typmod !== undefined',
-				why: "sum refuses numeric of no typmod, pg.numeric's, whose identity its literal validator and whose combine its CHECK admit: summable as it stood before pg.numeric was a declared type."
+				why: "sum refuses numeric of no typmod, numeric's, whose identity its literal validator and whose combine its CHECK admit: summable as it stood before numeric was a declared type."
 			}
 		]
 	})

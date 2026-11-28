@@ -3,7 +3,7 @@
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { type Gen, int, map } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record as Rec } from "effect"
-import { type ClosedIdField, closedId, pg } from "#compiler/public/fields.ts"
+import { type ClosedIdField, closedId, int4 } from "#compiler/public/fields.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { fullWorldTemplate } from "#test/support/installed.ts"
@@ -33,8 +33,8 @@ export const subsets: ReadonlyArray<NonEmptyReadonlyArray<Handle>> = Arr.flatMap
 /** The column of the closed id holding `held`: its handles, in the roster's order. */
 export const columnOf = (held: NonEmptyReadonlyArray<Handle>): string => Arr.join(held, "")
 
-const columns: Readonly<Record<string, ClosedIdField<typeof Mark, Handle> | typeof pg.integer>> = {
-	id: pg.integer,
+const columns: Readonly<Record<string, ClosedIdField<typeof Mark, Handle> | typeof int4>> = {
+	id: int4,
 	...Rec.fromEntries(Arr.map(subsets, (held) => [columnOf(held), closedId(Mark, { only: held })]))
 }
 

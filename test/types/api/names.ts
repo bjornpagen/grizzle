@@ -70,30 +70,22 @@ type Spelling = (typeof spellings)[number]
 
 /** The arguments each constructor takes after the name: a relation of a written field, a roster of two handles. */
 const restOf: { readonly [C in ConstructorName]: ReadonlyArray<string> } = {
-	relation: ["{ id: Id, n: pg.integer }", '["id"]'],
-	"relation.generated": [
-		"{ id: Id, n: pg.integer }",
-		'["id"]',
-		"(r) => ({ m: generated(pg.integer, r.n) })"
-	],
+	relation: ["{ id: Id, n: int4 }", '["id"]'],
+	"relation.generated": ["{ id: Id, n: int4 }", '["id"]', "(r) => ({ m: generated(int4, r.n) })"],
 	"closed.ordered": ['["a", "b"]'],
 	"closed.unordered": ['["a", "b"]'],
-	"closed.relation": [
-		"{ kind: closedId(Kind), w: pg.integer }",
-		'["kind"]',
-		'[{ kind: "a", w: 1 }]'
-	],
+	"closed.relation": ["{ kind: closedId(Kind), w: int4 }", '["kind"]', '[{ kind: "a", w: 1 }]'],
 	derived: ["Items"],
-	dynamicRelation: ["{ id: Id, n: pg.integer }", '["id"]'],
+	dynamicRelation: ["{ id: Id, n: int4 }", '["id"]'],
 	"dynamicRelation.generated": [
-		"{ id: Id, n: pg.integer }",
+		"{ id: Id, n: int4 }",
 		'["id"]',
-		"(r) => ({ m: generated(pg.integer, r.n) })"
+		"(r) => ({ m: generated(int4, r.n) })"
 	],
 	"dynamicClosed.ordered": ['["a", "b"]'],
 	"dynamicClosed.unordered": ['["a", "b"]'],
 	"dynamicClosed.relation": [
-		"{ kind: closedId(Kind), w: pg.integer }",
+		"{ kind: closedId(Kind), w: int4 }",
 		'["kind"]',
 		'[{ kind: "a", w: 1 }]'
 	]
@@ -244,7 +236,7 @@ const caseBlock = (c: NameCase, index: number): ReadonlyArray<string> => [
 const prelude = await Effect.runPromise(preludeAt("test/support/programs/names.ts"))
 
 /** The root, the roster and the relations every cell's call and level read, the batch's own. */
-const namesHeader = `export const Item = relation("Item", { id: Id, n: pg.integer }, ["id"])
+const namesHeader = `export const Item = relation("Item", { id: Id, n: int4 }, ["id"])
 export const Kind = closed.ordered("Kind", ["a", "b"])
 export const Root = schema("Root", [Item, Kind], [])
 export const Tag = relation("Tag", { id: Id, item: Id }, ["id"])

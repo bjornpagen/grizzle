@@ -2,7 +2,7 @@ import { Array as Arr, Effect, Record as Rec, type Scope } from "effect"
 import type { OpenError } from "#adapter/errors/execution.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
-import { closedId, pg, span } from "#compiler/public/fields.ts"
+import { closedId, range, bool, int4 } from "#compiler/public/fields.ts"
 import {
 	type AnyRelation,
 	type AnySchema,
@@ -257,14 +257,9 @@ const drawnRuns = (p: RunsParams) => {
 		...upTo(p.roster - 1, (i) => stageName(i + 1))
 	]
 	const DrawnStage = closed.ordered("Stage", names)
-	const Run = relation("Run", { id: pg.integer, stage: closedId(DrawnStage), note: label }, ["id"])
+	const Run = relation("Run", { id: int4, stage: closedId(DrawnStage), note: label }, ["id"])
 	const pays = Arr.map(p.arms, (arm, j) => {
-		const value = relationBuilder(
-			`Pay${j}`,
-			{ id: pg.integer, run: pg.integer, amount: pg.integer },
-			["id"],
-			[]
-		)
+		const value = relationBuilder(`Pay${j}`, { id: int4, run: int4, amount: int4 }, ["id"], [])
 		const named = Arr.map(arm.handles, stageName)
 		const [only, ...more] = named
 		return {
@@ -474,22 +469,21 @@ const selectors: Arr.NonEmptyReadonlyArray<Selector> = Arr.map(booleans, (value)
 const selectionOf = (field: string, s: Selector): HostSelection =>
 	s.kind === "every" ? everyFact : fieldsEqual({ [field]: s.value })
 
-export const Rota = relation(
-	"Rota",
-	{ site: pg.integer, during: span(pg.integer), crew: pg.integer, open: pg.boolean },
-	["site", "during"]
-)
+export const Rota = relation("Rota", { site: int4, during: range(int4), crew: int4, open: bool }, [
+	"site",
+	"during"
+])
 
 export const Visit = relation(
 	"Visit",
-	{ id: pg.integer, site: pg.integer, during: span(pg.integer), billable: pg.boolean },
+	{ id: int4, site: int4, during: range(int4), billable: bool },
 	["id"]
 )
 
 /** The coverage's target with its fields named apart from Visit's `site` and `during`, in another heading order. */
 export const ShiftRoster = relation(
 	"Roster",
-	{ shift: span(pg.integer), crew: pg.integer, place: pg.integer, open: pg.boolean },
+	{ shift: range(int4), crew: int4, place: int4, open: bool },
 	["place", "shift"]
 )
 
@@ -788,22 +782,13 @@ export const spanCoverage: Family<VisitsParams> = {
 
 const standings = ["wanted", "leased", "done"] as const
 const Standing = closed.ordered("Standing", standings)
-export const Work = relation(
-	"Work",
-	{ item: pg.integer, standing: closedId(Standing), epoch: pg.integer },
-	["item"]
-)
-export const Wanted = relation("Wanted", { item: pg.integer, attempts: pg.integer }, ["item"])
-export const Leased = relation(
-	"Leased",
-	{ item: pg.integer, resource: pg.integer, seat: pg.integer },
-	["item"]
-)
-export const Done = relation("Done", { item: pg.integer, outcome: label }, ["item"])
-export const Seat = relation("Seat", { resource: pg.integer, seat: pg.integer, label }, [
-	"resource",
-	"seat"
+export const Work = relation("Work", { item: int4, standing: closedId(Standing), epoch: int4 }, [
+	"item"
 ])
+export const Wanted = relation("Wanted", { item: int4, attempts: int4 }, ["item"])
+export const Leased = relation("Leased", { item: int4, resource: int4, seat: int4 }, ["item"])
+export const Done = relation("Done", { item: int4, outcome: label }, ["item"])
+export const Seat = relation("Seat", { resource: int4, seat: int4, label }, ["resource", "seat"])
 
 const queueRelations = Object.freeze({ Work, Wanted, Leased, Done, Seat })
 
@@ -924,19 +909,18 @@ export const queueFamily: Family<QueueParams> = {
 
 export const Employment = relation(
 	"Employment",
-	{ employee: pg.integer, during: span(pg.integer), basis: label },
+	{ employee: int4, during: range(int4), basis: label },
 	["employee", "during"]
 )
 
-export const Timesheet = relation(
-	"Timesheet",
-	{ employee: pg.integer, week: pg.integer, note: label },
-	["employee", "week"]
-)
+export const Timesheet = relation("Timesheet", { employee: int4, week: int4, note: label }, [
+	"employee",
+	"week"
+])
 
 export const Shift = relation(
 	"Shift",
-	{ employee: pg.integer, during: span(pg.integer), week: pg.integer, approved: pg.boolean },
+	{ employee: int4, during: range(int4), week: int4, approved: bool },
 	["employee", "during"]
 )
 
@@ -1060,21 +1044,19 @@ export const timekeepingFamily: Family<TimekeepingParams> = {
 
 const TenantRun = relation(
 	"TenantRun",
-	{ tenant: pg.integer, id: pg.integer, stage: closedId(Stage), note: label },
+	{ tenant: int4, id: int4, stage: closedId(Stage), note: label },
 	["tenant", "id"]
 )
 
-const TenantPayment = relation(
-	"TenantPayment",
-	{ tenant: pg.integer, run: pg.integer, amount: pg.integer },
-	["tenant", "run"]
-)
+const TenantPayment = relation("TenantPayment", { tenant: int4, run: int4, amount: int4 }, [
+	"tenant",
+	"run"
+])
 
-const TenantVoiding = relation(
-	"TenantVoiding",
-	{ tenant: pg.integer, run: pg.integer, reason: label },
-	["tenant", "run"]
-)
+const TenantVoiding = relation("TenantVoiding", { tenant: int4, run: int4, reason: label }, [
+	"tenant",
+	"run"
+])
 
 /** The runs at (tenant, id) standing at `h`, whose arm rows' (tenant, run) are exactly theirs. */
 const tenantRunsAt = (h: "paid" | "voided") =>

@@ -1,5 +1,5 @@
 import { Num, Type } from "#compiler/public/compute.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -24,14 +24,14 @@ export const Network = schema(
  * (scripts/dev/profile/phases.ts) lowers every query a fixture module exports.
  */
 export const Walks = query(Network).recursive("Walks", {
-	row: { person: Id, hops: pg.integer },
+	row: { person: Id, hops: int4 },
 	base: [
 		(r) => {
 			const { id } = v(Person, "person")
 			return r
 				.match(Person, { id })
 				.where(r.eq(id, r.param("start", Id)))
-				.find({ person: id, hops: Type.literal(pg.integer, 0) })
+				.find({ person: id, hops: Type.literal(int4, 0) })
 		}
 	],
 	rec: [
@@ -43,7 +43,7 @@ export const Walks = query(Network).recursive("Walks", {
 				.match(Follows, { from: person, to })
 				.match(Person, { id: to })
 				.where(r.lt(hops, 4))
-				.find({ person: to, hops: Num.add(hops, Type.literal(pg.integer, 1)) })
+				.find({ person: to, hops: Num.add(hops, Type.literal(int4, 1)) })
 		}
 	]
 })

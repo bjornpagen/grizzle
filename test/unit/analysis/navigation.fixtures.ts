@@ -16,7 +16,7 @@ import { equalityIsIdentity } from "#compiler/ir/scalar.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput } from "#compiler/lower/conservative/types.ts"
 import { queryInput } from "#compiler/program/input.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -274,18 +274,18 @@ export const overStepsCaseGen: Gen<GateCase> = (s) => [
 export const isGate = (slot: Slot): boolean =>
 	slot === "gate by a parameter" || slot === "gate by a literal"
 
-const A = relation("A", { id: pg.integer, k: pg.integer }, ["id"])
+const A = relation("A", { id: int4, k: int4 }, ["id"])
 
-const B = relation("B", { k: pg.integer, v: pg.integer }, ["k"])
+const B = relation("B", { k: int4, v: int4 }, ["k"])
 
 /** A list of any text, which a negation over a split reads the tokens of. */
 const List = str.regex("^.*$", "su")
 
-const N0 = relation("N0", { k: pg.integer, list: List }, ["k"])
+const N0 = relation("N0", { k: int4, list: List }, ["k"])
 
-const N1 = relation("N1", { k: pg.integer, list: List }, ["k"])
+const N1 = relation("N1", { k: int4, list: List }, ["k"])
 
-const N2 = relation("N2", { k: pg.integer, list: List }, ["k"])
+const N2 = relation("N2", { k: int4, list: List }, ["k"])
 
 /** The keys of N whose list holds a token: an import whose rule reads a split (r.tokens), which navigation reads no part of. */
 const tokened = (N: typeof N0 | typeof N1 | typeof N2) =>
@@ -311,7 +311,7 @@ export const gateQueryOf = (c: GateCase): InferredQuery =>
 			query(Gates).rule((r) => {
 				const { k } = v(A, "a")
 				const { v: value } = v(B, "b")
-				const p = r.param("p", pg.integer)
+				const p = r.param("p", int4)
 				const negations = Arr.flatMap(
 					[
 						[N0, c[0]],
@@ -637,7 +637,7 @@ export const unreadQueryOf = (c: UnreadCase): InferredQuery =>
 			query(Gates).rule((r) => {
 				const { k } = v(A, "a")
 				const { v: value } = v(B, "b")
-				const p = r.param("p", pg.integer)
+				const p = r.param("p", int4)
 				return r
 					.match(A, { id: p, k })
 					.match(B, { k, v: value })

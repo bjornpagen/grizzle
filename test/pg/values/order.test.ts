@@ -5,7 +5,7 @@
  * whose closed ids rank by the installation's codes, as a reader's merge and a page's fetch order read it, and the
  * evaluator's (scalar/compute/evaluate.ts evaluatorOrder), whose rank by their roster's declaration, as a contract literal's
  * check, constant folding, a fill's selection and the witness read it, over each value as the evaluator computes with it
- * (scalar/values/identity.ts evaluatedValue): numeric(p, 0)'s bigint as its Decimal.
+ * (scalar/values/identity.ts evaluatedValue): numeric(p, 0)'s bigint as its Numeric.
  *
  * Each case is a carrier and a batch of up to 100 of its values: every carrier the codec round trip sends (numeric
  * with NaN and the infinities, real and double precision with NaN, the infinities and -0, money, text of every plane,

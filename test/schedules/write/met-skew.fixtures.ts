@@ -3,7 +3,7 @@
 import { boolean, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Order } from "effect"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { login, mutable, relation, role, schema, unit } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
@@ -11,20 +11,16 @@ import type { DeltaSource } from "#compiler/types/changeset/changeset.ts"
 import { rigTemplate } from "#test/support/schedules/rig.ts"
 import type { ScheduleOutcome } from "#test/support/schedules/types.ts"
 
-export const Held = relation("Held", { k: pg.integer, a: pg.integer }, ["k"])
+export const Held = relation("Held", { k: int4, a: int4 }, ["k"])
 
-export const Mark = relation("Mark", { k: pg.integer }, ["k"])
+export const Mark = relation("Mark", { k: int4 }, ["k"])
 
 /**
  * The schema, the role `writer`, which inserts Held and Mark, and `direct`, which writes both, and their logins. Both are
  * open, mutable inside the one unit their keys lead with, since `direct` writes them.
  */
 export const skew = (name: string) => {
-	const base = schema(
-		name,
-		[Held, Mark],
-		[unit("K", { k: pg.integer }), mutable(Held), mutable(Mark)]
-	)
+	const base = schema(name, [Held, Mark], [unit("K", { k: int4 }), mutable(Held), mutable(Mark)])
 	const writer = role(base, "writer", { Held, Mark }, { insert: ["Held", "Mark"] })
 	const direct = role(base, "direct", { Held, Mark }, { write: ["Held", "Mark"] })
 	const heldOf = (side: DeltaSource<typeof Held>) =>

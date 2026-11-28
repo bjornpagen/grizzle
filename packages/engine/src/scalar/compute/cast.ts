@@ -16,7 +16,7 @@ import {
 } from "#compiler/scalar/lexical.ts"
 import { decimalDigitsOf } from "#compiler/scalar/lexical.ts"
 import { moneyFractionDigits, roundedUnits } from "#compiler/scalar/values/decimal.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 import {
 	binary32MaxExponent,
 	binary32MinExponent,
@@ -205,10 +205,10 @@ const ge = (a: bigint, b: bigint, p: number): boolean =>
 	p >= 0 ? a >= b * 10n ** BigInt(p) : a * 10n ** BigInt(-p) >= b
 
 /**
- * %.*g of a finite double as an exact Decimal: `digits` significant digits rounded half to even on the exact binary
- * value, read back by numeric_in, in the Decimal's one form.
+ * %.*g of a finite double as an exact Numeric: `digits` significant digits rounded half to even on the exact binary
+ * value, read back by numeric_in, in the Numeric's one form.
  */
-const gDecimal = (x: number, digits: number): Result.Result<Decimal, Undefined> => {
+const gDecimal = (x: number, digits: number): Result.Result<Numeric, Undefined> => {
 	if (x === 0) {
 		return fromUnits(0n, 0)
 	}
@@ -235,10 +235,10 @@ const gDecimal = (x: number, digits: number): Result.Result<Decimal, Undefined> 
 }
 
 /**
- * A host value for a cast's operand and result: integers as bigint, numeric as Decimal, floats as number, money as
+ * A host value for a cast's operand and result: integers as bigint, numeric as Numeric, floats as number, money as
  * Money, and a parse's booleans and dates as boolean and CalendarDate.
  */
-export type CastValue = bigint | Decimal | number | Money | LexicalValue
+export type CastValue = bigint | Numeric | number | Money | LexicalValue
 
 type CastResult = Result.Result<CastValue, Undefined>
 
@@ -281,7 +281,7 @@ export const floatNumericDigits: { readonly [C in FloatCarrier]: number } = {
  */
 export type HostCast =
 	| { readonly from: "integer"; readonly convert: (x: bigint) => CastResult }
-	| { readonly from: "numeric"; readonly convert: (d: Decimal) => CastResult }
+	| { readonly from: "numeric"; readonly convert: (d: Numeric) => CastResult }
 	| { readonly from: "float"; readonly convert: (x: number) => CastResult }
 	| { readonly from: "money"; readonly convert: (m: Money) => CastResult }
 	| { readonly from: "text"; readonly convert: (text: string, to: ScalarType) => CastResult }
@@ -311,7 +311,7 @@ const floatToInt = (x: number, c: IntCarrier): IntResult => {
 }
 
 /** A numeric as a float of `width`, rounded once as IEEE 754 rounds; NaN and the infinities are themselves. */
-const decimalToFloat = (d: Decimal, width: FloatCarrier): number => {
+const decimalToFloat = (d: Numeric, width: FloatCarrier): number => {
 	const p = d.parts
 	switch (p.kind) {
 		case "nan":
@@ -325,15 +325,15 @@ const decimalToFloat = (d: Decimal, width: FloatCarrier): number => {
 	}
 }
 
-const floatToDecimal = (x: number, width: FloatCarrier): Result.Result<Decimal, Undefined> => {
+const floatToDecimal = (x: number, width: FloatCarrier): Result.Result<Numeric, Undefined> => {
 	if (Number.isNaN(x)) {
-		return Result.ok(Decimal.nan)
+		return Result.ok(Numeric.nan)
 	}
 	if (x === Number.POSITIVE_INFINITY) {
-		return Result.ok(Decimal.infinity)
+		return Result.ok(Numeric.infinity)
 	}
 	if (x === Number.NEGATIVE_INFINITY) {
-		return Result.ok(Decimal.negativeInfinity)
+		return Result.ok(Numeric.negativeInfinity)
 	}
 	return gDecimal(x, floatNumericDigits[width])
 }
@@ -372,7 +372,7 @@ export const integerCast = (
  * A numeric as an exact integer, the value itself: defined where it is finite ("finite") and has no fraction digits
  * ("integral"), since nothing rounds into an exact integer; its digits are the cast's fits, which its bounds proved.
  */
-const exactIntegerOf = (d: Decimal): CastResult => {
+const exactIntegerOf = (d: Numeric): CastResult => {
 	if (!d.isFinite()) {
 		return Result.err("finite")
 	}
@@ -406,7 +406,7 @@ export const numericCast = (
 				from: "numeric",
 				convert: (d) => {
 					const scaled = d.isFinite()
-						? Decimal.fromParts(
+						? Numeric.fromParts(
 								d.parts.negative,
 								d.parts.coefficient * minorUnitsPerUnit,
 								d.parts.minScale

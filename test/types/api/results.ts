@@ -51,8 +51,8 @@ const prelude = await Effect.runPromise(preludeAt("test/support/programs/results
 
 /** The schema every answer is read over, and the verdict each cell states of its answer, the batch's own. */
 const resultsHeader: ReadonlyArray<string> = [
-	'export const Account = relation.generated("Account", { id: Id, units: pg.bigint }, ["id"], (r) => ({',
-	"\tcopied: generated(pg.bigint, r.units)",
+	'export const Account = relation.generated("Account", { id: Id, units: int8 }, ["id"], (r) => ({',
+	"\tcopied: generated(int8, r.units)",
 	"}))",
 	'export const Accounts = schema("Accounts", [Account], [check("Positive", Account, (a) => a.gt(a.units, 0n))])',
 	"export const unitsText = codecText(Account.fields.units)",

@@ -76,7 +76,7 @@ import { namedQuery } from "#compiler/sql/naming.ts"
  * What a fused array carries per child (decode.ts FusedLayout): each child column, from the element, or from the
  * parent row where the Attach correlates it to a parent column of the same type, which the parent row already
  * delivers (the first such). The correlation is native equality, and equal values decode to one host value (a
- * numeric's 1.0 and 1.00 are one Decimal, a float's -0 and 0 one zero), so the parent's cell delivers the child's
+ * numeric's 1.0 and 1.00 are one Numeric, a float's -0 and 0 one zero), so the parent's cell delivers the child's
  * value whatever the type.
  */
 export const fusedLayout = (

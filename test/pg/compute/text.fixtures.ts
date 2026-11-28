@@ -8,7 +8,7 @@ import { identity } from "#compiler/core/identity.ts"
 import { type Installation, installOptions } from "#compiler/physical/install/compile.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
 import { Text } from "#compiler/public/compute.ts"
-import { closedId, pg } from "#compiler/public/fields.ts"
+import { closedId, int4 } from "#compiler/public/fields.ts"
 import { check, closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { installationNamesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
@@ -64,10 +64,10 @@ export const dictionarySchema = (d: Dictionary) => {
 	)
 	const Value = relation(
 		"Value",
-		{ id: pg.integer, domain: closedId(Domain), lexical: str.regex("^.*$", "su") },
+		{ id: int4, domain: closedId(Domain), lexical: str.regex("^.*$", "su") },
 		["id"]
 	)
-	const Tagged = relation("Tagged", { id: pg.integer, code: str.regex("^.*$", "su") }, ["id"])
+	const Tagged = relation("Tagged", { id: int4, code: str.regex("^.*$", "su") }, ["id"])
 	const lexical = check("Lexical", Value, (v) =>
 		Text.matches(v.lexical, Pattern.at("pattern", v.domain))
 	)

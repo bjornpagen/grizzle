@@ -31,13 +31,22 @@ import { type MonoidName, monoidNames } from "#compiler/ir/desc.ts"
 import { monoidSpecs } from "#compiler/ir/monoid.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import type { Law } from "#compiler/public/changeset.ts"
-import { bits, closedId, natural, pg } from "#compiler/public/fields.ts"
+import {
+	bit,
+	closedId,
+	natural,
+	int2,
+	int4,
+	int8,
+	money,
+	numeric
+} from "#compiler/public/fields.ts"
 import { schema, type Statement } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { derivedLaw } from "#compiler/runtime/law-entry.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { describeFieldOrThrow } from "#compiler/scalar/registry.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import {
 	accumulatedField,
@@ -182,23 +191,23 @@ const pieceField = str.bytes(pieceBytes, str.regex("^.*$", "su"))
 const fieldOf = (rosters: Rosters, p: PlaneKind): FieldBase => {
 	switch (p.kind) {
 		case "int2":
-			return pg.smallint
+			return int2
 		case "int4":
-			return pg.integer
+			return int4
 		case "int8":
-			return pg.bigint
+			return int8
 		case "natural":
 			return natural
 		case "numeric":
-			return pg.numeric(8, 2)
+			return numeric(8, 2)
 		case "money":
-			return pg.money
+			return money
 		case "code":
 			return closedId(rosters.code)
 		case "text":
 			return textField
 		case "bits":
-			return bits(setRoster(rosters, p.width))
+			return bit(setRoster(rosters, p.width))
 	}
 }
 
@@ -389,7 +398,7 @@ const hostOf = (p: PlaneKind, v: Value): unknown => {
 		case "natural":
 			return units(v)
 		case "numeric":
-			return Decimal.fromMinorUnits(units(v))
+			return Numeric.fromMinorUnits(units(v))
 		case "money":
 			return Money.of(units(v))
 		case "code":
@@ -602,7 +611,7 @@ export const foldSchema = (kind: FamilyKind): FoldSchema => {
 		const fields: ReadonlyArray<Named> =
 			kind === "tree"
 				? [
-						["doc", pg.integer],
+						["doc", int4],
 						["parent", drawnNatural],
 						["at", drawnNatural],
 						["children", drawnNatural],
@@ -612,8 +621,8 @@ export const foldSchema = (kind: FamilyKind): FoldSchema => {
 						...endFields(rosters, cells)
 					]
 				: [
-						["id", pg.integer],
-						["o", pg.integer],
+						["id", int4],
+						["o", int4],
 						...(kind === "ordered" ? [["at", drawnNatural] as const] : []),
 						...own
 					]
@@ -632,8 +641,8 @@ export const foldSchema = (kind: FamilyKind): FoldSchema => {
 	const owner = relation(
 		"Owner",
 		Rec.fromEntries([
-			["id", pg.integer],
-			["label", pg.integer],
+			["id", int4],
+			["label", int4],
 			...Arr.flatMap(groups, (g): ReadonlyArray<Named> =>
 				kind === "tree" ? [] : [[g.count, drawnNatural], ...endFields(rosters, g.cells)]
 			)
@@ -679,7 +688,7 @@ export const foldSchema = (kind: FamilyKind): FoldSchema => {
 	const all: ReadonlyArray<Statement> =
 		kind === "tree"
 			? statements
-			: [...statements, unitBuilder("Id", { id: pg.integer }, []), mutableBuilder(owner)]
+			: [...statements, unitBuilder("Id", { id: int4 }, []), mutableBuilder(owner)]
 	return {
 		kind,
 		groups: nonEmpty(groups),

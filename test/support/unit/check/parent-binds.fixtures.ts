@@ -6,23 +6,15 @@ import type { NodeId } from "#compiler/core/ids.ts"
 import { nodeScopes, topoOrder } from "#compiler/ir/dag.ts"
 import type { NodeOf, RelDag, RelNode } from "#compiler/ir/rel.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 
 /** An attempt of a child at its item `n`, at its instant: the parent rows. */
-const Attempt = relation("Attempt", { child: pg.integer, n: pg.integer, at: pg.integer }, [
-	"child",
-	"n",
-	"at"
-])
+const Attempt = relation("Attempt", { child: int4, n: int4, at: int4 }, ["child", "n", "at"])
 
 /** A mark of a child's item `n`: the rows each attempt's attachment reads through an import. */
-const Mark = relation("Mark", { child: pg.integer, n: pg.integer, mark: pg.integer }, [
-	"child",
-	"n",
-	"mark"
-])
+const Mark = relation("Mark", { child: int4, n: int4, mark: int4 }, ["child", "n", "mark"])
 
 export const ParentBinds = schema("ParentBinds", [Attempt, Mark], [])
 

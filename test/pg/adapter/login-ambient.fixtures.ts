@@ -16,7 +16,7 @@ import { Array as Arr, Effect, Option } from "effect"
 import { quoteIdent } from "#compiler/core/text.ts"
 import type { Anchor, KeyedList } from "#compiler/live/index.ts"
 import { roleDefaultSettings } from "#compiler/physical/ddl/roles.ts"
-import { Money, pg } from "#compiler/public/fields.ts"
+import { Money, bool, float4, float8, money } from "#compiler/public/fields.ts"
 import { contained, mutable, on, relation, schema, unit } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { printRoleSetting } from "#compiler/sql/print.ts"
@@ -42,10 +42,10 @@ export const MoneyRelation = relation(
 	"Money",
 	{
 		id: Id,
-		amount: pg.money,
-		ratio: pg.real,
-		exact: pg["double precision"],
-		flag: pg.boolean
+		amount: money,
+		ratio: float4,
+		exact: float8,
+		flag: bool
 	},
 	["id"]
 )

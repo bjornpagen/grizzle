@@ -6,7 +6,7 @@ import { type Budget, type Kill, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Result } from "effect"
 import type { RelDag } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import type { ValueIdentity } from "#test/support/kernel/identity.ts"
 import type { QueryCase } from "#test/support/oracle/gen/case.ts"
@@ -144,7 +144,7 @@ const samples: Arr.NonEmptyReadonlyArray<readonly [ScalarType, Arr.NonEmptyReado
 					"Infinity",
 					"-Infinity"
 				] as const,
-				(spelled) => Decimal.of(spelled)
+				(spelled) => Numeric.of(spelled)
 			)
 		],
 		[float4, [0, -0, 1.5, Number.NaN, Number.POSITIVE_INFINITY]],

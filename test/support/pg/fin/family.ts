@@ -14,7 +14,7 @@
  */
 import { deepEquals, defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Data, Effect, Formatter, Option, type Scope } from "effect"
-import { drawn, natural, pg } from "#compiler/public/fields.ts"
+import { drawn, natural, int4 } from "#compiler/public/fields.ts"
 import {
 	counted,
 	fin,
@@ -56,21 +56,14 @@ import {
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
-const Owner = relation("Owner", { id: pg.integer, n: drawn(natural) }, ["id"])
+const Owner = relation("Owner", { id: int4, n: drawn(natural) }, ["id"])
 
-const OrderedMember = relation(
-	"Member",
-	{ member: pg.integer, g: pg.integer, at: drawn(natural) },
-	["member"]
-)
+const OrderedMember = relation("Member", { member: int4, g: int4, at: drawn(natural) }, ["member"])
 
-const CountedMember = relation("Member", { member: pg.integer, g: pg.integer }, ["member"])
+const CountedMember = relation("Member", { member: int4, g: int4 }, ["member"])
 
 /** The units the mutable Owner and Member sit in: each owner's row by its id, each member's by its own. */
-const units = [
-	unit("Holder", { id: pg.integer }),
-	unit("Membership", { member: pg.integer })
-] as const
+const units = [unit("Holder", { id: int4 }), unit("Membership", { member: int4 })] as const
 
 /**
  * The ordered family: each owner's members indexed by their drawn `at`. Owner and Member are declared mutable: the

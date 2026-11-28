@@ -6,7 +6,7 @@ import { checkQuery } from "#compiler/check/index.ts"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { Num, type Predicate, type Term, Type } from "#compiler/public/compute.ts"
-import { pg, type Uuid } from "#compiler/public/fields.ts"
+import { type Uuid, int4 } from "#compiler/public/fields.ts"
 import { query, type Rule, type SelfSource, v } from "#compiler/public/query.ts"
 import { contained, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -52,14 +52,14 @@ const Network = schema(
 /** The (person, hops) states reachable from the start in fewer than `limit` hops, which proves depth `limit`. */
 export const walksBelow = (name: string, limit: number) =>
 	query(Network).recursive(name, {
-		row: { person: Id, hops: pg.integer },
+		row: { person: Id, hops: int4 },
 		base: [
 			(r) => {
 				const { id } = v(Person, "person")
 				return r
 					.match(Person, { id })
 					.where(r.eq(id, r.param("start", Id)))
-					.find({ person: id, hops: Type.literal(pg.integer, 0) })
+					.find({ person: id, hops: Type.literal(int4, 0) })
 			}
 		],
 		rec: [
@@ -73,7 +73,7 @@ export const walksBelow = (name: string, limit: number) =>
 					.where(r.lt(hops, limit))
 					.find({
 						person: to,
-						hops: Num.add(hops, Type.literal(pg.integer, 1))
+						hops: Num.add(hops, Type.literal(int4, 1))
 					})
 			}
 		]
@@ -213,12 +213,12 @@ export type ReachedFeature = "reached people" | "reached nobody"
 type NetworkRule = Rule<typeof Network>
 
 /** The feedback of a counter: the person reached and the hop count. */
-type CounterSelf = SelfSource<{ readonly person: typeof Id; readonly hops: typeof pg.integer }>
+type CounterSelf = SelfSource<{ readonly person: typeof Id; readonly hops: typeof int4 }>
 
-type Hops = Term<number, unknown, unknown, "integer">
+type Hops = Term<number, unknown, unknown, "int4">
 
 /** An integer literal of the counter's field. */
-const lit = (n: number) => Type.literal(pg.integer, n)
+const lit = (n: number) => Type.literal(int4, n)
 
 /**
  * The bound an arm's filter states in the direction its step counts: below or at a limit counting up, above or at it
@@ -305,7 +305,7 @@ const armOf = (arm: Arm) => (r: NetworkRule, self: CounterSelf) => {
 
 export const counterOf = (k: CounterSketch): unknown =>
 	query(Network).recursive("Counter", {
-		row: { person: Id, hops: pg.integer },
+		row: { person: Id, hops: int4 },
 		base: Arr.map(k.seeds, (seed) => (r: NetworkRule) => {
 			const { id } = v(Person, "person")
 			return r

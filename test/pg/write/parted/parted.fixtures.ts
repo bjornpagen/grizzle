@@ -6,7 +6,7 @@ import { Array as Arr, Effect, Order, Record as Rec, String as Str } from "effec
 import type { LoadedChange } from "#adapter/served/load.ts"
 import { conversionOf } from "#compiler/core/identity.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, on, relation, schema, select } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -19,7 +19,7 @@ import { fixtureTemplate } from "#test/support/pg/reads/support.ts"
 const sidecarFields = Object.freeze({
 	id: Id,
 	variable: str.regex("^[a-z]{1,8}$"),
-	value: pg.integer
+	value: int4
 })
 
 /** The box's relations: a header H; three sidecars S1, S2, S3 from the relation parameters p1, p2, p3; and G, the

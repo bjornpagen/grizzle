@@ -9,7 +9,7 @@
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { Array as Arr, String as Str } from "effect"
 import { conversionOf, maxIdentifierBytes } from "#compiler/core/identity.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { type QueryValue, queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
@@ -43,7 +43,7 @@ export type OptionFault = (typeof optionFaults)[number]
 type Vars = Readonly<Record<string, unknown>>
 
 /** A key field and a payload, the fields of every relation the queries read. */
-const K = pg.integer
+const K = int4
 
 /** The root's relation, and the relations its options and their options read, each keyed by its parent's key. */
 const P = relation("P", { id: K, n: K }, ["id"])

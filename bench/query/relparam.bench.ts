@@ -39,7 +39,7 @@ import {
 	rowsReadFrom,
 	summaryOf
 } from "#bench/query/support/plans.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { featureCount, shapeOf } from "#test/support/kernel/shape.ts"
@@ -54,11 +54,11 @@ import { featureCount, shapeOf } from "#test/support/kernel/shape.ts"
  * the input's size). The input carries repeated facts, which the host deduplicates. The handwritten baselines are the
  * VALUES join and the N-ary OR tree R22 replaces.
  */
-const Item = relation("Item", { id: pg.bigint, account: pg.bigint, price: pg.integer }, ["id"])
+const Item = relation("Item", { id: int8, account: int8, price: int4 }, ["id"])
 const Params = schema("Params", [Item], [])
 
 const itemsByIds = query(Params).rule((r) => {
-	const wanted = r.relation("ids", { id: pg.bigint })
+	const wanted = r.relation("ids", { id: int8 })
 	const { id, price } = v(Item, "item")
 	return r.match(wanted, { id }).match(Item, { id, price }).find({ id, price })
 })

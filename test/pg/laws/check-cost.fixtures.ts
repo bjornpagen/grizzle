@@ -27,7 +27,7 @@ import { lawsOfConstraint } from "#compiler/ir/products.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { statedAdvice } from "#compiler/plan/migration.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	check,
@@ -79,51 +79,43 @@ import type { RolledBack } from "#test/support/substrate/substrate.ts"
 const Node = relation(
 	"Node",
 	{
-		pkg: pg.integer,
-		path: pg.integer,
-		at: pg.integer,
-		kind: pg.integer,
-		tag: pg.integer,
-		grp: pg.integer,
-		band: pg.integer
+		pkg: int4,
+		path: int4,
+		at: int4,
+		kind: int4,
+		tag: int4,
+		grp: int4,
+		band: int4
 	},
 	["pkg", "path", "at"]
 )
 
 /** A declaration, at the element that declares it. */
-const Decl = relation(
-	"Decl",
-	{ pkg: pg.integer, path: pg.integer, at: pg.integer, w: pg.integer },
-	["pkg", "path", "at"]
-)
+const Decl = relation("Decl", { pkg: int4, path: int4, at: int4, w: int4 }, ["pkg", "path", "at"])
 
 /** A declared variable's identifier, at the element that declares it, as QTI's DeclarationIdentifier. */
-const Dcl = relation(
-	"Dcl",
-	{ pkg: pg.integer, path: pg.integer, at: pg.integer, ident: pg.integer },
-	["pkg", "path", "at"]
-)
+const Dcl = relation("Dcl", { pkg: int4, path: int4, at: int4, ident: int4 }, ["pkg", "path", "at"])
 
 /** A declaration's cardinality, at its element, as QTI's DeclarationCardinality. */
-const Card = relation(
-	"Card",
-	{ pkg: pg.integer, path: pg.integer, at: pg.integer, card: pg.integer },
-	["pkg", "path", "at"]
-)
+const Card = relation("Card", { pkg: int4, path: int4, at: int4, card: int4 }, [
+	"pkg",
+	"path",
+	"at"
+])
 
 /** A declaration's base type, at its element, as QTI's DeclarationBaseType. */
-const Typed = relation(
-	"Typed",
-	{ pkg: pg.integer, path: pg.integer, at: pg.integer, base: pg.integer },
-	["pkg", "path", "at"]
-)
+const Typed = relation("Typed", { pkg: int4, path: int4, at: int4, base: int4 }, [
+	"pkg",
+	"path",
+	"at"
+])
 
 /** A binding at an element, of an attribute, naming a variable its document declares, as QTI's BoundVariable. */
-const Bind = relation(
-	"Bind",
-	{ pkg: pg.integer, path: pg.integer, at: pg.integer, attr: pg.integer, ident: pg.integer },
-	["pkg", "path", "at"]
-)
+const Bind = relation("Bind", { pkg: int4, path: int4, at: int4, attr: int4, ident: int4 }, [
+	"pkg",
+	"path",
+	"at"
+])
 
 /**
  * Every element of a declaring kind, 1 or 2, is a declaration's: the rule the judge holds, as QTI's
@@ -138,7 +130,7 @@ const Base = schema(
 	"CheckCost",
 	[Node, Decl, Dcl, Card, Typed, Bind],
 	[
-		unit("Doc", { pkg: pg.integer, path: pg.integer }),
+		unit("Doc", { pkg: int4, path: int4 }),
 		mutable(Node),
 		mutable(Decl),
 		contained(
@@ -889,7 +881,7 @@ export const runCheck = (clone: RolledBack<Installed>, c: CheckCase, k: Case<Che
  */
 const ManifestNode = relation(
 	"ManifestNode",
-	{ pkg: pg.integer, path: pg.integer, start: pg.integer, kind: pg.integer, parent: pg.integer },
+	{ pkg: int4, path: int4, start: int4, kind: int4, parent: int4 },
 	["pkg", "path", "start"]
 )
 
@@ -897,12 +889,12 @@ const ManifestNode = relation(
 const RecordNode = relation(
 	"RecordNode",
 	{
-		pkg: pg.integer,
-		path: pg.integer,
-		start: pg.integer,
-		kind: pg.integer,
-		parent: pg.integer,
-		parentKind: pg.integer
+		pkg: int4,
+		path: int4,
+		start: int4,
+		kind: int4,
+		parent: int4,
+		parentKind: int4
 	},
 	["pkg", "path", "start"]
 )
@@ -911,29 +903,28 @@ const RecordNode = relation(
 const Attribute = relation(
 	"Attribute",
 	{
-		pkg: pg.integer,
-		path: pg.integer,
-		start: pg.integer,
-		name: pg.integer,
-		kind: pg.integer,
-		value: pg.integer
+		pkg: int4,
+		path: int4,
+		start: int4,
+		name: int4,
+		kind: int4,
+		value: int4
 	},
 	["pkg", "path", "start", "name"]
 )
 
 /** A resource's `href` that resolves in its package, by the resource's place: the path of the entry it names. */
-const HrefPath = relation(
-	"HrefPath",
-	{ pkg: pg.integer, path: pg.integer, start: pg.integer, target: pg.integer },
-	["pkg", "path", "start"]
-)
+const HrefPath = relation("HrefPath", { pkg: int4, path: int4, start: int4, target: int4 }, [
+	"pkg",
+	"path",
+	"start"
+])
 
 /** A document a resource of its package lists, by its package and path, with that resource's type: ResourceDocument. */
-const ListedDocument = relation(
-	"ListedDocument",
-	{ pkg: pg.integer, path: pg.integer, type: pg.integer },
-	["pkg", "path"]
-)
+const ListedDocument = relation("ListedDocument", { pkg: int4, path: int4, type: int4 }, [
+	"pkg",
+	"path"
+])
 
 /** The kinds of a resource, its metadata and a record, the attribute names `type` and `href`, and two object types. */
 const naming = {
@@ -954,7 +945,7 @@ const naming = {
 const Manifest = schema(
 	"NamingFill",
 	[ManifestNode, RecordNode, Attribute, HrefPath, ListedDocument],
-	[sealed(unit("Package", { pkg: pg.integer }))]
+	[sealed(unit("Package", { pkg: int4 }))]
 )
 
 /** A resource's type, by its place: its `type` attribute's value, as pantry's resourceTypes (attributeCodes). */

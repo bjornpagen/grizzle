@@ -8,7 +8,7 @@ import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { type PlanNode, planNodes } from "#bench/harness/explain.ts"
 import { outline } from "#bench/query/support/plans.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import {
@@ -29,7 +29,7 @@ import type { PgConnection } from "#test/support/pg.ts"
 import type { BudgetedCluster } from "#test/support/substrate/budget.ts"
 import { superuserClient } from "#test/support/substrate/shared.ts"
 
-const i = pg.integer
+const i = int4
 
 /** Parents, and each parent's children, keyed by the parent and the child's id, each with a score. */
 const Parent = relation("Parent", { id: i }, ["id"])

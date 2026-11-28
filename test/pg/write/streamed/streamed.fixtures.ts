@@ -6,7 +6,7 @@ import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import { installWrites, openFull } from "#bench/write/support/writes.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
-import { accumulated, drawn, natural, pg } from "#compiler/public/fields.ts"
+import { accumulated, drawn, natural, int8 } from "#compiler/public/fields.ts"
 import {
 	check,
 	contained,
@@ -31,16 +31,16 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 const Text = str.bytes(512, str.regex("^.*$", "su"))
 
 /** Nodes of documents, wide, keyed (doc, path, at) and by seq, as edullm's qti.node and learning-commons' standards. */
-const Wide = relation(
-	"Wide",
-	{ doc: pg.bigint, path: Text, at: pg.bigint, seq: pg.bigint, body: Text },
-	["doc", "path", "at"]
-)
+const Wide = relation("Wide", { doc: int8, path: Text, at: int8, seq: int8, body: Text }, [
+	"doc",
+	"path",
+	"at"
+])
 
 /** An area and its counted members, members facts of their own, as learning-commons' GuidanceArea and Guideline. */
-const Area = relation("Area", { area: pg.bigint, members: drawn(natural) }, ["area"])
+const Area = relation("Area", { area: int8, members: drawn(natural) }, ["area"])
 
-const Member = relation("Member", { member: pg.bigint, area: pg.bigint }, ["member"])
+const Member = relation("Member", { member: int8, area: int8 }, ["member"])
 
 /**
  * qti-pie's Node and Attribute, cut down: a tree per document, each node with what it needs, `need`, as a node's governor
@@ -53,20 +53,20 @@ const Member = relation("Member", { member: pg.bigint, area: pg.bigint }, ["memb
 const Node = relation(
 	"Node",
 	{
-		doc: pg.bigint,
+		doc: int8,
 		start: drawn(natural),
 		end: drawn(natural),
 		parent: drawn(natural),
 		at: drawn(natural),
 		children: drawn(natural),
-		need: pg.bigint,
+		need: int8,
 		marks: drawn(natural),
-		weight: accumulated(pg.bigint, 0n)
+		weight: accumulated(int8, 0n)
 	},
 	["doc", "start"]
 )
 
-const Mark = relation("Mark", { doc: pg.bigint, start: natural, name: pg.bigint, v: pg.bigint }, [
+const Mark = relation("Mark", { doc: int8, start: natural, name: int8, v: int8 }, [
 	"doc",
 	"start",
 	"name"
@@ -75,7 +75,7 @@ const Mark = relation("Mark", { doc: pg.bigint, start: natural, name: pg.bigint,
 const nodeMarks = counted(on(Mark, "doc", "start"), fin(Node, "marks"))
 
 /** A relation every call of the case's insertAll names with no facts, as learning-commons' parts name every other. */
-const Note = relation("Note", { id: pg.bigint }, ["id"])
+const Note = relation("Note", { id: int8 }, ["id"])
 
 /**
  * A document every wide node lies in, contained by its doc (`contained`), and whose root, its own `path` and `at`, is a
@@ -83,7 +83,7 @@ const Note = relation("Note", { id: pg.bigint }, ["id"])
  * Deferral, a key on a cycle), and a node of a document the call states none of is refused at COMMIT, its witness the
  * node its diagnosis finds unmatched.
  */
-const Doc = relation("Doc", { doc: pg.bigint, title: Text, path: Text, at: pg.bigint }, ["doc"])
+const Doc = relation("Doc", { doc: int8, title: Text, path: Text, at: int8 }, ["doc"])
 
 const build = (name: string) =>
 	schema(

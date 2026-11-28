@@ -25,7 +25,7 @@ import { predicateTable, type ScalarExpr } from "#compiler/ir/expr.ts"
 import { compileLaws, type LawModel } from "#compiler/laws/model/model.ts"
 import type { CallError } from "#compiler/live/index.ts"
 import type { Law } from "#compiler/public/changeset.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import {
 	contained,
 	fin,
@@ -384,7 +384,7 @@ const schemaOf = (nc: NullCase) => {
 		),
 		mutable(Owner),
 		mutable(Member),
-		unit("Holder", { id: pg.integer })
+		unit("Holder", { id: int4 })
 	] as const
 	return {
 		c,

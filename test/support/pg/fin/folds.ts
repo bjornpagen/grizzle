@@ -20,7 +20,16 @@ import { Array as Arr, Data, Effect, Formatter, Option, Order, Result, String as
 import { StoredRelationName } from "#compiler/core/ids.ts"
 import type { FoldPlane } from "#compiler/ir/family.ts"
 import { type ColumnKey, columnKey, columnKeyOf } from "#compiler/ir/law.ts"
-import { accumulated, Bits, bits, closedId, drawn, natural, pg } from "#compiler/public/fields.ts"
+import {
+	accumulated,
+	Bit,
+	bit,
+	closedId,
+	drawn,
+	natural,
+	bool,
+	int4
+} from "#compiler/public/fields.ts"
 import {
 	closed,
 	check,
@@ -108,24 +117,22 @@ const standingRules = (standing: Standing, relations: ReadonlyArray<AnyRelation>
 	standing === "mutable"
 		? [
 				...Arr.map(relations, (r) => mutable(r)),
-				unit("Holder", { id: pg.integer }),
-				unit("Membership", { member: pg.integer })
+				unit("Holder", { id: int4 }),
+				unit("Membership", { member: int4 })
 			]
 		: []
 
 const countOrdered = (() => {
-	const Owner = relation(
-		"Owner",
-		{ id: pg.integer, n: drawn(natural), end: accumulated(natural, 0n) },
-		["id"]
-	)
+	const Owner = relation("Owner", { id: int4, n: drawn(natural), end: accumulated(natural, 0n) }, [
+		"id"
+	])
 	const Member = relation(
 		"Member",
 		{
-			member: pg.integer,
-			g: pg.integer,
+			member: int4,
+			g: int4,
 			at: drawn(natural),
-			on: pg.boolean,
+			on: bool,
 			before: accumulated(natural, 0n),
 			after: accumulated(natural, 0n)
 		},
@@ -153,20 +160,18 @@ const countOrdered = (() => {
 })()
 
 const sumInt4 = (() => {
-	const Owner = relation(
-		"Owner",
-		{ id: pg.integer, n: drawn(natural), end: accumulated(pg.integer, 0) },
-		["id"]
-	)
+	const Owner = relation("Owner", { id: int4, n: drawn(natural), end: accumulated(int4, 0) }, [
+		"id"
+	])
 	const Member = relation(
 		"Member",
 		{
-			member: pg.integer,
-			g: pg.integer,
+			member: int4,
+			g: int4,
 			at: drawn(natural),
-			x: pg.integer,
-			before: accumulated(pg.integer, 0),
-			after: accumulated(pg.integer, 0)
+			x: int4,
+			before: accumulated(int4, 0),
+			after: accumulated(int4, 0)
 		},
 		["member"]
 	)
@@ -182,21 +187,21 @@ const sumInt4 = (() => {
 })()
 
 const orBits = (() => {
-	const empty = Bits.of(Tag, [])
+	const empty = Bit.of(Tag, [])
 	const Owner = relation(
 		"Owner",
-		{ id: pg.integer, n: drawn(natural), end: accumulated(bits(Tag), empty) },
+		{ id: int4, n: drawn(natural), end: accumulated(bit(Tag), empty) },
 		["id"]
 	)
 	const Member = relation(
 		"Member",
 		{
-			member: pg.integer,
-			g: pg.integer,
+			member: int4,
+			g: int4,
 			at: drawn(natural),
-			x: bits(Tag),
-			before: accumulated(bits(Tag), empty),
-			after: accumulated(bits(Tag), empty)
+			x: bit(Tag),
+			before: accumulated(bit(Tag), empty),
+			after: accumulated(bit(Tag), empty)
 		},
 		["member"]
 	)
@@ -212,29 +217,29 @@ const orBits = (() => {
 })()
 
 const twosBits = (() => {
-	const empty = Bits.of(Tag, [])
+	const empty = Bit.of(Tag, [])
 	const Owner = relation(
 		"Owner",
 		{
-			id: pg.integer,
+			id: int4,
 			n: drawn(natural),
-			k: bits(Tag),
-			ones: accumulated(bits(Tag), empty),
-			twos: accumulated(bits(Tag), empty)
+			k: bit(Tag),
+			ones: accumulated(bit(Tag), empty),
+			twos: accumulated(bit(Tag), empty)
 		},
 		["id"]
 	)
 	const Member = relation(
 		"Member",
 		{
-			member: pg.integer,
-			g: pg.integer,
+			member: int4,
+			g: int4,
 			at: drawn(natural),
-			x: bits(Tag),
-			onesBefore: accumulated(bits(Tag), empty),
-			onesAfter: accumulated(bits(Tag), empty),
-			twosBefore: accumulated(bits(Tag), empty),
-			twosAfter: accumulated(bits(Tag), empty)
+			x: bit(Tag),
+			onesBefore: accumulated(bit(Tag), empty),
+			onesAfter: accumulated(bit(Tag), empty),
+			twosBefore: accumulated(bit(Tag), empty),
+			twosAfter: accumulated(bit(Tag), empty)
 		},
 		["member"]
 	)
@@ -250,9 +255,7 @@ const twosBits = (() => {
 				on(Member, "g", "x", "onesBefore", "onesAfter", "twosBefore", "twosAfter"),
 				on(Owner, "id", "ones", "twos")
 			),
-			check("atMostOneOfK", Owner, (o) =>
-				o.eq(Bits.cardinality(Bits.intersection(o.twos, o.k)), 0n)
-			)
+			check("atMostOneOfK", Owner, (o) => o.eq(Bit.cardinality(Bit.intersection(o.twos, o.k)), 0n))
 		]
 	)
 })()
@@ -260,18 +263,18 @@ const twosBits = (() => {
 const maxInt4 = (() => {
 	const Owner = relation(
 		"Owner",
-		{ id: pg.integer, n: drawn(natural), end: accumulated(pg.integer, int4Min) },
+		{ id: int4, n: drawn(natural), end: accumulated(int4, int4Min) },
 		["id"]
 	)
 	const Member = relation(
 		"Member",
 		{
-			member: pg.integer,
-			g: pg.integer,
+			member: int4,
+			g: int4,
 			at: drawn(natural),
-			x: pg.integer,
-			before: accumulated(pg.integer, int4Min),
-			after: accumulated(pg.integer, int4Min)
+			x: int4,
+			before: accumulated(int4, int4Min),
+			after: accumulated(int4, int4Min)
 		},
 		["member"]
 	)
@@ -289,14 +292,14 @@ const maxInt4 = (() => {
 const maxCode = (() => {
 	const Owner = relation(
 		"Owner",
-		{ id: pg.integer, n: drawn(natural), end: accumulated(closedId(Tag), "a") },
+		{ id: int4, n: drawn(natural), end: accumulated(closedId(Tag), "a") },
 		["id"]
 	)
 	const Member = relation(
 		"Member",
 		{
-			member: pg.integer,
-			g: pg.integer,
+			member: int4,
+			g: int4,
 			at: drawn(natural),
 			x: closedId(Tag),
 			before: accumulated(closedId(Tag), "a"),
@@ -316,14 +319,10 @@ const maxCode = (() => {
 })()
 
 export const sumCountedOf = (standing: Standing) => {
-	const Owner = relation(
-		"Owner",
-		{ id: pg.integer, n: drawn(natural), end: accumulated(pg.integer, 0) },
-		["id"]
-	)
-	const Member = relation("Member", { member: pg.integer, g: pg.integer, x: pg.integer }, [
-		"member"
+	const Owner = relation("Owner", { id: int4, n: drawn(natural), end: accumulated(int4, 0) }, [
+		"id"
 	])
+	const Member = relation("Member", { member: int4, g: int4, x: int4 }, ["member"])
 	const family = counted(on(Member, "g"), fin(Owner, "n"))
 	return schema(
 		"fin_fold_sum_counted",
@@ -337,13 +336,13 @@ export const sumCountedOf = (standing: Standing) => {
 }
 
 export const orCountedOf = (standing: Standing) => {
-	const empty = Bits.of(Tag, [])
+	const empty = Bit.of(Tag, [])
 	const Owner = relation(
 		"Owner",
-		{ id: pg.integer, n: drawn(natural), end: accumulated(bits(Tag), empty) },
+		{ id: int4, n: drawn(natural), end: accumulated(bit(Tag), empty) },
 		["id"]
 	)
-	const Member = relation("Member", { member: pg.integer, g: pg.integer, x: bits(Tag) }, ["member"])
+	const Member = relation("Member", { member: int4, g: int4, x: bit(Tag) }, ["member"])
 	const family = counted(on(Member, "g"), fin(Owner, "n"))
 	return schema(
 		"fin_fold_or_counted",
@@ -385,8 +384,8 @@ const integer: Omit<Carrier, "toHost"> = {
 	fromHost: integerOf
 }
 
-/** int4, whose host value is a number. */
-export const int4: Carrier = { ...integer, toHost: (v) => Number(v) }
+/** int4's carrier, whose host value is a number. */
+export const int4Carrier: Carrier = { ...integer, toHost: (v) => Number(v) }
 
 /** natural, whose host value is a bigint. */
 const naturals: Carrier = { ...integer, toHost: (v) => v }
@@ -484,7 +483,7 @@ export const FOLD_SPECS: Arr.NonEmptyReadonlyArray<FoldSpec> = [
 		schema: sumInt4,
 		monoid: { name: "sum", least: 0n },
 		shape: "ordered",
-		carrier: int4,
+		carrier: int4Carrier,
 		domain: ints,
 		selected: Option.none(),
 		x: Option.some("x"),
@@ -523,7 +522,7 @@ export const FOLD_SPECS: Arr.NonEmptyReadonlyArray<FoldSpec> = [
 		schema: maxInt4,
 		monoid: { name: "max", least: BigInt(int4Min) },
 		shape: "ordered",
-		carrier: int4,
+		carrier: int4Carrier,
 		domain: ints,
 		selected: Option.none(),
 		x: Option.some("x"),
@@ -547,7 +546,7 @@ export const FOLD_SPECS: Arr.NonEmptyReadonlyArray<FoldSpec> = [
 		schema: sumCountedOf("immutable"),
 		monoid: { name: "sum", least: 0n },
 		shape: "counted",
-		carrier: int4,
+		carrier: int4Carrier,
 		domain: ints,
 		selected: Option.none(),
 		x: Option.some("x"),

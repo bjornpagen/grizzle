@@ -3,7 +3,7 @@
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, String as Str } from "effect"
 import { Fn } from "#compiler/public/compute.ts"
-import { closedId, pg } from "#compiler/public/fields.ts"
+import { closedId, int4, int8 } from "#compiler/public/fields.ts"
 import { query, type Rule, v } from "#compiler/public/query.ts"
 import { closed, fn, relation, row, rows, schema } from "#compiler/public/schema.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
@@ -13,7 +13,7 @@ import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.
 import { checking } from "#test/support/policy.ts"
 import { descOf } from "#test/support/unit/write/changeset/fixtures.ts"
 
-const A = rows({ k: pg.bigint, v: pg.bigint })
+const A = rows({ k: int8, v: int8 })
 
 /** machine: four rows arguments of (k, v), and one row of two fields of rows of (k, v). */
 const machine = fn("machine", {
@@ -27,9 +27,9 @@ const machine = fn("machine", {
 })
 
 /** A session's items, the ones done, and two relations the members write. */
-const Item = relation("Item", { session: pg.integer, k: pg.bigint, v: pg.bigint }, ["session", "k"])
-const Done = relation("Done", { session: pg.integer, k: pg.bigint }, ["session", "k"])
-const fields = { session: pg.integer, k: pg.bigint, v: pg.bigint } as const
+const Item = relation("Item", { session: int4, k: int8, v: int8 }, ["session", "k"])
+const Done = relation("Done", { session: int4, k: int8 }, ["session", "k"])
+const fields = { session: int4, k: int8, v: int8 } as const
 const Out0 = relation("Out0", fields, ["session", "k", "v"])
 const Out1 = relation("Out1", fields, ["session", "k", "v"])
 
@@ -37,7 +37,7 @@ const Out1 = relation("Out1", fields, ["session", "k", "v"])
 const Tier = closed.ordered("Tier", ["low", "mid", "high"])
 const Rank = closed.relation(
 	"Rank",
-	{ tier: closedId(Tier), k: pg.bigint, v: pg.bigint },
+	{ tier: closedId(Tier), k: int8, v: int8 },
 	["tier"],
 	[
 		{ tier: "low", k: 1n, v: 1n },
@@ -49,7 +49,7 @@ const Rank = closed.relation(
 const Core = schema("EvaluationCore", [Item, Done, Tier, Rank, Out0, Out1, machine], [])
 
 /** The sessions a write reads, a relation parameter each query binds to its own. */
-const sessions = { session: pg.integer } as const
+const sessions = { session: int4 } as const
 
 /** A query's binding of `sittings` to the sessions of the rule `r` reads it in: each import of it a copy of its own. */
 const bySession = (r: Rule<typeof Core>) => ({ sittings: r.relation("sittings", sessions) })
@@ -297,7 +297,7 @@ const callAndCoreMember = (core: CoreKind, reading: Reading, field: "a0" | "a1")
 	})
 
 /** The session the call names: the write's `sittings`. */
-const named = query(Core).rule((r) => r.find({ session: r.param("session", pg.integer) }))
+const named = query(Core).rule((r) => r.find({ session: r.param("session", int4) }))
 
 /** The case's write, its sessions bound to the call's `session`. */
 const changesOf = (box: Box) => {

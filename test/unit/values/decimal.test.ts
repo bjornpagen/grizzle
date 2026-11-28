@@ -1,5 +1,5 @@
 /**
- * The Decimal carrier (scalar/values/decimal.ts): numeric_in's exact spellings read to their one form, PostgreSQL's
+ * The Numeric carrier (scalar/values/decimal.ts): numeric_in's exact spellings read to their one form, PostgreSQL's
  * numeric format limits, numeric_out text read back, the order and identity of values, the canonical payload, a
  * numeric(p, s) typmod's checks and rounding, and the literal boundary.
  *
@@ -26,7 +26,7 @@
  * - Typmod rounding: normalizeNumeric keeps NaN, refuses an infinity, refuses a value whose rounding has more than p
  *   digits at scale s, and otherwise stores the value at scale s within half a unit, a tie away from zero, idempotently.
  *   Oracle: apply_typmod's rule stated in exact rational arithmetic apart from roundedUnits.
- * - Literal boundary: Decimal.parse reads a decimal string or a bigint, refuses a number as decimalNumber and any other
+ * - Literal boundary: Numeric.parse reads a decimal string or a bigint, refuses a number as decimalNumber and any other
  *   value as decimalType, and admit raises only CompileError. Oracle: the boundary's specification as a checker.
  *
  * Features: each spelling feature, each corruption, each limit at and past it by each entry, padded and canonical
@@ -43,7 +43,7 @@ import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { encode, everyProperty } from "#compiler/core/canonical.ts"
 import { isCompileError } from "#compiler/core/errors.ts"
 import { DecimalText, isDecimalPayload } from "#compiler/ir/decimal.ts"
-import { checkNumericTypmod, Decimal } from "#compiler/scalar/values/decimal.ts"
+import { checkNumericTypmod, Numeric } from "#compiler/scalar/values/decimal.ts"
 import {
 	numericMaxPrecision,
 	numericMaxScale,
@@ -87,7 +87,7 @@ import {
 	typmodFeatures
 } from "#test/unit/values/decimal.fixtures.ts"
 
-/** Decimal parsing reads every exact spelling to numeric_in's value, in its one form. Its budget is its suite's before it was a property (test/unit/values/decimal.test.ts at 4ca3036a): 2000 runs and 2000 steered cases. */
+/** Numeric parsing reads every exact spelling to numeric_in's value, in its one form. Its budget is its suite's before it was a property (test/unit/values/decimal.test.ts at 4ca3036a): 2000 runs and 2000 steered cases. */
 export const decimalParsingReadsEveryExactSpellingToNumericInsValueInItsOneForm = property.explore(
 	spellingGen,
 	{
@@ -97,7 +97,7 @@ export const decimalParsingReadsEveryExactSpellingToNumericInsValueInItsOneForm 
 		check: (_, c: Case<SpellingFeature>) => (spelling) =>
 			Effect.sync(() => {
 				c.noteAll(spelling.features)
-				const d = succeeded(Decimal.fromString(spelling.text))
+				const d = succeeded(Numeric.fromString(spelling.text))
 				assert.equal(d.toString(), spelling.canonical, spelling.text)
 				assert.ok(canonicalParts(d), `${spelling.text}: its parts are the one form`)
 			}),
@@ -118,7 +118,7 @@ export const decimalParsingReadsEveryExactSpellingToNumericInsValueInItsOneForm 
 	}
 )
 
-/** Decimal parsing refuses every spelling one corruption breaks. Its budget is its suite's before it was a property (test/unit/values/decimal.test.ts at 4ca3036a): 1000 runs and 1000 steered cases. */
+/** Numeric parsing refuses every spelling one corruption breaks. Its budget is its suite's before it was a property (test/unit/values/decimal.test.ts at 4ca3036a): 1000 runs and 1000 steered cases. */
 export const decimalParsingRefusesEverySpellingOneCorruptionBreaks = property.explore(
 	corruptionSpace,
 	{
@@ -137,7 +137,7 @@ export const decimalParsingRefusesEverySpellingOneCorruptionBreaks = property.ex
 						c.pair(corruption, "an exact spelling")
 					}
 					const text = corrupted(spelling.text, corruption, at)
-					faulted(Decimal.fromString(text), "decimalSyntax", Formatter.format(text))
+					faulted(Numeric.fromString(text), "decimalSyntax", Formatter.format(text))
 				}),
 		oracle: {
 			kind: "specification",
@@ -155,7 +155,7 @@ export const decimalParsingRefusesEverySpellingOneCorruptionBreaks = property.ex
 	}
 )
 
-/** Decimal parsing admits a value at each of PostgreSQL's numeric format limits as its one text, refuses one past, and drops zeros past the fraction limit. Its budget is its suite's before it was a property (test/unit/values/decimal.test.ts at 4ca3036a): 100 runs and 200 steered cases. */
+/** Numeric parsing admits a value at each of PostgreSQL's numeric format limits as its one text, refuses one past, and drops zeros past the fraction limit. Its budget is its suite's before it was a property (test/unit/values/decimal.test.ts at 4ca3036a): 100 runs and 200 steered cases. */
 export const decimalParsingAdmitsAValueAtEachOfPostgreSQLsNumericFormatLimitsAsItsOneTextRefusesOnePastAndDropsZerosPastTheFractionLimit =
 	property.explore(formatCaseGen, {
 		needs: {},
@@ -198,7 +198,7 @@ export const decimalParsingAdmitsAValueAtEachOfPostgreSQLsNumericFormatLimitsAsI
 		]
 	})
 
-/** Decimal parsing round-trips its own text exactly, its parts padded by zeros are the value, and refuses a negative coefficient. Its budget is its suite's before it was a property (test/unit/values/decimal.test.ts at 4ca3036a): 2000 runs and 200 steered cases. */
+/** Numeric parsing round-trips its own text exactly, its parts padded by zeros are the value, and refuses a negative coefficient. Its budget is its suite's before it was a property (test/unit/values/decimal.test.ts at 4ca3036a): 2000 runs and 200 steered cases. */
 export const decimalParsingRoundTripsItsOwnTextExactlyItsPartsPaddedByZerosAreTheValueAndRefusesANegativeCoefficient =
 	property.explore((source) => [source.draw(decimalGen), source.draw(trailingZeros)] as const, {
 		needs: {},
@@ -210,7 +210,7 @@ export const decimalParsingRoundTripsItsOwnTextExactlyItsPartsPaddedByZerosAreTh
 			(_, c: Case<"unpadded parts" | "padded parts" | "special">) =>
 			([x, k]) =>
 				Effect.sync(() => {
-					const back = succeeded(Decimal.fromString(x.toString()))
+					const back = succeeded(Numeric.fromString(x.toString()))
 					assert.equal(back.toString(), x.toString())
 					assert.ok(sameParts(back, x))
 					assert.equal(back.equals(x), true)
@@ -222,12 +222,12 @@ export const decimalParsingRoundTripsItsOwnTextExactlyItsPartsPaddedByZerosAreTh
 					c.note(k > 0 ? "padded parts" : "unpadded parts")
 					const { negative, coefficient, minScale } = x.parts
 					const scaled = succeeded(
-						Decimal.fromParts(negative, coefficient * pow10(k), minScale + k)
+						Numeric.fromParts(negative, coefficient * pow10(k), minScale + k)
 					)
 					assert.ok(sameParts(scaled, x), `fromParts at scale ${minScale + k}`)
 					assert.equal(scaled.text, x.text)
 					if (coefficient > 0n) {
-						faulted(Decimal.fromParts(negative, -coefficient, minScale), "decimalType")
+						faulted(Numeric.fromParts(negative, -coefficient, minScale), "decimalType")
 					}
 				}),
 		oracle: {
@@ -246,7 +246,7 @@ export const decimalParsingRoundTripsItsOwnTextExactlyItsPartsPaddedByZerosAreTh
 		]
 	})
 
-/** Decimal parsing converts numeric_out text at every display scale to the value's one form, its text and parts the value's. Its budget is its suite's before it was a property (test/unit/values/decimal.test.ts at 4ca3036a): 2000 runs and 2000 steered cases. */
+/** Numeric parsing converts numeric_out text at every display scale to the value's one form, its text and parts the value's. Its budget is its suite's before it was a property (test/unit/values/decimal.test.ts at 4ca3036a): 2000 runs and 2000 steered cases. */
 export const decimalParsingConvertsNumericOutTextAtEveryDisplayScaleToTheValuesOneFormItsTextAndPartsTheValues =
 	property.explore(
 		(source) => [source.draw(decimalGen), source.draw(element([0, 1, 8, 24, 40]))] as const,
@@ -262,7 +262,7 @@ export const decimalParsingConvertsNumericOutTextAtEveryDisplayScaleToTheValuesO
 					Effect.sync(() => {
 						const text = x.isFinite() ? padded(x.text, k) : x.text
 						c.note(!x.isFinite() ? "special" : k === 0 ? "canonical" : "padded")
-						const converted = Decimal.fromOutput(text)
+						const converted = Numeric.fromOutput(text)
 						assert.equal(converted.text, x.text, text)
 						assert.ok(sameParts(converted, x), `${text}: the parts of ${x.text}`)
 						assert.ok(converted.equals(x))
@@ -280,7 +280,7 @@ export const decimalParsingConvertsNumericOutTextAtEveryDisplayScaleToTheValuesO
 		}
 	)
 
-/** Decimal identity and order orders as cmp_numerics, and equality, text and parts agree with the order. Its budget is its suite's before it was a property (test/unit/values/decimal.test.ts at 4ca3036a): 2000 runs and 400 steered cases. */
+/** Numeric identity and order orders as cmp_numerics, and equality, text and parts agree with the order. Its budget is its suite's before it was a property (test/unit/values/decimal.test.ts at 4ca3036a): 2000 runs and 400 steered cases. */
 export const decimalIdentityAndOrderOrdersAsCmpNumericsAndEqualityTextAndPartsAgreeWithTheOrder =
 	property.explore(orderedPairGen, {
 		needs: {},
@@ -320,7 +320,7 @@ export const decimalIdentityAndOrderOrdersAsCmpNumericsAndEqualityTextAndPartsAg
 		]
 	})
 
-/** Decimal in the canonical serializer writes every value as a payload of the IR's decimal grammar (ir/decimal.ts). Its budget is its suite's before it was a property (test/unit/values/decimal.test.ts at 4ca3036a): 1000 runs and 200 steered cases. */
+/** Numeric in the canonical serializer writes every value as a payload of the IR's decimal grammar (ir/decimal.ts). Its budget is its suite's before it was a property (test/unit/values/decimal.test.ts at 4ca3036a): 1000 runs and 200 steered cases. */
 export const decimalInTheCanonicalSerializerWritesEveryValueAsAPayloadOfTheIRsDecimalGrammarIrDecimalTs =
 	property.explore(decimalGen, {
 		needs: {},
@@ -340,7 +340,7 @@ export const decimalInTheCanonicalSerializerWritesEveryValueAsAPayloadOfTheIRsDe
 			}),
 		oracle: {
 			kind: "second-implementation",
-			name: "the IR's payload grammar (DecimalText.parse) beside the Decimal that wrote the text"
+			name: "the IR's payload grammar (DecimalText.parse) beside the Numeric that wrote the text"
 		},
 		kept: [],
 		kills: [
@@ -353,7 +353,7 @@ export const decimalInTheCanonicalSerializerWritesEveryValueAsAPayloadOfTheIRsDe
 		]
 	})
 
-/** Decimal in the canonical serializer takes a text as a payload exactly when the reviver revives it. Its budget is its suite's before it was a property (test/unit/values/decimal.test.ts at 4ca3036a): 5000 runs and 200 steered cases. */
+/** Numeric in the canonical serializer takes a text as a payload exactly when the reviver revives it. Its budget is its suite's before it was a property (test/unit/values/decimal.test.ts at 4ca3036a): 5000 runs and 200 steered cases. */
 export const decimalInTheCanonicalSerializerTakesATextAsAPayloadExactlyWhenTheReviverRevivesIt =
 	property.explore(payloadTextSpace, {
 		needs: {},
@@ -368,11 +368,11 @@ export const decimalInTheCanonicalSerializerTakesATextAsAPayloadExactlyWhenTheRe
 				if (leadsWithZero(text)) {
 					c.note("a leading zero")
 				}
-				assert.equal(payload, Decimal.fromCanonical(text).ok, text)
+				assert.equal(payload, Numeric.fromCanonical(text).ok, text)
 			}),
 		oracle: {
 			kind: "second-implementation",
-			name: "the IR's payload grammar (isDecimalPayload) beside the reviver (Decimal.fromCanonical)"
+			name: "the IR's payload grammar (isDecimalPayload) beside the reviver (Numeric.fromCanonical)"
 		},
 		kept: [],
 		kills: [
@@ -466,7 +466,7 @@ export const numericPSNormalizationKeepsNaNButAtScale0RefusesAnInfinityOrAValueR
 		]
 	})
 
-/** Decimal admission of a JavaScript caller's value parses a decimal string, refuses a value of no decimal host kind as decimalType, and admit raises only CompileError. Its budget is its suite's before it was a property (test/unit/values/decimal.test.ts at 4ca3036a): 500 runs and 500 steered cases. */
+/** Numeric admission of a JavaScript caller's value parses a decimal string, refuses a value of no decimal host kind as decimalType, and admit raises only CompileError. Its budget is its suite's before it was a property (test/unit/values/decimal.test.ts at 4ca3036a): 500 runs and 500 steered cases. */
 export const decimalAdmissionOfAJavaScriptCallersValueParsesADecimalStringRefusesAValueOfNoDecimalHostKindAsDecimalTypeAndAdmitRaisesOnlyCompileError =
 	property.explore(lsw<string>({ live: numericText, stale: Option.none(), wild: WILD_KINDS }), {
 		needs: {},
@@ -479,7 +479,7 @@ export const decimalAdmissionOfAJavaScriptCallersValueParsesADecimalStringRefuse
 			Effect.sync(() => {
 				c.note(drawnFeature(d))
 				const value = passed(d)
-				const parsed = Decimal.parse(value)
+				const parsed = Numeric.parse(value)
 				if (d.kind === "live") {
 					succeeded(parsed)
 				}
@@ -494,9 +494,9 @@ export const decimalAdmissionOfAJavaScriptCallersValueParsesADecimalStringRefuse
 					assert.equal(succeeded(parsed).toString(), value.toString())
 				}
 				if (parsed.ok) {
-					assert.equal(Decimal.admit(value).equals(parsed.value), true)
+					assert.equal(Numeric.admit(value).equals(parsed.value), true)
 				} else {
-					assert.throws(() => Decimal.admit(value), isCompileError)
+					assert.throws(() => Numeric.admit(value), isCompileError)
 				}
 			}),
 		oracle: {
@@ -510,8 +510,8 @@ export const decimalAdmissionOfAJavaScriptCallersValueParsesADecimalStringRefuse
 				original:
 					'\t\t\treturn Result.err(typeof input === "number" ? "decimalNumber" : "decimalType")',
 				replacement:
-					'\t\t\treturn typeof input === "number" ? Decimal.fromString(String(input)) : Result.err("decimalType")',
-				why: "Decimal.parse reads a number through its text rather than refusing it; the literal boundary property fails."
+					'\t\t\treturn typeof input === "number" ? Numeric.fromString(String(input)) : Result.err("decimalType")',
+				why: "Numeric.parse reads a number through its text rather than refusing it; the literal boundary property fails."
 			}
 		]
 	})

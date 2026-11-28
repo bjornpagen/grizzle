@@ -28,16 +28,16 @@ const lexicalTargetOfField = (type: unknown): LexicalTarget => {
 	if (target === undefined) {
 		throw unsupported(
 			loc,
-			"lexicalForm of a type with a lexical form: an integer type, an exact integer, numeric(p, s) with 0 <= s <= p, double precision, boolean or date"
+			"lexicalForm of a type with a lexical form: int2, int4 or int8, an exact integer, numeric(p, s) with 0 <= s <= p, float8, bool or date"
 		)
 	}
 	return target
 }
-export { bytesMaxLength } from "#compiler/scalar/values/fault.ts"
+export { byteaMaxLength } from "#compiler/scalar/values/fault.ts"
 export { flightMaxBytes, messageMaxBytes } from "#compiler/core/wire.ts"
 export { maxStringLength } from "#compiler/core/canonical.ts"
 export { regexTextMaxBytes } from "#compiler/core/errors.ts"
-export { decimalTextMaxBytes } from "#compiler/scalar/lexical.ts"
+export { numericTextMaxBytes } from "#compiler/scalar/lexical.ts"
 export { regexMaxRepeat } from "@bjornpagen/grizzle-text/regex/parse"
 export { regexDfaLimits } from "@bjornpagen/grizzle-text/regex/limits"
 export { type JoinedHost, type RegexText, str } from "#compiler/text/field.ts"
@@ -58,21 +58,21 @@ export type { RegexFlagsValidate, RegexInfer, RegexValidate } from "#compiler/ty
 export type { RegexFlags } from "@bjornpagen/grizzle-text/regex/parse"
 
 /**
- * doubleText: the Pattern of every decimal text of a double, Text.parseDouble's operand, under flags "u": a mantissa
+ * float8Text: the Pattern of every decimal text of a double, Text.parseFloat8's operand, under flags "u": a mantissa
  * `[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)` of any digits with an optional exponent `[eE][+-]?[0-9]+` of any digits, or `INF`,
  * `-INF` or `NaN`, XML Schema 1.0's xs:double lexical space, which has no `+INF`. A text of its language, or of a
  * language inside it, parses into a double total.
  */
-export const doubleText: Pattern = Pattern.ofForm({ kind: "doubleText" })
+export const float8Text: Pattern = Pattern.ofForm({ kind: "float8Text" })
 
 /**
- * decimalText: the Pattern of every decimal text, Text.parseDecimal's operand, under flags "u":
+ * numericText: the Pattern of every decimal text, Text.parseNumeric's operand, under flags "u":
  * `[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)` of any digits, the grammar of XML Schema 1.1's xs:decimal lexical space. The parse
- * reads a text of its language within decimalTextMaxBytes UTF-8 bytes, 16,384, every one of which names a value plain
+ * reads a text of its language within numericTextMaxBytes UTF-8 bytes, 16,384, every one of which names a value plain
  * numeric holds: a text of a language inside it whose bytes its type or a guard bounds within them parses into
  * numeric total, to its exact value.
  */
-export const decimalText: Pattern = Pattern.ofForm({ kind: "decimalText" })
+export const numericText: Pattern = Pattern.ofForm({ kind: "numericText" })
 
 /**
  * lexical(T): the text field of T's lexical form, str.regex over lexicalForm(T), within the form's byte bound where it

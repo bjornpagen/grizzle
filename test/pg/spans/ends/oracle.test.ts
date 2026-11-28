@@ -1,5 +1,5 @@
 /**
- * A span from its ends, r.span(start, end), against the span reference evaluator, in both artifacts: over every
+ * A span from its ends, r.range(start, end), against the span reference evaluator, in both artifacts: over every
  * endpoint kind (integer, bigint, a contract, date), Left and Right each span-keyed or not, from a Left span's start to
  * a Right span's end over the pairs of one group, or from each span's start to a point, a parameter or a literal. Each
  * answer is the reference's as a set of rows with no repeat: [start, end) for a binding whose end lies after its start,

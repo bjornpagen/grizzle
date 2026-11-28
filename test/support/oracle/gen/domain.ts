@@ -27,7 +27,7 @@ import { refined } from "#compiler/scalar/compute/evaluate.ts"
 import { wildcardText } from "#compiler/scalar/compute/types.ts"
 import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { noRosters, scalarTypeOf } from "#compiler/scalar/registry.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { textDesc } from "#test/support/fixtures/ir/desc.ts"
 import { toastPair, toastText } from "#test/support/oracle/gen/toast.ts"
@@ -126,16 +126,6 @@ const codeSource = "^[a-c]{1,2}$"
  */
 const longTextSource = "^.*$"
 
-const pgNames = {
-	int2: "smallint",
-	int4: "integer",
-	int8: "bigint",
-	float4: "real",
-	float8: "double precision",
-	money: "money",
-	bool: "boolean"
-} as const
-
 /** The field descriptor a spec declares its column with: a uuid's the tests' Id (test/support/ids.ts), since no column
  * is a bare uuid. */
 const specDesc = (spec: TypeSpec): FieldDesc => {
@@ -147,7 +137,7 @@ const specDesc = (spec: TypeSpec): FieldDesc => {
 		case "float8":
 		case "money":
 		case "bool":
-			return { kind: "pg", type: pgNames[spec.carrier] }
+			return { kind: "pg", type: spec.carrier }
 		case "uuid":
 			return {
 				kind: "contract",
@@ -167,7 +157,7 @@ const specDesc = (spec: TypeSpec): FieldDesc => {
 				? {
 						kind: "contract",
 						name: "Tick",
-						base: { kind: "pg", type: "bigint" },
+						base: { kind: "pg", type: "int8" },
 						predicate: undefined,
 						facts: []
 					}
@@ -183,9 +173,9 @@ const specDesc = (spec: TypeSpec): FieldDesc => {
 		case "vector":
 			return { kind: "vector", dimensions: vectorDimensions }
 		case "range4":
-			return { kind: "span", endpoint: { kind: "pg", type: "integer" }, width: undefined }
+			return { kind: "span", endpoint: { kind: "pg", type: "int4" }, width: undefined }
 		case "range8":
-			return { kind: "span", endpoint: { kind: "pg", type: "bigint" }, width: undefined }
+			return { kind: "span", endpoint: { kind: "pg", type: "int8" }, width: undefined }
 	}
 }
 
@@ -432,19 +422,19 @@ export const fieldDescOf = (type: ScalarType): FieldDesc => {
 	}
 	switch (genCarrierOf(type)) {
 		case "int2":
-			return { kind: "pg", type: "smallint" }
+			return { kind: "pg", type: "int2" }
 		case "int4":
-			return { kind: "pg", type: "integer" }
+			return { kind: "pg", type: "int4" }
 		case "int8":
-			return { kind: "pg", type: "bigint" }
+			return { kind: "pg", type: "int8" }
 		case "float4":
-			return { kind: "pg", type: "real" }
+			return { kind: "pg", type: "float4" }
 		case "float8":
-			return { kind: "pg", type: "double precision" }
+			return { kind: "pg", type: "float8" }
 		case "money":
 			return { kind: "pg", type: "money" }
 		case "bool":
-			return { kind: "pg", type: "boolean" }
+			return { kind: "pg", type: "bool" }
 		case "uuid":
 			return { kind: "uuid" }
 		case "text": {
@@ -463,9 +453,9 @@ export const fieldDescOf = (type: ScalarType): FieldDesc => {
 		case "code":
 			return { kind: "closedId", roster: codeRoster(type).closed, only: undefined }
 		case "range4":
-			return { kind: "span", endpoint: { kind: "pg", type: "integer" }, width: undefined }
+			return { kind: "span", endpoint: { kind: "pg", type: "int4" }, width: undefined }
 		case "range8":
-			return { kind: "span", endpoint: { kind: "pg", type: "bigint" }, width: undefined }
+			return { kind: "span", endpoint: { kind: "pg", type: "int8" }, width: undefined }
 		case "vector":
 			return {
 				kind: "vector",
@@ -483,7 +473,7 @@ export const fieldDescOf = (type: ScalarType): FieldDesc => {
 
 /**
  * The authored form of a literal of `type` (LiteralOf): a smallint or integer is a JavaScript number and a
- * bigint a bigint, numeric a Decimal, a float a number or the wrapped special value, money a Money, a closed id its handle, a set its handles.
+ * bigint a bigint, numeric a Numeric, a float a number or the wrapped special value, money a Money, a closed id its handle, a set its handles.
  */
 export const typedLiteralDesc = (literal: TypedLiteral, type: ScalarType): LiteralDesc => {
 	switch (literal.kind) {
@@ -518,7 +508,7 @@ export const typedLiteralDesc = (literal: TypedLiteral, type: ScalarType): Liter
 }
 
 const int = (value: bigint): TypedLiteral => ({ kind: "int", value })
-const num = (text: string): TypedLiteral => ({ kind: "numeric", value: Decimal.of(text) })
+const num = (text: string): TypedLiteral => ({ kind: "numeric", value: Numeric.of(text) })
 const flt = (value: number): TypedLiteral => floatLiteral(value)
 const special = (value: "NaN" | "Infinity" | "-Infinity"): TypedLiteral => ({
 	kind: "floatSpecial",
@@ -773,11 +763,11 @@ const withinNumericBound = (literal: TypedLiteral, bound: NumericBound): TypedLi
 	const kept = boundUnits < 0 ? 0n : units % 10n ** BigInt(boundUnits)
 	const value =
 		scale >= 0
-			? Decimal.fromParts(p.negative, kept, scale)
-			: Decimal.fromParts(p.negative, kept * 10n ** BigInt(-scale), 0)
+			? Numeric.fromParts(p.negative, kept, scale)
+			: Numeric.fromParts(p.negative, kept * 10n ** BigInt(-scale), 0)
 	if (!value.ok) {
 		throw new Error(
-			`a numeric class within the bound (${bound.digits}, ${bound.scale}) is a Decimal`
+			`a numeric class within the bound (${bound.digits}, ${bound.scale}) is a Numeric`
 		)
 	}
 	return { kind: "numeric", value: value.value }

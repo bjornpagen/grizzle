@@ -75,9 +75,9 @@ const unionOf = (held: ReadonlyArray<Handle>): string => Arr.join(Arr.map(held, 
 const closedSubsetHeader = (): ReadonlyArray<string> => [
 	`export const Mark = closed.ordered("Mark", [${Arr.join(Arr.map(handles, jsonText), ", ")}])`,
 	...Arr.flatMap(["Only", "Except"] as const, (s) => [
-		`export const ${s} = relation(${jsonText(s)}, { mark: closedId(Mark, ${subsetText(s)}), n: pg.integer }, ["mark"])`
+		`export const ${s} = relation(${jsonText(s)}, { mark: closedId(Mark, ${subsetText(s)}), n: int4 }, ["mark"])`
 	]),
-	'export const Whole = relation("Whole", { mark: closedId(Mark), n: pg.integer }, ["mark"])',
+	'export const Whole = relation("Whole", { mark: closedId(Mark), n: int4 }, ["mark"])',
 	"export const Marks = schema(",
 	'\t"Marks",',
 	"\t[Mark, Only, Except, Whole],",
@@ -106,9 +106,9 @@ const closedSubsetHeader = (): ReadonlyArray<string> => [
 		"\t\t.find({ n: held.n })",
 		"})"
 	]),
-	'export const wholeResult = fn("wholeResult", { calls: [], args: { n: pg.integer }, returns: closedId(Mark), volatility: "immutable", nullInput: "called", language: "sql", body: fn.body`SELECT 0::int2` })',
+	'export const wholeResult = fn("wholeResult", { calls: [], args: { n: int4 }, returns: closedId(Mark), volatility: "immutable", nullInput: "called", language: "sql", body: fn.body`SELECT 0::int2` })',
 	"// @ts-expect-error -- refusal: a declared function's closed id is of its whole roster: no function's body is a value of a subset",
-	`export const subsetResult = fn("subsetResult", { calls: [], args: { n: pg.integer }, returns: closedId(Mark, ${subsetText("Only")}), volatility: "immutable", nullInput: "called", language: "sql", body: fn.body\`SELECT 0::int2\` })`,
+	`export const subsetResult = fn("subsetResult", { calls: [], args: { n: int4 }, returns: closedId(Mark, ${subsetText("Only")}), volatility: "immutable", nullInput: "called", language: "sql", body: fn.body\`SELECT 0::int2\` })`,
 	"export type Equals<A, B> = (<X>() => X extends A ? 1 : 2) extends <X>() => X extends B ? 1 : 2 ? true : false",
 	"export type Expect<T extends true> = T",
 	""
@@ -143,7 +143,7 @@ const cellLines = (use: Use, c: SubsetCell, at: number): ReadonlyArray<string> =
 					`\tconst held = v(${c.relation}, "held")`,
 					`\treturn r`,
 					`\t\t.match(${c.relation}, { mark: held.mark, n: held.n })`,
-					`\t\t.where(r.eq(Bits.subset(Bits.singleton(held.mark), Bits.of(Mark, [${handle}])), true))`,
+					`\t\t.where(r.eq(Bit.subset(Bit.singleton(held.mark), Bit.of(Mark, [${handle}])), true))`,
 					"\t\t.find({ n: held.n })",
 					"})"
 				]

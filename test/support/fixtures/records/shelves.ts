@@ -6,7 +6,7 @@
  * column named `at`, the name an array's place takes first, so a books attachment that heads it moves its place to
  * `at2`.
  */
-import { closedId, pg } from "#compiler/public/fields.ts"
+import { closedId, int4, int8 } from "#compiler/public/fields.ts"
 import {
 	closed,
 	contained,
@@ -19,25 +19,19 @@ import {
 import { Id } from "#test/support/ids.ts"
 
 export const Kind = closed.ordered("Kind", ["Paper", "Digital"])
-export const Shelf = relation("Shelf", { id: Id, label: pg.integer }, ["id"])
+export const Shelf = relation("Shelf", { id: Id, label: int4 }, ["id"])
 export const Book = relation(
 	"Book",
-	{ id: Id, shelf: Id, kind: closedId(Kind), pages: pg.integer, at: pg.integer },
+	{ id: Id, shelf: Id, kind: closedId(Kind), pages: int4, at: int4 },
 	["id"]
 )
-export const Paper = relation("Paper", { book: Id, grams: pg.integer }, ["book"])
-export const Digital = relation("Digital", { book: Id, bytes: pg.bigint }, ["book"])
-export const Blurb = relation("Blurb", { book: Id, words: pg.integer }, ["book"])
-export const Spine = relation("Spine", { book: Id, color: pg.integer }, ["book"])
-export const Ink = relation("Ink", { book: Id, hue: pg.integer }, ["book"])
-export const Chapter = relation("Chapter", { book: Id, n: pg.integer, pages: pg.integer }, [
-	"book",
-	"n"
-])
-export const Remark = relation("Remark", { book: Id, n: pg.integer, stars: pg.integer }, [
-	"book",
-	"n"
-])
+export const Paper = relation("Paper", { book: Id, grams: int4 }, ["book"])
+export const Digital = relation("Digital", { book: Id, bytes: int8 }, ["book"])
+export const Blurb = relation("Blurb", { book: Id, words: int4 }, ["book"])
+export const Spine = relation("Spine", { book: Id, color: int4 }, ["book"])
+export const Ink = relation("Ink", { book: Id, hue: int4 }, ["book"])
+export const Chapter = relation("Chapter", { book: Id, n: int4, pages: int4 }, ["book", "n"])
+export const Remark = relation("Remark", { book: Id, n: int4, stars: int4 }, ["book", "n"])
 
 /** Shelves under `name`, as an installation under its allocated name rebuilds it. */
 export const shelvesNamed = <const N extends string>(name: N) =>

@@ -25,7 +25,7 @@ import { Db } from "#adapter/public/db.ts"
 import { type LawId } from "#compiler/core/ids.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Text, Type } from "#compiler/public/compute.ts"
-import { drawn as drawnField, generated, natural, pg } from "#compiler/public/fields.ts"
+import { drawn as drawnField, generated, natural, bool, int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	contained,
@@ -73,29 +73,25 @@ const KeyText = str.bytes(4, str.regex("^-?0*[0-9]$", "u"))
 /** A typed map key: the integer its text spells, and whether the text spells it with a minus. */
 const MapKey = relation.generated(
 	"MapKey",
-	{ mapping: pg.integer, text: KeyText },
+	{ mapping: int4, text: KeyText },
 	["mapping", "text"],
 	(r) => ({
-		value: generated(pg.integer, Type.cast(r.text, pg.integer)),
-		negative: generated(pg.boolean, Text.startsWith(r.text, "-"))
+		value: generated(int4, Type.cast(r.text, int4)),
+		negative: generated(bool, Text.startsWith(r.text, "-"))
 	})
 )
 const typedKey = key(on(MapKey, "mapping", "value", "negative"))
 
 /** A reference to a typed map key. */
-const Use = relation(
-	"Use",
-	{ id: pg.integer, mapping: pg.integer, value: pg.integer, negative: pg.boolean },
-	["id"]
-)
+const Use = relation("Use", { id: int4, mapping: int4, value: int4, negative: bool }, ["id"])
 const useRef = contained(
 	on(Use, "mapping", "value", "negative"),
 	on(MapKey, "mapping", "value", "negative")
 )
 
 /** A tag: at most one of each positive value. */
-const Tag = relation.generated("Tag", { id: pg.integer, text: KeyText }, ["id"], (r) => ({
-	value: generated(pg.integer, Type.cast(r.text, pg.integer))
+const Tag = relation.generated("Tag", { id: int4, text: KeyText }, ["id"], (r) => ({
+	value: generated(int4, Type.cast(r.text, int4))
 }))
 const positiveTag = key(
 	on(
@@ -105,14 +101,14 @@ const positiveTag = key(
 )
 
 /** A mapping's entries, in order, each named by its text, so a put appends one, and each a typed key of its own. */
-const Mapping = relation("Mapping", { id: pg.integer, n: drawnField(natural) }, ["id"])
+const Mapping = relation("Mapping", { id: int4, n: drawnField(natural) }, ["id"])
 const Entry = relation.generated(
 	"Entry",
-	{ mapping: pg.integer, at: drawnField(natural), text: KeyText },
+	{ mapping: int4, at: drawnField(natural), text: KeyText },
 	["mapping", "text"],
 	(r) => ({
-		value: generated(pg.integer, Type.cast(r.text, pg.integer)),
-		negative: generated(pg.boolean, Text.startsWith(r.text, "-"))
+		value: generated(int4, Type.cast(r.text, int4)),
+		negative: generated(bool, Text.startsWith(r.text, "-"))
 	})
 )
 const entries = ordered(on(Entry, "mapping", "at"), fin(Mapping, "n"))
@@ -131,8 +127,8 @@ const Keys = schema(
 		mutable(Tag),
 		mutable(Mapping),
 		mutable(Entry),
-		unit("Map", { mapping: pg.integer }),
-		unit("Row", { id: pg.integer })
+		unit("Map", { mapping: int4 }),
+		unit("Row", { id: int4 })
 	]
 )
 
@@ -142,7 +138,7 @@ const Keys = schema(
  */
 const paramRows = (name: string) =>
 	query(Keys).rule((r) => {
-		const rows = r.relation(name, { id: pg.integer, text: KeyText })
+		const rows = r.relation(name, { id: int4, text: KeyText })
 		const row = v(rows, "row")
 		return r.match(rows, row).find(row)
 	})
@@ -1041,13 +1037,13 @@ export const keysCase = (taken: SubstrateCase<Generated>, k: Case, c: PropertyCa
 			/** The rows of a query over a relation parameter: a write's source the write cannot prove unique. */
 			const mapKeySource = (name: string) =>
 				query(S).rule((r) => {
-					const rows = r.relation(name, { mapping: pg.integer, text: KeyText })
+					const rows = r.relation(name, { mapping: int4, text: KeyText })
 					const row = v(rows, "row")
 					return r.match(rows, row).find(row)
 				})
 			const tagSource = (name: string) =>
 				query(S).rule((r) => {
-					const rows = r.relation(name, { id: pg.integer, text: KeyText })
+					const rows = r.relation(name, { id: int4, text: KeyText })
 					const row = v(rows, "row")
 					return r.match(rows, row).find(row)
 				})

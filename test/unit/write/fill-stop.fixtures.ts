@@ -9,7 +9,7 @@ import { closedTableOf } from "#compiler/analysis/schema.ts"
 import { StoredRelationName } from "#compiler/core/ids.ts"
 import { generatedLaw } from "#compiler/ir/law.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
-import { accumulated, closedId, drawn, generated, natural, pg } from "#compiler/public/fields.ts"
+import { accumulated, closedId, drawn, generated, natural, int8 } from "#compiler/public/fields.ts"
 import {
 	closed,
 	fin,
@@ -48,7 +48,7 @@ const Kind = closed.ordered("Kind", kinds)
 
 const Weights = closed.relation(
 	"Weights",
-	{ kind: closedId(Kind), weight: pg.bigint },
+	{ kind: closedId(Kind), weight: int8 },
 	["kind"],
 	[
 		{ kind: "light", weight: 1n },
@@ -63,9 +63,9 @@ type Selection = (typeof selections)[number]
 
 const Member = relation.generated(
 	"Member",
-	{ id: Id, owner: Id, at: drawn(natural), kind: closedId(Kind), qty: pg.bigint },
+	{ id: Id, owner: Id, at: drawn(natural), kind: closedId(Kind), qty: int8 },
 	["id"],
-	(r) => ({ w: generated(pg.bigint, Weights.at("weight", r.kind)) })
+	(r) => ({ w: generated(int8, Weights.at("weight", r.kind)) })
 )
 
 /** The quantity fold's step side under a selection. */
@@ -82,7 +82,7 @@ const stepSideOf = (selection: Selection) => {
 
 /** The schema of a selection, with the weight fold or without it, and its owner relation. */
 const schemaOf = (selection: Selection, weighed: boolean) => {
-	const ownerFields = { id: Id, n: drawn(natural), total: accumulated(pg.bigint, 0n) }
+	const ownerFields = { id: Id, n: drawn(natural), total: accumulated(int8, 0n) }
 	if (!weighed) {
 		const Owner = relation("Owner", ownerFields, ["id"])
 		const family = ordered(on(Member, "owner", "at"), fin(Owner, "n"))
@@ -106,7 +106,7 @@ const schemaOf = (selection: Selection, weighed: boolean) => {
 			)
 		}
 	}
-	const Owner = relation("Owner", { ...ownerFields, weighed: accumulated(pg.bigint, 0n) }, ["id"])
+	const Owner = relation("Owner", { ...ownerFields, weighed: accumulated(int8, 0n) }, ["id"])
 	const family = ordered(on(Member, "owner", "at"), fin(Owner, "n"))
 	return {
 		Owner,

@@ -13,7 +13,7 @@ import {
 import type { LawField } from "#compiler/ir/law.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import { irLiteral } from "#compiler/scalar/compute/literal.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { refused, succeeded } from "#test/support/assert.ts"
 import { combined, type FoldMonoid, type Planes } from "#test/support/families/fold.ts"
@@ -142,7 +142,7 @@ const descOf = (carrier: Carrier, v: bigint): LiteralDesc => {
 			return v
 		case "numeric": {
 			const magnitude = v < 0n ? -v : v
-			return Decimal.of(`${v < 0n ? "-" : ""}${magnitude / 10n}.${magnitude % 10n}`)
+			return Numeric.of(`${v < 0n ? "-" : ""}${magnitude / 10n}.${magnitude % 10n}`)
 		}
 		case "money":
 			return succeeded(Money.make(v))

@@ -1,6 +1,6 @@
 /** The box of every-row.fixtures.ts: its relations, the values a later arm is held at, its laws and each case's schema. */
 
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	check,
@@ -14,11 +14,11 @@ import {
 	unit
 } from "#compiler/public/schema.ts"
 
-const T = relation("T", { k: pg.integer, a: pg.integer, b: pg.integer }, ["k"])
+const T = relation("T", { k: int4, a: int4, b: int4 }, ["k"])
 
-const S = relation("S", { id: pg.integer, a: pg.integer }, ["id"])
+const S = relation("S", { id: int4, a: int4 }, ["id"])
 
-const G = relation("G", { x: pg.integer }, ["x"])
+const G = relation("G", { x: int4 }, ["x"])
 
 /** Every relation mutable, each inside the unit of its key, and every rule over D reading T beside S or G away from T's
  * key, so none is unit-local: each is probed, its check its probes over every row. */
@@ -26,9 +26,9 @@ const Base = schema(
 	"every_row",
 	[T, S, G],
 	[
-		unit("Ts", { k: pg.integer }),
-		unit("Ss", { id: pg.integer }),
-		unit("Gs", { x: pg.integer }),
+		unit("Ts", { k: int4 }),
+		unit("Ss", { id: int4 }),
+		unit("Gs", { x: int4 }),
 		mutable(T),
 		mutable(S),
 		mutable(G)

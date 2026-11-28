@@ -19,7 +19,7 @@ import {
 	type OptimizedProgram
 } from "#compiler/lower/optimize/pipeline.ts"
 import { queryInput } from "#compiler/program/input.ts"
-import { closedId, pg } from "#compiler/public/fields.ts"
+import { closedId, int4 } from "#compiler/public/fields.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
@@ -143,7 +143,7 @@ export const lowersValid = (
  * demand pass narrows to an identity, and an attachment whose child projects nothing over its scans of Stop, the unit
  * relation per parent.
  */
-const Item = relation("Item", { id: Id, x: pg.integer, y: pg.integer }, ["id"])
+const Item = relation("Item", { id: Id, x: int4, y: int4 }, ["id"])
 
 const Items = schema("Items", [Item], [])
 

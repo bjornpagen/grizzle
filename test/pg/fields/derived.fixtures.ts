@@ -44,7 +44,7 @@ import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
 import { login } from "#compiler/program/workload/login.ts"
-import { Bits, bits, closedId, generated, pg } from "#compiler/public/fields.ts"
+import { Bit, bit, closedId, generated, int4, int8 } from "#compiler/public/fields.ts"
 import {
 	type AnyClosed,
 	type AnyRelation,
@@ -449,7 +449,7 @@ export const builtOf = (name: string, m: Model, declaration: Declaration): Built
 	const Tier = closed.ordered("Tier", declaration)
 	const Weight = closed.relation(
 		"Weight",
-		{ tier: closedId(Tier), w: pg.integer, v: pg.integer },
+		{ tier: closedId(Tier), w: int4, v: int4 },
 		["tier"],
 		m.closedRows.weight
 	)
@@ -462,41 +462,41 @@ export const builtOf = (name: string, m: Model, declaration: Declaration): Built
 	const g = m.generated
 	const R = relation.generated(
 		"R",
-		{ id: pg.integer, tier: closedId(Tier), a: bits(Tier), b: bits(Tier) },
+		{ id: int4, tier: closedId(Tier), a: bit(Tier), b: bit(Tier) },
 		["id"],
 		(r) => {
 			const countOf = (expr: CountExpr) => {
 				switch (expr) {
 					case "|a|":
-						return Bits.cardinality(r.a)
+						return Bit.cardinality(r.a)
 					case "|b|":
-						return Bits.cardinality(r.b)
+						return Bit.cardinality(r.b)
 					case "|a ∪ b|":
-						return Bits.cardinality(Bits.union(r.a, r.b))
+						return Bit.cardinality(Bit.union(r.a, r.b))
 					case "|a ∩ b|":
-						return Bits.cardinality(Bits.intersection(r.a, r.b))
+						return Bit.cardinality(Bit.intersection(r.a, r.b))
 				}
 			}
 			const setOf = (expr: SetExpr) => {
 				switch (expr) {
 					case "a ∪ b":
-						return Bits.union(r.a, r.b)
+						return Bit.union(r.a, r.b)
 					case "a ∩ b":
-						return Bits.intersection(r.a, r.b)
+						return Bit.intersection(r.a, r.b)
 					case "a − b":
-						return Bits.difference(r.a, r.b)
+						return Bit.difference(r.a, r.b)
 					case "b − a":
-						return Bits.difference(r.b, r.a)
+						return Bit.difference(r.b, r.a)
 					case "a ∪ L":
-						return Bits.union(r.a, Bits.of(Tier, markedOf(m.tier)))
+						return Bit.union(r.a, Bit.of(Tier, markedOf(m.tier)))
 					case "a ∩ L":
-						return Bits.intersection(r.a, Bits.of(Tier, markedOf(m.tier)))
+						return Bit.intersection(r.a, Bit.of(Tier, markedOf(m.tier)))
 					case "a − L":
-						return Bits.difference(r.a, Bits.of(Tier, markedOf(m.tier)))
+						return Bit.difference(r.a, Bit.of(Tier, markedOf(m.tier)))
 					case "{tier}":
-						return Bits.singleton(r.tier)
+						return Bit.singleton(r.tier)
 					case "a ∪ {tier}":
-						return Bits.union(r.a, Bits.singleton(r.tier))
+						return Bit.union(r.a, Bit.singleton(r.tier))
 				}
 			}
 			const pairOf = (expr: PairExpr) => {
@@ -504,9 +504,9 @@ export const builtOf = (name: string, m: Model, declaration: Declaration): Built
 					case "Pair.row(tier)":
 						return Pair.row(r.tier)
 					case "Pair.row(tier) ∪ a":
-						return Bits.union(Pair.row(r.tier), r.a)
+						return Bit.union(Pair.row(r.tier), r.a)
 					case "Pair.row(tier) ∩ {tier}":
-						return Bits.intersection(Pair.row(r.tier), Bits.singleton(r.tier))
+						return Bit.intersection(Pair.row(r.tier), Bit.singleton(r.tier))
 				}
 			}
 			const weightOf = (expr: WeightExpr) => {
@@ -518,10 +518,10 @@ export const builtOf = (name: string, m: Model, declaration: Declaration): Built
 				}
 			}
 			return {
-				...(g.k === undefined ? {} : { k: generated(pg.bigint, countOf(g.k)) }),
-				...(g.p === undefined ? {} : { p: generated(bits(Tier), pairOf(g.p)) }),
-				...(g.s === undefined ? {} : { s: generated(bits(Tier), setOf(g.s)) }),
-				...(g.w === undefined ? {} : { w: generated(pg.integer, weightOf(g.w)) })
+				...(g.k === undefined ? {} : { k: generated(int8, countOf(g.k)) }),
+				...(g.p === undefined ? {} : { p: generated(bit(Tier), pairOf(g.p)) }),
+				...(g.s === undefined ? {} : { s: generated(bit(Tier), setOf(g.s)) }),
+				...(g.w === undefined ? {} : { w: generated(int4, weightOf(g.w)) })
 			}
 		}
 	)
@@ -948,9 +948,9 @@ const codeType = (state: RosterState): ScalarType =>
 const setType = (state: RosterState): ScalarType =>
 	scalarOf({ kind: "bits", roster: state.closed }, { [state.closed]: liveOf(state) })
 
-const countType: ScalarType = scalarOf({ kind: "pg", type: "bigint" }, {})
+const countType: ScalarType = scalarOf({ kind: "pg", type: "int8" }, {})
 
-const weightType: ScalarType = scalarOf({ kind: "pg", type: "integer" }, {})
+const weightType: ScalarType = scalarOf({ kind: "pg", type: "int4" }, {})
 
 /** A value as the oracles compare it: a set by its handles in one order, an integer as a bigint. */
 const comparable = (value: unknown): unknown => {

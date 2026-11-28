@@ -382,7 +382,7 @@ export const accumulatedField = <F extends FieldBase>(
 	rest: ReadonlyArray<unknown>
 ): AccumulatedField<F> => {
 	const valueType: Refused =
-		"an accumulated field is of a value type: no span, vector or field of a writing of its own"
+		"an accumulated field is of a value type: no range, vector or field of a writing of its own"
 	const described = valueTypeOf(type, "accumulated type", () =>
 		builderRefusal("accumulated", valueType)
 	)

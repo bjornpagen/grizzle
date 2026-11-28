@@ -2,7 +2,7 @@
 
 import { element, type Gen, subset } from "@bjornpagen/testing/gen"
 import { Array as Arr, Order } from "effect"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { type QueryValue, queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
@@ -11,9 +11,9 @@ import type { DeltaValue } from "#compiler/write/delta/source.ts"
 import { fixtureTemplate } from "#test/support/pg/reads/support.ts"
 
 /** The items, the marks the call adds to them, and the log it keeps of them, each keyed by its id. */
-export const Item = relation("Item", { id: pg.integer }, ["id"])
-export const Mark = relation("Mark", { id: pg.integer }, ["id"])
-export const Log = relation("Log", { id: pg.integer }, ["id"])
+export const Item = relation("Item", { id: int4 }, ["id"])
+export const Mark = relation("Mark", { id: int4 }, ["id"])
+export const Log = relation("Log", { id: int4 }, ["id"])
 
 export const Once = schema("BoundOnce", [Item, Mark, Log], [])
 

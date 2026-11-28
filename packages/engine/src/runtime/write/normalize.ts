@@ -596,7 +596,7 @@ const checkedFacts = (
 					field: check.span.field,
 					spec: {
 						carrier: check.span.type.carrier,
-						width: defined(spanOf(check.span.type), "a span field's span").width
+						width: defined(spanOf(check.span.type), "a range field's range").width
 					}
 				}
 				return {
@@ -723,7 +723,7 @@ const isSet = (value: CarrierHost[Carrier]): value is ReadonlySet<string> => val
  */
 const keyHost = (value: CarrierHost[Carrier]): KeyHost => {
 	if (isSet(value) || isAdmittedBytes(value)) {
-		defect("a key field over a set or bytes, which ownership refuses")
+		defect("a key field over a set or bytea, which ownership refuses")
 	}
 	return value
 }

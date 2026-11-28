@@ -19,7 +19,7 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option } from "effect"
 import { StoredRelationName } from "#compiler/core/ids.ts"
 import type { OutputText } from "#compiler/core/wire.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int8 } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { interpretRows } from "#compiler/runtime/write/outcome.ts"
 import { noAdvice } from "#compiler/sql/advice.ts"
@@ -77,7 +77,7 @@ export const anInsertionOnlyRelationsCountsAreItsRowsCountedUnderTheirInsertions
 		] satisfies ReadonlyArray<Reached<Situation>>,
 		check: (_, c: Case<Situation>) => (box) =>
 			Effect.sync(() => {
-				const Note = relation("Note", { id: Id, n: pg.bigint, m: pg.bigint }, keys[box.key])
+				const Note = relation("Note", { id: Id, n: int8, m: int8 }, keys[box.key])
 				const Notes = schema("Notes", [Note], [])
 				const value = ChangeSet.empty(Notes).insert(Note, [
 					{ id: "00000000-0000-7000-8000-000000000001", n: 1n, m: 1n }

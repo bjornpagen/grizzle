@@ -17,7 +17,7 @@ import {
 export const decimalTag = "d"
 
 /**
- * The IR's decimal: DecimalText or scalar/values' owned Decimal, both in the one form. The IR holds a numeric literal
+ * The IR's decimal: DecimalText or scalar/values' owned Numeric, both in the one form. The IR holds a numeric literal
  * as one (ir/expr.ts TypedLiteral), and either spells its canonical text from its parts.
  */
 export type DecimalValue = Canonicalizable & { readonly parts: DecimalParts }
@@ -27,14 +27,14 @@ export const isDecimalPayload = (text: string): boolean => DecimalText.parse(tex
 /**
  * Exact decimal values at the Description boundary and in the IR.
  *
- * A numeric literal is a Decimal, a bigint, or an exact decimal string, never a JavaScript number. The IR holds a
- * decimal parsed (DecimalValue), so the owned Decimal of scalar/values travels through it unchanged; in canonical text
+ * A numeric literal is a Numeric, a bigint, or an exact decimal string, never a JavaScript number. The IR holds a
+ * decimal parsed (DecimalValue), so the owned Numeric of scalar/values travels through it unchanged; in canonical text
  * it is "~d:<the value's one text>". This module owns only what the boundary needs: the payload syntax it admits and a
  * minimal carrier, DecimalText, that a decode parses its payload into. DecimalText does no arithmetic and no rounding.
  *
  * The admitted payload is the value's one text, numeric_out of trim_scale(value): a decimal value has exactly one
  * payload, so equal values fingerprint alike and fingerprints stay byte-stable. "1.50" is no payload; "1.5" is. This
- * is exactly the text scalar/values' Decimal writes and its reviver accepts.
+ * is exactly the text scalar/values' Numeric writes and its reviver accepts.
  */
 export class DecimalText implements Canonicalizable {
 	readonly parts: DecimalParts
@@ -109,7 +109,7 @@ export class DecimalText implements Canonicalizable {
 /** The canonical payload of a decimal-tagged value. */
 export const decimalPayload = (value: Canonicalizable): string => value[canonicalTag]().payload
 
-/** Whether a value is a canonical value with the decimal tag: DecimalText, or scalar/values' Decimal. */
+/** Whether a value is a canonical value with the decimal tag: DecimalText, or scalar/values' Numeric. */
 export const isDecimalLike = (value: unknown): value is Canonicalizable => {
 	const tagged = taggedValueOf(value)
 	if (tagged === undefined || !isCanonicalizable(value)) {

@@ -6,13 +6,15 @@ import {
 	accumulated,
 	closedId,
 	contract,
-	Decimal,
+	Numeric,
 	drawn,
 	generated,
 	mintOf,
 	natural,
-	pg,
-	span
+	range,
+	bool,
+	int8,
+	numeric
 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
@@ -43,14 +45,14 @@ import { Cents, centsKey, Instant, toCents } from "#test/support/fixtures/api/co
 import { Id } from "#test/support/ids.ts"
 
 const rateKey = Symbol("Rate")
-export const Rate = contract<typeof rateKey>()("Rate", pg.numeric(7, 6), (x) =>
+export const Rate = contract<typeof rateKey>()("Rate", numeric(7, 6), (x) =>
 	Logic.between(x, 0n, 1n)
 )
 export const toRate = mintOf(rateKey)
 const microsKey = Symbol("Micros")
-export const Micros = contract<typeof microsKey>()("Micros", pg.bigint, (x) => Logic.ge(x, 0n))
+export const Micros = contract<typeof microsKey>()("Micros", int8, (x) => Logic.ge(x, 0n))
 const weekKey = Symbol("Week")
-export const Week = contract<typeof weekKey>()("Week", pg.bigint)
+export const Week = contract<typeof weekKey>()("Week", int8)
 const einKey = Symbol("Ein")
 export const Ein = contract<typeof einKey>()("Ein", str.regex("^[0-9]{2}-[0-9]{7}$"))
 const legalNameKey = Symbol("LegalName")
@@ -66,7 +68,7 @@ const AccountNo = str.regex("^[0-9]{4,17}$")
 const Digest = str.regex("^[0-9a-f]{64}$")
 const Memo = str.regex("^.*$", "su")
 
-const dec = (exact: string): Decimal => Decimal.of(exact)
+const dec = (exact: string): Numeric => Numeric.of(exact)
 
 const Basis = closed.ordered("Basis", ["salaried", "hourly"])
 const Stage = closed.ordered("Stage", ["draft", "approved", "paid", "voided"])
@@ -118,24 +120,24 @@ export const TaxProfile = relation(
 
 export const Employment = relation(
 	"Employment",
-	{ employee: Id, during: span(Instant), basis: closedId(Basis) },
+	{ employee: Id, during: range(Instant), basis: closedId(Basis) },
 	["employee", "during"]
 )
 
 export const Assignment = relation(
 	"Assignment",
-	{ employee: Id, during: span(Instant), costCenter: CostCenter },
+	{ employee: Id, during: range(Instant), costCenter: CostCenter },
 	["employee", "during"]
 )
 
-export const Salary = relation("Salary", { employee: Id, during: span(Instant), annual: Cents }, [
+export const Salary = relation("Salary", { employee: Id, during: range(Instant), annual: Cents }, [
 	"employee",
 	"during"
 ])
 
 export const Leave = relation(
 	"Leave",
-	{ employee: Id, during: span(Instant), reason: closedId(LeaveReason) },
+	{ employee: Id, during: range(Instant), reason: closedId(LeaveReason) },
 	["employee", "during"]
 )
 
@@ -150,7 +152,7 @@ export const Timesheet = relation(
 		week: Week,
 		ceiling: Micros,
 		shifts: drawn(natural),
-		approvedHours: accumulated(pg.bigint, 0n)
+		approvedHours: accumulated(int8, 0n)
 	},
 	["employee", "week"]
 )
@@ -158,14 +160,14 @@ export const Timesheet = relation(
 /** A shift, whose `hours` PostgreSQL generates from its span: the width `upper − lower` (fin.md §6, "duration"). */
 export const Shift = relation.generated(
 	"Shift",
-	{ employee: Id, during: span(Instant), week: Week, status: closedId(ShiftStatus) },
+	{ employee: Id, during: range(Instant), week: Week, status: closedId(ShiftStatus) },
 	["employee", "during"],
 	(r) => ({
 		hours: generated(
-			pg.bigint,
+			int8,
 			Logic.when(
 				Num.within(Range.width(r.during, Instant), 0n, 9223372036854775807n),
-				(width) => Type.cast(width, pg.bigint),
+				(width) => Type.cast(width, int8),
 				0n
 			)
 		)
@@ -174,7 +176,7 @@ export const Shift = relation.generated(
 
 export const PayRun = relation(
 	"PayRun",
-	{ id: Id, employer: Id, period: span(Instant), stage: closedId(Stage) },
+	{ id: Id, employer: Id, period: range(Instant), stage: closedId(Stage) },
 	["id"]
 )
 export const Approval = relation("Approval", { run: Id, approver: Id, at: Instant }, ["run"])
@@ -193,7 +195,7 @@ export const PayLine = relation(
 		employee: Id,
 		gross: Cents,
 		net: Cents,
-		offCycle: pg.boolean,
+		offCycle: bool,
 		deposits: drawn(natural),
 		deposited: accumulated(Cents, toCents(0n), centsKey)
 	},
@@ -202,7 +204,7 @@ export const PayLine = relation(
 export const OffCycleReason = relation("OffCycleReason", { line: Id, reason: Memo }, ["line"])
 export const Deposit = relation(
 	"Deposit",
-	{ line: Id, account: AccountNo, amount: Cents, remainder: pg.boolean },
+	{ line: Id, account: AccountNo, amount: Cents, remainder: bool },
 	["line", "account"]
 )
 

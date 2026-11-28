@@ -6,7 +6,7 @@ import { Array as Arr, Formatter, Option } from "effect"
 import { identifierOf } from "#compiler/core/identity.ts"
 import { installOptions } from "#compiler/physical/install/compile.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, derived, on, relation, schema } from "#compiler/public/schema.ts"
 import type { Cte, FromItem, FromSource, OperandSelect } from "#compiler/sql/ast.ts"
@@ -37,11 +37,10 @@ export type Reached =
 	| "read again once"
 	| "read again twice"
 
-const Node = relation(
-	"Node",
-	{ doc: pg.integer, start: pg.integer, parent: pg.integer, kind: pg.integer },
-	["doc", "start"]
-)
+const Node = relation("Node", { doc: int4, start: int4, parent: int4, kind: int4 }, [
+	"doc",
+	"start"
+])
 const Base = schema("judge_units", [Node], [])
 
 /** The roots: each node its own parent of kind 1, of kind 2, and, with three rules, of kind 3. */
@@ -67,7 +66,7 @@ const rootsOf = (arms: Roots["arms"]) => {
 const schemaOf = (c: Roots): FixtureSchema => {
 	const roots = rootsOf(c.arms)
 	const walk = query(Base).recursive("Walk", {
-		row: { doc: pg.integer, node: pg.integer },
+		row: { doc: int4, node: int4 },
 		base: [
 			(r) => {
 				const { doc, node } = v(roots, "root")

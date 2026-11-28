@@ -7,12 +7,14 @@ import { Logic } from "#compiler/public/compute.ts"
 import {
 	closedId,
 	contract,
-	Decimal,
+	Numeric,
 	type Infer,
 	mintOf,
-	pg,
 	type Uuid,
-	uuid
+	uuid,
+	int4,
+	int8,
+	numeric
 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
@@ -37,23 +39,23 @@ const accountKey = Symbol("Account")
  * converted by its carrier, a pattern's text, read as its cell, a closed id, read by its roster's names, and a uuid.
  * The amount is never negative, which the database checks of every write.
  */
-const Amount = contract<typeof amountKey>()("Amount", pg.bigint, (a) => Logic.ge(a, 0n))
+const Amount = contract<typeof amountKey>()("Amount", int8, (a) => Logic.ge(a, 0n))
 const Code = contract<typeof codeKey>()("Code", codeBase)
-const Price = contract<typeof priceKey>()("Price", pg.numeric(9, 2))
+const Price = contract<typeof priceKey>()("Price", numeric(9, 2))
 const Tone = contract<typeof toneKey>()("Tone", closedId(Tones))
 const Account = contract<typeof accountKey>()("Account", uuid)
 
 /** The mints of the contracts' values, each from a value of its base. */
 const toAmount: (amount: bigint) => Infer<typeof Amount> = mintOf(amountKey)
 const toCode: (code: Infer<typeof codeBase>) => Infer<typeof Code> = mintOf(codeKey)
-const toPrice: (price: Decimal) => Infer<typeof Price> = mintOf(priceKey)
+const toPrice: (price: Numeric) => Infer<typeof Price> = mintOf(priceKey)
 const toTone: (tone: (typeof Tones.handles)[number]) => Infer<typeof Tone> = mintOf(toneKey)
 const toAccount: (account: Uuid) => Infer<typeof Account> = mintOf(accountKey)
 
 /** A holding: one value of each contract, by its id. */
 const Held = relation(
 	"Held",
-	{ id: pg.integer, amount: Amount, code: Code, price: Price, tone: Tone, account: Account },
+	{ id: int4, amount: Amount, code: Code, price: Price, tone: Tone, account: Account },
 	["id"]
 )
 
@@ -138,7 +140,7 @@ export const factOf = (h: Holding) => ({
 	id: h.id,
 	amount: toAmount(h.amount),
 	code: toCode(h.code),
-	price: toPrice(Decimal.of(h.price)),
+	price: toPrice(Numeric.of(h.price)),
 	tone: toTone(h.tone),
 	account: toAccount(h.account)
 })

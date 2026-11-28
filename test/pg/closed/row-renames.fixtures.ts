@@ -12,7 +12,7 @@ import type { Declarations, Rename } from "#compiler/deploy/diff/plan.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import { login } from "#compiler/program/workload/login.ts"
 import { Logic } from "#compiler/public/compute.ts"
-import { bits, closedId, generated, pg } from "#compiler/public/fields.ts"
+import { bit, closedId, generated, int4 } from "#compiler/public/fields.ts"
 import { type AnyRole, check, closed, relation, schema } from "#compiler/public/schema.ts"
 import { closedBuilder } from "#compiler/schema/relation.ts"
 import { roleBuilder as role } from "#compiler/schema/world.ts"
@@ -146,23 +146,23 @@ export const versionOf = (name: string, v: VersionModel, bound: number) => {
 	const Roster = closedBuilder(v.roster, v.handles, "ordered", [])
 	const Weight = closed.relation(
 		"Weight",
-		{ kind: closedId(Roster), w: pg.integer },
+		{ kind: closedId(Roster), w: int4 },
 		["kind"],
 		Arr.map(v.handles, (kind, code) => ({ kind, w: defined(v.weights[code], "a code's weight") }))
 	)
 	const Bonus = closed.relation(
 		"Bonus",
-		{ kind: closedId(Roster), b: pg.integer },
+		{ kind: closedId(Roster), b: int4 },
 		["kind"],
 		Arr.map(v.handles, (kind, code) => ({ kind, b: defined(v.bonuses[code], "a code's bonus") }))
 	)
 	const Item = relation.generated(
 		"Item",
-		{ id: pg.integer, kind: closedId(Roster), flags: bits(Roster) },
+		{ id: int4, kind: closedId(Roster), flags: bit(Roster) },
 		["id"],
 		(r) => ({
-			wt: generated(pg.integer, Weight.at("w", r.kind)),
-			bonus: generated(pg.integer, Bonus.at("b", r.kind))
+			wt: generated(int4, Weight.at("w", r.kind)),
+			bonus: generated(int4, Bonus.at("b", r.kind))
 		})
 	)
 	const base = schema(

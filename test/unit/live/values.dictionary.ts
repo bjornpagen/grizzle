@@ -1,11 +1,11 @@
 /** The closed roster values.test.ts exhausts: every form a key value takes. */
 
 import { dictionary } from "@bjornpagen/testing/dictionary"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 
 /**
  * Values of every form a key takes, each a maker with its key class, PostgreSQL's equality, and its delivery,
- * Object.is on primitives: ±0 one key of two deliveries, a Decimal one value however written.
+ * Object.is on primitives: ±0 one key of two deliveries, a Numeric one value however written.
  */
 export const forms = dictionary<{
 	readonly key: number
@@ -20,9 +20,9 @@ export const forms = dictionary<{
 	{ key: 3, delivery: 4, make: () => 1n },
 	{ key: 4, delivery: 5, make: () => "1" },
 	{ key: 5, delivery: 6, make: () => true },
-	{ key: 6, delivery: 7, make: () => Decimal.of("1.5") },
-	{ key: 6, delivery: 7, make: () => Decimal.of("1.50") },
-	{ key: 7, delivery: 8, make: () => Decimal.of("15") },
+	{ key: 6, delivery: 7, make: () => Numeric.of("1.5") },
+	{ key: 6, delivery: 7, make: () => Numeric.of("1.50") },
+	{ key: 7, delivery: 8, make: () => Numeric.of("15") },
 	{ key: 8, delivery: 9, make: () => ({ start: 1, end: 2 }) },
 	{ key: 9, delivery: 10, make: () => ({ start: 1, end: 3 }) },
 	{ key: 10, delivery: 11, make: () => new Set(["x", "y"]) },

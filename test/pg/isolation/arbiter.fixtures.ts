@@ -13,7 +13,7 @@ import {
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, Record as Rec, String as Str } from "effect"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { accumulated, drawn as drawnField, natural, pg } from "#compiler/public/fields.ts"
+import { accumulated, drawn as drawnField, natural, int4 } from "#compiler/public/fields.ts"
 import { query } from "#compiler/public/query.ts"
 import {
 	check,
@@ -46,15 +46,15 @@ import type { ScheduleOutcome } from "#test/support/schedules/types.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
 
-const Doc = relation("Doc", { id: Id, slug: pg.integer, title: pg.integer }, ["id"])
+const Doc = relation("Doc", { id: Id, slug: int4, title: int4 }, ["id"])
 
 const Invoice = relation(
 	"Invoice",
-	{ id: Id, amount: pg.integer, lines: drawnField(natural), total: accumulated(pg.integer, 0) },
+	{ id: Id, amount: int4, lines: drawnField(natural), total: accumulated(int4, 0) },
 	["id"]
 )
 
-const Line = relation("Line", { invoice: Id, n: pg.integer, amount: pg.integer }, ["invoice", "n"])
+const Line = relation("Line", { invoice: Id, n: int4, amount: int4 }, ["invoice", "n"])
 
 const invoiceLines = counted(on(Line, "invoice"), fin(Invoice, "lines"))
 
@@ -78,8 +78,8 @@ const importShape = (posts: boolean) => (name: string) => {
 		query(importer).rule((r) =>
 			r.find({
 				id: r.param("id", Id),
-				slug: r.param("slug", pg.integer),
-				title: r.param("title", pg.integer)
+				slug: r.param("slug", int4),
+				title: r.param("title", int4)
 			})
 		)
 	)

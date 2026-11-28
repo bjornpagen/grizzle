@@ -17,7 +17,7 @@ import {
 } from "effect"
 import { runIdentity, sourceIdentity, writeRunRecord } from "#bench/cold/identity.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { accumulated, Bits, bits, closedId, date, drawn, natural } from "#compiler/public/fields.ts"
+import { accumulated, Bit, bit, closedId, date, drawn, natural } from "#compiler/public/fields.ts"
 import {
 	check,
 	closed,
@@ -93,7 +93,7 @@ const StandardChild = relation(
 const Framework = relation("Framework", { id: Id, name: Text, modified: date }, ["id"])
 
 /** A standard: its grades and the day it was last modified. */
-const Item = relation("Item", { id: Id, grades: bits(Grade), modified: date }, ["id"])
+const Item = relation("Item", { id: Id, grades: bit(Grade), modified: date }, ["id"])
 
 /** Each framework's outline, the hierarchy below it as a tree keyed by its framework and pre-order start. */
 const Outline = relation(
@@ -241,7 +241,7 @@ const releaseOf = (scale: Scale) => {
 				const n = next + at
 				itemRows.push({
 					id,
-					grades: Bits.of(
+					grades: Bit.of(
 						Grade,
 						Array.from({ length: 1 + (n % 3) }, (_, g) => Grade.handles[(n + g) % 14] ?? "K")
 					),

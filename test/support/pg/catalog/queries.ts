@@ -9,9 +9,9 @@ import type {
 } from "#test/support/fixtures/ir/desc.ts"
 import * as D from "#test/support/unit/check/dsl.ts"
 
-export const double: FieldDesc = { kind: "pg", type: "double precision" }
-const bigint: FieldDesc = { kind: "pg", type: "bigint" }
-const integer: FieldDesc = { kind: "pg", type: "integer" }
+export const double: FieldDesc = { kind: "pg", type: "float8" }
+const bigint: FieldDesc = { kind: "pg", type: "int8" }
+const integer: FieldDesc = { kind: "pg", type: "int4" }
 
 const v = D.varRef
 const s = (field: string) => D.ref("Sitting", field)

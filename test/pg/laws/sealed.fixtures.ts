@@ -6,7 +6,7 @@ import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Data, Effect, Formatter, Option } from "effect"
 import { lawsOfConstraint } from "#compiler/ir/products.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query } from "#compiler/public/query.ts"
 import { login, relation, role, schema, sealed, unit } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
@@ -18,16 +18,13 @@ import type { RawSession } from "#test/support/substrate/session.ts"
 import type { SubstrateTemplate } from "#test/support/substrate/substrate.ts"
 
 /** A sheet, keyed by the unit's key alone. */
-const Sheet = relation("Sheet", { sheet: pg.integer, label: pg.integer }, ["sheet"])
+const Sheet = relation("Sheet", { sheet: int4, label: int4 }, ["sheet"])
 /** A sheet's cover, keyed by the unit's key alone too. */
-const Cover = relation("Cover", { sheet: pg.integer, color: pg.integer }, ["sheet"])
+const Cover = relation("Cover", { sheet: int4, color: int4 }, ["sheet"])
 /** A sheet's cells, each at a place. */
-const Cell = relation("Cell", { sheet: pg.integer, place: pg.integer, amount: pg.integer }, [
-	"sheet",
-	"place"
-])
+const Cell = relation("Cell", { sheet: int4, place: int4, amount: int4 }, ["sheet", "place"])
 /** A sheet's notes, each at a line. */
-const Note = relation("Note", { sheet: pg.integer, line: pg.integer }, ["sheet", "line"])
+const Note = relation("Note", { sheet: int4, line: int4 }, ["sheet", "line"])
 
 /**
  * A schema over Sheet, Cover, Cell and Note under the unit Sheet, sealed or not, with its login: the role `writer`,
@@ -37,7 +34,7 @@ const Note = relation("Note", { sheet: pg.integer, line: pg.integer }, ["sheet",
  */
 const sheetsShape = (name: string, sealedUnit: boolean) => {
 	const relations = { Sheet, Cover, Cell, Note } as const
-	const declared = unit("Sheet", { sheet: pg.integer })
+	const declared = unit("Sheet", { sheet: int4 })
 	const base = schema(name, [Sheet, Cover, Cell, Note], [sealedUnit ? sealed(declared) : declared])
 	const writer = role(base, "writer", relations, { insert: ["Sheet", "Cover", "Cell", "Note"] })
 	const mine = writer.relations
@@ -45,29 +42,29 @@ const sheetsShape = (name: string, sealedUnit: boolean) => {
 		.insert(
 			mine.Sheet,
 			query(writer).rule((r) =>
-				r.find({ sheet: r.param("sheet", pg.integer), label: r.param("value", pg.integer) })
+				r.find({ sheet: r.param("sheet", int4), label: r.param("value", int4) })
 			)
 		)
 		.insert(
 			mine.Cover,
 			query(writer).rule((r) =>
-				r.find({ sheet: r.param("sheet", pg.integer), color: r.param("value", pg.integer) })
+				r.find({ sheet: r.param("sheet", int4), color: r.param("value", int4) })
 			)
 		)
 		.insert(
 			mine.Cell,
 			query(writer).rule((r) =>
 				r.find({
-					sheet: r.param("sheet", pg.integer),
-					place: r.param("value", pg.integer),
-					amount: r.param("value", pg.integer)
+					sheet: r.param("sheet", int4),
+					place: r.param("value", int4),
+					amount: r.param("value", int4)
 				})
 			)
 		)
 		.insert(
 			mine.Note,
 			query(writer).rule((r) =>
-				r.find({ sheet: r.param("sheet", pg.integer), line: r.param("value", pg.integer) })
+				r.find({ sheet: r.param("sheet", int4), line: r.param("value", int4) })
 			)
 		)
 	return {

@@ -1,6 +1,6 @@
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Logic, Num, Type } from "#compiler/public/compute.ts"
-import { closedId, contract, mintOf, pg } from "#compiler/public/fields.ts"
+import { closedId, contract, mintOf, int4, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	closed,
@@ -32,10 +32,10 @@ const digestKey = Symbol("Digest")
 export const Digest = contract<typeof digestKey>()("Digest", str.regex("^[0-9a-f]{64}$"))
 export const toDigest = mintOf(digestKey)
 const slotKey = Symbol("Slot")
-export const Slot = contract<typeof slotKey>()("Slot", pg.integer, (x) => Logic.ge(x, 0))
+export const Slot = contract<typeof slotKey>()("Slot", int4, (x) => Logic.ge(x, 0))
 export const toSlot = mintOf(slotKey)
 const seatNoKey = Symbol("SeatNo")
-export const SeatNo = contract<typeof seatNoKey>()("SeatNo", pg.integer, (x) => Logic.ge(x, 0))
+export const SeatNo = contract<typeof seatNoKey>()("SeatNo", int4, (x) => Logic.ge(x, 0))
 export const toSeatNo = mintOf(seatNoKey)
 
 export const Standing = closed.ordered("Standing", ["wanted", "leased", "done", "denied"])
@@ -53,19 +53,17 @@ export const QueueWork = relation(
 		kind: closedId(QueueKind),
 		slot: Slot,
 		standing: closedId(Standing),
-		epoch: pg.bigint,
+		epoch: int8,
 		enqueued: Instant
 	},
 	["key"]
 )
 
-export const Wanted = relation("Wanted", { key: Digest, due: Instant, attempts: pg.integer }, [
-	"key"
-])
+export const Wanted = relation("Wanted", { key: Digest, due: Instant, attempts: int4 }, ["key"])
 
 export const Leased = relation(
 	"Leased",
-	{ key: Digest, resource: closedId(Resource), seat: SeatNo, epoch: pg.bigint, expires: Instant },
+	{ key: Digest, resource: closedId(Resource), seat: SeatNo, epoch: int8, expires: Instant },
 	["key"]
 )
 export const Done = relation("Done", { key: Digest, outcome: closedId(Outcome) }, ["key"])
@@ -373,7 +371,7 @@ export const queueQueries = <St extends ReadonlyArray<Statement>>(s: QueueShaped
 			standing: "leased",
 			epoch: Logic.when(
 				Num.within(p.epoch, 0n, epochBound),
-				(epoch) => Type.cast(Num.add(epoch, 1n), pg.bigint),
+				(epoch) => Type.cast(Num.add(epoch, 1n), int8),
 				p.epoch
 			),
 			enqueued: p.enqueued
@@ -413,7 +411,7 @@ export const queueQueries = <St extends ReadonlyArray<Statement>>(s: QueueShaped
 			seat,
 			epoch: Logic.when(
 				Num.within(epoch, 0n, epochBound),
-				(current) => Type.cast(Num.add(current, 1n), pg.bigint),
+				(current) => Type.cast(Num.add(current, 1n), int8),
 				epoch
 			),
 			/** The host computes the expiry and passes it as one Instant. */
@@ -426,7 +424,7 @@ export const queueQueries = <St extends ReadonlyArray<Statement>>(s: QueueShaped
 		const { key, resource, seat, epoch, expires } = v(Leased, "leased")
 		return r
 			.match(Leased, { key, resource, seat, epoch, expires })
-			.where(r.eq(key, r.param("key", Digest)), r.eq(epoch, r.param("epoch", pg.bigint)))
+			.where(r.eq(key, r.param("key", Digest)), r.eq(epoch, r.param("epoch", int8)))
 			.find({ key, resource, seat, epoch, expires })
 	})
 
@@ -436,7 +434,7 @@ export const queueQueries = <St extends ReadonlyArray<Statement>>(s: QueueShaped
 		return r
 			.match(Leased, { key, resource, seat, epoch, expires })
 			.match(QueueWork, { key, kind, slot, epoch, enqueued })
-			.where(r.eq(key, r.param("key", Digest)), r.eq(epoch, r.param("epoch", pg.bigint)))
+			.where(r.eq(key, r.param("key", Digest)), r.eq(epoch, r.param("epoch", int8)))
 			.find({ key, kind, slot, standing: "done", epoch, enqueued })
 	})
 	return {
@@ -466,7 +464,7 @@ export const settleDoneInsert = query(Queue).rule((r) => {
 	const { key, resource, seat, epoch, expires } = v(Leased, "leased")
 	return r
 		.match(Leased, { key, resource, seat, epoch, expires })
-		.where(r.eq(key, r.param("key", Digest)), r.eq(epoch, r.param("epoch", pg.bigint)))
+		.where(r.eq(key, r.param("key", Digest)), r.eq(epoch, r.param("epoch", int8)))
 		.find({ key, outcome: r.param("outcome", Done.fields.outcome) })
 })
 
@@ -477,7 +475,7 @@ export const installedQueueQueries = (s: QueueNamed<string>) => ({
 		const { key, resource, seat, epoch, expires } = v(Leased, "leased")
 		return r
 			.match(Leased, { key, resource, seat, epoch, expires })
-			.where(r.eq(key, r.param("key", Digest)), r.eq(epoch, r.param("epoch", pg.bigint)))
+			.where(r.eq(key, r.param("key", Digest)), r.eq(epoch, r.param("epoch", int8)))
 			.find({ key, outcome: r.param("outcome", Done.fields.outcome) })
 	})
 })

@@ -407,7 +407,7 @@ const accessUses = [
 	"prefix search",
 	"take seek",
 	"page seek",
-	"span predicate",
+	"range predicate",
 	"approximate vector retrieval",
 	"text search",
 	"network containment",

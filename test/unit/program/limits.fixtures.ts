@@ -5,7 +5,7 @@ import { Array as Arr, Record as Rec } from "effect"
 import type { CompileBound, CompileError } from "#compiler/core/errors.ts"
 import { installOptions } from "#compiler/physical/install/compile.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import type { Expr } from "#compiler/sql/ast.ts"
 import { eq, lit, or, param, provedSelect, target, types } from "#compiler/sql/build.ts"
@@ -50,11 +50,7 @@ export const boundOf = (error: CompileError): CompileBound => {
 const wideSchema = (columns: number) =>
 	schema(
 		"Wide",
-		[
-			relation("Wide", Rec.fromEntries(upTo(columns, (i) => [`c${i}`, pg.integer] as const)), [
-				"c0"
-			])
-		],
+		[relation("Wide", Rec.fromEntries(upTo(columns, (i) => [`c${i}`, int4] as const)), ["c0"])],
 		[]
 	)
 

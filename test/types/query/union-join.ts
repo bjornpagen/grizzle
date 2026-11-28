@@ -69,7 +69,7 @@ const constants = ["a", "b", "c", "d"] as const
 const unionJoinHeader = (): ReadonlyArray<string> => [
 	'export const Text = str.regex("^[a-z]{1,8}$")',
 	'export const Kind = closed.ordered("Kind", ["a", "b", "c", "d", "e"])',
-	'export const R = relation("R", { id: closedId(Kind), n: pg.integer, t: Text }, ["id"])',
+	'export const R = relation("R", { id: closedId(Kind), n: int4, t: Text }, ["id"])',
 	'export const S = schema("S", [Kind, R], [])',
 	""
 ]

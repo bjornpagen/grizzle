@@ -8,7 +8,7 @@ import type { FunctionVolatility } from "#compiler/core/function.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Fn } from "#compiler/public/compute.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { type AnyRole, derived, fn, relation, role, schema, unit } from "#compiler/public/schema.ts"
 import { loginBuilder as login } from "#compiler/schema/world.ts"
@@ -32,9 +32,9 @@ import type { AnyLoginRole } from "#compiler/types/schema/world.ts"
  * relation and reads a stored one through its definition (analysis/schema.ts CheckedSchema serves).
  */
 
-const Item = relation("Item", { doc: pg.integer, at: pg.integer, n: pg.integer }, ["doc", "at"])
+const Item = relation("Item", { doc: int4, at: int4, n: int4 }, ["doc", "at"])
 
-const Document = unit("Document", { doc: pg.integer })
+const Document = unit("Document", { doc: int4 })
 
 /** The declared functions, each by the one place that calls it. */
 export const callers = ["own", "derived", "nested", "entry", "idle"] as const
@@ -59,8 +59,8 @@ export const functionNames = {
 const declaredAs = (volatility: Volatility) =>
 	({
 		calls: [],
-		args: { x: pg.integer },
-		returns: pg.integer,
+		args: { x: int4 },
+		returns: int4,
 		volatility,
 		nullInput: "called",
 		language: "sql",
@@ -175,11 +175,11 @@ const programOf = (
 				? ChangeSet.empty(top).insert(
 						Item,
 						query(top).rule((r) => {
-							const doc = r.param("doc", pg.integer)
+							const doc = r.param("doc", int4)
 							const { n } = v(Item, "item")
 							return r
-								.match(Item, { doc, at: r.param("at", pg.integer), n })
-								.find({ doc, at: r.param("to", pg.integer), n: Fn.call(ownFn, { x: n }) })
+								.match(Item, { doc, at: r.param("at", int4), n })
+								.find({ doc, at: r.param("to", int4), n: Fn.call(ownFn, { x: n }) })
 						})
 					)
 				: query(top).rule((r) => {
@@ -191,11 +191,11 @@ const programOf = (
 				? ChangeSet.empty(top).insert(
 						Item,
 						query(top).rule((r) => {
-							const doc = r.param("doc", pg.integer)
+							const doc = r.param("doc", int4)
 							const { v: value } = v(Derived, "derived")
 							return r
-								.match(Derived, { doc, at: r.param("at", pg.integer), v: value })
-								.find({ doc, at: r.param("to", pg.integer), n: value })
+								.match(Derived, { doc, at: r.param("at", int4), v: value })
+								.find({ doc, at: r.param("to", int4), n: value })
 						})
 					)
 				: query(top).rule((r) => {
@@ -207,11 +207,11 @@ const programOf = (
 				? ChangeSet.empty(top).insert(
 						Item,
 						query(top).rule((r) => {
-							const doc = r.param("doc", pg.integer)
+							const doc = r.param("doc", int4)
 							const { v: value } = v(Nested, "nested")
 							return r
-								.match(Nested, { doc, at: r.param("at", pg.integer), v: value })
-								.find({ doc, at: r.param("to", pg.integer), n: value })
+								.match(Nested, { doc, at: r.param("at", int4), v: value })
+								.find({ doc, at: r.param("to", int4), n: value })
 						})
 					)
 				: query(top).rule((r) => {
@@ -223,11 +223,11 @@ const programOf = (
 				? ChangeSet.empty(top).insert(
 						Item,
 						query(top).rule((r) => {
-							const doc = r.param("doc", pg.integer)
+							const doc = r.param("doc", int4)
 							const { n } = v(Item, "item")
 							return r
-								.match(Item, { doc, at: r.param("at", pg.integer), n })
-								.find({ doc, at: r.param("to", pg.integer), n })
+								.match(Item, { doc, at: r.param("at", int4), n })
+								.find({ doc, at: r.param("to", int4), n })
 						})
 					)
 				: query(top).rule((r) => {
@@ -266,11 +266,11 @@ const roleOf = (
 				? ChangeSet.empty(holder).insert(
 						held,
 						query(holder).rule((r) => {
-							const doc = r.param("doc", pg.integer)
+							const doc = r.param("doc", int4)
 							const { v: value } = v(Entry, "entry")
 							return r
-								.match(Entry, { doc, at: r.param("at", pg.integer), v: value })
-								.find({ doc, at: r.param("to", pg.integer), n: value })
+								.match(Entry, { doc, at: r.param("at", int4), v: value })
+								.find({ doc, at: r.param("to", int4), n: value })
 						})
 					)
 				: query(holder).rule((r) => {

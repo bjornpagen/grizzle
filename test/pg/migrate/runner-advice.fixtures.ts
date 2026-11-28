@@ -5,7 +5,7 @@ import type { MigrationSession } from "#adapter/migrate/session.ts"
 import type { BatchStatement } from "#adapter/wire/batch.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import type { LedgerStatements } from "#compiler/deploy/ledger/ledger.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, relation, schema, unit } from "#compiler/public/schema.ts"
 import {
@@ -23,11 +23,8 @@ import { sentSql } from "#test/support/flight/scripted.ts"
  * indexesBeforeReaders).
  */
 export const runnerSchema = (withOnes: boolean) => {
-	const T = relation("T", { doc: pg.integer, at: pg.integer, a: pg.integer, b: pg.integer }, [
-		"doc",
-		"at"
-	])
-	const Base = schema("runner_advice", [T], [unit("Document", { doc: pg.integer })])
+	const T = relation("T", { doc: int4, at: int4, a: int4, b: int4 }, ["doc", "at"])
+	const Base = schema("runner_advice", [T], [unit("Document", { doc: int4 })])
 	const Ones = derived(
 		"Ones",
 		query(Base).rule((r) => {

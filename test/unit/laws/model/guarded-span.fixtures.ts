@@ -1,7 +1,7 @@
 /** What the properties of guarded-span.test.ts read: its spaces, models and helpers. */
 
 import { boolean, type Gen, shuffled } from "@bjornpagen/testing/gen"
-import { pg, span } from "#compiler/public/fields.ts"
+import { range, int4, int8 } from "#compiler/public/fields.ts"
 import { relationBuilder as relation } from "#compiler/schema/relation.ts"
 import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
 import { keyBuilder, onBuilder, selectBuilder } from "#compiler/schema/statements.ts"
@@ -23,12 +23,7 @@ type TRow = { readonly kind: RowTerm } & typeof rowHelpers
 
 /** The schema whose one relation T states the span key `k`. */
 export const schemaOf = (k: SpanKey) => {
-	const T = relation(
-		"T",
-		{ id: Id, kind: pg.integer, a: Id, b: pg.integer, during: span(pg.bigint) },
-		["id"],
-		[]
-	)
+	const T = relation("T", { id: Id, kind: int4, a: Id, b: int4, during: range(int8) }, ["id"], [])
 	const side = k.selected ? selectBuilder(T, (r: TRow) => r.eq(r.kind, 1)) : T
 	return schema("GuardedSpan", [T], [keyBuilder(onBuilder(side, [...k.scalars, "during"]))], [])
 }

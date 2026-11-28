@@ -4,7 +4,7 @@ import { jsonText } from "#compiler/core/trusted.ts"
 import { describeOp } from "#compiler/ir/expr.ts"
 import { baseOf, type Carrier, type ScalarType } from "#compiler/ir/scalar.ts"
 import { catalogTypeName } from "#compiler/scalar/compute/registry.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 
 import { assert } from "@bjornpagen/testing/assert"
 import { Money } from "#compiler/scalar/values/money.ts"
@@ -164,9 +164,9 @@ const sameValue = (value: ModelValue, text: string, type: ScalarType): boolean =
 		case "numeric": {
 			const read = strictRead(type, text)
 			return (
-				value instanceof Decimal &&
+				value instanceof Numeric &&
 				Result.isSuccess(read) &&
-				read.success instanceof Decimal &&
+				read.success instanceof Numeric &&
 				read.success.equals(value)
 			)
 		}
@@ -226,7 +226,7 @@ const sameValue = (value: ModelValue, text: string, type: ScalarType): boolean =
 
 /** A carrier value as a report names it: a span or a vector by Formatter, any other value by its own text. */
 const carrierText = (value: ModelValue): string =>
-	typeof value === "object" && !(value instanceof Decimal) && !(value instanceof Money)
+	typeof value === "object" && !(value instanceof Numeric) && !(value instanceof Money)
 		? Formatter.format(value)
 		: String(value)
 

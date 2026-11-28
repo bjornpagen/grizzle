@@ -11,7 +11,7 @@ export {
 	type FactsDecoder,
 	generated,
 	type InsertPreview,
-	pg,
+	int8,
 	relation,
 	schema,
 	uuid

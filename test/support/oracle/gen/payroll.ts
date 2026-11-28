@@ -1,7 +1,7 @@
 import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { array, boolean, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, pipe, String as Str } from "effect"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 import { id } from "#test/support/fixtures/golden/types.ts"
 import { toastText } from "#test/support/oracle/gen/toast.ts"
 import { at } from "#test/support/oracle/pick.ts"
@@ -38,10 +38,10 @@ const stages: ReadonlyArray<string> = ["draft", "approved", "paid", "voided"]
 const reasons: ReadonlyArray<string> = ["vacation", "sick", "unpaid"]
 const accounts: ReadonlyArray<string> = ["GrossWages", "NetPay", "Withholding"]
 const sides: ReadonlyArray<string> = ["debit", "credit"]
-const levies: ReadonlyArray<{ readonly levy: string; readonly rate: Decimal }> = [
-	{ levy: "SocialSecurity", rate: Decimal.of("0.062") },
-	{ levy: "Medicare", rate: Decimal.of("0.0145") },
-	{ levy: "Futa", rate: Decimal.of("0") }
+const levies: ReadonlyArray<{ readonly levy: string; readonly rate: Numeric }> = [
+	{ levy: "SocialSecurity", rate: Numeric.of("0.062") },
+	{ levy: "Medicare", rate: Numeric.of("0.0145") },
+	{ levy: "Futa", rate: Numeric.of("0") }
 ]
 
 /** A memo: empty, short, or TOAST-sized and incompressible. */

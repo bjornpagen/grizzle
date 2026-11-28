@@ -25,7 +25,7 @@ import {
 	writePhases
 } from "#bench/write/support/writes.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
-import { closedId, pg } from "#compiler/public/fields.ts"
+import { closedId, int4, int8 } from "#compiler/public/fields.ts"
 import { closed, contained, on, relation, schema, select } from "#compiler/public/schema.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 
@@ -47,14 +47,11 @@ import { namesOf } from "#test/support/kernel/naming.ts"
  * inserted row are the same at both sizes, and neither size scans Shift or Timesheet sequentially.
  */
 const ShiftStatus = closed.ordered("ShiftStatus", ["draft", "approved"])
-const Timesheet = relation("Timesheet", { employee: pg.integer, week: pg.integer }, [
-	"employee",
-	"week"
-])
+const Timesheet = relation("Timesheet", { employee: int4, week: int4 }, ["employee", "week"])
 
 const Shift = relation(
 	"Shift",
-	{ id: pg.bigint, employee: pg.integer, week: pg.integer, status: closedId(ShiftStatus) },
+	{ id: int8, employee: int4, week: int4, status: closedId(ShiftStatus) },
 	["id"]
 )
 

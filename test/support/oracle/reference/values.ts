@@ -6,7 +6,7 @@ import { convertDate } from "#compiler/ir/date.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
-import { Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
+import { Numeric, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 
 import { Money } from "#compiler/scalar/values/money.ts"
 import { admitCidr, admitInet } from "#compiler/scalar/values/net.ts"
@@ -57,13 +57,13 @@ export class Declined {
  * Values of the reference evaluator: exact carriers under PostgreSQL's native equality and order, each in its one form.
  *
  * A value is the reference evaluator's exact carrier (evaluate/catalog.ts ModelValue): an integer as bigint,
- * numeric as Decimal, a float as a double, money as Money, booleans, text, uuids and closed ids' handles as strings, sets as Sets of handles. Every
- * value is the one form grizzle delivers: a Decimal has no display scale, and a float keeps its zero's sign, -0 and +0
+ * numeric as Numeric, a float as a double, money as Money, booleans, text, uuids and closed ids' handles as strings, sets as Sets of handles. Every
+ * value is the one form grizzle delivers: a Numeric has no display scale, and a float keeps its zero's sign, -0 and +0
  * two values, as grizzle stores and computes them. A value stored in, cast to or read through a column of a
  * numeric(p, s) type is coerced as PostgreSQL's typmod coercion does, so 1.234 stored in numeric(5,2) is 1.23.
  *
  * ValueIdentity is native equality, which for the one form is identity but a float's zero: 1.0 and 1.00 are one
- * Decimal, NaN = NaN, and -0 = 0, two values of one class. A value is only its value, the same under every plan:
+ * Numeric, NaN = NaN, and -0 = 0, two values of one class. A value is only its value, the same under every plan:
  * wherever an operation may take one float of several equal ones, a set's member, a group's key, a union's row, a
  * recursion's state, a join variable's value, the merged zero is +0, so no plan picks one. A write stores the facts it
  * states: a parameter relation's facts and a ChangeSet member's rows are sets of facts by their identity, -0 and +0 two
@@ -99,8 +99,8 @@ const wrongCarrier = (v: Value, expected: string): never => {
 export const asBigint = (v: Value): bigint =>
 	typeof v === "bigint" ? v : wrongCarrier(v, "a bigint")
 
-export const asDecimal = (v: Value): Decimal =>
-	v instanceof Decimal ? v : wrongCarrier(v, "a Decimal")
+export const asDecimal = (v: Value): Numeric =>
+	v instanceof Numeric ? v : wrongCarrier(v, "a Numeric")
 
 export const asNumber = (v: Value): number =>
 	typeof v === "number" ? v : wrongCarrier(v, "a number")
@@ -288,7 +288,7 @@ export const indexIdentity = (v: Value, type: ScalarType): ValueIdentity | undef
 		case "exactInteger":
 			return typeof v === "bigint" ? valueIdentity(v, type) : undefined
 		case "numeric":
-			return v instanceof Decimal ? valueIdentity(v, type) : undefined
+			return v instanceof Numeric ? valueIdentity(v, type) : undefined
 		case "float4":
 		case "float8":
 			return typeof v === "number" ? valueIdentity(v, type) : undefined

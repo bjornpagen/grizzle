@@ -7,7 +7,7 @@ import type { LiteralDesc } from "#compiler/ir/desc.ts"
 import type { OpenExpr } from "#compiler/ir/open.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import type { ScalarTerm } from "#compiler/scalar/compute/term.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 import {
 	type LeafBinding,
 	lowerWith,
@@ -53,7 +53,7 @@ const bigintOperands: OperandField = {
 
 const numericOperands: OperandField = {
 	...testPg.numeric,
-	literals: element<LiteralDesc>(Arr.map(decimalTexts, (t) => Decimal.of(t))),
+	literals: element<LiteralDesc>(Arr.map(decimalTexts, (t) => Numeric.of(t))),
 	zero: "0"
 }
 
@@ -125,7 +125,7 @@ export const violates = (value: LiteralDesc, fact: Entry["needs"]): boolean => {
 		const n = BigInt(value)
 		return fact === "nonzero" ? n === 0n : fact === "nonnegative" ? n < 0n : false
 	}
-	if (!(value instanceof Decimal)) {
+	if (!(value instanceof Numeric)) {
 		return false
 	}
 	const p = value.parts
@@ -245,7 +245,7 @@ export const guardedOperations: Arr.NonEmptyReadonlyArray<Guarded> = [
 				(x: ScalarTerm) => computeCore.cast(x, testPg.integer),
 				0
 			),
-		holds: (a) => a instanceof Decimal && a.isFinite() && Math.abs(Number(a.text)) <= 1000
+		holds: (a) => a instanceof Numeric && a.isFinite() && Math.abs(Number(a.text)) <= 1000
 	}
 ]
 

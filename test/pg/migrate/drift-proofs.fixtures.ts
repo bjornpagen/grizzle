@@ -12,7 +12,7 @@ import { quoteIdent } from "#compiler/core/text.ts"
 import type { ProofStatements } from "#compiler/deploy/ledger/ledger.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { parseIdent } from "#compiler/physical/obligations/graph.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { contained, on, relation, schema, select, type Statement } from "#compiler/public/schema.ts"
 import { firstCodes } from "#test/support/compile.ts"
 import { triggerDisabled } from "#test/support/drift/hand-change.ts"
@@ -220,18 +220,17 @@ export const readLaws = [
 export type ReadLaw = (typeof readLaws)[number]
 
 /** A document's attributes, each by its element's start and its name. */
-const Attribute = relation("Attribute", { doc: pg.integer, start: pg.integer, name: pg.integer }, [
+const Attribute = relation("Attribute", { doc: int4, start: int4, name: int4 }, [
 	"doc",
 	"start",
 	"name"
 ])
 
 /** A document's elements, each by its start, with its parent's start and its kind. */
-const Element = relation(
-	"Element",
-	{ doc: pg.integer, start: pg.integer, parent: pg.integer, kind: pg.integer },
-	["doc", "start"]
-)
+const Element = relation("Element", { doc: int4, start: int4, parent: int4, kind: int4 }, [
+	"doc",
+	"start"
+])
 
 /** Each law of readLaws over Attribute and Element. */
 const readStatements: { readonly [L in ReadLaw]: Statement } = {

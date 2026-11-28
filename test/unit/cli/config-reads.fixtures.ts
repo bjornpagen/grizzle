@@ -53,12 +53,12 @@ export const fee = centsParser.parse(5n)
 
 /** The project's modules, each by its file name within the project, its flow's module importing `imports` first. */
 const projectFiles = (imports: string): Readonly<Record<string, string>> => ({
-	"contracts.ts": `import { contract, Num, pg } from "@bjornpagen/grizzle"
+	"contracts.ts": `import { contract, Num, int8 } from "@bjornpagen/grizzle"
 
 export const centsKey = Symbol("Cents")
 
 /** An amount: any int8 from 0 to 2^62. */
-export const Cents = contract<typeof centsKey>()("Cents", pg.bigint, (c) => Num.within(c, 0n, 2n ** 62n))
+export const Cents = contract<typeof centsKey>()("Cents", int8, (c) => Num.within(c, 0n, 2n ** 62n))
 `,
 	"parsers.ts": `import { contractParser } from "@bjornpagen/grizzle/contract"
 import { Cents, centsKey } from "./contracts.ts"

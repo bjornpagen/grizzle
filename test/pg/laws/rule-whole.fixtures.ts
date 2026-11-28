@@ -11,7 +11,7 @@ import { baselineRuleChecks, lawChecks } from "#compiler/deploy/snapshot/violati
 import { lawsOfConstraint } from "#compiler/ir/products.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	check,
@@ -123,10 +123,10 @@ const nodeOf = (shape: UnitShape) =>
 	relation(
 		"Node",
 		{
-			...inOrder(shape[1])({ doc: pg.integer, sub: pg.integer, part: pg.integer }),
-			start: pg.integer,
-			parent: pg.integer,
-			kind: pg.integer
+			...inOrder(shape[1])({ doc: int4, sub: int4, part: int4 }),
+			start: int4,
+			parent: int4,
+			kind: int4
 		},
 		placedKey(shape[0])
 	)
@@ -136,9 +136,9 @@ const exprOf = (shape: UnitShape, key: PlacedKey) =>
 	relation(
 		"Expr",
 		{
-			...inOrder(shape[1])({ doc: pg.integer, sub: pg.integer, part: pg.integer }),
-			start: pg.integer,
-			type: pg.integer
+			...inOrder(shape[1])({ doc: int4, sub: int4, part: int4 }),
+			start: int4,
+			type: int4
 		},
 		key
 	)
@@ -148,9 +148,9 @@ const tagOf = (shape: UnitShape, key: PlacedKey) =>
 	relation(
 		"Tag",
 		{
-			...inOrder(shape[1])({ doc: pg.integer, sub: pg.integer, part: pg.integer }),
-			start: pg.integer,
-			mark: pg.integer
+			...inOrder(shape[1])({ doc: int4, sub: int4, part: int4 }),
+			start: int4,
+			mark: int4
 		},
 		key
 	)
@@ -278,8 +278,8 @@ const judgeSchema = (judge: Judge, shape: ShapeKey) => {
 						mutable(Node),
 						mutable(Expr),
 						mutable(Tag),
-						unit("Document", { doc: pg.integer }),
-						unit("Started", { start: pg.integer })
+						unit("Document", { doc: int4 }),
+						unit("Started", { start: int4 })
 					]
 				: [])
 		]
@@ -383,7 +383,7 @@ const judgeSchema = (judge: Judge, shape: ShapeKey) => {
 				.find({ ...at, node: start })
 		})
 	const reached = query(Base).recursive("Reached", {
-		row: { ...ordered({ doc: pg.integer, sub: pg.integer, part: pg.integer }), node: pg.integer },
+		row: { ...ordered({ doc: int4, sub: int4, part: int4 }), node: int4 },
 		base: [
 			(r) => {
 				const { doc, sub, part, node } = v(roots, "root")

@@ -4,7 +4,7 @@
  * frames meet ("ab" then "c", "a" then "bc"), a set's members in two orders, and a numeric in two spellings. Each row's
  * text equals another's exactly when the rows are one row, value for value under each type's equality.
  *
- * Oracle: each type's equality on the host values: a text's identity, a set's membership, a Decimal's `equals`.
+ * Oracle: each type's equality on the host values: a text's identity, a set's membership, a Numeric's `equals`.
  *
  * Features: none; the box is exhausted.
  */
@@ -37,7 +37,7 @@ export const aFoundRowsTextIsOneTextPerRowValueForValue = property.exhaust(
 			}),
 		oracle: {
 			kind: "second-implementation",
-			name: "each type's equality on the host values: a text's identity, a set's membership, a Decimal's equals"
+			name: "each type's equality on the host values: a text's identity, a set's membership, a Numeric's equals"
 		},
 		box: "every row of words a, ab and b, names '', c and bc, the sets {}, {Low}, {Low, Mid} and {Mid, Low}, and the numerics 1.5 and 1.50",
 		kept: [],

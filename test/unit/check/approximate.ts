@@ -54,11 +54,9 @@ export const searchSchema = (dimensions: number): SchemaDesc => ({
 	name: "Search",
 	relations: [
 		relation("E", { id: f.uuid, owner: f.uuid, value: { kind: "vector", dimensions } }, ["id"]),
-		relation(
-			"F",
-			{ id: f.uuid, weight: f.pg("double precision"), value: { kind: "vector", dimensions } },
-			["id"]
-		),
+		relation("F", { id: f.uuid, weight: f.pg("float8"), value: { kind: "vector", dimensions } }, [
+			"id"
+		]),
 		relation("G", { owner: f.uuid, id: f.uuid, value: { kind: "vector", dimensions } }, [
 			"owner",
 			"id"

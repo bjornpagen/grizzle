@@ -7,7 +7,7 @@ import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
 import { type PlanNode, planNodes, scannedRows } from "#bench/harness/explain.ts"
 import type { BenchSession } from "#bench/harness/session.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
-import { closedId, natural, pg } from "#compiler/public/fields.ts"
+import { closedId, natural, int4, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	closed,
@@ -68,11 +68,11 @@ const ledgerOf = <const Name extends string>(storage: Storage, name: Name) => {
 	 */
 	const People = relation("Person", { person: Person }, ["person"])
 	const ClerkAccount = relation("ClerkAccount", { clerk: Clerk, person: Person }, ["clerk"])
-	const Test = relation("Test", { test: pg.bigint, name: Name, grade: pg.integer }, ["test"])
-	const TestWithdrawn = relation("TestWithdrawn", { test: pg.bigint }, ["test"])
+	const Test = relation("Test", { test: int8, name: Name, grade: int4 }, ["test"])
+	const TestWithdrawn = relation("TestWithdrawn", { test: int8 }, ["test"])
 	const Assignment = relation(
 		"Assignment",
-		{ child: Learner, number: natural, test: pg.bigint, priority: pg.integer },
+		{ child: Learner, number: natural, test: int8, priority: int4 },
 		["child", "number"]
 	)
 	const EventKind = closed.unordered("EventKind", ["start", "pause", "submit", "abandon"])
@@ -104,7 +104,7 @@ const ledgerOf = <const Name extends string>(storage: Storage, name: Name) => {
 	)
 	const Response = relation(
 		"Response",
-		{ child: Learner, attempt: natural, item: natural, value: pg.integer },
+		{ child: Learner, attempt: natural, item: natural, value: int4 },
 		["child", "attempt", "item"]
 	)
 
@@ -397,7 +397,7 @@ const ledgerOf = <const Name extends string>(storage: Storage, name: Name) => {
 				.match(AssignmentStatus, { number, status })
 				.match(Valid, { number })
 				.where(
-					r.eq(test, r.param("test", pg.bigint)),
+					r.eq(test, r.param("test", int8)),
 					r.in(status, ["ASSIGNED", "IN_PROGRESS", "PAUSED"])
 				)
 				.find({ number })

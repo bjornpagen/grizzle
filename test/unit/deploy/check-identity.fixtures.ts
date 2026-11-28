@@ -9,7 +9,7 @@ import { type LawChecks, lawChecks } from "#compiler/deploy/snapshot/violation.t
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
-import { Bits, closedId, pg } from "#compiler/public/fields.ts"
+import { Bit, closedId, int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	check,
@@ -103,13 +103,10 @@ const Tier = closed.ordered("Tier", ["low", "mid", "high"])
  */
 const schemaOf = (shape: Shape, version: "first" | "second") => {
 	const changed = (c: Change): boolean => version === "second" && shape.change === c
-	const T = relation("T", { doc: pg.integer, at: pg.integer, a: pg.integer, b: pg.integer }, [
-		"doc",
-		"at"
-	])
+	const T = relation("T", { doc: int4, at: int4, a: int4, b: int4 }, ["doc", "at"])
 	const TierRank = closed.relation(
 		"TierRank",
-		{ tier: closedId(Tier), rank: pg.integer },
+		{ tier: closedId(Tier), rank: int4 },
 		["tier"],
 		changed("closed row")
 			? [
@@ -128,10 +125,10 @@ const schemaOf = (shape: Shape, version: "first" | "second") => {
 		["tier"],
 		[{ tier: "low", next: "high" }]
 	)
-	const U = relation("U", { doc: pg.integer, tier: closedId(Tier), b: pg.integer }, ["doc"])
+	const U = relation("U", { doc: int4, tier: closedId(Tier), b: int4 }, ["doc"])
 	const Cap = closed.relation(
 		"Cap",
-		{ tier: closedId(Tier), cap: pg.integer, note: pg.integer },
+		{ tier: closedId(Tier), cap: int4, note: int4 },
 		["tier"],
 		changed("capped tier")
 			? [
@@ -144,15 +141,15 @@ const schemaOf = (shape: Shape, version: "first" | "second") => {
 					{ tier: "high", cap: changed("cap") ? 30 : 20, note: 1 }
 				]
 	)
-	const W = relation("W", { wdoc: pg.integer }, ["wdoc"])
+	const W = relation("W", { wdoc: int4 }, ["wdoc"])
 	const probed = shape.judge === "probed"
 	const Base = schema(
 		"check_identity",
 		[T, U, W, Tier, TierRank, TierNext, Cap],
 		probed
 			? [
-					unit("Document", { doc: pg.integer }),
-					unit("Ws", { wdoc: pg.integer }),
+					unit("Document", { doc: int4 }),
+					unit("Ws", { wdoc: int4 }),
 					mutable(T),
 					mutable(U),
 					mutable(W)
@@ -190,7 +187,7 @@ const schemaOf = (shape: Shape, version: "first" | "second") => {
 			contained(on(TierNext, "next"), on(TierRank, "tier")),
 			check("Capped", D3, (d) => d.le(d.b, Cap.at("cap", d.tier))),
 			check("Listed", D3, (d) => Cap.has(d.tier)),
-			check("Covered", D3, (d) => d.eq(Bits.subset(Bits.singleton(d.tier), Cap.row()), true))
+			check("Covered", D3, (d) => d.eq(Bit.subset(Bit.singleton(d.tier), Cap.row()), true))
 		]
 	)
 }

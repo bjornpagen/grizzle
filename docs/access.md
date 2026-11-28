@@ -118,7 +118,7 @@ declares, and nothing else makes a context available:
   compiles for the role, before any SQL: in `grizzle generate` for each role of a login whose workload holds it.
 - **Two contexts of one name that differ**, among the declared ones or between one and what a program matches, are
   `DuplicateIdentity`; a context of a token's claims and an attested one of one name differ.
-- **An attested context is the server's alone.** `attested("Origin", { address: pg.inet })` is a fact the server states,
+- **An attested context is the server's alone.** `attested("Origin", { address: inet })` is a fact the server states,
   `Db.open(WebServed.roles.student, { token, attested: { Origin: { address } } })` with `address` read by
   `Inet.parse` from its edge's header of the address a request reached it from, and an HTTP handler's
   `httpHandler({ logins, heartbeatMs, attest: (request) => ({ Origin: … }) })` for each request it serves, which the

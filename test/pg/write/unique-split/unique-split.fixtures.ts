@@ -14,7 +14,7 @@ import {
 	type OpenedDb
 } from "#bench/write/support/writes.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int8 } from "#compiler/public/fields.ts"
 import { key, mutable, on, relation, schema, unit } from "#compiler/public/schema.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -22,15 +22,11 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * A test by its id, its name unique across the tests beside its key (key(on(Test, "name"))), and a note, metis's Test
  * in small: a put of it may move a name from one test to another, which an UPDATE checks at each row.
  */
-const Test = relation("Test", { test: pg.bigint, name: pg.bigint, note: pg.bigint }, ["test"])
+const Test = relation("Test", { test: int8, name: int8, note: int8 }, ["test"])
 
 /** Test, mutable, in the unit of its id, its name a candidate key. */
 const build = (name: string) =>
-	schema(
-		name,
-		[Test],
-		[unit("TestUnit", { test: pg.bigint }), mutable(Test), key(on(Test, "name"))]
-	)
+	schema(name, [Test], [unit("TestUnit", { test: int8 }), mutable(Test), key(on(Test, "name"))])
 
 type Schema = ReturnType<typeof build>
 

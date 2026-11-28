@@ -5,7 +5,7 @@ import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Order } from "effect"
 import type { BenchSession } from "#bench/harness/session.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { key, on, relation, schema } from "#compiler/public/schema.ts"
 import {
@@ -24,7 +24,7 @@ import { readWork } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import type { PgConnection } from "#test/support/pg.ts"
 
-const i = pg.integer
+const i = int4
 
 /**
  * A ledger shaped as metis's: each child's sittings of its stages, its item sessions at their stages (keyed by child,

@@ -999,7 +999,7 @@ export const foldEntry = (s: FoldStatement, f: FamilyShape, law: Identifier<"law
 		if (!isNonEmpty(pairs)) {
 			if (runningEnds.some((e) => e.kind === "digest")) {
 				defect(
-					"foldRule admits a plane of a digest's value, a text or bytes, only with its (before, after) pair named"
+					"foldRule admits a plane of a digest's value, a text or bytea, only with its (before, after) pair named"
 				)
 			}
 			return {

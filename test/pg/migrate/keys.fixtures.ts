@@ -7,7 +7,7 @@ import type { MigrateError } from "#adapter/migrate/errors.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { ambientOwner, ordinarySession } from "#test/support/ambient.ts"
 import {
@@ -68,7 +68,7 @@ export const caseGen: Gen<KeyCase> = (s) => ({
 const keeps = (rows: ReadonlyArray<Row>, field: Field): boolean =>
 	new Set(Arr.map(rows, (r) => r[field])).size === rows.length
 
-const fields = Object.freeze({ id: pg.integer, a: pg.integer, b: pg.integer })
+const fields = Object.freeze({ id: int4, a: int4, b: int4 })
 
 const ItemById = relation("Item", fields, ["id"])
 

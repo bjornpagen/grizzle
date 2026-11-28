@@ -19,8 +19,8 @@ const widthOf = (carrier: "int4" | "int8" | "date", width: unknown): number | bi
 		const most = dayNumber(lastCalendarDate)
 		if (typeof width !== "number" || !Number.isInteger(width) || width < 1 || width > most) {
 			throw malformedDescription(
-				captureLoc("span width", []),
-				`a span width over date: a JavaScript integer count of days 1-${most}`
+				captureLoc("range width", []),
+				`a range width over date: a JavaScript integer count of days 1-${most}`
 			)
 		}
 		return width
@@ -28,16 +28,16 @@ const widthOf = (carrier: "int4" | "int8" | "date", width: unknown): number | bi
 	if (carrier === "int4") {
 		if (typeof width !== "number" || !Number.isInteger(width) || width < 1 || width > int4Max) {
 			throw malformedDescription(
-				captureLoc("span width", []),
-				`a span width over integer: a JavaScript integer 1-${int4Max}`
+				captureLoc("range width", []),
+				`a range width over int4: a JavaScript integer 1-${int4Max}`
 			)
 		}
 		return width
 	}
 	if (typeof width !== "bigint" || width < 1n || width > int8Max) {
 		throw malformedDescription(
-			captureLoc("span width", []),
-			`a span width over bigint: a bigint 1-${int8Max}`
+			captureLoc("range width", []),
+			`a range width over int8: a bigint 1-${int8Max}`
 		)
 	}
 	return width
@@ -52,8 +52,8 @@ export const spanColumn = <A>(endpoint: Column<A>): Column<Span<A>> => {
 		}
 	}
 	throw malformedDescription(
-		captureLoc("span endpoint", []),
-		"a span endpoint over an integer field, whose column converts its text"
+		captureLoc("range endpoint", []),
+		"a range endpoint over an int4 or int8 field, whose column converts its text"
 	)
 }
 
@@ -71,7 +71,7 @@ interface SpanParts {
  * span(endpoint, width?): a bounded half-open extent over an integer or a date endpoint.
  *
  * Span support is a separately admitted capability: an endpoint is a descriptor whose type has the
- * registry's spanEndpoint capability, which is exactly pg.integer, pg.bigint, date and contracts over them, aliases
+ * registry's spanEndpoint capability, which is exactly int4, int8, date and contracts over them, aliases
  * included. Every other endpoint is refused with a capability diagnostic naming the endpoint type, the operation and
  * the missing capability: smallint (int4range plus endpoint bounds would be required), numeric, the floats and money.
  * There is no slow mode and no custom range type.
@@ -92,11 +92,11 @@ interface SpanParts {
  */
 export const spanParts = (endpoint: unknown, rest: ReadonlyArray<unknown>): SpanParts => {
 	if (rest.length > 1) {
-		throw malformedDescription(captureLoc("span", []), "span(endpoint) or span(endpoint, width)")
+		throw malformedDescription(captureLoc("range", []), "range(endpoint) or range(endpoint, width)")
 	}
 	const [width] = rest
-	const described = describeFieldOrThrow(endpoint, SourceLoc("span endpoint", []))
-	const loc = captureLoc(`span(${described.sql})`, [])
+	const described = describeFieldOrThrow(endpoint, SourceLoc("range endpoint", []))
+	const loc = captureLoc(`range(${described.sql})`, [])
 	const base = baseOf(described.scalar).carrier
 	/** Whether the endpoint is an instant, which no caller states: it decides first, whatever width accompanies it, as
 	 * a smallint or money endpoint does by its capability. */
@@ -104,7 +104,7 @@ export const spanParts = (endpoint: unknown, rest: ReadonlyArray<unknown>): Span
 	if (instantEnd) {
 		throw unsupported(
 			loc,
-			"spanEndpoint: an instant is the database's alone, stamped by an insert or read from a stored row, and a span's ends are values a caller states; spans are over integer, bigint and contracts over them"
+			"spanEndpoint: an instant is the database's alone, stamped by an insert or read from a stored row, and a range's ends are values a caller states; ranges are over integer, bigint and contracts over them"
 		)
 	}
 	const unchecked = spanType(described.scalar, undefined, loc)

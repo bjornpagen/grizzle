@@ -22,7 +22,7 @@ import {
 	type RelationInfo,
 	type RowGuard,
 	scalarKeySet,
-	type SpanField
+	type RangeField
 } from "#compiler/ir/law.ts"
 import type { KeyedRelation, NamedNative, NamedPrimaryKey } from "#compiler/laws/model/model.ts"
 import type { RecordedLaw } from "#compiler/types/changeset/changeset.ts"
@@ -89,7 +89,7 @@ export type UniqueObject = Named &
 		| {
 				readonly kind: "span"
 				readonly equal: ReadonlyArray<LawField>
-				readonly span: SpanField
+				readonly span: RangeField
 				readonly within: ReadonlyArray<UniqueGuard>
 		  }
 	)
@@ -102,7 +102,7 @@ export type PrimaryKeyObject = Named &
 		| {
 				readonly kind: "span"
 				readonly equal: ReadonlyArray<LawField>
-				readonly span: SpanField
+				readonly span: RangeField
 				/** A declared key holds every fact apart: no guard. */
 				readonly within: readonly []
 		  }
@@ -255,7 +255,7 @@ const spanObject = (
 	const [spanField, ...equal] = c.equal
 	if (!isSpanField(spanField) || equal.includes(spanField)) {
 		defect(
-			`a span key's span column, a span field's values, of ${relation.name}, which the law model planned`
+			`a range key's range column, a range field's values, of ${relation.name}, which the law model planned`
 		)
 	}
 	return { ...named, kind: "span", equal, span: spanField, within: c.within }
@@ -458,7 +458,7 @@ export const relationLaws = (
 				throw new Refusal(
 					unsupported(
 						relation.loc,
-						`a span-alone key over a selected side of ${relation.name} (${guardedSpan.object.name}), whose selection a write's probe and pair check do not read`
+						`a range-alone key over a selected side of ${relation.name} (${guardedSpan.object.name}), whose selection a write's probe and pair check do not read`
 					)
 				)
 			}

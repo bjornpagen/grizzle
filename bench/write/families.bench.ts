@@ -23,7 +23,7 @@ import {
 	writePhases
 } from "#bench/write/support/writes.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { drawn, natural, pg } from "#compiler/public/fields.ts"
+import { drawn, natural, int4 } from "#compiler/public/fields.ts"
 import {
 	counted,
 	fin,
@@ -58,13 +58,10 @@ import {
  * (transactionScans), and every count is checked exactly. Every figure is recorded beside its check; times are
  * recorded and gate nothing.
  */
-const Owner = relation("Owner", { id: pg.integer, members: drawn(natural) }, ["id"])
-const Item = relation("Item", { owner: pg.integer, at: drawn(natural), payload: pg.integer }, [
-	"owner",
-	"at"
-])
-const Group = relation("Group", { id: pg.integer, size: drawn(natural) }, ["id"])
-const Tag = relation("Tag", { id: pg.integer, grp: pg.integer, payload: pg.integer }, ["id"])
+const Owner = relation("Owner", { id: int4, members: drawn(natural) }, ["id"])
+const Item = relation("Item", { owner: int4, at: drawn(natural), payload: int4 }, ["owner", "at"])
+const Group = relation("Group", { id: int4, size: drawn(natural) }, ["id"])
+const Tag = relation("Tag", { id: int4, grp: int4, payload: int4 }, ["id"])
 
 const build = (name: string) =>
 	schema(
@@ -73,8 +70,8 @@ const build = (name: string) =>
 		[
 			ordered(on(Item, "owner", "at"), fin(Owner, "members")),
 			counted(on(Tag, "grp"), fin(Group, "size")),
-			unit("Id", { id: pg.integer }),
-			unit("Owner", { owner: pg.integer }),
+			unit("Id", { id: int4 }),
+			unit("Owner", { owner: int4 }),
 			mutable(Owner),
 			mutable(Item),
 			mutable(Group),

@@ -350,7 +350,7 @@ const normalizerOf = (s: BuiltSpec): RelationNormalizer => {
 			return byteaElementBytes(value.bytes.length)
 		}
 		if (!(value instanceof Uint8Array)) {
-			defect("a read fact's bytes field holds the caller's array")
+			defect("a read fact's bytea field holds the caller's array")
 		}
 		return byteaElementBytes(value.length)
 	}
@@ -429,7 +429,7 @@ const normalizerOf = (s: BuiltSpec): RelationNormalizer => {
 	): Result.Result<AdmittedFact, EncodingFailure> => {
 		const admittedFact = digestFact(s.plan, one)
 		for (const at of bytesAt) {
-			const field = defined(s.plan.entries[at], "a bytes field of the heading").name
+			const field = defined(s.plan.entries[at], "a bytea field of the heading").name
 			if (!book.holds(admitted({ carrier: "bytes" }, admittedFact.fact[field]))) {
 				return Result.err(encodeFailure("bytesCollision", placeOf(s, field)))
 			}

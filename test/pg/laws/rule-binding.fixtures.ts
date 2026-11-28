@@ -6,7 +6,7 @@ import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { planNodes, rowsTouched } from "#bench/harness/explain.ts"
 import { identifierOf } from "#compiler/core/identity.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	contained,
@@ -35,26 +35,22 @@ import type { SubstrateTemplate } from "#test/support/substrate/substrate.ts"
 type NodeKey = readonly ["pkg" | "path", "pkg" | "path", "start"]
 
 const nodeOf = (key: NodeKey) =>
-	relation(
-		"Node",
-		{ pkg: pg.integer, path: pg.integer, start: pg.integer, parent: pg.integer },
-		key
-	)
+	relation("Node", { pkg: int4, path: int4, start: int4, parent: int4 }, key)
 
 /** The node every write names: one name and one heading in either judgment. */
 const NodeTable = nodeOf(["pkg", "path", "start"])
 
-const Ref = relation(
-	"Ref",
-	{ pkg: pg.integer, path: pg.integer, start: pg.integer, ref: pg.integer },
-	["pkg", "path", "start"]
-)
+const Ref = relation("Ref", { pkg: int4, path: int4, start: int4, ref: int4 }, [
+	"pkg",
+	"path",
+	"start"
+])
 
-const Named = relation(
-	"Named",
-	{ pkg: pg.integer, path: pg.integer, start: pg.integer, name: pg.integer },
-	["pkg", "path", "start"]
-)
+const Named = relation("Named", { pkg: int4, path: int4, start: int4, name: int4 }, [
+	"pkg",
+	"path",
+	"start"
+])
 
 /** How a rule's judge reads what a transaction wrote: by probes over its rows, or whole over the units they hold. */
 const judgings = ["probed", "whole"] as const
@@ -85,8 +81,8 @@ const bindingSchema = (judged: Judged) => {
 						mutable(Node),
 						mutable(Ref),
 						mutable(Named),
-						unit("Package", { pkg: pg.integer }),
-						unit("Path", { path: pg.integer })
+						unit("Package", { pkg: int4 }),
+						unit("Path", { path: int4 })
 					]
 				: [])
 		]

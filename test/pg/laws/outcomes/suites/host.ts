@@ -17,7 +17,16 @@ import { Array as Arr, Effect, Formatter, Option, Order, pipe, Result, String as
 import { Db } from "#adapter/public/db.ts"
 import { ChangeSet, type Law } from "#compiler/public/changeset.ts"
 import { Logic, Type } from "#compiler/public/compute.ts"
-import { closedId, contract, generated, mintOf, pg, Uuid, Vector } from "#compiler/public/fields.ts"
+import {
+	closedId,
+	contract,
+	generated,
+	mintOf,
+	Uuid,
+	Vector,
+	int4,
+	vector
+} from "#compiler/public/fields.ts"
 import { check, closed, mutable, relation, schema, unit } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { derivedLaw } from "#compiler/runtime/law-entry.ts"
@@ -45,7 +54,7 @@ const rates: Readonly<Record<TierHandle, number | undefined>> = {
 const Tier = closed.ordered("Tier", tiers)
 const Rate = closed.relation(
 	"Rate",
-	{ tier: closedId(Tier), rate: pg.integer },
+	{ tier: closedId(Tier), rate: int4 },
 	["tier"],
 	[
 		{ tier: "bronze", rate: 100 },
@@ -53,7 +62,7 @@ const Rate = closed.relation(
 	]
 )
 const unitsKey = Symbol("Units")
-const Units = contract<typeof unitsKey>()("Units", pg.integer, (x) => Logic.le(x, 1000))
+const Units = contract<typeof unitsKey>()("Units", int4, (x) => Logic.le(x, 1000))
 const toUnits = mintOf(unitsKey)
 /** The pattern an account's code and its alias share, so one domain types both columns, each field its own law. */
 const codeSource = "^[a-z]{1,8}$"
@@ -65,11 +74,11 @@ const Account = relation.generated(
 		units: Units,
 		code: str.regex(codeSource, "u"),
 		alias: str.regex(codeSource, "u"),
-		from: pg.vector(2),
-		to: pg.vector(2)
+		from: vector(2),
+		to: vector(2)
 	},
 	["id"],
-	(r) => ({ rate: generated(pg.integer, Rate.at("rate", r.tier)) })
+	(r) => ({ rate: generated(int4, Rate.at("rate", r.tier)) })
 )
 const positive = check("Positive", Account, (x) => x.gt(x.units, 0))
 const withinRate = check("WithinRate", Account, (x) => x.le(Type.base(x.units), x.rate))

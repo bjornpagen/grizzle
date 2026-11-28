@@ -3,7 +3,7 @@
 import { array, boolean, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, String as Str } from "effect"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { instant, pg } from "#compiler/public/fields.ts"
+import { instant, int4, numeric, tsvector } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { mutable, relation, schema, unit } from "#compiler/public/schema.ts"
 import { fixtureTemplate } from "#test/support/pg/reads/support.ts"
@@ -16,7 +16,7 @@ import {
 } from "#test/support/unit/values/search-document.fixtures.ts"
 
 /**
- * The bound of Kept's amount, pg.numeric.within(keptDigits, keptScale): below 10^6 in magnitude, at most 3 fraction
+ * The bound of Kept's amount, numeric.within(keptDigits, keptScale): below 10^6 in magnitude, at most 3 fraction
  * digits, a sum's of numeric(5, 3) over a few rows.
  */
 const keptDigits = 6
@@ -29,7 +29,7 @@ const keptScale = 3
  */
 export const Source = relation(
 	"Source",
-	{ id: pg.integer, at: instant.stored, doc: pg.tsvector("simple"), amount: pg.numeric },
+	{ id: int4, at: instant.stored, doc: tsvector("simple"), amount: numeric },
 	["id"]
 )
 
@@ -40,26 +40,22 @@ export const Source = relation(
 export const Kept = relation(
 	"Kept",
 	{
-		id: pg.integer,
+		id: int4,
 		at: instant.stored,
-		doc: pg.tsvector("simple"),
-		amount: pg.numeric.within(keptDigits, keptScale)
+		doc: tsvector("simple"),
+		amount: numeric.within(keptDigits, keptScale)
 	},
 	["id", "at"]
 )
 
 /** Copied: a query's copy of Source's instants and documents, written in the statement that reads them. */
-const Copied = relation(
-	"Copied",
-	{ id: pg.integer, at: instant.stored, doc: pg.tsvector("simple") },
-	["id"]
-)
+const Copied = relation("Copied", { id: int4, at: instant.stored, doc: tsvector("simple") }, ["id"])
 
 /** Each id's rows one unit: Kept's rows are put again with another row's document, so Kept is mutable. */
 export const Stored = schema(
 	"StoredKinds",
 	[Source, Kept, Copied],
-	[mutable(Kept), unit("Read", { id: pg.integer })]
+	[mutable(Kept), unit("Read", { id: int4 })]
 )
 
 /** Every row of Source. */

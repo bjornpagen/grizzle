@@ -21,7 +21,7 @@ import type { ValueFault } from "#compiler/core/errors.ts"
 
 /**
  * An inet host value: inet_out's text of an inet value, an IPv4 address's four dotted octets or an IPv6 address's
- * colon-separated words, with `/` and its mask length unless the mask is the family's whole width. It is pg.inet's host
+ * colon-separated words, with `/` and its mask length unless the mask is the family's whole width. It is inet's host
  * type, domain and language. The language is wider than the values, as Uuid's is: TypeScript writes each part as
  * `${string}`, so any text with three dots or a colon is in it, and it is refused at the boundary instead (admitNet).
  */
@@ -29,7 +29,7 @@ export type Inet = `${string}.${string}.${string}.${string}` | `${string}:${stri
 
 /**
  * A cidr host value: cidr_out's text of a cidr value, a network's address and, always, `/` and its mask length. It is
- * pg.cidr's host type, domain and language, wider than the values as Inet's is.
+ * cidr's host type, domain and language, wider than the values as Inet's is.
  */
 export type Cidr = `${string}/${string}`
 

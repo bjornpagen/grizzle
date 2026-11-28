@@ -14,7 +14,7 @@
  */
 import { boolean, element, type Gen, option } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Record as Rec } from "effect"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import type { RecordOwner } from "#compiler/public/schema.ts"
 import {
 	type OrderedValue,
@@ -201,7 +201,7 @@ interface Owner {
 export const ownerOf = (shape: RecordsShape): Owner =>
 	shape.owner === "run"
 		? { fields: { run: Id }, key: ["run"] }
-		: { fields: { run: Id, step: pg.integer }, key: ["run", "step"] }
+		: { fields: { run: Id, step: int4 }, key: ["run", "step"] }
 
 /** A child over `over` of one rule over `relation`, its parent's fields bound at `bound`, its own matched and found. */
 const childOf = (
@@ -454,4 +454,4 @@ export const shapeText = (shape: RecordsShape): string => {
 export const ownerText = (shape: RecordsShape): { readonly fields: string; readonly key: string } =>
 	shape.owner === "run"
 		? { fields: "{ run: Id }", key: '["run"]' }
-		: { fields: "{ run: Id, step: pg.integer }", key: '["run", "step"]' }
+		: { fields: "{ run: Id, step: int4 }", key: '["run", "step"]' }

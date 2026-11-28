@@ -198,7 +198,7 @@ export const featuresOf = (c: GeneratedCase): ReadonlyArray<GeneratedFeature> =>
 
 /** A SHA-256 digest, the 32-byte carrier Crypto.sha256 yields. */
 const digest: FieldDesc = { kind: "sha256" }
-const doublePrecision: FieldDesc = f.pg("double precision")
+const doublePrecision: FieldDesc = f.pg("float8")
 
 const compute = (fn: "sha256" | "concat" | "neg", args: ReadonlyArray<ExprDesc>): ExprDesc => ({
 	kind: "compute",

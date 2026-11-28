@@ -29,7 +29,7 @@ import { conversionOf, maxIdentifierBytes } from "#compiler/core/identity.ts"
 import { installedIdentifiersOf, type InstalledIdentifier } from "#compiler/program/install.ts"
 import { lawsOf } from "#compiler/program/laws.ts"
 import { recordsBuilder } from "#compiler/program/records.ts"
-import { generated, pg, sha256 } from "#compiler/public/fields.ts"
+import { generated, sha256, int4 } from "#compiler/public/fields.ts"
 import { derivedName, schema } from "#compiler/public/schema.ts"
 import { succeeded } from "#test/support/assert.ts"
 import {
@@ -252,15 +252,12 @@ const owner = Object.freeze({ digest: sha256, root: sha256 })
 /** A kept case's level, its laws compiled, and the two names whose tables and whole views it holds apart. */
 const keptLevel = (kept: KeptCase) => {
 	const den = derivedName({ stem: "EssaySitting", path: ["key"] })
-	const Keyed = den.relation("EssaySittingKeyed", { id: pg.integer, n: pg.integer }, ["id"])
+	const Keyed = den.relation("EssaySittingKeyed", { id: int4, n: int4 }, ["id"])
 	switch (kept) {
 		case "two derived relations of one stem and path": {
-			const Value = den.generated(
-				"EssaySittingKeyValue",
-				{ id: pg.integer, n: pg.integer },
-				["id"],
-				(row) => ({ m: generated(pg.integer, row.n) })
-			)
+			const Value = den.generated("EssaySittingKeyValue", { id: int4, n: int4 }, ["id"], (row) => ({
+				m: generated(int4, row.n)
+			}))
 			const level = schema("Kept", [Keyed, Value], [])
 			assert.ok(
 				level.relations.EssaySittingKeyed === Keyed &&

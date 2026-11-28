@@ -8,7 +8,7 @@ import { catchCompileError } from "#compiler/core/canonical.ts"
 import { identifierOf } from "#compiler/core/identity.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { fragment, login, relation, role, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -51,21 +51,21 @@ export type EmptyLevelFeature = `${Call} by a role holding nothing of the base`
  */
 const builtOf = (name: string) => {
 	const Name = str.regex("^[a-z]{1,8}$")
-	const Want = relation("Want", { batch: Name, size: pg.bigint }, ["batch"])
-	const Hour = relation("Hour", { at: pg.bigint, bell: Name }, ["at", "bell"])
+	const Want = relation("Want", { batch: Name, size: int8 }, ["batch"])
+	const Hour = relation("Hour", { at: int8, bell: Name }, ["at", "bell"])
 	const base = schema(name, [Want], [])
 	const thin = schema.extend([base], `${name}_1`, [], [])
 	const app = schema.extend([thin], `${name}_2`, [fragment([Hour], [])], [])
 	const den = role(app, "den", { Hour }, { insert: ["Hour"] })
 	const hourOf = query(schema.empty).rule((r) =>
-		r.find({ at: r.param("at", pg.bigint), bell: r.param("bell", Name) })
+		r.find({ at: r.param("at", int8), bell: r.param("bell", Name) })
 	)
 	const record = ChangeSet.empty(den).insert(Hour, hourOf)
 	const census = ChangeSet.empty(den).insert(
 		Hour,
 		query(den).rule((r) => {
 			const derived = hourOf.bind({
-				at: r.param("hourAt", pg.bigint),
+				at: r.param("hourAt", int8),
 				bell: r.param("hourBell", Name)
 			})
 			const { at, bell } = v(derived, "derived")

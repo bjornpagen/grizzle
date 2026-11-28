@@ -10,7 +10,7 @@
  *   pgvector admits.
  * - Carriers: for every carrier, the capabilities the registry claims are, as a set, the catalog's (its operators,
  *   operator classes and aggregates over the carrier's type) less the documented exclusions, each of which the catalog
- *   offers; and a carrier is a span endpoint exactly where PostgreSQL has a discrete range over its type that the
+ *   offers; and a carrier is a range endpoint exactly where PostgreSQL has a discrete range over its type that the
  *   README does not name as a limit.
  *
  * Oracle: PostgreSQL itself, its catalog and the type a column's declaration stores.
@@ -27,7 +27,8 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { regex } from "arkregex"
 import { Array as Arr, Effect, pipe, String as Str } from "effect"
 import { vectorMaxDimensions } from "#compiler/ir/carriers.ts"
-import { pgDescriptors } from "#compiler/scalar/pg.ts"
+import { numeric } from "#compiler/scalar/pg.ts"
+import { vector } from "#compiler/scalar/vector.ts"
 import { carrierWords, spellingWords } from "#test/pg/scalar/registry.dictionary.ts"
 import {
 	accepts,
@@ -42,6 +43,7 @@ import {
 	polymorphic,
 	probe,
 	storedAt,
+	typnamesOf,
 	typmodGen,
 	unspanned
 } from "#test/pg/scalar/registry.fixtures.ts"
@@ -49,8 +51,11 @@ import { vectorSchemaOf } from "#test/support/pg/codec/support.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 import { spelled } from "#test/support/unit/scalar/support.ts"
 
-/** Descriptors against the PostgreSQL 19 catalog names the type PostgreSQL stores with every spelling of the pg namespace. */
-export const descriptorsAgainstThePostgreSQL19CatalogNamesTheTypePostgreSQLStoresWithEverySpellingOfThePgNamespace =
+/**
+ * Descriptors against the PostgreSQL 19 catalog: each of PostgreSQL's plain types is named, and tagged, by the
+ * pg_type.typname PostgreSQL stores a column of it as.
+ */
+export const descriptorsAgainstThePostgreSQL19CatalogEachPlainTypeIsNamedByTheTypnamePostgreSQLStoresItAs =
 	property.exhaust(finite(word(spellingWords)), {
 		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: ["a type"] satisfies ReadonlyArray<Reached<"a type">>,
@@ -59,25 +64,23 @@ export const descriptorsAgainstThePostgreSQL19CatalogNamesTheTypePostgreSQLStore
 			(spelling) =>
 				Effect.gen(function* () {
 					const { session: db } = yield* tx
-					yield* installProbe(db)
-					return yield* Effect.map(probe(db, [spelling]), (stored) => {
+					return yield* Effect.map(typnamesOf(db, [spelling]), (stored) => {
 						c.note("a type")
 						assert.deepEqual(stored, [spelled(spelling).sql], spelling)
 					})
 				}),
 		oracle: {
 			kind: "postgresql",
-			name: "the type PostgreSQL stores a column of the spelling as"
+			name: "the pg_type.typname PostgreSQL stores a column of the spelling as"
 		},
-		box: "every spelling of the pg namespace that is a descriptor",
+		box: "every one of PostgreSQL's plain types that is a descriptor by itself",
 		kept: [],
 		kills: [
 			{
 				file: "packages/engine/src/scalar/pg.ts",
-				original: 'const boolean = plain("boolean", carrierColumn("bool"))',
-				replacement:
-					'const boolean = defineField({}, "bool", { kind: "pg", type: "boolean" }, { column: carrierColumn("bool") }, SourceLoc("pg.boolean", []), bareEnv)',
-				why: "The boolean descriptor names bool; the spellings property fails."
+				original: 'export const bool = plain("bool", carrierColumn("bool"))',
+				replacement: 'export const bool = plain("boolean", carrierColumn("bool"))',
+				why: "The bool descriptor is tagged by format_type's name, boolean, not by its typname; the spellings property fails."
 			}
 		]
 	})
@@ -127,7 +130,7 @@ export const descriptorsAgainstThePostgreSQL19CatalogAcceptsExactlyTheNumericTyp
 					for (const [i, [p, s]] of pairs.entries()) {
 						const pgAccepts = !pipe(storedAt(stored, i), Str.startsWith("refused"))
 						assert.equal(
-							accepts(() => pgDescriptors.numeric(p, s)),
+							accepts(() => numeric(p, s)),
 							pgAccepts,
 							`numeric(${p}, ${s})`
 						)
@@ -171,7 +174,7 @@ export const descriptorsAgainstThePostgreSQL19CatalogAcceptsExactlyTheVectorDime
 							const pgAccepts = !pipe(storedAt(stored, 0), Str.startsWith("refused"))
 							c.note(pgAccepts ? "admitted" : n < 1 ? "refused below" : "refused above")
 							assert.equal(
-								accepts(() => pgDescriptors.vector(n)),
+								accepts(() => vector(n)),
 								pgAccepts,
 								`vector(${n})`
 							)
@@ -191,13 +194,13 @@ export const descriptorsAgainstThePostgreSQL19CatalogAcceptsExactlyTheVectorDime
 					file: "packages/engine/src/scalar/vector.ts",
 					original: "\t\tdimensions > vectorMaxDimensions",
 					replacement: "\t\tdimensions > vectorMaxDimensions + 1",
-					why: "pg.vector admits one dimension past the limit; the vector(n) property fails."
+					why: "vector admits one dimension past the limit; the vector(n) property fails."
 				}
 			]
 		}
 	)
 
-/** Descriptors against the PostgreSQL 19 catalog claims only native capabilities, leaves out only the documented exclusions, and has span endpoints exactly where a built-in discrete range exists or its limit is named. */
+/** Descriptors against the PostgreSQL 19 catalog claims only native capabilities, leaves out only the documented exclusions, and has range endpoints exactly where a built-in discrete range exists or its limit is named. */
 export const descriptorsAgainstThePostgreSQL19CatalogClaimsOnlyNativeCapabilitiesLeavesOutOnlyTheDocumentedExclusionsAndHasSpanEndpointsExactlyWhereABuiltInDiscreteRangeExistsOrItsLimitIsNamed =
 	property.exhaust(finite(word(carrierWords)), {
 		needs: { tx: Substrate.rolledBack(baseSubstrate) },
@@ -232,9 +235,9 @@ export const descriptorsAgainstThePostgreSQL19CatalogClaimsOnlyNativeCapabilitie
 						contains(native, "ordering", `${carrier} expression index`)
 					}
 					/**
-					 * A carrier may be a span endpoint only where PostgreSQL has a built-in range over its
+					 * A carrier may be a range endpoint only where PostgreSQL has a built-in range over its
 					 * type with a canonical function, so that a span's text is canonical: a discrete range.
-					 * Each carrier with one is a span endpoint or is named in `unspanned` with its limit,
+					 * Each carrier with one is a range endpoint or is named in `unspanned` with its limit,
 					 * never neither and never both, so a ranged carrier the registry gains is refused here
 					 * until it is declared spannable or its limit is stated.
 					 */
@@ -248,7 +251,7 @@ export const descriptorsAgainstThePostgreSQL19CatalogClaimsOnlyNativeCapabilitie
 					assert.deepEqual(
 						{ spannable, limited },
 						{ spannable: discrete && !limited, limited: discrete && !spannable },
-						`${carrier}: a discrete range is a span endpoint or a named limit, exactly one`
+						`${carrier}: a discrete range is a range endpoint or a named limit, exactly one`
 					)
 					c.note(
 						spannable

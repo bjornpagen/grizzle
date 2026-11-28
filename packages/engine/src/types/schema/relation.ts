@@ -24,7 +24,7 @@ import type {
 } from "#compiler/types/core/phantom.ts"
 import type {
 	Bits,
-	BitsField,
+	BitField,
 	ClosedIdField,
 	FieldBase,
 	HandleOf,
@@ -57,7 +57,7 @@ export type DistinctFields<K> =
  */
 export type KeyFieldOf<Fields> = {
 	[K in keyof Fields]-?: Fields[K] extends
-		| BitsField<unknown>
+		| BitField<unknown>
 		| { readonly sql: StoredOnlySql }
 		| { readonly writing: "generated" | "accumulated" }
 		? never
@@ -415,7 +415,7 @@ export interface ClosedRelation<
 	 */
 	readonly row: <const A extends KeyPrefixTerms<Fields, Key>>(
 		...prefix: A & ParameterlessKey<A>
-	) => ClosedRead<Bits<LastKeyRoster<Fields, Key>>, "bits", Facts, Bits<LastKeyRoster<Fields, Key>>>
+	) => ClosedRead<Bits<LastKeyRoster<Fields, Key>>, "bit", Facts, Bits<LastKeyRoster<Fields, Key>>>
 	/**
 	 * C.has(k…): whether a row holds the key k…, one argument per key field in key order, as C.at's key. It is a
 	 * predicate, false where no row holds the key, so a law states what holds there by its own connectives:

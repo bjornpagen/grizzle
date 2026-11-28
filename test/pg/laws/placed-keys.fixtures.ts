@@ -11,7 +11,7 @@ import {
 	lawChecks
 } from "#compiler/deploy/snapshot/violation.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, derived, on, relation, schema, unit } from "#compiler/public/schema.ts"
 import type { Select } from "#compiler/sql/ast.ts"
@@ -29,39 +29,36 @@ import { refusalOf } from "#test/support/substrate.ts"
  * of a document, by its start, of a kind; a reference an element makes to a document; an attribute of an element, the
  * base it spells; and a placed element, its base under a placement. Every relation is keyed by its package first.
  */
-const Doc = relation("Doc", { pkg: pg.integer, path: pg.integer, kind: pg.integer }, [
+const Doc = relation("Doc", { pkg: int4, path: int4, kind: int4 }, ["pkg", "path"])
+const Inst = relation("Inst", { pkg: int4, assembly: int4, start: int4, document: int4 }, [
 	"pkg",
-	"path"
+	"assembly",
+	"start"
 ])
-const Inst = relation(
-	"Inst",
-	{ pkg: pg.integer, assembly: pg.integer, start: pg.integer, document: pg.integer },
-	["pkg", "assembly", "start"]
-)
-const Elem = relation(
-	"Elem",
-	{ pkg: pg.integer, path: pg.integer, start: pg.integer, kind: pg.integer },
-	["pkg", "path", "start"]
-)
-const Ref = relation(
-	"Ref",
-	{ pkg: pg.integer, path: pg.integer, start: pg.integer, target: pg.integer },
-	["pkg", "path", "start"]
-)
-const Attr = relation(
-	"Attr",
-	{ pkg: pg.integer, path: pg.integer, start: pg.integer, base: pg.integer },
-	["pkg", "path", "start"]
-)
+const Elem = relation("Elem", { pkg: int4, path: int4, start: int4, kind: int4 }, [
+	"pkg",
+	"path",
+	"start"
+])
+const Ref = relation("Ref", { pkg: int4, path: int4, start: int4, target: int4 }, [
+	"pkg",
+	"path",
+	"start"
+])
+const Attr = relation("Attr", { pkg: int4, path: int4, start: int4, base: int4 }, [
+	"pkg",
+	"path",
+	"start"
+])
 const Placed = relation(
 	"Placed",
 	{
-		pkg: pg.integer,
-		assembly: pg.integer,
-		place: pg.integer,
-		path: pg.integer,
-		start: pg.integer,
-		base: pg.integer
+		pkg: int4,
+		assembly: int4,
+		place: int4,
+		path: int4,
+		start: int4,
+		base: int4
 	},
 	["pkg", "assembly", "place", "path", "start"]
 )
@@ -84,7 +81,7 @@ const placedSchema = (content: Content) => {
 	const Stored = schema(
 		name,
 		[Doc, Inst, Elem, Ref, Attr, Placed],
-		content === "in its unit" ? [unit("Package", { pkg: pg.integer })] : []
+		content === "in its unit" ? [unit("Package", { pkg: int4 })] : []
 	)
 
 	/** Each attribute's base, of two spellings: the attributes the placements are read at. */

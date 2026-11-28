@@ -1,5 +1,5 @@
 /**
- * Forged carrier instances: what a JavaScript caller can build that looks like a Decimal, a Money or a Vector without
+ * Forged carrier instances: what a JavaScript caller can build that looks like a Numeric, a Money or a Vector without
  * the checked constructors, each named, with the PostgreSQL value it stands for, as PostgreSQL's own text of it, stated
  * apart from grizzle. The host property (test/unit/values/forged.test.ts) and the PostgreSQL differential
  * (test/pg/codec/forged.test.ts) draw their cases here.
@@ -11,7 +11,7 @@ import { canonicalTag } from "#compiler/core/canonical.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { anyNumeric } from "#compiler/scalar/compute/types.ts"
 import { plainType } from "#compiler/scalar/native.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { f } from "#test/support/fixtures/ir/desc.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
@@ -165,7 +165,7 @@ interface Untyped {
 const untypedMoney: Untyped = Money
 
 /** A constructor whose prototype chain runs through `base`, so `Reflect.construct` runs the carrier as its `super`. */
-const subclassOf = (base: Decimal | Money): new () => unknown => {
+const subclassOf = (base: Numeric | Money): new () => unknown => {
 	class Sub {
 		readonly forged = true
 	}
@@ -190,29 +190,29 @@ const numericInput = (
 	other: string,
 	forgery: DecimalForgery
 ): unknown => {
-	const honest = Decimal.of(spelling)
+	const honest = Numeric.of(spelling)
 	switch (forgery) {
 		case "honest":
 			return honest
 		case "a prototype object":
-			return Object.create(Decimal.prototype, {
+			return Object.create(Numeric.prototype, {
 				parts: { value: honest.parts },
 				text: { value: spelling }
 			})
 		case "a proxy":
 			return new Proxy(honest, {})
 		case "the constructor called":
-			return Reflect.construct(Decimal, [honest.parts, spelling])
+			return Reflect.construct(Numeric, [honest.parts, spelling])
 		case "a subclass's super":
-			return Reflect.construct(Decimal, [honest.parts, spelling], subclassOf(Decimal.prototype))
+			return Reflect.construct(Numeric, [honest.parts, spelling], subclassOf(Numeric.prototype))
 		case "fromValue of a forged payload":
-			return Decimal.fromValue({
+			return Numeric.fromValue({
 				parts: honest.parts,
 				[canonicalTag]: () => ({ tag: "d", payload: spelling })
 			})
 		case "fromValue of another value's parts":
-			return Decimal.fromValue({
-				parts: Decimal.of(other).parts,
+			return Numeric.fromValue({
+				parts: Numeric.of(other).parts,
 				[canonicalTag]: () => ({ tag: "d", payload: pg })
 			})
 	}

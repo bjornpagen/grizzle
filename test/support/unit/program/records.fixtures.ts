@@ -16,20 +16,28 @@ import type { FieldDesc } from "#compiler/ir/desc.ts"
 import { queryInput } from "#compiler/program/input.ts"
 import { Num } from "#compiler/public/compute.ts"
 import {
-	bits,
-	bytes,
+	bit,
+	bytea,
 	closedId,
 	contract,
 	date,
-	Decimal,
+	Numeric,
 	instant,
 	Money,
 	natural,
-	pg,
 	searchDocument,
-	span,
+	range,
 	uuid,
-	variant
+	variant,
+	bool,
+	float4,
+	float8,
+	int2,
+	int4,
+	int8,
+	money,
+	numeric,
+	vector
 } from "#compiler/public/fields.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -55,7 +63,7 @@ const accountKey = Symbol("Account")
 /** A contract over a uuid, and one over a bigint: a column's brand and check are its contract's. */
 const Account = contract<typeof accountKey>()("Account", uuid)
 const centsKey = Symbol("Cents")
-const Cents = contract<typeof centsKey>()("Cents", pg.bigint)
+const Cents = contract<typeof centsKey>()("Cents", int8)
 
 /**
  * A typed sum over the roster, qti-pie's value cell's shape (its ledger's QtiValue, which metis's essay flow reads): a
@@ -67,9 +75,9 @@ const Cell = variant(
 	"Cell",
 	Tier,
 	{
-		Low: { value: pg.boolean },
+		Low: { value: bool },
 		Mid: { greatest: str.regex("^[a-z]+$"), least: str.regex("^[a-z]+$") },
-		High: { x: pg.integer, y: pg.integer }
+		High: { x: int4, y: int4 }
 	},
 	{ Mid: (a) => a.le(a.least, a.greatest) }
 )
@@ -84,17 +92,17 @@ const Cell = variant(
 export const Item = relation.generated(
 	"Item",
 	{
-		id: pg.integer,
-		small: pg.smallint,
-		int: pg.integer,
-		big: pg.bigint,
-		dec: pg.numeric(10, 2),
-		whole: pg.numeric(12, 0),
-		num: pg.numeric,
-		real: pg.real,
-		dbl: pg["double precision"],
-		cash: pg.money,
-		flag: pg.boolean,
+		id: int4,
+		small: int2,
+		int: int4,
+		big: int8,
+		dec: numeric(10, 2),
+		whole: numeric(12, 0),
+		num: numeric,
+		real: float4,
+		dbl: float8,
+		cash: money,
+		flag: bool,
 		day: date,
 		account: Account,
 		cents: Cents,
@@ -102,12 +110,12 @@ export const Item = relation.generated(
 		name: str.regex("^[a-z]*$"),
 		tier: closedId(Tier),
 		lowMid: closedId(Tier, { only: ["Low", "Mid"] }),
-		tiers: bits(Tier),
-		during: span(pg.integer),
-		window: span(pg.bigint),
-		days: span(date),
-		vec: pg.vector(3),
-		blob: bytes,
+		tiers: bit(Tier),
+		during: range(int4),
+		window: range(int8),
+		days: range(date),
+		vec: vector(3),
+		blob: bytea,
 		count: natural,
 		cell: Cell,
 		stamped: instant
@@ -121,8 +129,8 @@ export const Rec = schema("Rec", [Tier, Item], [])
 
 /**
  * Item's columns a query's records store: every one, `num`, a numeric of no typmod at numeric's own limits, stored as
- * pg.numeric, `cell`, a variant, stored as the variant's one declaration, `stamped`, the database's instant, stored as
- * a stored instant (instant.stored), and `search`, a generated search document, stored as pg.tsvector, among them.
+ * numeric, `cell`, a variant, stored as the variant's one declaration, `stamped`, the database's instant, stored as
+ * a stored instant (instant.stored), and `search`, a generated search document, stored as tsvector, among them.
  */
 export const itemColumns = [
 	"id",
@@ -157,13 +165,13 @@ export const itemColumns = [
 
 export type ItemColumn = (typeof itemColumns)[number]
 
-/** A head literal of every JavaScript type a head holds: a string, a number, a bigint, a boolean, a Decimal, a Money. */
+/** A head literal of every JavaScript type a head holds: a string, a number, a bigint, a boolean, a Numeric, a Money. */
 export const literals: Arr.NonEmptyReadonlyArray<HeadValue> = [
 	"found",
 	7,
 	7n,
 	true,
-	succeeded(Decimal.fromString("1.25"), "a Decimal literal"),
+	succeeded(Numeric.fromString("1.25"), "a Numeric literal"),
 	Money.of(350n)
 ]
 
@@ -213,7 +221,7 @@ export const heldExactly = (pair: readonly [HeadValue, HeadValue]): boolean =>
  */
 export const holdsExactly = (desc: FieldDesc, pair: readonly [HeadValue, HeadValue]): boolean => {
 	if (desc.kind === "pg") {
-		return desc.type === "boolean" && typeof pair[0] === "boolean"
+		return desc.type === "bool" && typeof pair[0] === "boolean"
 	}
 	if (desc.kind !== "text" || typeof pair[0] !== "string" || typeof pair[1] !== "string") {
 		return false
@@ -280,7 +288,7 @@ export const sumKey = "total"
 /**
  * The bound `dec + dec` is proved within, its column's type: numeric(10, 2)'s two values of 8 integer and 2 fraction
  * digits each, so a sum of 9 integer digits at scale 2 (ir/scalar.ts NumericBound), the descriptor the records of a sum
- * cell store `total` as (pg.numeric.within(9, 2)).
+ * cell store `total` as (numeric.within(9, 2)).
  */
 export const sumBound = { digits: 9, scale: 2 } as const
 

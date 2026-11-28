@@ -1,7 +1,7 @@
 /** What exact-casts.test.ts reads: each shape of a cast into an exact integer, as a relation's generated field. */
 
 import { Logic, Num, Text, Type } from "#compiler/public/compute.ts"
-import { exactInteger, generated, pg } from "#compiler/public/fields.ts"
+import { exactInteger, generated, numeric } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { lexicalForm, str } from "#compiler/public/text.ts"
 import { numericMaxIntegerDigits } from "#compiler/scalar/values/fault.ts"
@@ -13,7 +13,7 @@ import { Id } from "#test/support/ids.ts"
  */
 const integerText = Text.pattern("^[+-]?[0-9]+$")
 
-/** qti-pie's greatest integer magnitude, 10^825 - 1 (walks.ts integerBound), Num.within's bound in its parseDecimal form. */
+/** qti-pie's greatest integer magnitude, 10^825 - 1 (walks.ts integerBound), Num.within's bound in its parseNumeric form. */
 const integerBound = 10n ** 825n - 1n
 
 /** Any text of at most 40 bytes, a stored text's (an attribute's value), and any text of no byte bound. */
@@ -65,10 +65,10 @@ export const shapes = {
 		verdict: { kind: "refused", precondition: "lexical" }
 	},
 	/**
-	 * qti-pie's form at 7ea6419c (walks.ts, a cell's integer): the guarded text read by Text.parseDecimal, bounded by
+	 * qti-pie's form at 7ea6419c (walks.ts, a cell's integer): the guarded text read by Text.parseNumeric, bounded by
 	 * Num.within, cast into the exact integer, whose value's fraction digits nothing bounds.
 	 */
-	"the consumer's parseDecimal form": {
+	"the consumer's parseNumeric form": {
 		relation: relation.generated("R", { id: Id, t: Bounded }, ["id"], (r) => ({
 			v: generated(
 				exactInteger,
@@ -76,7 +76,7 @@ export const shapes = {
 					Text.matches(r.t, integerText),
 					(d) =>
 						Logic.when(
-							Num.within(Text.parseDecimal(d), -integerBound, integerBound),
+							Num.within(Text.parseNumeric(d), -integerBound, integerBound),
 							(i) => Type.cast(i, exactInteger),
 							0n
 						),
@@ -88,7 +88,7 @@ export const shapes = {
 	},
 	/** A numeric of scale 0 widened into the exact integer: finite, of no fraction digits, within its digits. */
 	"numeric(30, 0) widened": {
-		relation: relation.generated("R", { id: Id, n: pg.numeric(30, 0) }, ["id"], (r) => ({
+		relation: relation.generated("R", { id: Id, n: numeric(30, 0) }, ["id"], (r) => ({
 			v: generated(exactInteger, Type.cast(r.n, exactInteger))
 		})),
 		verdict: { kind: "admitted" }
@@ -103,7 +103,7 @@ export const shapeNames = [
 	"a guarded parse of a bounded text in one step",
 	"a guarded parse of an unbounded text within the form's bytes",
 	"a guarded parse of an unbounded text",
-	"the consumer's parseDecimal form",
+	"the consumer's parseNumeric form",
 	"numeric(30, 0) widened"
 ] as const satisfies ReadonlyArray<Shape>
 

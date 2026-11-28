@@ -192,7 +192,7 @@ const refinementOf = (a: DeclaredSketch): DeclaredSketch | undefined => {
 
 /**
  * The contained side's type: its twin; another typmod or refinement of it; its roster's handles under a roster of its
- * own; a contract over it, or its base where it is a contract, natural's pg.bigint among them; or a type drawn apart.
+ * own; a contract over it, or its base where it is a contract, natural's int8 among them; or a type drawn apart.
  */
 export const pairedGen = (a: DeclaredSketch): Gen<readonly [Pairing, DeclaredSketch]> =>
 	weighted([

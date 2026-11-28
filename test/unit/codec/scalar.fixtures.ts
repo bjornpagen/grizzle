@@ -22,7 +22,7 @@ import type { CodecFault } from "#compiler/core/errors.ts"
 import { int4Min, int8Max, int8Min } from "#compiler/ir/carriers.ts"
 import { type CalendarDate, toCalendarDate } from "#compiler/ir/date.ts"
 import type { Carrier, ScalarType } from "#compiler/ir/scalar.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 import type { CarrierHost } from "#compiler/scalar/values/identity.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
@@ -41,7 +41,7 @@ interface Written {
 const digitsOf = (n: bigint): string => n.toString()
 
 /** A decimal's numeric_out text from its sign, magnitude and display scale. */
-const decimalText = (negative: boolean, magnitude: bigint, scale: number): string => {
+const numericText = (negative: boolean, magnitude: bigint, scale: number): string => {
 	const digits = pipe(magnitude.toString(), Str.padStart(scale + 1, "0"))
 	const whole = scale === 0 ? digits : Str.slice(0, -scale)(digits)
 	const text = scale === 0 ? whole : `${whole}.${Str.slice(-scale)(digits)}`
@@ -56,8 +56,8 @@ const writtenDecimal = (precisionDigits: number, scaleMax: number): Gen<Written>
 			magnitude: source.draw(bigint(0n, 10n ** BigInt(precisionDigits) - 1n))
 		}),
 		({ negative, scale, magnitude }) => {
-			const text = decimalText(negative, magnitude, scale)
-			return { value: Decimal.of(text), text }
+			const text = numericText(negative, magnitude, scale)
+			return { value: Numeric.of(text), text }
 		}
 	)
 
@@ -172,9 +172,9 @@ export const carried = {
 			[
 				1,
 				element<Written>([
-					{ value: Decimal.nan, text: "NaN" },
-					{ value: Decimal.infinity, text: "Infinity" },
-					{ value: Decimal.negativeInfinity, text: "-Infinity" }
+					{ value: Numeric.nan, text: "NaN" },
+					{ value: Numeric.infinity, text: "Infinity" },
+					{ value: Numeric.negativeInfinity, text: "-Infinity" }
 				])
 			]
 		]),
@@ -191,7 +191,7 @@ export const carried = {
 		type: codecTypes.numeric72,
 		live: map(writtenDecimal(5, 0), ({ text: digits }) => {
 			const text = `${digits}.00`
-			return { value: Decimal.of(text), text }
+			return { value: Numeric.of(text), text }
 		}),
 		refusedValues: [],
 		refusedTexts: [
@@ -204,7 +204,7 @@ export const carried = {
 		type: codecTypes.numericNeg,
 		live: map(int(-99999, 99999), (n) => {
 			const text = digitsOf(BigInt(n) * 100n)
-			return { value: Decimal.of(text), text }
+			return { value: Numeric.of(text), text }
 		}),
 		refusedValues: [],
 		refusedTexts: [["12345", "numericShape"]]
@@ -213,7 +213,7 @@ export const carried = {
 		type: codecTypes.money,
 		live: map(bigint(int8Min, int8Max), (minor) => ({
 			value: Money.of(minor),
-			text: decimalText(minor < 0n, minor < 0n ? -minor : minor, 2)
+			text: numericText(minor < 0n, minor < 0n ? -minor : minor, 2)
 		})),
 		refusedValues: [[-1205n, "moneyType"]],
 		refusedTexts: [

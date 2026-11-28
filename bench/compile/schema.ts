@@ -6,7 +6,7 @@
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { nonEmpty } from "@bjornpagen/testing/assert"
 import { Array as Arr, Record as Rec } from "effect"
-import { closedId, pg } from "#compiler/public/fields.ts"
+import { closedId, int4 } from "#compiler/public/fields.ts"
 import {
 	type AnySchema,
 	check,
@@ -68,7 +68,7 @@ const closedOf = (rosters: Arr.NonEmptyReadonlyArray<GeneratedRoster>, k: number
 	}))
 	return closedRelation(
 		`Pairs${k}`,
-		{ a: closedId(a), b: closedId(b), w: pg.integer },
+		{ a: closedId(a), b: closedId(b), w: int4 },
 		["a", "b"],
 		facts,
 		[]
@@ -91,7 +91,7 @@ export const ordinaryOf = (
 			parent: around(domains, i + 1),
 			kind: closedId(around(rosters, i).roster),
 			mode: closedId(around(rosters, i + 1).roster),
-			weight: pg.integer
+			weight: int4
 		},
 		["id"],
 		[]

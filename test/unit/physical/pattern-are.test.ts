@@ -30,7 +30,7 @@ import { literalKey } from "#compiler/laws/model/names.ts"
 import { installOptions } from "#compiler/physical/install/compile.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
 import { Text } from "#compiler/public/compute.ts"
-import { closedId, pg } from "#compiler/public/fields.ts"
+import { closedId, int4 } from "#compiler/public/fields.ts"
 import { check, closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { matchAre } from "#compiler/scalar/regex/admit.ts"
@@ -64,7 +64,7 @@ const schemaOf = (patterns: Arr.NonEmptyReadonlyArray<string>) => {
 	)
 	const Value = relation(
 		"Value",
-		{ id: pg.integer, domain: closedId(Domain), lexical: str.regex("^.*$", "su") },
+		{ id: int4, domain: closedId(Domain), lexical: str.regex("^.*$", "su") },
 		["id"]
 	)
 	const lexical = check("Lexical", Value, (v) =>
@@ -227,7 +227,7 @@ const misplaced: Arr.NonEmptyReadonlyArray<Misplaced> = [
 const misplacedSchema = (kind: Misplaced) => {
 	const Domain = closed.ordered("Domain", ["D0"])
 	if (kind === "a stored relation's str.pattern") {
-		const Stored = relation("Stored", { id: pg.integer, pattern: str.pattern }, ["id"])
+		const Stored = relation("Stored", { id: int4, pattern: str.pattern }, ["id"])
 		return schema("Misplaced", [Domain, Stored], [])
 	}
 	const text = kind === "a text payload as a pattern" || kind === "a text payload no pattern reads"
@@ -239,7 +239,7 @@ const misplacedSchema = (kind: Misplaced) => {
 	)
 	const Value = relation(
 		"Value",
-		{ id: pg.integer, domain: closedId(Domain), lexical: str.regex("^.*$", "su") },
+		{ id: int4, domain: closedId(Domain), lexical: str.regex("^.*$", "su") },
 		["id"]
 	)
 	const lexical =

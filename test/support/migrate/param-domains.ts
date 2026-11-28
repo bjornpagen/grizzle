@@ -7,7 +7,7 @@
  * Tagged, whose `slug` holds Slug. The first stores Coded alone, so its installation holds Code's structural text
  * domain for a stored field, and Slug's for the parameter alone.
  */
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -18,7 +18,7 @@ const Code = str.regex("^[A-Z]{2,6}$")
 /** A pattern no stored field of the first version holds. */
 const Slug = str.regex("^[a-z][a-z0-9-]*$")
 
-const Item = relation("Item", { id: Id, n: pg.integer }, ["id"])
+const Item = relation("Item", { id: Id, n: int4 }, ["id"])
 const Coded = relation("Coded", { id: Id, code: Code }, ["id"])
 const Tagged = relation("Tagged", { id: Id, slug: Slug }, ["id"])
 

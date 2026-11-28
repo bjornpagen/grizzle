@@ -1,7 +1,7 @@
 /**
  * A containment into a side selected by `field = literal`, through grizzle's lowering on PostgreSQL 19, where the
  * literal is bare, typed at the field's own type, or typed at another: `select(B, (b) => b.eq(b.x,
- * Type.literal(pg.numeric(10, 2), "1.25")))` over a numeric(5, 1) field x compares at numeric(10, 2), as a query
+ * Type.literal(numeric(10, 2), "1.25")))` over a numeric(5, 1) field x compares at numeric(10, 2), as a query
  * compares it, so no x equals it. A bare literal takes the field's type as written, 1.3 a value of numeric(5, 1), and
  * one of more digits than the type holds is refused at compile, never rounded (test/unit/analysis/literal-opposite);
  * a typed one fixes the field only where the field's type holds its value exactly (analysis/theory/laws.ts

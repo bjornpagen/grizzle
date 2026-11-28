@@ -2,7 +2,7 @@
 
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Logic, Num, Type } from "#compiler/public/compute.ts"
-import { contract, drawn, natural, pg } from "#compiler/public/fields.ts"
+import { contract, drawn, natural, int4, int8 } from "#compiler/public/fields.ts"
 import { param } from "#compiler/public/query.ts"
 import { fin, on, ordered, relation, schema } from "#compiler/public/schema.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
@@ -11,13 +11,13 @@ import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 const spanKey = Symbol("Span")
 /** A span a call adds to its clock's reading, bounded by its predicate, so a millis reading plus it fits a bigint with no
  * guard (core/clock.ts clockReadingRange). */
-const Span = contract<typeof spanKey>()("Span", pg.bigint, (d) =>
+const Span = contract<typeof spanKey>()("Span", int8, (d) =>
 	Logic.and([Logic.ge(d, 0n), Logic.le(d, 10n ** 12n)])
 )
 
 /** The call's reading of the database's clock plus the parameter `by`, cast into bigint with no guard, as den's lease. */
 const after = <const By extends string>(by: By) =>
-	Type.cast(Num.add(Type.base(param("now", pg.bigint)), Type.base(param(by, Span))), pg.bigint)
+	Type.cast(Num.add(Type.base(param("now", int8)), Type.base(param(by, Span))), int8)
 
 /** How deep the insert's rows nest: no family, one sequence of members, or members nesting members of their own. */
 type Depth = 0 | 1 | 2
@@ -55,19 +55,16 @@ export const computingFeatures = (c: Computing): ReadonlyArray<ComputingFeature>
  */
 export const computingOf = (c: Computing) => {
 	const Spans = relation("Spans", { span: Span }, ["span"])
-	const key = { q: pg.integer, due: pg.bigint }
+	const key = { q: int4, due: int8 }
 	const S = ((): AnySchema => {
 		switch (c.depth) {
 			case 0: {
-				const Owner = relation("Owner", { ...key, until: pg.bigint }, ["q", "due"])
+				const Owner = relation("Owner", { ...key, until: int8 }, ["q", "due"])
 				return schema("Computing", [Spans, Owner], [])
 			}
 			case 1: {
-				const Owner = relation("Owner", { ...key, until: pg.bigint, ms: drawn(natural) }, [
-					"q",
-					"due"
-				])
-				const M1 = relation("M1", { ...key, at: drawn(natural), v: pg.integer }, ["q", "due", "at"])
+				const Owner = relation("Owner", { ...key, until: int8, ms: drawn(natural) }, ["q", "due"])
+				const M1 = relation("M1", { ...key, at: drawn(natural), v: int4 }, ["q", "due", "at"])
 				return schema(
 					"Computing",
 					[Spans, Owner, M1],
@@ -75,16 +72,13 @@ export const computingOf = (c: Computing) => {
 				)
 			}
 			case 2: {
-				const Owner = relation("Owner", { ...key, until: pg.bigint, ms: drawn(natural) }, [
+				const Owner = relation("Owner", { ...key, until: int8, ms: drawn(natural) }, ["q", "due"])
+				const M1 = relation("M1", { ...key, at: drawn(natural), v: int4, ns: drawn(natural) }, [
 					"q",
-					"due"
+					"due",
+					"at"
 				])
-				const M1 = relation(
-					"M1",
-					{ ...key, at: drawn(natural), v: pg.integer, ns: drawn(natural) },
-					["q", "due", "at"]
-				)
-				const M2 = relation("M2", { ...key, at: natural, bt: drawn(natural), w: pg.integer }, [
+				const M2 = relation("M2", { ...key, at: natural, bt: drawn(natural), w: int4 }, [
 					"q",
 					"due",
 					"at",

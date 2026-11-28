@@ -12,7 +12,7 @@ import { defined } from "@bjornpagen/testing/assert"
 import { Effect, Layer } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { rowsOf } from "#test/support/calls.ts"
@@ -26,7 +26,7 @@ interface ExitCase {
 	readonly read: boolean
 }
 
-const Note = relation("Note", { id: pg.integer }, ["id"])
+const Note = relation("Note", { id: int4 }, ["id"])
 const Notes = schema("Notes", [Note], [])
 
 const notes = query(Notes).rule((r) => {

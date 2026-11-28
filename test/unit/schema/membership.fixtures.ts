@@ -11,7 +11,7 @@ import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
 import { lawsOf } from "#compiler/program/laws.ts"
 import { Logic } from "#compiler/public/compute.ts"
-import { closedId, pg } from "#compiler/public/fields.ts"
+import { closedId, int4 } from "#compiler/public/fields.ts"
 import { check, closed, key, on, relation, schema, select } from "#compiler/public/schema.ts"
 import { fullRoleDesc, installationsOf, ownLogin, rostersOf } from "#compiler/schema/own.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -19,7 +19,7 @@ import { installationSql } from "#test/support/compile.ts"
 import { ownValue } from "#test/unit/schema/own.fixtures.ts"
 
 const Kind = closed.ordered("Kind", ["a", "b", "c"])
-const Item = relation("Item", { id: pg.integer, kind: closedId(Kind), n: pg.integer }, ["id"])
+const Item = relation("Item", { id: int4, kind: closedId(Kind), n: int4 }, ["id"])
 
 /** The surfaces a membership is written at: a row check's own helper, Logic's, and a side's selection's helper. */
 const surfaces = ["row helper", "Logic", "selection"] as const

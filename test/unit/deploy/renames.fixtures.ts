@@ -27,7 +27,7 @@ import type { CodeSlot } from "#compiler/ir/cells.ts"
 import { draftCodebook, reorderRefusal, type RosterRenames } from "#compiler/ir/codes.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
-import { closedId, pg } from "#compiler/public/fields.ts"
+import { closedId, int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	closed as closedValue,
@@ -890,7 +890,7 @@ const canonicalDesc = (name: string | undefined) => {
 	const Place = closedValue.ordered("Place", ["first", "second"])
 	const Rank = closedValue.relation(
 		"Rank",
-		{ at: closedId(Place), rank: pg.integer },
+		{ at: closedId(Place), rank: int4 },
 		["at"],
 		[
 			{ at: "first", rank: 10 },

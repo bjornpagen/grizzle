@@ -9,7 +9,7 @@
  *
  * The box: the parse in one step of a bounded text under qti-pie's integer guard; the parse of a text of no byte bound
  * under the form's guard and an octetLength bound; the same under the integer guard alone, its bytes unproved; qti-pie's
- * parseDecimal form, a guarded text read by Text.parseDecimal, bounded by Num.within and cast, whose fraction digits
+ * parseNumeric form, a guarded text read by Text.parseNumeric, bounded by Num.within and cast, whose fraction digits
  * nothing bounds; and numeric(30, 0) widened; each a relation's generated field, checked as a schema compiles.
  *
  * Oracle: the specification: each shape admitted, or refused as the PartialOperation of the precondition it leaves
@@ -65,7 +65,7 @@ export const aCastIntoAnExactIntegerIsAdmittedExactlyWhereItsPreconditionsArePro
 				kind: "specification",
 				name: "the cast's preconditions: a parse's lexical form within its bytes, a numeric finite, of no fraction digits and within the exact integer's digits"
 			},
-			box: "the parse in one step of a bounded text under the integer guard, of an unbounded text under the form's guard and an octetLength bound and under the integer guard alone, the consumer's parseDecimal form, and numeric(30, 0) widened",
+			box: "the parse in one step of a bounded text under the integer guard, of an unbounded text under the form's guard and an octetLength bound and under the integer guard alone, the consumer's parseNumeric form, and numeric(30, 0) widened",
 			kept: [],
 			kills: [
 				{
@@ -73,7 +73,7 @@ export const aCastIntoAnExactIntegerIsAdmittedExactlyWhereItsPreconditionsArePro
 					original:
 						"const integralNarrowing: Totality = requires([finite(0), integral(0), fits])\n",
 					replacement: "const integralNarrowing: Totality = requires([finite(0), fits])\n",
-					why: "A numeric into an exact integer needs no integrality, as numeric into an integer rounds: the consumer's parseDecimal form is admitted, its fractions cast into an exact integer no cast rounds into; the property fails."
+					why: "A numeric into an exact integer needs no integrality, as numeric into an integer rounds: the consumer's parseNumeric form is admitted, its fractions cast into an exact integer no cast rounds into; the property fails."
 				},
 				{
 					file: "packages/engine/src/scalar/compute/registry.ts",

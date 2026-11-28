@@ -9,7 +9,7 @@ import type { LawId } from "#compiler/core/ids.ts"
 import { lawsOfConstraint } from "#compiler/ir/products.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { bool, int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { check, contained, derived, key, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -42,7 +42,7 @@ const Short = str.bytes(64, str.regex("^.*$", "su"))
 
 const Attribute = relation(
 	"Attribute",
-	{ package: Short, path: Short, start: pg.integer, lexical: Short, listed: pg.boolean },
+	{ package: Short, path: Short, start: int4, lexical: Short, listed: bool },
 	["package", "path", "start"]
 )
 const Target = relation("Target", { package: Short, path: Short, id: Short }, [

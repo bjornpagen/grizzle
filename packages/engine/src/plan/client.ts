@@ -47,6 +47,6 @@ export type {
 } from "#compiler/live/program.ts"
 export type { MemberWire, RoleWitness, WireOptions } from "#compiler/live/shape.ts"
 export { trustedMember, type WireJson, type WireScalar } from "#compiler/live/wire.ts"
-export { Decimal } from "#compiler/scalar/values/decimal.ts"
+export { Numeric } from "#compiler/scalar/values/decimal.ts"
 export { Money } from "#compiler/scalar/values/money.ts"
 export { Vector } from "#compiler/scalar/values/vector.ts"

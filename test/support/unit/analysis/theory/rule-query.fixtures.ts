@@ -12,7 +12,7 @@ import { compileInstallation } from "#compiler/program/install.ts"
 import type { SchemaArtifacts } from "#compiler/program/schema.ts"
 import { type Law, sameLaw } from "#compiler/public/changeset.ts"
 import { Text } from "#compiler/public/compute.ts"
-import { Decimal, pg } from "#compiler/public/fields.ts"
+import { Numeric, int4, numeric } from "#compiler/public/fields.ts"
 import { query, type Rule, v } from "#compiler/public/query.ts"
 import {
 	check,
@@ -96,11 +96,11 @@ export const ruleCase: Gen<RuleCase> = (s) => ({
 	rule: s.draw(element(["into", "out of", "check", "check named as Item's"] as const))
 })
 
-const Item = relation("Item", { id: pg.integer, kind: pg.integer }, ["id"])
+const Item = relation("Item", { id: int4, kind: int4 }, ["id"])
 
-const Mark = relation("Mark", { id: pg.integer, item: pg.integer, on: pg.integer }, ["id"])
+const Mark = relation("Mark", { id: int4, item: int4, on: int4 }, ["id"])
 
-const Claim = relation("Claim", { item: pg.integer }, ["item"])
+const Claim = relation("Claim", { item: int4 }, ["item"])
 
 const Base = schema(
 	"RuleQuery",
@@ -188,18 +188,18 @@ export const textCase: Gen<TextCase> = (s) => ({
 	rule: s.draw(element(["into", "out of"] as const))
 })
 
-const Doc = relation("Doc", { id: pg.integer, path: paths.same }, ["id"])
+const Doc = relation("Doc", { id: int4, path: paths.same }, ["id"])
 
 const refs = {
-	same: relation("RefSame", { id: pg.integer, path: paths.same }, ["id"]),
-	narrower: relation("RefNarrower", { id: pg.integer, path: paths.narrower }, ["id"]),
-	wider: relation("RefWider", { id: pg.integer, path: paths.wider }, ["id"])
+	same: relation("RefSame", { id: int4, path: paths.same }, ["id"]),
+	narrower: relation("RefNarrower", { id: int4, path: paths.narrower }, ["id"]),
+	wider: relation("RefWider", { id: int4, path: paths.wider }, ["id"])
 } as const
 
 const notes = {
-	same: relation("NoteSame", { id: pg.integer, path: paths.same }, ["id"]),
-	narrower: relation("NoteNarrower", { id: pg.integer, path: paths.narrower }, ["id"]),
-	wider: relation("NoteWider", { id: pg.integer, path: paths.wider }, ["id"])
+	same: relation("NoteSame", { id: int4, path: paths.same }, ["id"]),
+	narrower: relation("NoteNarrower", { id: int4, path: paths.narrower }, ["id"]),
+	wider: relation("NoteWider", { id: int4, path: paths.wider }, ["id"])
 } as const
 
 const Docs = schema(
@@ -281,7 +281,7 @@ type TagRead = Bound | "own"
 const tagReads = [...bounds, "own"] as const
 
 /**
- * The Decimal a derived relation's head delivers, whose column is a computed numeric: a finite one, NaN, an infinity,
+ * The Numeric a derived relation's head delivers, whose column is a computed numeric: a finite one, NaN, an infinity,
  * or one past every numeric(p, s), of one integer digit more than its greatest precision or of one fraction digit more
  * than its greatest scale.
  */
@@ -296,16 +296,16 @@ const decimalLiterals = [
 	"past scale"
 ] as const
 
-export const decimalOf: { readonly [D in DecimalLiteral]: Decimal } = {
-	finite: Decimal.fromOutput("1.5"),
-	NaN: Decimal.fromOutput("NaN"),
-	Infinity: Decimal.fromOutput("Infinity"),
-	"-Infinity": Decimal.fromOutput("-Infinity"),
-	"past precision": Decimal.fromOutput(`1${Str.repeat(numericMaxPrecision)("0")}`),
-	"past scale": Decimal.fromOutput(`0.${Str.repeat(numericMaxScale)("0")}1`)
+export const decimalOf: { readonly [D in DecimalLiteral]: Numeric } = {
+	finite: Numeric.fromOutput("1.5"),
+	NaN: Numeric.fromOutput("NaN"),
+	Infinity: Numeric.fromOutput("Infinity"),
+	"-Infinity": Numeric.fromOutput("-Infinity"),
+	"past precision": Numeric.fromOutput(`1${Str.repeat(numericMaxPrecision)("0")}`),
+	"past scale": Numeric.fromOutput(`0.${Str.repeat(numericMaxScale)("0")}1`)
 }
 
-/** The literal a derived relation's head delivers: a text, or a Decimal (DecimalLiteral). */
+/** The literal a derived relation's head delivers: a text, or a Numeric (DecimalLiteral). */
 type Literal = "text" | DecimalLiteral
 
 const tagLiterals = ["text", ...decimalLiterals] as const
@@ -334,7 +334,7 @@ export const tagCase: Gen<TagCase> = (s) => ({
 
 const tags = str.bytes(20, str.regex("^[a-z]+$"))
 
-const Tag = relation("Tag", { item: pg.integer, tag: tags }, ["item"])
+const Tag = relation("Tag", { item: int4, tag: tags }, ["item"])
 
 const Tags = schema("RuleQueryTags", [Item, Tag], [])
 
@@ -432,11 +432,11 @@ export const tagSchemaOf = (c: TagCase) => {
 	return schema.extend([Middle], "RuleQueryTagsTop", [Read, ReadOnce], rules)
 }
 
-const Amount = relation("Amount", { item: pg.integer, amount: pg.numeric(4, 2) }, ["item"])
+const Amount = relation("Amount", { item: int4, amount: numeric(4, 2) }, ["item"])
 
 const Amounts = schema("RuleQueryAmounts", [Item, Amount], [])
 
-const three = Decimal.fromOutput("3")
+const three = Numeric.fromOutput("3")
 
 /**
  * The case's schema, its head literals Decimals: Item's facts priced at `price` in both arms, or at `price` and 2.25,
@@ -445,7 +445,7 @@ const three = Decimal.fromOutput("3")
  * alone: ReadOnce's one arm, reading Amount's amount by a variable, fixes it to the head literal, a computed numeric,
  * which no selection states, so the rule keeps its triggers (laws.ts selectable).
  */
-export const amountSchemaOf = (c: TagCase, price: Decimal) => {
+export const amountSchemaOf = (c: TagCase, price: Numeric) => {
 	const Priced = derived(
 		"Priced",
 		query(Amounts)
@@ -457,7 +457,7 @@ export const amountSchemaOf = (c: TagCase, price: Decimal) => {
 				const { id } = v(Item, "item")
 				return r
 					.match(Item, { id })
-					.find({ id, amount: c.tagging === "same" ? price : Decimal.fromOutput("2.25") })
+					.find({ id, amount: c.tagging === "same" ? price : Numeric.fromOutput("2.25") })
 			})
 	)
 	const Once = derived(
@@ -577,7 +577,7 @@ export const negationCase: Gen<NegationCase> = (s) => ({
 	rule: s.draw(element(["into", "out of", "check", "key"] as const))
 })
 
-const Note = relation("Note", { item: pg.integer, on: pg.integer }, ["item", "on"])
+const Note = relation("Note", { item: int4, on: int4 }, ["item", "on"])
 
 const Notes = schema("RuleQueryNegated", [Item, Mark, Claim, Note], [])
 
@@ -704,11 +704,9 @@ export const computedCase: Gen<ComputedCase> = (s) => ({
 
 export type ComputedReached = ComputedCase["rules"] | ComputedCase["rule"]
 
-const Titles = relation(
-	"Titles",
-	{ id: pg.integer, title: str.bytes(200, str.regex("^.*$", "su")) },
-	["id"]
-)
+const Titles = relation("Titles", { id: int4, title: str.bytes(200, str.regex("^.*$", "su")) }, [
+	"id"
+])
 
 const Names = relation("Names", { name: str.bytes(60, str.regex("^[a-z]+$")) }, ["name"])
 

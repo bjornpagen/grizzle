@@ -7,7 +7,7 @@ import { Array as Arr, Effect, Exit, Option, Scope } from "effect"
 import { uninstall } from "#adapter/migrate/uninstall.ts"
 import { roleNameOf } from "#adapter/served/served.ts"
 import { quoteIdent, quoteString } from "#compiler/core/text.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { login, relation, role, schema } from "#compiler/public/schema.ts"
 import { Id } from "#test/support/ids.ts"
 import { noPlaceholders, type Version } from "#test/support/install-migrate.ts"
@@ -19,7 +19,7 @@ import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { Substrate, type SubstrateShape } from "#test/support/substrate/substrate.ts"
 
-const Note = relation("Note", { id: Id, n: pg.integer }, ["id"])
+const Note = relation("Note", { id: Id, n: int4 }, ["id"])
 
 /**
  * The installation under `name`: the login `desk` and its roles, `scribe`, which writes the notes, and `reader`, in the

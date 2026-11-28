@@ -44,7 +44,7 @@ export const drawnTypesBoxItems: Arr.NonEmptyReadonlyArray<DrawnTypesCell> = [
 	...Arr.map(kinds, (count): DrawnTypesCell => ({ family: "counted", count }))
 ]
 
-/** Each kind's type as the program spells it: natural, a contract of the header, or pg.integer. */
+/** Each kind's type as the program spells it: natural, a contract of the header, or int4. */
 const typeText: { readonly [K in DrawnKind]: string } = {
 	natural: "natural",
 	int2: "Small",
@@ -52,7 +52,7 @@ const typeText: { readonly [K in DrawnKind]: string } = {
 	int8: "Big",
 	numeric: "Exact",
 	text: "Named",
-	plain: "pg.integer"
+	plain: "int4"
 }
 
 /** Each kind's drawn field as the program spells it: of its type, a contract's under its key (types/fields MintKey). */
@@ -63,7 +63,7 @@ const drawnText: { readonly [K in DrawnKind]: string } = {
 	int8: "drawn(Big, bigKey)",
 	numeric: "drawn(Exact, exactKey)",
 	text: "drawn(Named, namedKey)",
-	plain: "drawn(pg.integer)"
+	plain: "drawn(int4)"
 }
 
 /** Whether grizzle draws a kind's values: natural, and a contract whose base is an integer. */
@@ -99,8 +99,8 @@ const countedLines = (
 ): ReadonlyArray<string> => [
 	`// a counted family counted by ${c.count}`,
 	...directive(drawable(c.count) ? undefined : drawnTypes),
-	`export const Owner${at} = relation("Owner${at}", { id: pg.integer, n: ${drawnText[c.count]} }, ["id"])`,
-	`export const Member${at} = relation("Member${at}", { id: pg.integer, owner: pg.integer }, ["id"])`,
+	`export const Owner${at} = relation("Owner${at}", { id: int4, n: ${drawnText[c.count]} }, ["id"])`,
+	`export const Member${at} = relation("Member${at}", { id: int4, owner: int4 }, ["id"])`,
 	...(drawable(c.count)
 		? [
 				`export const S${at} = schema("S${at}", [Owner${at}, Member${at}], [`,
@@ -122,12 +122,12 @@ const orderedLines = (
 	return [
 		`// an index of ${c.index} counted by ${c.count}`,
 		...directive(drawable(c.count) ? undefined : drawnTypes),
-		`export const Owner${at} = relation("Owner${at}", { id: pg.integer, n: ${drawnText[c.count]} }, ["id"])`,
+		`export const Owner${at} = relation("Owner${at}", { id: int4, n: ${drawnText[c.count]} }, ["id"])`,
 		...directive(drawable(c.index) ? undefined : drawnTypes),
-		`export const Member${at} = relation("Member${at}", { id: pg.integer, at: ${drawnText[c.index]} }, ["id", "at"])`,
+		`export const Member${at} = relation("Member${at}", { id: int4, at: ${drawnText[c.index]} }, ["id", "at"])`,
 		...(declared
 			? [
-					`export const Holder${at} = relation("Holder${at}", { holder: pg.integer, at: ${index} }, ["holder"])`,
+					`export const Holder${at} = relation("Holder${at}", { holder: int4, at: ${index} }, ["holder"])`,
 					`export const S${at} = schema("S${at}", [Owner${at}, Member${at}, Holder${at}], [`,
 					...directive(c.index === c.count ? undefined : indexOfCount),
 					`\tordered(on(Member${at}, "id", "at"), fin(Owner${at}, "n")),`,
@@ -146,13 +146,13 @@ const orderedLines = (
  */
 const drawnTypesHeader = (): ReadonlyArray<string> => [
 	'export const smallKey = Symbol("Small")',
-	'export const Small = contract<typeof smallKey>()("Small", pg.smallint, (n) => Logic.ge(n, 0))',
+	'export const Small = contract<typeof smallKey>()("Small", int2, (n) => Logic.ge(n, 0))',
 	'export const wholeKey = Symbol("Whole")',
-	'export const Whole = contract<typeof wholeKey>()("Whole", pg.integer, (n) => Logic.and([Logic.ge(n, 0), Logic.le(n, 2147483647)]))',
+	'export const Whole = contract<typeof wholeKey>()("Whole", int4, (n) => Logic.and([Logic.ge(n, 0), Logic.le(n, 2147483647)]))',
 	'export const bigKey = Symbol("Big")',
-	'export const Big = contract<typeof bigKey>()("Big", pg.bigint, (n) => Logic.ge(n, 0n))',
+	'export const Big = contract<typeof bigKey>()("Big", int8, (n) => Logic.ge(n, 0n))',
 	'export const exactKey = Symbol("Exact")',
-	'export const Exact = contract<typeof exactKey>()("Exact", pg.numeric(9, 0), (n) => Logic.ge(n, 0n))',
+	'export const Exact = contract<typeof exactKey>()("Exact", numeric(9, 0), (n) => Logic.ge(n, 0n))',
 	'export const namedKey = Symbol("Named")',
 	'export const Named = contract<typeof namedKey>()("Named", str.regex("^[0-9]+$", "u"), (n) => Logic.ne(n, "0"))',
 	""

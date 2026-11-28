@@ -166,7 +166,7 @@ const isNatural = (t: ScalarType): boolean => {
 
 /**
  * The carriers sum admits: an exact one, whose sums never round and whose combine a CHECK proves in exact arithmetic:
- * the integer types, natural and numeric, numeric(p, s) and pg.numeric alike, never a float. numeric's addition is exact
+ * the integer types, natural and numeric, numeric(p, s) and numeric alike, never a float. numeric's addition is exact
  * at every typmod and at none, its NaN and infinities combining as numeric.c says (scalar/compute/numeric.ts add), and
  * a sum past what its plane holds, numeric(p, s)'s precision or numeric's own limit, is refused with 22003 as an
  * integer's past its width is. Money is none: its exact arithmetic is through its STABLE cast to numeric, which no

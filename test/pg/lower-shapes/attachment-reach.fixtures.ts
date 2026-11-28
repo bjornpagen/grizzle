@@ -7,7 +7,7 @@ import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { type PlanNode, planNodes } from "#bench/harness/explain.ts"
 import type { BenchSession } from "#bench/harness/session.ts"
 import { Num } from "#compiler/public/compute.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, relation, schema } from "#compiler/public/schema.ts"
 import {
@@ -26,7 +26,7 @@ import { readWork } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import type { PgConnection } from "#test/support/pg.ts"
 
-const i = pg.integer
+const i = int4
 
 /**
  * A ledger's sittings and item sessions, as qti-pie's holds them: each sitting of a learner's stage; each item session

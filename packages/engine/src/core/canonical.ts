@@ -1942,8 +1942,8 @@ const encodeWalk = (
  *   a float literal names it by, so every value float8 holds has a text;
  * - a vector, a Float32Array of finite components, carried as "~v:[c1,...,cn]" (vectorTag), each component the text of
  *   the number it is, -0 as 0: the shortest text that reads back as exactly that binary32 value;
- * - any value implementing the Canonicalizable protocol below, carried as "~<tag>:<payload>". Decimal (scalar/values)
- *   uses it, so Decimal travels as a tagged string without the kernel importing it.
+ * - any value implementing the Canonicalizable protocol below, carried as "~<tag>:<payload>". Numeric (scalar/values)
+ *   uses it, so Numeric travels as a tagged string without the kernel importing it.
  *
  * A plain string beginning with "~" is escaped by doubling the "~", so tagged and plain strings never collide and the
  * JSON form decodes back exactly. The text form is the JSON form written with object keys sorted by UTF-16 code
@@ -2194,7 +2194,7 @@ export const compareCanonicalTokens = (
 }
 
 /**
- * Decoders for extension tags, for example `{ d: Decimal.fromCanonical }`. "n" (bigint) and "f" (NaN and the
+ * Decoders for extension tags, for example `{ d: Numeric.fromCanonical }`. "n" (bigint) and "f" (NaN and the
  * infinities) are built in. "v" is the caller's: a host vector's text and the IR's VectorText's are one, so the reader
  * names the form it restores, scalar/values' Vector.fromCanonical a Float32Array.
  */

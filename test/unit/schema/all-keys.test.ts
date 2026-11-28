@@ -26,7 +26,7 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Order } from "effect"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import type { KeyFault } from "#compiler/core/causes.ts"
-import { bytes, natural } from "#compiler/public/fields.ts"
+import { bytea, natural } from "#compiler/public/fields.ts"
 import { keyTextBytes, str } from "#compiler/public/text.ts"
 import { indexMaxKeys } from "#compiler/schema/representability.ts"
 import { refused, refusedKeys, succeeded } from "#test/support/assert.ts"
@@ -158,7 +158,7 @@ const descriptorOf = (kind: FieldKind) => {
 		case "unbounded":
 			return str.regex("^.*$", "su")
 		case "bytes":
-			return bytes
+			return bytea
 	}
 }
 

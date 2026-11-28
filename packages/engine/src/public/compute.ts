@@ -1,6 +1,7 @@
 import { callFields, callRows, callTerm } from "#compiler/query/build/call.ts"
 import { compute as C } from "#compiler/scalar/compute/builders.ts"
 import { guarded } from "#compiler/scalar/compute/term.ts"
+import type { Span } from "#compiler/scalar/values/span.ts"
 import type {
 	CryptoApi,
 	DistanceApi,
@@ -91,12 +92,15 @@ export const Logic: LogicApi = Object.freeze<LogicApi>({
 	greatest: (first, ...rest) => C.greatest(first, rest)
 })
 
-/** Range: a span term's endpoints and its width, each of the span's endpoint descriptor's type. */
+/** Range: a range term's endpoints and its width, each of the range's endpoint descriptor's type. */
 export const Range: RangeApi = Object.freeze<RangeApi>({
 	lower: (s, endpoint) => C.lower(s, endpoint),
 	upper: (s, endpoint) => C.upper(s, endpoint),
 	width: (s, endpoint) => C.width(s, endpoint)
 })
+
+/** A range's host value, its start and its end, as a read delivers one and a write takes it, half-open: [start, end). */
+export type Range<E> = Span<E>
 
 /**
  * Text: text's lengths, concatenation, prefixes, suffixes and containment, patterns in grizzle's grammar and their
@@ -120,8 +124,8 @@ export const Text: TextApi = Object.freeze<TextApi>({
 	cutBefore: (x, chars) => C.cutBefore(x, chars),
 	cutFrom: (x, chars) => C.cutFrom(x, chars),
 	replace: (x, from, to) => C.replace(x, from, to),
-	parseDouble: (x) => C.parseDouble(x),
-	parseDecimal: (x) => C.parseDecimal(x)
+	parseFloat8: (x) => C.parseFloat8(x),
+	parseNumeric: (x) => C.parseNumeric(x)
 })
 
 /** Xml: XML Schema 1.0's pattern dialect, a pattern facet written in it and the test that a text is one. */

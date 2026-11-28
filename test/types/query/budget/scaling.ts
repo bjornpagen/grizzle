@@ -199,7 +199,7 @@ ${Arr.join(
 	Arr.map(
 		indices(shape.relations),
 		(i) =>
-			`export const R${i} = relation("R${i}", { id: Id, parent: Id, amount: pg.bigint, label: Label, kind: closedId(Kind), qty: pg.integer }, ["id"])\n`
+			`export const R${i} = relation("R${i}", { id: Id, parent: Id, amount: int8, label: Label, kind: closedId(Kind), qty: int4 }, ["id"])\n`
 	),
 	""
 )}

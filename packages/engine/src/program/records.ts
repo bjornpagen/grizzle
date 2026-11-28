@@ -10,9 +10,9 @@
  *   Column), so a contract column is the schema's own declaration of the contract, brand and check, a variant column the
  *   schema's own declaration of the variant, its arms' checks with it, a closed id a closed
  *   id of its roster, resolved by name in the level that lists the records, a refined text the text of its patterns, a
- *   computed numeric numeric within its bound (pg.numeric.within), numeric of no typmod at numeric's own limits
- *   pg.numeric, an instant a stored instant (instant.stored), which the database draws nothing of, and a search
- *   document a stored one (pg.tsvector). A head literal is stored nowhere: the read writes it again; head literals of
+ *   computed numeric numeric within its bound (numeric.within), numeric of no typmod at numeric's own limits
+ *   numeric, an instant a stored instant (instant.stored), which the database draws nothing of, and a search
+ *   document a stored one (tsvector). A head literal is stored nowhere: the read writes it again; head literals of
  *   several values at one key, a union's, are a column whose values are exactly them (literalsField). A union of several
  *   headings or a column of a contract or a variant the schema does not declare is refused, each naming what it lacks.
  * - Each attachment's relation (types/schema/records.ts types each): the name its author states for the attachment's

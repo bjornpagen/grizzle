@@ -121,7 +121,7 @@ import {
 	withinGuards
 } from "#compiler/scalar/compute/typing.ts"
 import { castSpelling } from "#compiler/scalar/contract.ts"
-import { binary64MaxExponent, decimalTextMaxBytes } from "#compiler/scalar/lexical.ts"
+import { binary64MaxExponent, numericTextMaxBytes } from "#compiler/scalar/lexical.ts"
 import {
 	formOctets,
 	formSource,
@@ -362,10 +362,10 @@ const refinementOf = (target: ScalarType): RegexRef | undefined =>
  * The pattern a parse's guard matches its text against: the target's lexical form, every double's decimal text, or
  * every decimal text.
  */
-const parseRemedy: { readonly [F in ParseForm]: "lexicalForm" | "doubleText" | "decimalText" } = {
+const parseRemedy: { readonly [F in ParseForm]: "lexicalForm" | "float8Text" | "numericText" } = {
 	target: "lexicalForm",
-	doubleText: "doubleText",
-	decimalText: "decimalText"
+	float8Text: "float8Text",
+	numericText: "numericText"
 }
 
 /**
@@ -554,17 +554,17 @@ const guardOf = (
 						remedy,
 						text: `a text whose type proves the target's lexical form, str.regex(lexicalForm(<target>).source) or a refinement of it, or ${when(`Text.matches(${operand}, lexicalForm(<target>))`)}`
 					}
-				case "doubleText":
+				case "float8Text":
 					return {
 						remedy,
-						text: `a text whose type proves a double's decimal text, str.regex(doubleText.source) or a refinement of it, or ${when(`Text.matches(${operand}, doubleText)`)}`
+						text: `a text whose type proves a double's decimal text, str.regex(float8Text.source) or a refinement of it, or ${when(`Text.matches(${operand}, float8Text)`)}`
 					}
-				case "decimalText": {
-					const bytes = decimalTextMaxBytes
+				case "numericText": {
+					const bytes = numericTextMaxBytes
 					const within = `Logic.when(Num.within(Text.octetLength(${operand}), 0, ${bytes}), () => ${operation}, <your value>)`
 					return {
 						remedy,
-						text: `a text whose type proves a decimal text of at most ${bytes} bytes, str.bytes(${bytes}, str.regex(decimalText.source)) or a refinement of it, or, where octetLength stands, Logic.when(Text.matches(${operand}, decimalText), (${operand}) => ${within}, <your value>)`
+						text: `a text whose type proves a decimal text of at most ${bytes} bytes, str.bytes(${bytes}, str.regex(numericText.source)) or a refinement of it, or, where octetLength stands, Logic.when(Text.matches(${operand}, numericText), (${operand}) => ${within}, <your value>)`
 					}
 				}
 			}
@@ -1382,7 +1382,7 @@ const lowered = <R extends Refs>(
  * bounded by its operands'); float arithmetic is IEEE 754; numeric arithmetic stays inside numeric's
  * numericMaxIntegerDigits by its operands' digit bounds (a numeric field's by its typmod, a computed numeric's by the
  * bound its type carries), past which an expression is ResourceBound, but over an operand bounded by nothing but that
- * limit, pg.numeric's, which PostgreSQL enforces with 22003 (scalar/values/fault.ts resultDigits); and a partial
+ * limit, numeric's, which PostgreSQL enforces with 22003 (scalar/values/fault.ts resultDigits); and a partial
  * operation (a divisor, a root, a
  * narrowing cast, a domain cast, power, width_bucket, min_scale) stands only with the proof of its precondition
  * (ir/proof.ts PreconditionProof): its operands' facts (a literal's value, a contract's declaration, a Logic.when

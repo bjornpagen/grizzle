@@ -4,7 +4,7 @@ import { aimed, array, boolean, element, type Gen, int, weighted } from "@bjornp
 import { Array as Arr, Option } from "effect"
 import { bytesChunkLength } from "#compiler/codec/delivery.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { bytes, pg } from "#compiler/public/fields.ts"
+import { bytea, int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { mutable, relation, schema, unit } from "#compiler/public/schema.ts"
 import { fixtureTemplate } from "#test/support/pg/reads/support.ts"
@@ -146,16 +146,12 @@ export const notes = (d: Drawn): ReadonlyArray<Feature> => {
 	return out
 }
 
-const Shelf = relation("Shelf", { id: pg.integer }, ["id"])
+const Shelf = relation("Shelf", { id: int4 }, ["id"])
 
-export const Blob = relation("Blob", { id: pg.integer, shelf: pg.integer, body: bytes }, ["id"])
+export const Blob = relation("Blob", { id: int4, shelf: int4, body: bytea }, ["id"])
 
 /** Each id's rows one unit: a shelf's values are deleted, so Blob is mutable. */
-export const Blobs = schema(
-	"Bytes",
-	[Shelf, Blob],
-	[mutable(Blob), unit("Item", { id: pg.integer })]
-)
+export const Blobs = schema("Bytes", [Shelf, Blob], [mutable(Blob), unit("Item", { id: int4 })])
 
 /** Every bytes value with its shelf. */
 const blobs = query(Blobs).rule((r) => {
@@ -192,7 +188,7 @@ const programs = Object.freeze({
 			const { id, shelf, body } = v(Blob, "b")
 			return r
 				.match(Blob, { id, shelf, body })
-				.where(r.eq(shelf, r.param("shelf", pg.integer)))
+				.where(r.eq(shelf, r.param("shelf", int4)))
 				.find({ id, shelf, body })
 		})
 	)

@@ -5,7 +5,7 @@ import { Array as Arr, Option } from "effect"
 import { isRecord } from "#compiler/core/record.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	contained,
@@ -27,10 +27,10 @@ import type { FactSet } from "#test/support/oracle/install/load.ts"
 const Label = str.regex("^[a-z]{1,4}$")
 
 /** A parent, its one shelf, which it is contained in, its label, an option, and its badge, another. */
-const Shelf = relation("Shelf", { id: pg.integer }, ["id"])
-const Parent = relation("Parent", { id: pg.integer, shelf: pg.integer }, ["id"])
-const Tag = relation("Tag", { parent: pg.integer, label: Label }, ["parent"])
-const Badge = relation("Badge", { parent: pg.integer, label: Label }, ["parent"])
+const Shelf = relation("Shelf", { id: int4 }, ["id"])
+const Parent = relation("Parent", { id: int4, shelf: int4 }, ["id"])
+const Tag = relation("Tag", { parent: int4, label: Label }, ["parent"])
+const Badge = relation("Badge", { parent: int4, label: Label }, ["parent"])
 
 export const Family = schema(
 	"Family",

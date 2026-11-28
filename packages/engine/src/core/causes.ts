@@ -480,7 +480,7 @@ const foldBoundText = (
 ): string => {
 	switch (bound.kind) {
 		case "precision":
-			return "declare its precision, pg.numeric(p, s), on the fields the fold steps and ends in"
+			return "declare its precision, numeric(p, s), on the fields the fold steps and ends in"
 		case "byteBound": {
 			const { before, after, end } = bound.running
 			return `declare a byte bound of at most ${bound.largest} bytes, the most a text holds as itself beside the axes' other columns, str.bytes(${bound.largest}), on the fields the fold steps and ends in; or carry its running values by their SHA-256 digests: declare generated fields Crypto.sha256(row.${before}), Crypto.sha256(row.${after}) and Crypto.sha256(row.${end}), and name them in the fold where ${before}, ${after} and ${end} stand`
@@ -504,7 +504,7 @@ export const keyFaultText = (name: string, key: ReadonlyArray<string>, fault: Ke
 				: `${name}: field ${fault.field} is text whose pattern proves no byte bound, which no B-tree entry holds, and the read binds it by equality but not its digest ${fault.digest}: grizzle states ${fault.digest}'s equality wherever a rule equates ${fault.field} with a value, a constant, a parameter, another match's column, a term of its other values or a negation's correlation, carried by lineage through every query whose head copies ${fault.field}, and this read reaches ${fault.field} where no such equality stands: through a head that computes the text rather than copying it, a union an arm of which delivers another text, or an attachment's correlation with its parent; deliver ${fault.field} as its relation stores it, or declare a byte bound (str.bytes(n))`
 
 		case "storageOnly":
-			return `${name}: field ${fault.field} is bytes, which is stored only, with no equality, so no key or index holds it`
+			return `${name}: field ${fault.field} is bytea, which is stored only, with no equality, so no key or index holds it`
 		case "exactValue":
 			return `${name}: field ${fault.field} is ${fault.type} of any size, up to numeric's own limit, whose widest value no index entry holds; declare its precision: ${fault.precision}`
 		case "btreeEntry":
@@ -512,13 +512,13 @@ export const keyFaultText = (name: string, key: ReadonlyArray<string>, fault: Ke
 		case "orderedColumns":
 			return `${name}: its B-tree entry can reach ${fault.bytes} bytes, above PostgreSQL's ${fault.limit}-byte limit, past every equality it leaves out as a filter, for the columns it reads in their order or matches a prefix of (${fault.columns.map((c) => `${c.field} ${c.bytes} bytes, ${c.role === "order" ? "read in its order" : "a prefix matched"}`).join("; ")}); a byte bound (str.bytes(n)) or a precision on them that fits the entry admits it`
 		case "spans":
-			return `${name}: a key with more than one span field (${fault.fields.join(", ")}) has no native lowering`
+			return `${name}: a key with more than one range field (${fault.fields.join(", ")}) has no native lowering`
 		case "gistEntry":
 			return `${name}: its GiST entry can reach ${fault.bytes} bytes, above the ${fault.limit}-byte limit of a GiST page`
 		case "gistOperatorClass":
 			return `${name}: field ${fault.field} has no btree_gist operator class`
 		case "spanAlone":
-			return `${name}: it is the span ${fault.field} alone, which a primary key WITHOUT OVERLAPS never is; only a candidate key can be`
+			return `${name}: it is the range ${fault.field} alone, which a primary key WITHOUT OVERLAPS never is; only a candidate key can be`
 		case "foldAccumulator":
 			return `${name}: its running value ${fault.accumulator} rides the family's axes as itself, and ${fault.bytes === undefined ? "a text of no byte bound" : `its widest value, ${fault.bytes} bytes with the axes' other columns,`} could pass PostgreSQL's ${fault.limit}-byte B-tree limit there; ${foldBoundText(fault.bound)}`
 	}
@@ -820,7 +820,7 @@ export const scopeRuleText = (rule: ScopeRule): string => {
 
 /** A claim rule's sentence. */
 export const claimRuleText = (rule: ClaimRule): string =>
-	`a claim of text, uuid, boolean, an integer type, a contract over one, or a closed handle; field ${rule.field} is none`
+	`a claim of text, uuid, bool, int2, int4 or int8, a contract over one, or a closed handle; field ${rule.field} is none`
 
 /** A family as a refusal names it: its owner and its count, fin(owner, count). */
 export interface FamilyName {

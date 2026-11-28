@@ -49,7 +49,7 @@ const nonPositive = (node: RelNode): Blocking | undefined => {
 			return { inputs: [node.left, node.right], what: "an intersection with the feedback" }
 		case "Produce":
 			return node.producer === "spanPack"
-				? { inputs: [node.input], what: "a span pack over the feedback" }
+				? { inputs: [node.input], what: "a range pack over the feedback" }
 				: undefined
 		case "Recursive":
 			return { inputs: [node.base, node.step], what: "a recursion over the feedback" }

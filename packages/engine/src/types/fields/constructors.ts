@@ -1,8 +1,5 @@
 import type { HostKeysOf, HostMint } from "#compiler/core/brand.ts"
 import type { Columned } from "#compiler/core/decoder.ts"
-import type { mintedRefusal } from "#compiler/scalar/minted.ts"
-import type { Money } from "#compiler/scalar/values/money.ts"
-import type { Cidr, Inet } from "#compiler/scalar/values/net.ts"
 import type { Scalar } from "#compiler/types/compute/scalar.ts"
 import type {
 	DomainOf,
@@ -18,16 +15,14 @@ import type {
 	Repeats
 } from "#compiler/types/core/phantom.ts"
 
-import type { TextSearchConfiguration } from "#compiler/ir/search.ts"
 import type {
 	AccumulatedField,
-	BitsField,
+	BitField,
 	ClosedIdField,
 	ClosedSubset,
 	Contract,
 	DrawnField,
 	DrawnType,
-	Field,
 	FieldBase,
 	GeneratedField,
 	Infer,
@@ -38,10 +33,9 @@ import type {
 	NotInstant,
 	NotSearchDocument,
 	NotStoredOnly,
-	NumericField,
-	SpanEndpointLike,
-	SpanField,
-	SpanWidthOf,
+	RangeEndpointLike,
+	RangeField,
+	RangeWidthOf,
 	StoredOnlySql,
 	SubsetHandles,
 	ArmChecks,
@@ -50,11 +44,10 @@ import type {
 	WritingTag
 } from "#compiler/types/fields/field.ts"
 import type { AnyRoster, HandleOf } from "#compiler/types/schema/relation.ts"
-import type { SearchDocumentField } from "#compiler/types/search/search.ts"
 import type { VectorField } from "#compiler/types/vector/vector.ts"
 
 /**
- * The signatures of the field descriptor constructors: uuid, pg, contract, span and closedId, the runtime values of
+ * The signatures of the field descriptor constructors: contract, span and closedId, the runtime values of
  * packages/engine/src/scalar, which the public barrel public/fields.ts binds to them. str.regex is packages/engine/src/text's, with
  * its own signature (text/field.ts Str).
  *
@@ -65,44 +58,12 @@ import type { VectorField } from "#compiler/types/vector/vector.ts"
  * dimension count is the one literal the type keeps, an equality-only tag.
  * A contract is its brand's minting function, the call of Effect's brand constructor: it brands without checking, and
  * the database validates on write. test/unit/scalar pins the runtime behavior, and test/types/fields the signatures.
- *
- * The pg namespace: each type under the one name PostgreSQL's format_type prints for it, its SQL tag.
  */
-export interface Pg {
-	readonly smallint: Field<number, "smallint">
-	readonly integer: Field<number, "integer">
-	readonly bigint: Field<bigint, "bigint">
-	readonly numeric: NumericField
-	readonly real: Field<number, "real">
-	readonly "double precision": Field<number, "double precision">
-	readonly money: Field<Money, "money">
-	readonly boolean: Field<boolean, "boolean">
-	/**
-	 * pg.inet and pg.cidr: PostgreSQL's network address types, an address with its network's mask and a network, each
-	 * host value the one text inet_out or cidr_out prints of it (scalar/values/net.ts Inet, Cidr).
-	 */
-	readonly inet: Field<Inet, "inet">
-	readonly cidr: Field<Cidr, "cidr">
-	/** pg.smallserial, pg.serial, pg.bigserial and pg.uuidv7 are refusals, no field (scalar/minted.ts). */
-	readonly smallserial: Refusal<typeof mintedRefusal>
-	readonly serial: Refusal<typeof mintedRefusal>
-	readonly bigserial: Refusal<typeof mintedRefusal>
-	readonly uuidv7: Refusal<typeof mintedRefusal>
-	/** pg.vector(1536): a model-agnostic vector field; the dimension count is an equality-only tag. */
-	readonly vector: <const N extends number>(dimensions: N) => VectorField<N>
-	/**
-	 * pg.tsvector("english"): a search document of the configuration, a field its caller writes, each value a document
-	 * a read delivered (SearchDocument), written back as it is; the configuration is an equality-only tag.
-	 */
-	readonly tsvector: <const C extends TextSearchConfiguration>(
-		configuration: C
-	) => SearchDocumentField<C>
-}
 
 /**
  * A nominal contract over a base descriptor, with an optional total predicate over one value, whose values its consumer
  * makes: its host type is the base's host type under the consumer's key K, `Marked<host type, K>` (core/brand.ts),
- * `contract<GradedKey>()("Graded", pg.numeric(9, 4), (v) => Logic.between(v, 0n, 1n))` beside `const graded =
+ * `contract<GradedKey>()("Graded", numeric(9, 4), (v) => Logic.between(v, 0n, 1n))` beside `const graded =
  * Symbol("Graded")` and `type GradedKey = typeof graded` in the module that grades. So a write of the contract takes
  * only a value the key's mint made (mintOf), a read delivers one, and the contract itself makes none. K is a unique
  * symbol (UniqueKey); a key of its own per contract keeps two contracts over one base apart on the host.
@@ -114,7 +75,7 @@ export interface Pg {
  *
  * After the predicate, `{ proves: ["nonzero"] }` declares the facts it proves, which the contract's type then states
  * of its values, so a divisor of the contract needs no guard; compilation proves each from the predicate, else refuses
- * the declaration: `contract<typeof divisorKey>()("Divisor", pg.bigint, (v) => Logic.ne(v, 0n), { proves: ["nonzero"] })`.
+ * the declaration: `contract<typeof divisorKey>()("Divisor", int8, (v) => Logic.ne(v, 0n), { proves: ["nonzero"] })`.
  */
 export type ContractConstructor = <K extends symbol>() => <
 	const Name extends string,
@@ -154,7 +115,7 @@ export type OneContractName<Name extends string> =
 /**
  * mintOf(key): the mint of the host types under `key`, a unique symbol of its module's own, `const graded =
  * Symbol("Graded")`, the one unchecked conversion its consumer makes: `const toGraded = mintOf(graded)`, then
- * `toGraded(score)` is a `Marked<Decimal, typeof graded>`. The key is the capability: a module that does not hold it
+ * `toGraded(score)` is a `Marked<Numeric, typeof graded>`. The key is the capability: a module that does not hold it
  * cannot mint under it, so where the key lives, and whether it is exported, decides who mints. A key of type `symbol`,
  * a registered one's from Symbol.for, which any module reads, is refused.
  */
@@ -175,10 +136,10 @@ export type UniqueKey<K extends symbol> = symbol extends K
 
 /**
  * A contract's base that is no exact value, arithmetic's own type of any size (exactInteger, exactMoney), which no
- * contract is over: a contract bounds an integer or an amount over pg.bigint, pg.numeric(p, s) or pg.money.
+ * contract is over: a contract bounds an integer or an amount over int8, numeric(p, s) or money.
  */
 export type NotExactBase<Sql> = [Sql] extends ["exact integer" | "exact money"]
-	? Refusal<"no contract is over an exact value of any size: declare it over pg.bigint, pg.numeric(p, s) or pg.money">
+	? Refusal<"no contract is over an exact value of any size: declare it over int8, numeric(p, s) or money">
 	: unknown
 
 /** A contract's base or a span's endpoint that is no instant, which no caller brands (NotInstant). */
@@ -190,10 +151,10 @@ export type NotInstantBase<B> = NotInstant<DomainOf<B>>
  * converts each endpoint with the endpoint's own column, so span(Cents) delivers Span<Cents> and span(date)
  * Span<CalendarDate>.
  */
-export type SpanConstructor = <E extends SpanEndpointLike>(
+export type RangeConstructor = <E extends RangeEndpointLike>(
 	endpoint: E & Columned<Infer<E>> & NoWriting & NotInstantBase<E>,
-	width?: SpanWidthOf<Infer<E>>
-) => SpanField<Infer<E>, DomainOf<E>>
+	width?: RangeWidthOf<Infer<E>>
+) => RangeField<Infer<E>, DomainOf<E>>
 
 /**
  * A closed reference: its column is the roster's handles, the roster's tuple of literals, or the subset `subset` states
@@ -241,7 +202,7 @@ export type ArmsAdmitted<C, Arms> = [keyof Arms] extends [never]
 					readonly [F in keyof Arms[H]]: F extends "tag"
 						? Refusal<"a variant arm's field is named apart from tag, which names its arm">
 						: Arms[H][F] extends { readonly sql: UnarmedSql }
-							? Refusal<"a variant arm's field is a value of a type that is no variant, bytes, search document, vector or money">
+							? Refusal<"a variant arm's field is a value of a type that is no variant, bytea, search document, vector or money">
 							: unknown
 				}
 			}
@@ -265,9 +226,9 @@ type SubsetStated<C, Subset> = Subset extends { readonly only: infer H }
 		: unknown
 
 /** A set over a roster: its column reads a bit string into the set of handles its 1 bits' codes name. */
-export type BitsConstructor = <C extends AnyRoster>(
+export type BitConstructor = <C extends AnyRoster>(
 	roster: C & { readonly handles: ReadonlyArray<HandleOf<C>> }
-) => BitsField<C>
+) => BitField<C>
 
 /**
  * drawn(type): a value grizzle draws, a family's index or count or a tree's start or end, of `type`, natural or a
@@ -284,10 +245,10 @@ export type DrawnConstructor = <const F extends FieldBase>(
  * grizzle never fills (NotStoredOnly).
  */
 export type Accumulable<F> = F extends
-	| SpanField<unknown, unknown>
+	| RangeField<unknown, unknown>
 	| VectorField<number>
 	| { readonly writing: WritingTag }
-	? Refusal<"an accumulated field is of a value type: no span, vector or field of a writing of its own">
+	? Refusal<"an accumulated field is of a value type: no range, vector or field of a writing of its own">
 	: F extends { readonly sql: StoredOnlySql }
 		? NotStoredOnly<StoredOnlySql>
 		: unknown

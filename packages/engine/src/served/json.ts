@@ -34,7 +34,7 @@ import type { CodeSlot, RosterCodes } from "#compiler/ir/cells.ts"
 import { DecimalText } from "#compiler/ir/decimal.ts"
 import { internedRangeOp, rangeOpNamed } from "#compiler/ir/expr.ts"
 import { Roster, type RosterOrder } from "#compiler/ir/scalar.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
 import type { ServedFile } from "#compiler/served/forms.ts"
@@ -54,7 +54,7 @@ import type { ServedFile } from "#compiler/served/forms.ts"
  *   order, with the digest generate took, so a load hashes no handle;
  * - a range overload `~op:` and its code and carrier, read back as its one instance (ir/expr.ts rangeOp), which the
  *   registry and the host evaluator know an overload by;
- * - a host Decimal `~decimal:`, a host Money `~money:`, a host vector `~vector:`, and the IR's DecimalText, MoneyText
+ * - a host Numeric `~decimal:`, a host Money `~money:`, a host vector `~vector:`, and the IR's DecimalText, MoneyText
  *   and VectorText `~d:`, `~m:` and `~v:`, each with its canonical payload;
  * - a Map `{"~map": [[key, value], ...]}`, each key a primitive, and a Set `{"~set": [value, ...]}`, in insertion
  *   order, which the compile that made them fixes.
@@ -102,7 +102,7 @@ const tags = {
 	decimal: "decimal",
 	money: "money",
 	vector: "vector",
-	decimalText: "d",
+	numericText: "d",
 	moneyText: "m",
 	vectorText: "v"
 } as const
@@ -158,21 +158,21 @@ const servedVector = (components: Float32Array): ServedObject => {
 
 /**
  * A value implementing the protocol as the file holds it, by its class, since a load revives each class as itself: a
- * Roster, a host Decimal and Money and the IR's DecimalText, MoneyText and VectorText by their canonical payloads; a
+ * Roster, a host Numeric and Money and the IR's DecimalText, MoneyText and VectorText by their canonical payloads; a
  * value of any other class is no served value.
  */
 const servedClass = (value: object, tagged: TaggedValue): ServedObject => {
 	if (value instanceof Roster) {
 		return servedTagged(rosterTag[value.order], tagged.payload)
 	}
-	if (value instanceof Decimal) {
+	if (value instanceof Numeric) {
 		return servedTagged(tags.decimal, tagged.payload)
 	}
 	if (value instanceof Money) {
 		return servedTagged(tags.money, tagged.payload)
 	}
 	if (value instanceof DecimalText) {
-		return servedTagged(tags.decimalText, tagged.payload)
+		return servedTagged(tags.numericText, tagged.payload)
 	}
 	if (value instanceof MoneyText) {
 		return servedTagged(tags.moneyText, tagged.payload)
@@ -742,12 +742,12 @@ class ServedReader {
 				)
 			}
 			case tags.decimal:
-				return revivedOf(Decimal.fromCanonical(payload), within, `~${tag}:${payload}`)
+				return revivedOf(Numeric.fromCanonical(payload), within, `~${tag}:${payload}`)
 			case tags.money:
 				return revivedOf(Money.fromCanonical(payload), within, `~${tag}:${payload}`)
 			case tags.vector:
 				return revivedOf(Vector.fromCanonical(payload), within, `~${tag}:${payload}`)
-			case tags.decimalText:
+			case tags.numericText:
 				return (
 					DecimalText.parse(payload) ?? unread(within, `a decimal text, not ~${tag}:${payload}`)
 				)

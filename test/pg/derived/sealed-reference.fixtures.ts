@@ -10,7 +10,7 @@ import { array, boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Order } from "effect"
 import { compileInstallation } from "#compiler/program/install.ts"
-import { contract, pg } from "#compiler/public/fields.ts"
+import { contract, bool, int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	contained,
@@ -40,41 +40,41 @@ import type { RawSession } from "#test/support/substrate/session.ts"
 
 const childKey = Symbol("Child")
 /** A learner, by a number of its own type, so no package's number leads a learner's key. */
-const Child = contract<typeof childKey>()("Child", pg.integer)
+const Child = contract<typeof childKey>()("Child", int4)
 const packageNoKey = Symbol("PackageNo")
 /** A package, by a number of its own type, so no learner's number leads a package's key. */
-const PackageNo = contract<typeof packageNoKey>()("PackageNo", pg.integer)
+const PackageNo = contract<typeof packageNoKey>()("PackageNo", int4)
 
 /** A package, the root of its content. */
 const Package = relation("Package", { package: PackageNo }, ["package"])
 /** An item of a package: whether it is adaptive, and its maximum. */
-const Item = relation(
-	"Item",
-	{ package: PackageNo, item: pg.integer, adaptive: pg.boolean, max: pg.integer },
-	["package", "item"]
-)
+const Item = relation("Item", { package: PackageNo, item: int4, adaptive: bool, max: int4 }, [
+	"package",
+	"item"
+])
 /** A variable of an item an End Attempt binds, and whether it counts an attempt: ledger's uncountingResponses. */
-const Hint = relation(
-	"Hint",
-	{ package: PackageNo, item: pg.integer, variable: pg.integer, counts: pg.boolean },
-	["package", "item", "variable"]
-)
+const Hint = relation("Hint", { package: PackageNo, item: int4, variable: int4, counts: bool }, [
+	"package",
+	"item",
+	"variable"
+])
 /** A learner's attempt at an item of a package, numbered. */
-const Attempt = relation(
-	"Attempt",
-	{ child: Child, package: PackageNo, item: pg.integer, n: pg.integer },
-	["child", "package", "item", "n"]
-)
+const Attempt = relation("Attempt", { child: Child, package: PackageNo, item: int4, n: int4 }, [
+	"child",
+	"package",
+	"item",
+	"n"
+])
 /** A variable's value at an attempt. */
 const Snapshot = relation(
 	"Snapshot",
 	{
 		child: Child,
 		package: PackageNo,
-		item: pg.integer,
-		n: pg.integer,
-		variable: pg.integer,
-		value: pg.boolean
+		item: int4,
+		n: int4,
+		variable: int4,
+		value: bool
 	},
 	["child", "package", "item", "n", "variable"]
 )
@@ -83,11 +83,12 @@ const Snapshot = relation(
  * A learner's note at an attempt's item, numbered as the attempt is: mutable in the learner's unit, so the stored
  * relation over it and the content (`Noted`) has open holders alone.
  */
-const Note = relation(
-	"Note",
-	{ child: Child, package: PackageNo, item: pg.integer, n: pg.integer },
-	["child", "package", "item", "n"]
-)
+const Note = relation("Note", { child: Child, package: PackageNo, item: int4, n: int4 }, [
+	"child",
+	"package",
+	"item",
+	"n"
+])
 
 /** The content, sealed at founding, and the learner's rows, each attempt naming an item of a founded package. */
 const Base = schema(

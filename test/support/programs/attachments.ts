@@ -3,7 +3,7 @@
  * (test/support/prelude.ts): the program imports these alone, each through this module.
  */
 export type { Brand, Option } from "effect"
-export type { Decimal, Marked, Uuid } from "#compiler/public/fields.ts"
+export type { Numeric, Marked, Uuid } from "#compiler/public/fields.ts"
 export { query, v } from "#compiler/public/query.ts"
 export type { HeadOf, ImmediateHeadOf } from "#compiler/public/query.ts"
 export type { ChangeSet } from "#compiler/public/changeset.ts"

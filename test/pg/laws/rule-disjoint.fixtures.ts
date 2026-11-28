@@ -3,7 +3,7 @@
 import { array, element, type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Data, Effect, Formatter, Option } from "effect"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { check, contained, derived, on, relation, schema } from "#compiler/public/schema.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
@@ -15,14 +15,11 @@ import { refusalOf } from "#test/support/substrate.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 
 /** A row of a unit, `package` its unit: its id, the join value g it is read at, and the value x it states. */
-const T = relation("T", { package: pg.integer, id: pg.integer, g: pg.integer, x: pg.integer }, [
-	"package",
-	"id"
-])
+const T = relation("T", { package: int4, id: int4, g: int4, x: int4 }, ["package", "id"])
 /** A row of a unit the join meets T's at g. */
-const U = relation("U", { package: pg.integer, id: pg.integer, g: pg.integer }, ["package", "id"])
+const U = relation("U", { package: int4, id: int4, g: int4 }, ["package", "id"])
 /** The values x a unit admits. */
-const S = relation("S", { package: pg.integer, x: pg.integer }, ["package", "x"])
+const S = relation("S", { package: int4, x: int4 }, ["package", "x"])
 
 /**
  * The schema the property installs, every rule unit-local and so judged whole (analysis/theory/unit.ts): T, U and S

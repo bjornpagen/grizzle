@@ -12,7 +12,7 @@ import { lawsOfConstraint } from "#compiler/ir/products.ts"
 import { countColumn } from "#compiler/physical/ddl/deltas.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	check,
@@ -55,16 +55,16 @@ import type { RawSession } from "#test/support/substrate/session.ts"
  * transaction may break and repair before it ends. R is mutable, so S, which pins R's key, covers no read of R's cap: a
  * row R gains at a key may replace the one that stood there.
  */
-const R = relation("R", { c: pg.integer, cap: pg.integer }, ["c"])
-const S = relation("S", { k: pg.integer, grp: pg.integer, score: pg.integer }, ["k"])
-const T = relation("T", { k: pg.integer, tag: pg.integer }, ["k"])
-const U = relation("U", { k: pg.integer, score: pg.integer }, ["k"])
-const V = relation("V", { k: pg.integer, flag: pg.integer }, ["k"])
-const Lim = relation("Lim", { grp: pg.integer, max: pg.integer }, ["grp"])
-const X = relation("X", { c: pg.integer, v: pg.integer }, ["c"])
-const A = relation("A", { k: pg.integer }, ["k"])
-const B = relation("B", { k: pg.integer }, ["k"])
-const W = relation("W", { k: pg.integer, x: pg.integer }, ["k", "x"])
+const R = relation("R", { c: int4, cap: int4 }, ["c"])
+const S = relation("S", { k: int4, grp: int4, score: int4 }, ["k"])
+const T = relation("T", { k: int4, tag: int4 }, ["k"])
+const U = relation("U", { k: int4, score: int4 }, ["k"])
+const V = relation("V", { k: int4, flag: int4 }, ["k"])
+const Lim = relation("Lim", { grp: int4, max: int4 }, ["grp"])
+const X = relation("X", { c: int4, v: int4 }, ["c"])
+const A = relation("A", { k: int4 }, ["k"])
+const B = relation("B", { k: int4 }, ["k"])
+const W = relation("W", { k: int4, x: int4 }, ["k", "x"])
 
 const opened = [R, S, T, U, V, Lim, X, A, B, W] as const
 
@@ -79,21 +79,21 @@ const opened = [R, S, T, U, V, Lim, X, A, B, W] as const
  * not reference: Session ⊆ Test at test, Visit ⊆ Session and Item ⊆ Session at s, Pause ⊆ Visit and Mark ⊆ Visit at
  * (s, k), Snap ⊆ Item at (s, n).
  */
-const Test = relation("Test", { test: pg.integer, cap: pg.integer }, ["test"])
-const Session = relation("Session", { s: pg.integer, test: pg.integer }, ["s"])
-const Visit = relation("Visit", { s: pg.integer, k: pg.integer, at: pg.integer }, ["s", "k"])
-const Pause = relation("Pause", { s: pg.integer, k: pg.integer }, ["s", "k"])
-const Mark = relation("Mark", { s: pg.integer, k: pg.integer, at: pg.integer }, ["s", "k", "at"])
-const Item = relation("Item", { s: pg.integer, n: pg.integer, k: pg.integer }, ["s", "n"])
-const Snap = relation("Snap", { s: pg.integer, n: pg.integer, at: pg.integer }, ["s", "n", "at"])
-const Seat = relation("Seat", { s: pg.integer, lim: pg.integer }, ["s"])
+const Test = relation("Test", { test: int4, cap: int4 }, ["test"])
+const Session = relation("Session", { s: int4, test: int4 }, ["s"])
+const Visit = relation("Visit", { s: int4, k: int4, at: int4 }, ["s", "k"])
+const Pause = relation("Pause", { s: int4, k: int4 }, ["s", "k"])
+const Mark = relation("Mark", { s: int4, k: int4, at: int4 }, ["s", "k", "at"])
+const Item = relation("Item", { s: int4, n: int4, k: int4 }, ["s", "n"])
+const Snap = relation("Snap", { s: int4, n: int4, at: int4 }, ["s", "n", "at"])
+const Seat = relation("Seat", { s: int4, lim: int4 }, ["s"])
 
 /**
  * R's and S's closed counterparts: Kin, keyed by c beside a cap, and Kid, keyed by k in a group, Kid(k) ⊆ Kin(c), so
  * a row Kin gains is one of a new key, and Kid, pinning Kin's key, covers a read of Kin's cap.
  */
-const Kin = relation("Kin", { c: pg.integer, cap: pg.integer }, ["c"])
-const Kid = relation("Kid", { k: pg.integer, grp: pg.integer }, ["k"])
+const Kin = relation("Kin", { c: int4, cap: int4 }, ["c"])
+const Kid = relation("Kid", { k: int4, grp: int4 }, ["k"])
 
 const closedRelations = [Test, Session, Visit, Pause, Mark, Item, Snap, Seat, Kin, Kid] as const
 
@@ -112,9 +112,9 @@ const Base = schema("Cover", stored, [
 	contained(on(Item, "s"), on(Session, "s")),
 	contained(on(Snap, "s", "n"), on(Item, "s", "n")),
 	contained(on(Kid, "k"), on(Kin, "c")),
-	unit("Keyed", { k: pg.integer }),
-	unit("Group", { grp: pg.integer }),
-	unit("Covered", { c: pg.integer })
+	unit("Keyed", { k: int4 }),
+	unit("Group", { grp: int4 }),
+	unit("Covered", { c: int4 })
 ])
 
 /** S's score beside its group's maximum, at each k R holds: R read at its key alone, which S's row pins. */

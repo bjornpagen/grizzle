@@ -5,7 +5,7 @@ import { Array as Arr } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { Num, Type } from "#compiler/public/compute.ts"
-import { pg, type Uuid } from "#compiler/public/fields.ts"
+import { type Uuid, int4 } from "#compiler/public/fields.ts"
 import { query, type Rule, type SelfSource, v } from "#compiler/public/query.ts"
 import { contained, on, relation, schema } from "#compiler/public/schema.ts"
 import { queryValueDesc } from "#compiler/query/build/query.ts"
@@ -34,7 +34,7 @@ import { upTo } from "#test/support/up-to.ts"
 
 const V = relation("V", { id: Id }, ["id"])
 
-const E = relation("E", { from: Id, to: Id, cost: pg.integer }, ["from", "to"])
+const E = relation("E", { from: Id, to: Id, cost: int4 }, ["from", "to"])
 
 const B = relation("B", { id: Id }, ["id"])
 
@@ -133,12 +133,12 @@ const caseOf = (
 	}
 }
 
-const lit = (n: number) => Type.literal(pg.integer, n)
+const lit = (n: number) => Type.literal(int4, n)
 
 /** Walks: each vertex and hop count reachable from the start in fewer than `bound` hops. */
 const walksBelow = (bound: number) =>
 	query(Net).recursive("Walks", {
-		row: { node: Id, hops: pg.integer },
+		row: { node: Id, hops: int4 },
 		base: [
 			(r) => {
 				const { id } = v(V, "v")
@@ -221,7 +221,7 @@ const Open = query(Net).recursive("Open", {
 /** A countdown from `seed` along the edges while it is above zero. */
 const countdownFrom = (seed: number) =>
 	query(Net).recursive("Countdown", {
-		row: { node: Id, left: pg.integer },
+		row: { node: Id, left: int4 },
 		base: [
 			(r) => {
 				const { id } = v(V, "v")

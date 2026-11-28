@@ -31,7 +31,7 @@ const normPredicate = (vectorSchema: string, column: Expr): Expr => ({
 
 /** A vector column's norm CHECK, a column CHECK (physical/ddl/column-checks.ts ColumnCheckKind).
  *
- * `pg.vector(N)` is the column `<ext>.vector(N) NOT NULL`, the extension's own type qualified by the schema the
+ * `vector(N)` is the column `<ext>.vector(N) NOT NULL`, the extension's own type qualified by the schema the
  * installation names (`columnType`), of N dimensions, 1-vectorMaxDimensions, plus the named CHECK of the cosine
  * domain (ir/carriers.ts cosineNormMin and cosineNormMax, the norms for which pgvector's binary32 cosine_distance is a
  * number in [0, 2]):

@@ -7,7 +7,7 @@ import { canonicalEquals } from "#compiler/core/canonical.ts"
 import type { PrimaryKeyObject, UniqueObject, UniqueObjects } from "#compiler/laws/model/uniques.ts"
 
 import { defined } from "@bjornpagen/testing/assert"
-import { pgDescriptors } from "#compiler/scalar/pg.ts"
+import { bool, int4 } from "#compiler/scalar/pg.ts"
 import { relationBuilder as relation } from "#compiler/schema/relation.ts"
 import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
 import {
@@ -144,15 +144,15 @@ export const schemaOf = (c: BeyondCase) => {
 			id: Id,
 			a: Id,
 			b: Id,
-			kind: pgDescriptors.integer,
-			flag: pgDescriptors.boolean
+			kind: int4,
+			flag: bool
 		},
 		["id"],
 		[]
 	)
 	const K = relation("K", { id: Id }, ["id"], [])
 	const sources = Arr.map(indices(c.sources), (i) =>
-		relation(`S${i}`, { id: Id, t: Id, live: pgDescriptors.boolean }, ["id"], [])
+		relation(`S${i}`, { id: Id, t: Id, live: bool }, ["id"], [])
 	)
 	const atom = (r: TRow, a: Atom) =>
 		a.kind === "kind" ? r.eq(r.kind, a.value) : r.eq(r.flag, a.value)

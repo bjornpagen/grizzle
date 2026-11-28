@@ -109,13 +109,13 @@ const descOf = (f: FieldSketch): FieldDesc => {
 		case "uuid":
 			return { kind: "uuid" }
 		case "int8":
-			return { kind: "pg", type: "bigint" }
+			return { kind: "pg", type: "int8" }
 		case "int4":
-			return { kind: "pg", type: "integer" }
+			return { kind: "pg", type: "int4" }
 		case "int2":
-			return { kind: "pg", type: "smallint" }
+			return { kind: "pg", type: "int2" }
 		case "bool":
-			return { kind: "pg", type: "boolean" }
+			return { kind: "pg", type: "bool" }
 	}
 }
 
@@ -176,13 +176,13 @@ export const columnSql = (f: FieldSketch): string => {
 		case "uuid":
 			return "uuid"
 		case "int8":
-			return "bigint"
+			return "int8"
 		case "int4":
-			return "integer"
+			return "int4"
 		case "int2":
-			return "smallint"
+			return "int2"
 		case "bool":
-			return "boolean"
+			return "bool"
 	}
 }
 

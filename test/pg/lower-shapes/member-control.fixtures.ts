@@ -6,7 +6,7 @@ import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
 import type { BenchSession } from "#bench/harness/session.ts"
 import { Type } from "#compiler/public/compute.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, relation, schema } from "#compiler/public/schema.ts"
 import {
@@ -25,7 +25,7 @@ import { readWork } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import type { PgConnection } from "#test/support/pg.ts"
 
-const i = pg.integer
+const i = int4
 
 /**
  * A test's content and a learner's sittings of it, as qti-pie's ledger reads pantry's test views: each member of a test
@@ -119,14 +119,14 @@ const attemptsInForce = query(Content)
 		return r
 			.match(nearestAttempts, { package: pkg, path, scope, start })
 			.match(Stated, { attempts, package: pkg, path, scope })
-			.find({ maxAttempts: Type.cast(attempts, pg.bigint), package: pkg, path, start })
+			.find({ maxAttempts: Type.cast(attempts, int8), package: pkg, path, start })
 	})
 	.rule((r) => {
 		const { package: pkg, path, start } = v(TestMember, "defaultAttempts")
 		return r
 			.match(TestMember, { package: pkg, path, start })
 			.where(r.not(nearestAttempts, { package: pkg, path, start }))
-			.find({ maxAttempts: Type.literal(pg.bigint, 1n), package: pkg, path, start })
+			.find({ maxAttempts: Type.literal(int8, 1n), package: pkg, path, start })
 	})
 
 /** Each member's controls in force, one row a member. */

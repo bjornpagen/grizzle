@@ -218,7 +218,7 @@ const paramText = nominal<string, ParamText>()
  */
 export const paramOfText = (spec: CarrierSpec, text: string): ParamText => {
 	if (spec.carrier === "bytes") {
-		defect("a bytes value travels in binary, never as a parameter text")
+		defect("a bytea value travels in binary, never as a parameter text")
 	}
 	return paramText(text)
 }
@@ -381,7 +381,7 @@ export type ResultStep = "numeric" | "text" | "wire"
 export const resultTextCasts = (type: ScalarType): ReadonlyArray<ResultStep> => {
 	switch (baseOf(type).carrier) {
 		case "bytes":
-			defect("a bytes value travels in chunks, never as its result text")
+			defect("a bytea value travels in chunks, never as its result text")
 		case "money":
 			return ["numeric", "text"]
 		case "sha256":

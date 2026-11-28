@@ -23,14 +23,14 @@ import { type Json, json } from "@bjornpagen/testing/values"
 import { regex } from "arkregex"
 import { Array as Arr, Option, Record as Rec } from "effect"
 import { parseDeclaredName } from "#compiler/core/identity.ts"
-import { contract, natural, pg, span, variant } from "#compiler/public/fields.ts"
+import { contract, natural, range, variant } from "#compiler/public/fields.ts"
 import { param, query } from "#compiler/public/query.ts"
 import { closed, fn, row, rows, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { clocked } from "#compiler/public/workload.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import type { ScalarTerm } from "#compiler/scalar/compute/term.ts"
-import { pgDescriptors } from "#compiler/scalar/pg.ts"
+import { int4, int8, money, numeric } from "#compiler/scalar/pg.ts"
 import { accumulatedField, drawnField } from "#compiler/schema/relation.ts"
 
 type BaseName = "integer" | "bigint" | "numeric(p,s)" | "money" | "pattern" | "span"
@@ -46,18 +46,18 @@ export const baseNames: Arr.NonEmptyReadonlyArray<BaseName> = [
 
 const Lower = str.regex("^[a-z]+$", "u")
 
-const IntSpan = span(pgDescriptors.integer)
+const IntSpan = range(int4)
 
 export const baseOfName = (name: BaseName, precision: number): unknown => {
 	switch (name) {
 		case "integer":
-			return pgDescriptors.integer
+			return int4
 		case "bigint":
-			return pgDescriptors.bigint
+			return int8
 		case "numeric(p,s)":
-			return pgDescriptors.numeric(precision, Math.floor(precision / 2))
+			return numeric(precision, Math.floor(precision / 2))
 		case "money":
-			return pgDescriptors.money
+			return money
 		case "pattern":
 			return Lower
 		case "span":
@@ -122,12 +122,7 @@ const admissionName = (kinds: Arr.NonEmptyReadonlyArray<WildKind>): Gen<Drawn<st
 /** A contract's base: a live descriptor a builder made, or a wild value of one of `kinds`. */
 const admissionBase = (kinds: Arr.NonEmptyReadonlyArray<WildKind>): Gen<Drawn<unknown, never>> =>
 	lsw<unknown>({
-		live: element<unknown>([
-			pgDescriptors.bigint,
-			pgDescriptors.integer,
-			pgDescriptors.numeric(9, 2),
-			str.regex("^a$", "u")
-		]),
+		live: element<unknown>([int8, int4, numeric(9, 2), str.regex("^a$", "u")]),
 		stale: Option.none(),
 		wild: kinds
 	})
@@ -221,13 +216,13 @@ export const mintSpace: Gen<MintCase> = (source) => {
 
 const amountKey = Symbol("Amount")
 /** A consumer's contract over bigint, the one a mint into a consumer's contract makes. */
-const Amount = contract<typeof amountKey>()("Amount", pg.bigint)
+const Amount = contract<typeof amountKey>()("Amount", int8)
 
 /** Each target's descriptor. */
 const mintTargets: { readonly [T in MintTarget]: unknown } = {
 	"a consumer's contract": Amount,
 	natural,
-	bigint: pg.bigint
+	bigint: int8
 }
 
 /** What a mint's call answers, by the rule: it is made, or refused for the reason of its tag. */
@@ -267,7 +262,7 @@ export const mintMade = (c: MintCase, keys: ReadonlyArray<unknown>): unknown => 
 	const target = mintTargets[c.target]
 	switch (c.position) {
 		case "a cast":
-			return withKeys(keys, (...k) => computeCore.cast(param("n", pg.bigint), target, ...k))
+			return withKeys(keys, (...k) => computeCore.cast(param("n", int8), target, ...k))
 		case "a drawn field":
 			return Reflect.apply(drawnField, undefined, [target, keys])
 		case "an accumulated field":
@@ -460,7 +455,7 @@ export const resultFunction = (c: Extract<HeldCase, { readonly kind: "result" }>
 }
 
 /** A program of one parameter, `now`, a bigint, which a clocked member binds. */
-const clockedProgram = query(schema.empty).rule((r) => r.find({ now: r.param("now", pg.bigint) }))
+const clockedProgram = query(schema.empty).rule((r) => r.find({ now: r.param("now", int8) }))
 
 /**
  * The rule of a clocked member's keys restated, as the member is built, which knows no parameter's type: nothing, or a

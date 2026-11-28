@@ -162,7 +162,7 @@ export const closedAtTerm = <A, S extends SqlTag>(
 export const closedRowTerm = (
 	closed: ClosedReadTyping,
 	args: ReadonlyArray<unknown>
-): ScalarTerm<unknown, "bits"> => {
+): ScalarTerm<unknown, "bit"> => {
 	const loc = captureLoc(`${closed.relation}.row`, [])
 	const exprs = prefixArguments(
 		args,
@@ -171,5 +171,5 @@ export const closedRowTerm = (
 		`${closed.relation}.row, which leaves its last key field open`
 	)
 	const expr: OpenExpr = { kind: "closedRow", relation: closed.relation, args: exprs }
-	return scalarTerm(expr, closed.row.type, { column: closed.row.carrier.column, sql: "bits" })
+	return scalarTerm(expr, closed.row.type, { column: closed.row.carrier.column, sql: "bit" })
 }

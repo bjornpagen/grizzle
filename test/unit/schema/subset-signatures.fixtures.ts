@@ -4,7 +4,7 @@ import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import { defined } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import type { CompileError } from "#compiler/core/errors.ts"
-import { closedId, pg } from "#compiler/public/fields.ts"
+import { closedId, int4 } from "#compiler/public/fields.ts"
 import { closed, fn, row, rows, schema } from "#compiler/public/schema.ts"
 import { own } from "#compiler/schema/own.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
@@ -49,7 +49,7 @@ const markOf = (form: Form) => {
  * never reads, so the case is its signature alone.
  */
 const declared = (place: Place, mark: unknown): unknown => {
-	const heading: unknown = Reflect.apply(rows, undefined, [{ mark, n: pg.integer }])
+	const heading: unknown = Reflect.apply(rows, undefined, [{ mark, n: int4 }])
 	const common = {
 		calls: [],
 		volatility: "immutable",
@@ -59,11 +59,11 @@ const declared = (place: Place, mark: unknown): unknown => {
 	}
 	switch (place) {
 		case "an argument":
-			return { ...common, args: { mark }, returns: pg.integer }
+			return { ...common, args: { mark }, returns: int4 }
 		case "a result":
-			return { ...common, args: { n: pg.integer }, returns: mark }
+			return { ...common, args: { n: int4 }, returns: mark }
 		case "rows of a heading":
-			return { ...common, args: { n: pg.integer }, returns: heading }
+			return { ...common, args: { n: int4 }, returns: heading }
 		case "a row of a heading": {
 			const one: unknown = Reflect.apply(row, undefined, [heading])
 			return { ...common, args: { one }, returns: one }

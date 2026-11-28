@@ -10,7 +10,7 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import type { InferredExpr, InferredQuery, InferredRule } from "#compiler/ir/desc.ts"
 import { queryInput } from "#compiler/program/input.ts"
 import { Logic, Type } from "#compiler/public/compute.ts"
-import { contract, pg } from "#compiler/public/fields.ts"
+import { contract, int4, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { key, on, relation, schema } from "#compiler/public/schema.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -43,17 +43,17 @@ export type Reached =
 
 const placingKey = Symbol("Placing")
 /** A place in a sitting's order: a whole number from 1, a domain over bigint as qti-pie's `natural` is. */
-const Placing = contract<typeof placingKey>()("Placing", pg.bigint, (x) => Logic.ge(x, 1n))
+const Placing = contract<typeof placingKey>()("Placing", int8, (x) => Logic.ge(x, 1n))
 
-const Presented = relation(
-	"Presented",
-	{ child: pg.integer, stage: pg.integer, path: pg.integer, at: pg.bigint },
-	["child", "stage", "path"]
-)
+const Presented = relation("Presented", { child: int4, stage: int4, path: int4, at: int8 }, [
+	"child",
+	"stage",
+	"path"
+])
 
 const Place = relation(
 	"Place",
-	{ child: pg.integer, stage: pg.integer, path: pg.integer, place: Placing, prior: pg.bigint },
+	{ child: int4, stage: int4, path: int4, place: Placing, prior: int8 },
 	["child", "stage", "path"]
 )
 
@@ -74,9 +74,9 @@ const queryOf = (order: Order): InferredQuery =>
 	succeeded(
 		queryInput(
 			query(Linear).rule((r) => {
-				const child = r.param("child", pg.integer)
-				const stage = r.param("stage", pg.integer)
-				const path = r.param("path", pg.integer)
+				const child = r.param("child", int4)
+				const stage = r.param("stage", int4)
+				const path = r.param("path", int4)
 				const { at: afterAt } = v(Presented, "after")
 				const { prior } = v(Place, "afterPlace")
 				const { path: memberPath, place } = v(Place, "memberPlace")

@@ -11,7 +11,7 @@ import { int8Max, int8Min } from "#compiler/ir/carriers.ts"
 import { baseOf, sameScalarType, type ScalarType } from "#compiler/ir/scalar.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { type ScalarTerm, typedTermOf } from "#compiler/scalar/compute/term.ts"
-import { pgDescriptors as descriptors } from "#compiler/scalar/pg.ts"
+import { int8 } from "#compiler/scalar/pg.ts"
 import {
 	decimal,
 	param,
@@ -236,7 +236,7 @@ type ComputeSite = "literal type" | "cast target" | "literal value"
 export type BoundaryFeature = DrawnFeature<never> | `site ${ComputeSite}`
 
 /**
- * A descriptor (live pg.bigint, or wild) at a descriptor site, or a value (a live int8 bigint, or wild) at the literal
+ * A descriptor (live int8, or wild) at a descriptor site, or a value (a live int8 bigint, or wild) at the literal
  * value.
  */
 export const boundaryCaseGen: Gen<readonly [Drawn<unknown, never>, ComputeSite]> = oneOf([
@@ -244,7 +244,7 @@ export const boundaryCaseGen: Gen<readonly [Drawn<unknown, never>, ComputeSite]>
 		[
 			source.draw(
 				lsw<unknown>({
-					live: constant<unknown>(descriptors.bigint),
+					live: constant<unknown>(int8),
 					stale: Option.none(),
 					wild: WILD_KINDS
 				})

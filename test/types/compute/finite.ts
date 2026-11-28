@@ -2,7 +2,7 @@ import { assert, defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Effect, Result, String as Str } from "effect"
 import { CompileError } from "#compiler/core/errors.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { float8, int8, numeric } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
@@ -56,18 +56,18 @@ type Vars = ReturnType<typeof varsOver>
 const Nums = relation(
 	"Nums",
 	{
-		id: pg.bigint,
-		nu: pg.numeric,
-		n2: pg.numeric(10, 2),
-		n18: pg.numeric(18, 0),
-		n19: pg.numeric(19, 0),
-		d: pg["double precision"]
+		id: int8,
+		nu: numeric,
+		n2: numeric(10, 2),
+		n18: numeric(18, 0),
+		n19: numeric(19, 0),
+		d: float8
 	},
 	["id"]
 )
 const Root = schema("Root", [Nums], [])
 
-const header = `export const Nums = relation("Nums", { id: pg.bigint, nu: pg.numeric, n2: pg.numeric(10, 2), n18: pg.numeric(18, 0), n19: pg.numeric(19, 0), d: pg["double precision"] }, ["id"])
+const header = `export const Nums = relation("Nums", { id: int8, nu: numeric, n2: numeric(10, 2), n18: numeric(18, 0), n19: numeric(19, 0), d: float8 }, ["id"])
 export const Root = schema("Root", [Nums], [])
 `
 
@@ -127,8 +127,8 @@ const subjectOf: {
 	},
 	"a double's numeric": {
 		field: "d",
-		text: "Type.cast(n.d, pg.numeric)",
-		term: (n) => computeCore.cast(n["d"], pg.numeric),
+		text: "Type.cast(n.d, numeric)",
+		term: (n) => computeCore.cast(n["d"], numeric),
 		holds: "NaN and the infinities",
 		fits: false,
 		family: "numeric"
@@ -159,29 +159,29 @@ const operationOf: {
 	},
 	"guarded cast": {
 		text: (x) =>
-			`.find({ k: Logic.when(Num.isFinite(${x}), (k) => Type.cast(k, pg.bigint), Type.literal(pg.bigint, 0n)) })`,
+			`.find({ k: Logic.when(Num.isFinite(${x}), (k) => Type.cast(k, int8), Type.literal(int8, 0n)) })`,
 		build: (matched, _, x) =>
 			matched.find({
 				k: computeCore.when(
 					computeCore.isFinite(x),
-					(k: unknown) => computeCore.cast(k, pg.bigint),
-					computeCore.literal(pg.bigint, 0n)
+					(k: unknown) => computeCore.cast(k, int8),
+					computeCore.literal(int8, 0n)
 				)
 			})
 	},
 	cast: {
-		text: (x) => `.find({ k: Type.cast(${x}, pg.bigint) })`,
-		build: (matched, _, x) => matched.find({ k: computeCore.cast(x, pg.bigint) })
+		text: (x) => `.find({ k: Type.cast(${x}, int8) })`,
+		build: (matched, _, x) => matched.find({ k: computeCore.cast(x, int8) })
 	},
 	"within cast": {
 		text: (x, family) =>
-			`.find({ k: Logic.when(Num.within(${x}, ${boundsOf[family].text[0]}, ${boundsOf[family].text[1]}), (k) => Type.cast(k, pg.bigint), Type.literal(pg.bigint, 0n)) })`,
+			`.find({ k: Logic.when(Num.within(${x}, ${boundsOf[family].text[0]}, ${boundsOf[family].text[1]}), (k) => Type.cast(k, int8), Type.literal(int8, 0n)) })`,
 		build: (matched, _, x, family) =>
 			matched.find({
 				k: computeCore.when(
 					computeCore.within(x, boundsOf[family].values[0], boundsOf[family].values[1]),
-					(k: unknown) => computeCore.cast(k, pg.bigint),
-					computeCore.literal(pg.bigint, 0n)
+					(k: unknown) => computeCore.cast(k, int8),
+					computeCore.literal(int8, 0n)
 				)
 			})
 	},

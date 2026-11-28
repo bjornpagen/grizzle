@@ -7,7 +7,7 @@ import { datePartSlices, dayNumber, toCalendarDate } from "#compiler/ir/date.ts"
 import { parseDoubleForm } from "#compiler/lower/conservative/expr/parse-double.ts"
 import { toFloat } from "#compiler/scalar/compute/cast.ts"
 import { formOctets, formSource, type LexicalTarget } from "#compiler/scalar/lexical.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 import { convertDouble } from "#compiler/scalar/values/float.ts"
 import type { Expr, TypeRef } from "#compiler/sql/ast.ts"
 import { binary, cast, lit, numericType, tableCol, types } from "#compiler/sql/build.ts"
@@ -22,7 +22,7 @@ export const roundDouble = (negative: boolean, num: bigint, den: bigint): number
 
 /** The SQL type a target's cast names, numeric's typmod included. */
 const targetType = (
-	target: Exclude<LexicalTarget, { readonly kind: "date" | "doubleText" }>
+	target: Exclude<LexicalTarget, { readonly kind: "date" | "float8Text" }>
 ): TypeRef => {
 	switch (target.kind) {
 		case "integer":
@@ -37,7 +37,7 @@ const targetType = (
 			return types.double
 		case "boolean":
 			return types.boolean
-		case "decimalText":
+		case "numericText":
 			return types.numeric
 		case "exactInteger":
 			return target.digits <= int8ExactDigits ? types.bigint : types.numeric
@@ -46,7 +46,7 @@ const targetType = (
 
 /**
  * The parse of the column `t` as grizzle prints it, as text: the cast, for a date its day number after 0001-01-01,
- * which reads no DateStyle, and for a double's text Text.parseDouble's form.
+ * which reads no DateStyle, and for a double's text Text.parseFloat8's form.
  */
 const parsedOf = (target: LexicalTarget, t: Expr): Expr => {
 	switch (target.kind) {
@@ -56,14 +56,14 @@ const parsedOf = (target: LexicalTarget, t: Expr): Expr => {
 				dateOfText(t, datePartSlices),
 				cast(lit.text("0001-01-01", types.text), types.date)
 			)
-		case "doubleText":
+		case "float8Text":
 			return parseDoubleForm(t)
 		case "integer":
 		case "exactInteger":
 		case "decimal":
 		case "double":
 		case "boolean":
-		case "decimalText":
+		case "numericText":
 			return cast(t, targetType(target))
 	}
 }
@@ -83,10 +83,10 @@ export const agrees = (target: LexicalTarget, text: string, value: unknown): boo
 		case "exactInteger":
 			return typeof value === "bigint" && BigInt(text) === value
 		case "decimal":
-		case "decimalText":
-			return value instanceof Decimal && Decimal.fromOutput(text).equals(value)
+		case "numericText":
+			return value instanceof Numeric && Numeric.fromOutput(text).equals(value)
 		case "double":
-		case "doubleText":
+		case "float8Text":
 			return sameValue(convertDouble(text), value)
 		case "boolean":
 			return value === (text === "true")

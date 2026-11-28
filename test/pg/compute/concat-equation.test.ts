@@ -1,7 +1,7 @@
 /**
  * A text's equation with a concatenation of any number of parts (scalar/compute/typing.ts concatEquation) on
  * PostgreSQL 19, decided as an equality of the text with the parts built in order under their bytes' guard,
- * `octet_length(t) = Σ octet_length(pi) AND t = CASE WHEN Σ octet_length(pi) > bytesMaxLength THEN '' ELSE p1 || … ||
+ * `octet_length(t) = Σ octet_length(pi) AND t = CASE WHEN Σ octet_length(pi) > byteaMaxLength THEN '' ELSE p1 || … ||
  * pn END`.
  *
  * - **expressions**: equations of two to five parts drawn as concatenation trees of any bracketing, over text columns,
@@ -112,7 +112,7 @@ export const anEquationWithAConcatenationOfAnyNumberOfPartsIsOnPostgreSQLTheWhol
 			},
 			{
 				file: "packages/engine/src/scalar/compute/typing.ts",
-				original: '\t\t\t[bytes, this.literal(bytesMaxLength, plainType("int4"), here)],',
+				original: '\t\t\t[bytes, this.literal(byteaMaxLength, plainType("int4"), here)],',
 				replacement: '\t\t\t[bytes, this.literal(0, plainType("int4"), here)],',
 				why: "The guard's bound is zero bytes, so PostgreSQL compares every whole of non-empty parts with the empty text, and refuses one that is the parts in order."
 			}

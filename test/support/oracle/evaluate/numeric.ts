@@ -3,7 +3,7 @@ import { fromUnits, type NumericResult } from "#compiler/scalar/compute/numeric.
 import type { Undefined } from "#compiler/scalar/compute/registry.ts"
 import {
 	compareDecimal,
-	Decimal,
+	Numeric,
 	type DecimalParts,
 	type FiniteParts,
 	roundedUnits
@@ -26,7 +26,7 @@ const units = (p: FiniteParts): bigint => (p.negative ? -p.coefficient : p.coeff
 
 const at = (p: FiniteParts, scale: number): bigint => units(p) * pow10(scale - p.minScale)
 
-const ok = (d: Decimal): NumericResult => Result.ok(d)
+const ok = (d: Numeric): NumericResult => Result.ok(d)
 
 /**
  * The weight (in NBASE digits) of a finite nonzero value: |v| = first * 10000^weight + rest, first a nonzero NBASE
@@ -45,7 +45,7 @@ const clampScale = (scale: number): number =>
 	Math.min(Math.max(scale, -maxResultScale), maxResultScale)
 
 /**
- * The oracle's numeric functions beyond the total fragment's arithmetic, over the exact Decimal carrier: rounding,
+ * The oracle's numeric functions beyond the total fragment's arithmetic, over the exact Numeric carrier: rounding,
  * truncation, ceiling and floor, gcd and lcm, the square root, width_bucket and min_scale.
  *
  * Each function computes the value the named function of src/backend/utils/adt/numeric.c returns over operands in
@@ -57,7 +57,7 @@ const clampScale = (scale: number): number =>
  *
  * numeric_round(a, s): half away from zero at scale s.
  */
-export const round = (a: Decimal, scale: number): NumericResult => {
+export const round = (a: Numeric, scale: number): NumericResult => {
 	if (!a.isFinite()) {
 		return ok(a)
 	}
@@ -67,7 +67,7 @@ export const round = (a: Decimal, scale: number): NumericResult => {
 }
 
 /** numeric_trunc(a, s): toward zero at scale s. */
-export const trunc = (a: Decimal, scale: number): NumericResult => {
+export const trunc = (a: Numeric, scale: number): NumericResult => {
 	if (!a.isFinite()) {
 		return ok(a)
 	}
@@ -83,7 +83,7 @@ export const trunc = (a: Decimal, scale: number): NumericResult => {
 }
 
 /** numeric_ceil and numeric_floor: an integer. */
-export const ceil = (a: Decimal): NumericResult => {
+export const ceil = (a: Numeric): NumericResult => {
 	if (!a.isFinite()) {
 		return ok(a)
 	}
@@ -96,7 +96,7 @@ export const ceil = (a: Decimal): NumericResult => {
 	return fromUnits(q, 0)
 }
 
-export const floor = (a: Decimal): NumericResult => {
+export const floor = (a: Numeric): NumericResult => {
 	if (!a.isFinite()) {
 		return ok(a)
 	}
@@ -120,18 +120,18 @@ export const gcdBig = (x: bigint, y: bigint): bigint => {
 }
 
 /** numeric_gcd: the largest positive value dividing both exactly; NaN for any special. */
-export const gcd = (a: Decimal, b: Decimal): NumericResult => {
+export const gcd = (a: Numeric, b: Numeric): NumericResult => {
 	if (!a.isFinite() || !b.isFinite()) {
-		return ok(Decimal.nan)
+		return ok(Numeric.nan)
 	}
 	const scale = Math.max(a.parts.minScale, b.parts.minScale)
 	return fromUnits(gcdBig(at(a.parts, scale), at(b.parts, scale)), scale)
 }
 
 /** numeric_lcm: abs(a / gcd(a, b) * b), zero when either is zero. */
-export const lcm = (a: Decimal, b: Decimal): NumericResult => {
+export const lcm = (a: Numeric, b: Numeric): NumericResult => {
 	if (!a.isFinite() || !b.isFinite()) {
-		return ok(Decimal.nan)
+		return ok(Numeric.nan)
 	}
 	const scale = Math.max(a.parts.minScale, b.parts.minScale)
 	const x = at(a.parts, scale)
@@ -162,7 +162,7 @@ export const isqrt = (n: bigint): bigint => {
  * numeric_sqrt of trim_scale(a): the root rounded half up at the scale that gives NUMERIC_MIN_SIG_DIGITS significant
  * digits, never less than the operand's least scale; a negative operand is undefined ("nonnegative").
  */
-export const sqrt = (a: Decimal): NumericResult => {
+export const sqrt = (a: Numeric): NumericResult => {
 	const p = a.parts
 	switch (p.kind) {
 		case "nan":
@@ -196,7 +196,7 @@ export const sqrt = (a: Decimal): NumericResult => {
 }
 
 /** numeric_min_scale: the least scale that writes the value exactly, undefined ("finite") for NaN and the infinities. */
-export const minScaleOf = (a: Decimal): Result.Result<number, Undefined> =>
+export const minScaleOf = (a: Numeric): Result.Result<number, Undefined> =>
 	a.isFinite() ? Result.ok(a.parts.minScale) : Result.err("finite")
 
 const int4Min = -2147483648n
@@ -210,9 +210,9 @@ const int4Max = 2147483647n
  * PostgreSQL 19 admits a NaN or infinite operand, which cmp_numerics orders above (or at the ends of) the range.
  */
 export const widthBucket = (
-	x: Decimal,
-	low: Decimal,
-	high: Decimal,
+	x: Numeric,
+	low: Numeric,
+	high: Numeric,
 	count: bigint
 ): Result.Result<bigint, Undefined> => {
 	if (count <= 0n) {

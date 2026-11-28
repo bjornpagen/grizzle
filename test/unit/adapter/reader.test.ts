@@ -10,7 +10,7 @@ import { ParamId } from "#compiler/core/ids.ts"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
 import type { RelationParamDecl } from "#compiler/ir/products.ts"
 import type { RelationColumn } from "#compiler/lower/conservative/types.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { readArrayLiteral } from "#test/support/arrays.ts"
@@ -73,7 +73,7 @@ export const everyDeclaredParameterAdmittedAtTheReadBoundaryRefusesAScalarParame
 							const { id, whole } = varsOver(Sample, "sample")
 							return r
 								.match(Sample, { id, whole })
-								.where(r.eq(whole, r.param("q", pg.integer)))
+								.where(r.eq(whole, r.param("q", int4)))
 								.find({ id })
 						})
 					const template = succeeded(compileTemplate(q, Pinned, testCompile))

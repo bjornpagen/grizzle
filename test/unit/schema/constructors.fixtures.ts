@@ -21,7 +21,7 @@ import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { untypedTerm } from "#compiler/query/build/terms.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import {
 	closedBuilder as closed,
@@ -468,7 +468,7 @@ export const agrees = (literal: LiteralDesc, expected: Expected): void => {
 	if (expected.kind === "float") {
 		assert.deepEqual(literal, expected.literal)
 	} else if (expected.kind === "numeric") {
-		assert.ok(literal instanceof Decimal, "a numeric literal is a Decimal")
+		assert.ok(literal instanceof Numeric, "a numeric literal is a Numeric")
 		assert.equal(literal.toString(), expected.text)
 	} else {
 		assert.fail(`the fault ${expected.fault}`)

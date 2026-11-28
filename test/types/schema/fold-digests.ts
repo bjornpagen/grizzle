@@ -44,8 +44,8 @@ const concatLines = (named: "texts" | "digests", at: number): ReadonlyArray<stri
 	const name = (v: string): string => (named === "texts" ? v : `${v}Digest`)
 	return [
 		`// a concat fold naming its ${named}`,
-		`export const Doc${at} = relation.generated("Doc${at}", { id: pg.integer, n: drawn(natural), text: accumulated(Text, "") }, ["id"], (row) => ({ textDigest: generated(Digest, Crypto.sha256(row.text)) }))`,
-		`export const Line${at} = relation.generated("Line${at}", { doc: pg.integer, at: drawn(natural), piece: Text, before: accumulated(Text, ""), after: accumulated(Text, "") }, ["doc", "at"], (row) => ({ beforeDigest: generated(Digest, Crypto.sha256(row.before)), afterDigest: generated(Digest, Crypto.sha256(row.after)) }))`,
+		`export const Doc${at} = relation.generated("Doc${at}", { id: int4, n: drawn(natural), text: accumulated(Text, "") }, ["id"], (row) => ({ textDigest: generated(Digest, Crypto.sha256(row.text)) }))`,
+		`export const Line${at} = relation.generated("Line${at}", { doc: int4, at: drawn(natural), piece: Text, before: accumulated(Text, ""), after: accumulated(Text, "") }, ["doc", "at"], (row) => ({ beforeDigest: generated(Digest, Crypto.sha256(row.before)), afterDigest: generated(Digest, Crypto.sha256(row.after)) }))`,
 		`export const lines${at} = ordered(on(Line${at}, "doc", "at"), fin(Doc${at}, "n"))`,
 		`export const S${at} = schema("S${at}", [Doc${at}, Line${at}], [`,
 		`\tlines${at},`,
@@ -61,8 +61,8 @@ const sumLines = (generated: "before" | "after" | "end", at: number): ReadonlyAr
 		v === generated ? `${field}Copy` : field
 	return [
 		`// a sum fold naming a generated ${generated}`,
-		`export const Account${at} = relation.generated("Account${at}", { id: pg.integer, n: drawn(natural), total: accumulated(pg.bigint, 0n) }, ["id"], (row) => ({ totalCopy: generated(pg.bigint, row.total) }))`,
-		`export const Entry${at} = relation.generated("Entry${at}", { account: pg.integer, at: drawn(natural), amount: pg.bigint, before: accumulated(pg.bigint, 0n), after: accumulated(pg.bigint, 0n) }, ["account", "at"], (row) => ({ beforeCopy: generated(pg.bigint, row.before), afterCopy: generated(pg.bigint, row.after) }))`,
+		`export const Account${at} = relation.generated("Account${at}", { id: int4, n: drawn(natural), total: accumulated(int8, 0n) }, ["id"], (row) => ({ totalCopy: generated(int8, row.total) }))`,
+		`export const Entry${at} = relation.generated("Entry${at}", { account: int4, at: drawn(natural), amount: int8, before: accumulated(int8, 0n), after: accumulated(int8, 0n) }, ["account", "at"], (row) => ({ beforeCopy: generated(int8, row.before), afterCopy: generated(int8, row.after) }))`,
 		`export const entries${at} = ordered(on(Entry${at}, "account", "at"), fin(Account${at}, "n"))`,
 		`export const S${at} = schema("S${at}", [Account${at}, Entry${at}], [`,
 		`\tentries${at},`,

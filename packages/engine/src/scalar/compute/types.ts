@@ -85,7 +85,7 @@ export const literalNumeric = (parts: DecimalParts): ScalarType =>
 	)
 
 /**
- * Every numeric value: numeric of no typmod at numeric's own limits, pg.numeric's type (scalar/registry.ts
+ * Every numeric value: numeric of no typmod at numeric's own limits, numeric's type (scalar/registry.ts
  * numericOwnLimits). What a literal adopts before its own value bounds it, and what an overload is looked up by.
  */
 export const anyNumeric: ScalarType = numericOwnLimits

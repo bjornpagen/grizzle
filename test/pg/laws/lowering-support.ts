@@ -14,7 +14,7 @@
  * order a deployment creates them.
  */
 import type { SchemaDesc } from "#compiler/ir/desc.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, derived, key, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -26,16 +26,16 @@ import { schemaDescIn } from "#test/support/policy.ts"
 export const A = relation(
 	"A",
 	{
-		id: pg.integer,
-		kind: pg.integer,
-		grp: pg.integer,
-		v: pg.integer,
+		id: int4,
+		kind: int4,
+		grp: int4,
+		v: int4,
 		txt: str.regex("^.*$", "su")
 	},
 	["id"]
 )
-export const B = relation("B", { id: pg.integer, grp: pg.integer, tag: pg.integer }, ["id"])
-export const S = relation("S", { sid: pg.integer, x: pg.integer, y: pg.integer }, ["sid"])
+export const B = relation("B", { id: int4, grp: int4, tag: int4 }, ["id"])
+export const S = relation("S", { sid: int4, x: int4, y: int4 }, ["sid"])
 
 /** The stored relations, every one a case writes. */
 export const RELATIONS = ["A", "B", "S"] as const

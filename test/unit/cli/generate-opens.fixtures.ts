@@ -2,7 +2,7 @@ import { type Gen, int, map } from "@bjornpagen/testing/gen"
 import { Record as Rec } from "effect"
 import { noServedTypes } from "#compiler/physical/ddl/domains.ts"
 import type { InstalledSource } from "#compiler/program/schema.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { bool } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { login, relation, role, schema, type RelationName } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
@@ -48,9 +48,9 @@ const side = <const Name extends string>(
 	prefix: string,
 	count: number
 ) => {
-	const fields: Readonly<Record<string, typeof Id | typeof pg.boolean>> = {
+	const fields: Readonly<Record<string, typeof Id | typeof bool>> = {
 		id: Id,
-		...Rec.fromEntries(upTo(count, (i) => [`${prefix}${i}`, pg.boolean] as const))
+		...Rec.fromEntries(upTo(count, (i) => [`${prefix}${i}`, bool] as const))
 	}
 	return relation(name, fields, ["id"])
 }

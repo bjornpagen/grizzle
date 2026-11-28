@@ -7,7 +7,7 @@ import { Array as Arr, Option, Order } from "effect"
 import type { Family } from "#compiler/ir/family.ts"
 import { familyKey } from "#compiler/ir/law.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
-import { drawn, natural, pg } from "#compiler/public/fields.ts"
+import { drawn, natural, int8 } from "#compiler/public/fields.ts"
 import { counted, fin, mutable, on, relation, schema, tree, unit } from "#compiler/public/schema.ts"
 import type { Binding, CountedFamily } from "#compiler/runtime/write/binding.ts"
 import type { FillFamily, FillRelation } from "#compiler/runtime/write/fill.ts"
@@ -38,7 +38,7 @@ const Node = relation(
 		children: drawn(natural),
 		start: drawn(natural),
 		end: drawn(natural),
-		label: pg.bigint
+		label: int8
 	},
 	["root", "start"]
 )

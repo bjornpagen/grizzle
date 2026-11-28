@@ -26,7 +26,7 @@ import { Array as Arr, Effect, Option, Order, String as Str } from "effect"
 import { type CompareOp, compareOps } from "#compiler/ir/desc.ts"
 import { lawsByStatement, lawsOf } from "#compiler/program/laws.ts"
 import { Logic, Num, Text } from "#compiler/public/compute.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { bool, float8, int4, int8 } from "#compiler/public/fields.ts"
 import { key, on, relation, schema, select } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import type { PredicateBase } from "#compiler/types/core/phantom.ts"
@@ -36,11 +36,11 @@ const Member = relation(
 	"Member",
 	{
 		id: Id,
-		captain: pg.boolean,
-		number: pg.integer,
-		total: pg.bigint,
+		captain: bool,
+		number: int4,
+		total: int8,
 		code: str.regex("^[a-z]{1,8}$", "u"),
-		weight: pg["double precision"]
+		weight: float8
 	},
 	["id"]
 )

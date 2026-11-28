@@ -5,7 +5,7 @@ import { characterOf, element, type Gen, int, string, weighted } from "@bjornpag
 import { Array as Arr, String as Str } from "effect"
 import { maxIdentifierBytes } from "#compiler/core/identity.ts"
 import { closed as dynamicClosed, relation as dynamicRelation } from "#compiler/public/dynamic.ts"
-import { closedId, generated, pg } from "#compiler/public/fields.ts"
+import { closedId, generated, int4 } from "#compiler/public/fields.ts"
 import { closed, relation } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
@@ -205,7 +205,7 @@ export type BuilderFeature =
 
 /** The roster a closed relation's key is over, the relation a derived relation reads, and the level they are in. */
 const Kind = closed.ordered("Kind", ["a", "b"])
-const Item = relation("Item", { id: pg.integer }, ["id"])
+const Item = relation("Item", { id: int4 }, ["id"])
 const Level = schemaBuilder("Level", [Item], [], [])
 const itemIds = queryOver(Level).rule((r: RuleValue) => {
 	const { id } = varsOver(Item, "item")
@@ -219,10 +219,10 @@ const itemIds = queryOver(Level).rule((r: RuleValue) => {
 export const builtNamed = (builder: NameBuilder, name: string): unknown => {
 	switch (builder) {
 		case "relation":
-			return dynamicRelation(name, { id: pg.integer }, ["id"])
+			return dynamicRelation(name, { id: int4 }, ["id"])
 		case "relation.generated":
-			return dynamicRelation.generated(name, { id: pg.integer, n: pg.integer }, ["id"], (r) => ({
-				m: generated(pg.integer, r.n)
+			return dynamicRelation.generated(name, { id: int4, n: int4 }, ["id"], (r) => ({
+				m: generated(int4, r.n)
 			}))
 		case "closed.ordered":
 			return dynamicClosed.ordered(name, ["a", "b"])
@@ -231,7 +231,7 @@ export const builtNamed = (builder: NameBuilder, name: string): unknown => {
 		case "closed.relation":
 			return dynamicClosed.relation(
 				name,
-				{ kind: closedId(Kind), w: pg.integer },
+				{ kind: closedId(Kind), w: int4 },
 				["kind"],
 				[{ kind: "a", w: 1 }]
 			)
@@ -242,6 +242,6 @@ export const builtNamed = (builder: NameBuilder, name: string): unknown => {
 		case "schema.extend":
 			return schemaBuilder.extend([Level], name, [], [], [])
 		case "contract":
-			return contractParts(name, pg.integer, [])
+			return contractParts(name, int4, [])
 	}
 }

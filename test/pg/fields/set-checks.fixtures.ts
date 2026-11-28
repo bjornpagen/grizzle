@@ -2,7 +2,7 @@
 import { finite, subset } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { Bits, bits, pg } from "#compiler/public/fields.ts"
+import { Bit, bit, int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { check, closed, relation, schema } from "#compiler/public/schema.ts"
 import { fixtureTemplate } from "#test/support/pg/reads/support.ts"
@@ -10,18 +10,18 @@ import { fixtureTemplate } from "#test/support/pg/reads/support.ts"
 const handles = ["a", "b", "c"] as const
 type Handle = (typeof handles)[number]
 export const Flag = closed.ordered("Flag", handles)
-const R = relation("R", { id: pg.integer, flags: bits(Flag) }, ["id"])
+const R = relation("R", { id: int4, flags: bit(Flag) }, ["id"])
 
 /** The set value Apart holds R's flags apart from, the one Within holds them within, and Split's other side. */
 const apartFrom: ReadonlyArray<Handle> = ["a"]
 const withinOf: ReadonlyArray<Handle> = ["a", "b"]
 const otherSide: ReadonlyArray<Handle> = ["b", "c"]
-const apart = check("Apart", R, (r) => r.eq(Bits.disjoint(r.flags, Bits.of(Flag, apartFrom)), true))
-const within = check("Within", R, (r) => r.eq(Bits.subset(r.flags, Bits.of(Flag, withinOf)), true))
+const apart = check("Apart", R, (r) => r.eq(Bit.disjoint(r.flags, Bit.of(Flag, apartFrom)), true))
+const within = check("Within", R, (r) => r.eq(Bit.subset(r.flags, Bit.of(Flag, withinOf)), true))
 const split = check("Split", R, (r) =>
 	r.or([
-		r.eq(Bits.subset(r.flags, Bits.of(Flag, withinOf)), true),
-		r.eq(Bits.subset(r.flags, Bits.of(Flag, otherSide)), true)
+		r.eq(Bit.subset(r.flags, Bit.of(Flag, withinOf)), true),
+		r.eq(Bit.subset(r.flags, Bit.of(Flag, otherSide)), true)
 	])
 )
 export const Sets = schema("SetChecks", [Flag, R], [apart, within, split])
@@ -36,8 +36,8 @@ const programs = Object.freeze({
 		const { id, flags } = v(R, "r")
 		return r.match(R, { id, flags }).find({
 			id,
-			apart: Bits.disjoint(flags, Bits.of(Flag, ["b"])),
-			joined: Bits.union(flags, Bits.of(Flag, ["c"]))
+			apart: Bit.disjoint(flags, Bit.of(Flag, ["b"])),
+			joined: Bit.union(flags, Bit.of(Flag, ["c"]))
 		})
 	})
 })

@@ -30,20 +30,20 @@ import {
 } from "#test/support/oracle/allen.ts"
 import { cyclicAt, elementAt } from "#test/support/oracle/pick.ts"
 
-export const spanEndpointKinds = ["integer", "bigint", "contract", "date"] as const
+export const spanEndpointKinds = ["int4", "int8", "contract", "date"] as const
 export type SpanEndpointKind = (typeof spanEndpointKinds)[number]
 
 /** The range type of a span field: int4range, int8range or daterange. */
 type SpanRangeType = "int4range" | "int8range" | "daterange"
 
 /**
- * int4range for pg.integer endpoints, int8range for pg.bigint and contracts over it, daterange for date endpoints.
+ * int4range for int4 endpoints, int8range for int8 and contracts over it, daterange for date endpoints.
  */
 const rangeTypeOf = (endpoint: SpanEndpointKind): SpanRangeType => {
 	switch (endpoint) {
-		case "integer":
+		case "int4":
 			return "int4range"
-		case "bigint":
+		case "int8":
 		case "contract":
 			return "int8range"
 		case "date":
@@ -66,9 +66,9 @@ const dateAt = (offset: bigint): CalendarDate => dateOfDayNumber(dateOrigin + of
  */
 const endpointLimits = (endpoint: SpanEndpointKind): SpanLimits => {
 	switch (endpoint) {
-		case "integer":
+		case "int4":
 			return rangeLimits.int4range
-		case "bigint":
+		case "int8":
 		case "contract":
 			return rangeLimits.int8range
 		case "date":
@@ -96,17 +96,17 @@ const tickContract = { name: "Tick", low: -100n } as const
 
 const endpointFieldDesc = (endpoint: SpanEndpointKind): FieldDesc => {
 	switch (endpoint) {
-		case "integer":
-			return { kind: "pg", type: "integer" }
-		case "bigint":
-			return { kind: "pg", type: "bigint" }
+		case "int4":
+			return { kind: "pg", type: "int4" }
+		case "int8":
+			return { kind: "pg", type: "int8" }
 		case "date":
 			return { kind: "pg", type: "date" }
 		case "contract":
 			return {
 				kind: "contract",
 				name: tickContract.name,
-				base: { kind: "pg", type: "bigint" },
+				base: { kind: "pg", type: "int8" },
 				predicate: {
 					kind: "compare",
 					op: "ge",
@@ -125,7 +125,7 @@ const spanFieldDesc = (endpoint: SpanEndpointKind): FieldDesc => ({
 })
 
 /**
- * The host value of an endpoint: a JavaScript integer for pg.integer, a bigint for pg.bigint and the Tick contract, the
+ * The host value of an endpoint: a JavaScript integer for int4, a bigint for int8 and the Tick contract, the
  * CalendarDate of its day offset for a date.
  */
 const endpointHost = (
@@ -133,9 +133,9 @@ const endpointHost = (
 	value: bigint
 ): number | bigint | CalendarDate => {
 	switch (endpoint) {
-		case "integer":
+		case "int4":
 			return Number(value)
-		case "bigint":
+		case "int8":
 		case "contract":
 			return value
 		case "date":
@@ -257,7 +257,7 @@ export const spanSchemaDesc = (schema: SpanSchema): SchemaDesc => {
 		const fields: Record<string, FieldDesc> = {}
 		for (const field of spanRelationFields(relation)) {
 			fields[field] =
-				field === "during" ? spanFieldDesc(schema.endpoint) : { kind: "pg", type: "integer" }
+				field === "during" ? spanFieldDesc(schema.endpoint) : { kind: "pg", type: "int4" }
 		}
 		return storedRelation(relation.name, fields, spanPrimaryKey(relation))
 	}
@@ -396,7 +396,7 @@ const resolveQuery = (endpoint: SpanEndpointKind, sketch: QuerySketch): SpanQuer
  *   the endpoint classifier of test/support/oracle/allen.ts, never from the shipped mask table.
  *
  * The schema: two relations, Left and Right, each with a scalar `group` and a span
- * field `during` over pg.integer, pg.bigint, the contract Tick over pg.bigint, or date. Each relation is
+ * field `during` over int4, int8, the contract Tick over int8, or date. Each relation is
  * either span-keyed, primary key ["group", "during"], a pointwise nonoverlap rule per group, or keyed by
  * an integer `id`, so its facts overlap freely and repeat a (group, during) pair under different ids (facts
  * with different identities are distinct). The fact generator keeps a span-keyed relation lawful: a row that
@@ -455,7 +455,7 @@ const caseSketchGen =
 const resolveCase =
 	<S, Q>(resolve: (endpoint: SpanEndpointKind, sketch: S) => Q) =>
 	(sketch: CaseSketch<S>): CaseOf<Q> => {
-		const endpoint = cyclicAt(spanEndpointKinds, sketch.endpoint, "the span endpoints")
+		const endpoint = cyclicAt(spanEndpointKinds, sketch.endpoint, "the range endpoints")
 		const schema: SpanSchema = {
 			endpoint,
 			relations: {
@@ -690,14 +690,14 @@ export const spanVariantOf = (c: { readonly schema: SpanSchema }): SpanVariant =
 export const bySpanVariant = <A>(
 	make: (endpoint: SpanEndpointKind, left: Keying, right: Keying) => A
 ): Readonly<Record<SpanVariant, A>> => ({
-	"integer span span": make("integer", "span", "span"),
-	"integer span id": make("integer", "span", "id"),
-	"integer id span": make("integer", "id", "span"),
-	"integer id id": make("integer", "id", "id"),
-	"bigint span span": make("bigint", "span", "span"),
-	"bigint span id": make("bigint", "span", "id"),
-	"bigint id span": make("bigint", "id", "span"),
-	"bigint id id": make("bigint", "id", "id"),
+	"int4 span span": make("int4", "span", "span"),
+	"int4 span id": make("int4", "span", "id"),
+	"int4 id span": make("int4", "id", "span"),
+	"int4 id id": make("int4", "id", "id"),
+	"int8 span span": make("int8", "span", "span"),
+	"int8 span id": make("int8", "span", "id"),
+	"int8 id span": make("int8", "id", "span"),
+	"int8 id id": make("int8", "id", "id"),
 	"contract span span": make("contract", "span", "span"),
 	"contract span id": make("contract", "span", "id"),
 	"contract id span": make("contract", "id", "span"),
@@ -771,7 +771,7 @@ export const printSpanCase = (c: SpanCase): string =>
 	Arr.join([factsText(c), `query ${queryText(c.schema.endpoint, c.query)}`], "\n")
 
 /**
- * A span from its ends (r.span): over a Left and a Right fact of one group, from the Left span's start to the Right
+ * A range from its ends (r.range): over a Left and a Right fact of one group, from the Left span's start to the Right
  * span's end (`join`); or over one relation's facts, from each span's start to a point, a parameter or a literal of the
  * endpoint's type, a typed constant (`to`). Each yields a fact where its start lies before its end and none elsewhere, so
  * it reaches the empty and the reversed pair as often as the nonempty one.
@@ -813,7 +813,7 @@ export const endsCaseGen: Gen<EndsCase> = map(
 	resolveCase(resolveEnds)
 )
 
-/** r.span(lower(start), end), the endpoint descriptor reading the span's ends. */
+/** r.range(lower(start), end), the endpoint descriptor reading the span's ends. */
 const endsHead = (start: ExprDesc, end: ExprDesc): HeadTermDesc => ({
 	kind: "producer",
 	fn: "span",

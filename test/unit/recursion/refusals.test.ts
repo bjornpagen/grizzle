@@ -602,7 +602,7 @@ export const unboundedComputedStateAdmitsOnlyACounterOverAnIntegerCarrierBounded
 		finite(
 			(source) =>
 				[
-					source.draw(element<CounterCarrier>(["integer", "numeric"])),
+					source.draw(element<CounterCarrier>(["int4", "numeric"])),
 					source.draw(
 						element<Bound>(["current below", "current above", "either of two", "next below"])
 					),
@@ -613,10 +613,10 @@ export const unboundedComputedStateAdmitsOnlyACounterOverAnIntegerCarrierBounded
 			needs: {},
 			situations: [
 				"a bounded counter",
-				"refused integer current above plus one",
-				"refused integer either of two plus one",
-				"refused integer next below plus one",
-				"refused integer current below times two",
+				"refused int4 current above plus one",
+				"refused int4 either of two plus one",
+				"refused int4 next below plus one",
+				"refused int4 current below times two",
 				"refused numeric current below plus one"
 			] satisfies ReadonlyArray<Reached<UnboundedFeature>>,
 			check:
@@ -624,9 +624,9 @@ export const unboundedComputedStateAdmitsOnlyACounterOverAnIntegerCarrierBounded
 				([carrier, bound, advance]) =>
 					Effect.sync(() => {
 						const type: FieldDesc =
-							carrier === "integer" ? integer : { kind: "numeric", precision: 1000, scale: 0 }
+							carrier === "int4" ? integer : { kind: "numeric", precision: 1000, scale: 0 }
 						const k = (n: number) =>
-							carrier === "integer"
+							carrier === "int4"
 								? typedLit(n, type)
 								: typedLit(defined(DecimalText.parse(String(n))), type)
 						const hops = s("hops")
@@ -659,7 +659,7 @@ export const unboundedComputedStateAdmitsOnlyACounterOverAnIntegerCarrierBounded
 							]
 						)
 						const outcome = outcomeOf(desc)
-						if (carrier === "integer" && bound === "current below" && advance === "plus one") {
+						if (carrier === "int4" && bound === "current below" && advance === "plus one") {
 							c.note("a bounded counter")
 							assert.equal(theRecursive(admitted(outcome)).termination.kind, "boundedState")
 							return
@@ -701,7 +701,7 @@ export const unboundedComputedStateRefusesACycleOfComputedColumnsEachComputedFro
 							const other = column === "a" ? "b" : "a"
 							switch (t) {
 								case "the other plus one":
-									return narrowed(compute("add", s(other), typedLit(1, integer)), "integer")
+									return narrowed(compute("add", s(other), typedLit(1, integer)), "int4")
 								case "itself plus one":
 									return compute("add", s(column), typedLit(1, integer))
 								case "copied":

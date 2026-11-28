@@ -21,7 +21,7 @@ import {
 	warmedOnce
 } from "#bench/write/support/writes.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import type { ParamMap } from "#compiler/types/core/phantom.ts"
@@ -45,8 +45,8 @@ import { refusedLaws, refusedEntries } from "#test/support/refused.ts"
  * steps), and an array member whose call repeats a fact; and the cost of a described insert of N facts with and
  * without that evidence, each member compiled once before its samples.
  */
-const Item = relation("Item", { id: pg.bigint, v: pg.integer }, ["id"])
-const Src = relation("Src", { id: pg.bigint, v: pg.integer }, ["id"])
+const Item = relation("Item", { id: int8, v: int4 }, ["id"])
+const Src = relation("Src", { id: int8, v: int4 }, ["id"])
 const build = (name: string) => schema(name, [Item, Src], [])
 
 interface Options extends Readonly<Record<string, unknown>> {
@@ -118,7 +118,7 @@ export default defineGate({
 			const folded = ChangeSet.empty(S).insert(
 				Item,
 				query(S).rule((r) => {
-					const rows = r.relation("rows", { n: pg.integer, v: pg.integer })
+					const rows = r.relation("rows", { n: int4, v: int4 })
 					const { n, v: x } = v(rows, "rows")
 					return r.match(rows, { n, v: x }).find({ id: r.param("key", Item.fields.id), v: x })
 				})
@@ -130,7 +130,7 @@ export default defineGate({
 					const { id, v: x } = v(Src, "src")
 					return r
 						.match(Src, { id, v: x })
-						.where(r.ge(id, r.param("from", pg.bigint)), r.lt(id, r.param("to", pg.bigint)))
+						.where(r.ge(id, r.param("from", int8)), r.lt(id, r.param("to", int8)))
 						.find({ id, v: x })
 				})
 			)
@@ -138,7 +138,7 @@ export default defineGate({
 			const fromIds = ChangeSet.empty(S).insert(
 				Item,
 				query(S).rule((r) => {
-					const rows = r.relation("rows", { n: pg.bigint, v: pg.integer })
+					const rows = r.relation("rows", { n: int8, v: int4 })
 					const { n, v: x } = v(rows, "rows")
 					return r.match(rows, { n, v: x }).find({ id: n, v: x })
 				})

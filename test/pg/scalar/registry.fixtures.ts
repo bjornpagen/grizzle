@@ -137,7 +137,7 @@ export const unspanned: Readonly<Partial<Record<Carrier, string>>> = {
 	date: "daterange: grizzle declares no span carrier over a date yet"
 }
 
-/** What a carrier reached: an excluded native capability, and its span endpoints against the discrete ranges. */
+/** What a carrier reached: an excluded native capability, and its range endpoints against the discrete ranges. */
 export type CarrierFeature =
 	| "a native capability excluded"
 	| "a spannable carrier"
@@ -237,6 +237,23 @@ export const probe = (db: CaseSession, spellings: ReadonlyArray<string>) =>
 		),
 		(rows) => Arr.map(rows, (r) => String(r[0]))
 	)
+
+/**
+ * The pg_type.typname PostgreSQL stores a column of each spelling as, in their order: a temporary table of one column of
+ * the spelling, its attribute's type read off pg_type and the table dropped, in the case's transaction.
+ */
+export const typnamesOf = (db: CaseSession, spellings: ReadonlyArray<string>) =>
+	Effect.forEach(spellings, (spelling) =>
+		Effect.gen(function* () {
+			yield* db.query(`CREATE TEMPORARY TABLE typname_t (v ${spelling})`, [])
+			const rows = yield* db.values(
+				"SELECT t.typname::text FROM pg_catalog.pg_attribute AS a JOIN pg_catalog.pg_type AS t ON t.oid = a.atttypid WHERE a.attrelid = 'typname_t'::regclass AND a.attname = 'v'",
+				[]
+			)
+			yield* db.query("DROP TABLE typname_t", [])
+			return Arr.map(rows, (row) => String(row[0]))
+		})
+	).pipe(Effect.map(Arr.flatten))
 
 export const accepts = (f: () => unknown): boolean => Result.isSuccess(Result.try(f))
 

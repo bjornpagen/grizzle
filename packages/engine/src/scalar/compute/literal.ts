@@ -10,7 +10,7 @@ import type { LiteralDesc } from "#compiler/ir/desc.ts"
 import { type TypedLiteral, literalProblem } from "#compiler/ir/expr.ts"
 import { baseOf, type Carrier, type ScalarType, typeLabel } from "#compiler/ir/scalar.ts"
 import {
-	Decimal,
+	Numeric,
 	integerOfDecimal,
 	normalizeNumeric,
 	parseNumeric,
@@ -29,7 +29,7 @@ const isSafeInteger = (value: unknown): value is number =>
 
 /**
  * The host type of a literal that meets no term, the rule of Logic.cond when both branches are literals: a
- * JavaScript number is an integer, a bigint a bigint, a Decimal numeric, a Money money, a boolean a boolean, and
+ * JavaScript number is an integer, a bigint a bigint, a Numeric numeric, a Money money, a boolean a boolean, and
  * a string text with the canonical wildcard. A float, a span or a vector literal always meets a term.
  */
 type BareLiteralKind = "integer" | "bigint" | "numeric" | "money" | "boolean" | "text"
@@ -41,7 +41,7 @@ export const bareLiteralKind = (value: unknown): BareLiteralKind | undefined => 
 	if (typeof value === "bigint") {
 		return "bigint"
 	}
-	if (value instanceof Decimal || isDecimalLike(value)) {
+	if (value instanceof Numeric || isDecimalLike(value)) {
 		return "numeric"
 	}
 	if (value instanceof Money || taggedValueOf(value)?.tag === "m") {
@@ -100,7 +100,7 @@ const taggedMoney = (value: unknown): Money | undefined => {
 /**
  * Literal operands of the scalar catalogue.
  *
- * LiteralOf<T>: a literal over a numeric base is a Decimal, a bigint, or a string holding an exact decimal literal,
+ * LiteralOf<T>: a literal over a numeric base is a Numeric, a bigint, or a string holding an exact decimal literal,
  * checked at construction; a JavaScript number is never a numeric literal, because it has already rounded to binary64.
  * Literals over smallint and integer are JavaScript integers, over bigint and an exact integer bigints, over real and
  * double precision JavaScript numbers (NaN and the infinities included), over money and exact money a Money, each the
@@ -127,9 +127,9 @@ export const irLiteral = (value: LiteralDesc, t: ScalarType): Result.Result<Type
 		return problem === undefined ? Result.ok(literal) : Result.err(problem)
 	})
 
-/** A numeric literal's exact decimal: a Decimal, a bigint or a decimal string, as the Description carries it. */
-const decimalOfLiteral = (value: LiteralDesc): Result.Result<Decimal, unknown> =>
-	isDecimalLike(value) ? Decimal.fromString(decimalPayload(value)) : Decimal.parse(value)
+/** A numeric literal's exact decimal: a Numeric, a bigint or a decimal string, as the Description carries it. */
+const decimalOfLiteral = (value: LiteralDesc): Result.Result<Numeric, unknown> =>
+	isDecimalLike(value) ? Numeric.fromString(decimalPayload(value)) : Numeric.parse(value)
 
 /**
  * Why a bare literal opposite a term of type `t` is no value of t as written, or none: the one rule of a literal that
@@ -240,7 +240,7 @@ const literalOf = (value: LiteralDesc, t: ScalarType): Result.Result<TypedLitera
 		case "numeric": {
 			if (typeof value === "number") {
 				return Result.err(
-					"an exact decimal: a Decimal, a bigint or a decimal string, never a JavaScript number"
+					"an exact decimal: a Numeric, a bigint or a decimal string, never a JavaScript number"
 				)
 			}
 			const parsed = decimalOfLiteral(value)
@@ -336,7 +336,7 @@ const literalOf = (value: LiteralDesc, t: ScalarType): Result.Result<TypedLitera
 		case "text":
 			return typeof value === "string" ? Result.ok({ kind: "text", value }) : Result.err("a string")
 		case "bytes":
-			return Result.err("no literal: a bytes value is written and read back whole")
+			return Result.err("no literal: a bytea value is written and read back whole")
 		case "sha256": {
 			const text =
 				isRecord(value) && Object.hasOwn(value, "sha256") && "sha256" in value
@@ -362,18 +362,18 @@ const literalOf = (value: LiteralDesc, t: ScalarType): Result.Result<TypedLitera
 		case "range8":
 		case "rangeDate": {
 			if (!isRecord(value) || !Object.hasOwn(value, "span") || !("span" in value)) {
-				return Result.err("a span { start, end }")
+				return Result.err("a range { start, end }")
 			}
 			const span: unknown = value.span
 			if (!isRecord(span)) {
-				return Result.err("a span's endpoints")
+				return Result.err("a range's endpoints")
 			}
 			const position = base.carrier === "rangeDate" ? dayPosition : asBigint
 			const start = position(span["start"])
 			const end = position(span["end"])
 			if (start === undefined || end === undefined) {
 				return Result.err(
-					base.carrier === "rangeDate" ? "date span endpoints" : "integer span endpoints"
+					base.carrier === "rangeDate" ? "date range endpoints" : "integer range endpoints"
 				)
 			}
 			return Result.ok({ kind: "span", start, end })
@@ -400,7 +400,7 @@ const spanHost = (
 	literal: Extract<TypedLiteral, { readonly kind: "span" }>
 ): Span<number> | Span<bigint> | Span<CalendarDate> => {
 	if (carrier !== "range4" && carrier !== "range8" && carrier !== "rangeDate") {
-		defect(`a span literal is a value of a span type, not of ${carrier}`)
+		defect(`a range literal is a value of a range type, not of ${carrier}`)
 	}
 	switch (carrier) {
 		case "range4":
@@ -425,7 +425,7 @@ export const integerHostOf = (carrier: Carrier, value: bigint): number | bigint 
 /**
  * The host value of a typed literal at its type's carrier `carrier`, the codec's own (scalar/values/identity.ts
  * CarrierHost): what the evaluator holds a literal as, a fill writes a literal start as and a closed relation's cell is
- * read as. A literal over smallint or integer is a JavaScript integer and over bigint a bigint, a numeric a Decimal,
+ * read as. A literal over smallint or integer is a JavaScript integer and over bigint a bigint, a numeric a Numeric,
  * money a Money, a float a number, a set the fresh Set of its handles, an int4 span's endpoints JavaScript integers and
  * a date span's the dates its day numbers are, a vector a fresh Vector of its components. A numeric literal at the
  * exact integer's carrier is an integer numeric field's (values/identity.ts CarrierSpec), its bigint. The one conversion
@@ -433,7 +433,7 @@ export const integerHostOf = (carrier: Carrier, value: bigint): number | bigint 
  */
 /** A literal of an integer numeric, numeric(p, 0), as its field holds it, a bigint: its stored literal refused a fraction
  * and NaN (scalar/literal.ts storedLiteral), so any other is a defect. */
-const integerOfLiteral = (d: Decimal): bigint => {
+const integerOfLiteral = (d: Numeric): bigint => {
 	const x = integerOfDecimal(d)
 	if (x === undefined) {
 		defect("a literal of numeric(p, 0) is an integer")
@@ -446,7 +446,7 @@ export const hostOfLiteral = (carrier: Carrier, literal: TypedLiteral): HostValu
 		case "int":
 			return integerHostOf(carrier, literal.value)
 		case "numeric": {
-			const d = Decimal.fromValue(literal.value)
+			const d = Numeric.fromValue(literal.value)
 			return carrier === "exactInteger" ? integerOfLiteral(d) : d
 		}
 		case "float":
@@ -541,7 +541,7 @@ export const literalOfHost = (value: HostValue, type: ScalarType): TypedLiteral 
 			return { kind: "vector", value: text.value }
 		}
 		case "bytes":
-			defect(`a constant of ${typeLabel(type)}: a bytes value has no literal`)
+			defect(`a constant of ${typeLabel(type)}: a bytea value has no literal`)
 		case "tsvector":
 			defect(`a constant of ${typeLabel(type)}: a search document has no literal`)
 		case "variant":

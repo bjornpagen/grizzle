@@ -10,9 +10,19 @@ import {
 	date,
 	exactInteger,
 	exactMoney,
-	pg,
-	span,
-	Vector
+	range,
+	Vector,
+	bool,
+	cidr,
+	float4,
+	float8,
+	inet,
+	int2,
+	int4,
+	int8,
+	money,
+	numeric,
+	vector
 } from "#compiler/public/fields.ts"
 import {
 	key,
@@ -41,7 +51,7 @@ import { Id } from "#test/support/ids.ts"
 import { argumentsOf, nonEmptyArgumentsOf } from "#test/support/list.ts"
 import {
 	fixedTypmod,
-	numeric,
+	numeric as numericType,
 	vectorDimensions,
 	wideNumericTypmod
 } from "#test/support/oracle/gen/domain.ts"
@@ -97,28 +107,28 @@ type RelationValue = Relation<
 
 const tickKey = Symbol("Tick")
 /** The contract a tick field declares: one value, so every relation's tick field is one domain. */
-const tick = contract<typeof tickKey>()("Tick", pg.bigint)
+const tick = contract<typeof tickKey>()("Tick", int8)
 
 const descriptor = (kind: FieldKind, roster: RosterValue): FieldBase => {
 	switch (kind) {
 		case "int2":
-			return pg.smallint
+			return int2
 		case "int4":
-			return pg.integer
+			return int4
 		case "int8":
-			return pg.bigint
+			return int8
 		case "numeric":
-			return pg.numeric(wideNumericTypmod.precision, wideNumericTypmod.scale)
+			return numeric(wideNumericTypmod.precision, wideNumericTypmod.scale)
 		case "fixed":
-			return pg.numeric(fixedTypmod.precision, fixedTypmod.scale)
+			return numeric(fixedTypmod.precision, fixedTypmod.scale)
 		case "float4":
-			return pg.real
+			return float4
 		case "float8":
-			return pg["double precision"]
+			return float8
 		case "money":
-			return pg.money
+			return money
 		case "bool":
-			return pg.boolean
+			return bool
 		case "text":
 			return text
 		case "prose":
@@ -128,13 +138,13 @@ const descriptor = (kind: FieldKind, roster: RosterValue): FieldBase => {
 		case "handle":
 			return closedId(roster)
 		case "span4":
-			return span(pg.integer)
+			return range(int4)
 		case "span8":
-			return span(pg.bigint)
+			return range(int8)
 		case "tick":
 			return tick
 		case "vector":
-			return pg.vector(vectorDimensions)
+			return vector(vectorDimensions)
 	}
 }
 
@@ -152,21 +162,21 @@ const paramDescriptor = (param: Param, roster: RosterValue): FieldBase => {
 	const type = param.type
 	switch (type.carrier) {
 		case "int2":
-			return pg.smallint
+			return int2
 		case "int4":
-			return pg.integer
+			return int4
 		case "int8":
-			return pg.bigint
+			return int8
 		case "numeric":
-			return pg.numeric(wideNumericTypmod.precision, wideNumericTypmod.scale)
+			return numeric(wideNumericTypmod.precision, wideNumericTypmod.scale)
 		case "float4":
-			return pg.real
+			return float4
 		case "float8":
-			return pg["double precision"]
+			return float8
 		case "money":
-			return pg.money
+			return money
 		case "bool":
-			return pg.boolean
+			return bool
 		case "text":
 			return prose
 		case "uuid":
@@ -174,9 +184,9 @@ const paramDescriptor = (param: Param, roster: RosterValue): FieldBase => {
 		case "date":
 			return date
 		case "inet":
-			return pg.inet
+			return inet
 		case "cidr":
-			return pg.cidr
+			return cidr
 		case "code":
 			return closedId(roster)
 		case "sha256":
@@ -187,13 +197,13 @@ const paramDescriptor = (param: Param, roster: RosterValue): FieldBase => {
 		case "bits":
 			throw new Error("a parameter of a set, which no drawn field declares")
 		case "range4":
-			return span(pg.integer)
+			return range(int4)
 		case "range8":
-			return span(pg.bigint)
+			return range(int8)
 		case "rangeDate":
-			return span(date)
+			return range(date)
 		case "vector":
-			return pg.vector(vectorDimensions)
+			return vector(vectorDimensions)
 		case "exactInteger":
 			return exactInteger
 		case "exactMoney":
@@ -317,7 +327,7 @@ export const buildSchema = (s: ProgramSchema): BuiltSchema => {
 
 /**
  * The host value an application passes for a literal of `type`: an integer as a number, a bigint as a bigint, numeric
- * as a Decimal, a float as a number (NaN and the infinities included), money as a Money, a handle as its name, a set as
+ * as a Numeric, a float as a number (NaN and the infinities included), money as a Money, a handle as its name, a set as
  * the Set of its handles.
  */
 export const hostValue = (literal: TypedLiteral, type: ScalarType): unknown => {
@@ -427,14 +437,14 @@ const compare = (r: RuleValue, op: CompareOp, left: unknown, right: unknown): un
 
 /**
  * A padding through the catalogue's admission cores: Logic.when(Num.within(v, low, high), (v) =>
- * Num.numeric(Type.cast(v, pg.numeric(1000, scale))), Num.numeric(v)).
+ * Num.numeric(Type.cast(v, numeric(1000, scale))), Num.numeric(v)).
  */
 const paddingTerm = (p: Padding, term: (v: Var) => unknown): unknown => {
 	const type = p.arg.field.type
 	const [low, high] = paddingBounds(type)
 	return computeCore.when(
 		computeCore.within(term(p.arg), hostValue(low, type), hostValue(high, type)),
-		(v: unknown) => computeCore.numeric(computeCore.cast(v, pg.numeric(1000, p.scale))),
+		(v: unknown) => computeCore.numeric(computeCore.cast(v, numeric(1000, p.scale))),
 		computeCore.numeric(term(p.arg))
 	)
 }
@@ -459,22 +469,22 @@ const computedTerm = (r: RuleValue, t: ComputedTerm, term: (v: Var) => unknown):
 		case "padded":
 			return paddingTerm(t.padding, term)
 		case "div":
-			return computeCore.div(argTermValue(t.dividend, term), hostValue(t.divisor, numeric))
+			return computeCore.div(argTermValue(t.dividend, term), hostValue(t.divisor, numericType))
 		case "sqrt":
 			return computeCore.when(
 				computeCore.nonnegative(argTermValue(t.radicand, term)),
 				(a: unknown) => computeCore.sqrt(a),
-				hostValue(unguarded, numeric)
+				hostValue(unguarded, numericType)
 			)
 		case "power":
 			return computeCore.when(
 				computeCore.within(
 					argTermValue(t.base, term),
-					hostValue(powerBounds[0], numeric),
-					hostValue(powerBounds[1], numeric)
+					hostValue(powerBounds[0], numericType),
+					hostValue(powerBounds[1], numericType)
 				),
-				(a: unknown) => computeCore.power(a, hostValue(t.exponent, numeric)),
-				hostValue(unguarded, numeric)
+				(a: unknown) => computeCore.power(a, hostValue(t.exponent, numericType)),
+				hostValue(unguarded, numericType)
 			)
 	}
 }

@@ -36,7 +36,7 @@ import {
 	settle
 } from "#bench/query/support/kit.ts"
 import { outline, planOf, serializedKb, summaryOf } from "#bench/query/support/plans.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -57,8 +57,8 @@ import { str } from "#compiler/public/text.ts"
 const Doc = relation(
 	"Doc",
 	{
-		id: pg.bigint,
-		rank: pg.integer,
+		id: int8,
+		rank: int4,
 		title: str.regex("^.{1,80}$", "su"),
 		body: str.regex("^.*$", "su")
 	},

@@ -3,7 +3,7 @@ import type { AllenMask } from "#compiler/allen/mask.ts"
 import type { Direction } from "#compiler/core/order.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 import type { AmbientSession } from "#test/support/ambient.ts"
 import type { IdentifierFeature } from "#test/support/kernel/dict.ts"
 import type { StorageCarrier } from "#test/support/oracle/gen/domain.ts"
@@ -34,7 +34,7 @@ type DrawnCarrier = Exclude<
  * never a key), numeric(5,2), double precision, money, boolean, the generated bounded text, unbounded prose (str.regex("^.*$",
  * "su"), whose values come from the literal dictionary and include what array_out must quote), uuid, the handle of the
  * case's closed roster, smallint, real, a span over integer and over bigint, and a vector of three dimensions
- * (pg.vector(3)), whose -0 components are its twin spellings. A field's recorded pick names an index of fieldKinds,
+ * (vector(3)), whose -0 components are its twin spellings. A field's recorded pick names an index of fieldKinds,
  * these kinds in this record's order, so a kind joins at the end and every kept pick keeps its kind. A set over a
  * roster is no drawn kind, and neither is bytes, which the reference's equality and order never read, nor inet and cidr,
  * whose values, order and containment test/pg/net holds to PostgreSQL's own, nor a digest, which the reference computes
@@ -67,7 +67,7 @@ export const fieldKinds: Arr.NonEmptyReadonlyArray<DrawnKind> = [
 ]
 
 /**
- * A field's kind: a drawn one, or the contract Tick over bigint (contract("Tick", pg.bigint)), which only the gate of
+ * A field's kind: a drawn one, or the contract Tick over bigint (contract("Tick", int8)), which only the gate of
  * its parameters adds to a relation. A gate adds a span field of the case's span kind where Allen relations or point
  * memberships are drawn.
  */
@@ -351,7 +351,7 @@ export type AggregateFn = (typeof aggregateFns)[number]
 /**
  * The padding of one numeric variable (int4, int8, numeric, numeric(5,2) or Tick) at display scale `scale`, past the
  * least scale of every value the variable holds: within paddingBounds, Num.numeric(Type.cast(v,
- * pg.numeric(1000, scale))), its value at that display scale, which only a reading of the display scale tells from the
+ * numeric(1000, scale))), its value at that display scale, which only a reading of the display scale tells from the
  * variable; elsewhere Num.numeric(v), since a typmod's cast is defined only where the value fits, which the guard
  * Num.within(v, low, high) proves.
  */
@@ -362,7 +362,7 @@ export interface Padding {
 
 const numericLiteral = (text: string): TypedLiteral => ({
 	kind: "numeric",
-	value: Decimal.of(text)
+	value: Numeric.of(text)
 })
 
 /** The bounds within which a padding casts its variable, -100 and 100, as literals of the variable's base. */

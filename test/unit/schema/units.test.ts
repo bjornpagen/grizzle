@@ -7,7 +7,7 @@
  * integer (scalar/natural.ts isDrawnType, drawn's rule), and states its predecessor law. The box is every case of five
  * groups: R keyed leading with the unit's field, with a field of its name and another type, with it second, or with a
  * field of another name; two units nested, over one heading, of one name over two headings, or apart; a unit stated at
- * its member's level or above it; a series over a relation keyed by one natural, by one contract over pg.integer bounded
+ * its member's level or above it; a series over a relation keyed by one natural, by one contract over int4 bounded
  * as an int4 serial is, by a natural beside another field, by a bare bigint, or by a contract over a uuid, mutable or
  * not; and a sealed unit over three closed relations, with one of them mutable, over two relations keyed by its key
  * alone, or stated both sealed and not. The oracle restates the rules per case: which schemas own, R's unit and the

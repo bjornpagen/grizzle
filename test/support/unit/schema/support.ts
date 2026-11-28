@@ -2,8 +2,9 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import type { OpenExpr } from "#compiler/ir/open.ts"
 import { predicateValue } from "#compiler/scalar/compute/term.ts"
-import { pgDescriptors } from "#compiler/scalar/pg.ts"
+import { bool, float4, float8, int2, int4, int8, money, numeric } from "#compiler/scalar/pg.ts"
 import { describeField } from "#compiler/scalar/registry.ts"
+import { vector } from "#compiler/scalar/vector.ts"
 import { admittedClosedId } from "#compiler/schema/relation.ts"
 import type { RowTerm, rowHelpers } from "#compiler/schema/terms.ts"
 import { regexField } from "#compiler/text/field.ts"
@@ -34,16 +35,16 @@ export const descOf = (descriptor: FieldBase): FieldDesc => {
 }
 
 export const rawPg = {
-	smallint: pgDescriptors.smallint,
-	integer: pgDescriptors.integer,
-	bigint: pgDescriptors.bigint,
-	real: pgDescriptors.real,
-	doublePrecision: pgDescriptors["double precision"],
-	money: pgDescriptors.money,
-	boolean: pgDescriptors.boolean,
-	numericOf: (precision: number, scale: number) => pgDescriptors.numeric(precision, scale),
-	numeric: pgDescriptors.numeric,
-	vector: (dimensions: number) => pgDescriptors.vector(dimensions)
+	smallint: int2,
+	integer: int4,
+	bigint: int8,
+	real: float4,
+	doublePrecision: float8,
+	money: money,
+	boolean: bool,
+	numericOf: (precision: number, scale: number) => numeric(precision, scale),
+	numeric: numeric,
+	vector: (dimensions: number) => vector(dimensions)
 } as const
 
 /** str.regex over a source known at run time. */

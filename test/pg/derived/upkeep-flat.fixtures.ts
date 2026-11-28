@@ -7,7 +7,7 @@ import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { type PlanNode, planNodes } from "#bench/harness/explain.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
 import { Num, Type } from "#compiler/public/compute.ts"
-import { natural, pg } from "#compiler/public/fields.ts"
+import { natural, bool, int4, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, mutable, relation, schema, sealed, unit } from "#compiler/public/schema.ts"
 import { lawsHold, routineScopes } from "#test/support/advice.ts"
@@ -28,30 +28,30 @@ import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 
 /** A sitting's fields, a learner's stage, which leads every key of a sitting's facts. */
-const sitting = { child: pg.integer, stage: pg.integer } as const
+const sitting = { child: int4, stage: int4 } as const
 
 /** A sitting's candidate sessions, each begun at its instant, numbered from 0. */
-const Visit = relation("Visit", { ...sitting, k: natural, at: pg.bigint }, ["child", "stage", "k"])
+const Visit = relation("Visit", { ...sitting, k: natural, at: int8 }, ["child", "stage", "k"])
 /** The candidate session a suspension ended, at its instant. */
-const Suspension = relation("Suspension", { ...sitting, k: natural, at: pg.bigint }, [
+const Suspension = relation("Suspension", { ...sitting, k: natural, at: int8 }, [
 	"child",
 	"stage",
 	"k"
 ])
 /** Each presentation of a member in a candidate session, by its instant. */
-const Presented = relation("Presented", { ...sitting, at: pg.bigint, k: natural }, [
+const Presented = relation("Presented", { ...sitting, at: int8, k: natural }, [
 	"child",
 	"stage",
 	"at"
 ])
 /** A sitting's end, in the candidate session it ended. */
-const End = relation("End", { ...sitting, k: natural, at: pg.bigint }, ["child", "stage"])
+const End = relation("End", { ...sitting, k: natural, at: int8 }, ["child", "stage"])
 
 /** The four relations, closed, in the learner's unit: a write inserts, never updates or deletes. */
 const Sittings = schema(
 	"UpkeepFlat",
 	[Visit, Suspension, Presented, End],
-	[unit("Learner", { child: pg.integer })]
+	[unit("Learner", { child: int4 })]
 )
 
 /**
@@ -70,7 +70,7 @@ const Order = derived(
 			return r
 				.match(Visit, { at: earlier, child, k, stage })
 				.match(Suspension, { at: later, child, k, stage })
-				.find({ child, earlier, later, stage, strict: Type.literal(pg.boolean, true) })
+				.find({ child, earlier, later, stage, strict: Type.literal(bool, true) })
 		})
 		.rule((r) => {
 			const next = v(Visit, "next")
@@ -84,7 +84,7 @@ const Order = derived(
 					earlier,
 					later: next.at,
 					stage: next.stage,
-					strict: Type.literal(pg.boolean, true)
+					strict: Type.literal(bool, true)
 				})
 		})
 		.rule((r) => {
@@ -93,7 +93,7 @@ const Order = derived(
 			return r
 				.match(Visit, { at: earlier, child, k, stage })
 				.match(Presented, { at: later, child, k, stage })
-				.find({ child, earlier, later, stage, strict: Type.literal(pg.boolean, false) })
+				.find({ child, earlier, later, stage, strict: Type.literal(bool, false) })
 		})
 		.rule((r) => {
 			const { child, stage, k, at: later } = v(Suspension, "suspension")
@@ -101,7 +101,7 @@ const Order = derived(
 			return r
 				.match(Suspension, { at: later, child, k, stage })
 				.match(Presented, { at: earlier, child, k, stage })
-				.find({ child, earlier, later, stage, strict: Type.literal(pg.boolean, true) })
+				.find({ child, earlier, later, stage, strict: Type.literal(bool, true) })
 		})
 		.rule((r) => {
 			const { child, stage, at: earlier } = v(Visit, "visit")
@@ -109,7 +109,7 @@ const Order = derived(
 			return r
 				.match(Visit, { at: earlier, child, stage })
 				.match(End, { at: later, child, stage })
-				.find({ child, earlier, later, stage, strict: Type.literal(pg.boolean, true) })
+				.find({ child, earlier, later, stage, strict: Type.literal(bool, true) })
 		})
 		.rule((r) => {
 			const { child, stage, at: earlier } = v(Suspension, "suspension")
@@ -117,7 +117,7 @@ const Order = derived(
 			return r
 				.match(Suspension, { at: earlier, child, stage })
 				.match(End, { at: later, child, stage })
-				.find({ child, earlier, later, stage, strict: Type.literal(pg.boolean, true) })
+				.find({ child, earlier, later, stage, strict: Type.literal(bool, true) })
 		})
 		.rule((r) => {
 			const { child, stage, at: earlier } = v(Presented, "presented")
@@ -125,7 +125,7 @@ const Order = derived(
 			return r
 				.match(Presented, { at: earlier, child, stage })
 				.match(End, { at: later, child, stage })
-				.find({ child, earlier, later, stage, strict: Type.literal(pg.boolean, true) })
+				.find({ child, earlier, later, stage, strict: Type.literal(bool, true) })
 		})
 )
 
@@ -324,22 +324,19 @@ const antiJoinsOver = (plan: PlanNode, table: string): boolean =>
 
 /** A package's nodes, closed, in the package's unit, sealed: the one write that founds a package, its publish, writes
  * every node and every attribute of it, and no other write changes them. */
-const Node = relation("Node", { package: pg.integer, node: pg.integer, kind: pg.integer }, [
-	"package",
-	"node"
-])
+const Node = relation("Node", { package: int4, node: int4, kind: int4 }, ["package", "node"])
 /** Each attribute of a node, by its name. */
-const Attribute = relation(
-	"Attribute",
-	{ package: pg.integer, node: pg.integer, name: pg.integer, value: pg.integer },
-	["package", "node", "name"]
-)
+const Attribute = relation("Attribute", { package: int4, node: int4, name: int4, value: int4 }, [
+	"package",
+	"node",
+	"name"
+])
 
 /** The two relations in the sealed unit of their package. */
 const Packages = schema(
 	"FoundFlat",
 	[Node, Attribute],
-	[sealed(unit("Package", { package: pg.integer }))]
+	[sealed(unit("Package", { package: int4 }))]
 )
 
 /**
@@ -471,35 +468,31 @@ export const runFound = (
 	})
 
 /** A sitting's candidate sessions, open: a writer updates and deletes them, in the learner's unit. */
-const OpenVisit = relation("Visit", { ...sitting, k: natural, at: pg.bigint }, [
-	"child",
-	"stage",
-	"k"
-])
+const OpenVisit = relation("Visit", { ...sitting, k: natural, at: int8 }, ["child", "stage", "k"])
 /** The candidate session a suspension ended, open. */
-const OpenSuspension = relation("Suspension", { ...sitting, k: natural, at: pg.bigint }, [
+const OpenSuspension = relation("Suspension", { ...sitting, k: natural, at: int8 }, [
 	"child",
 	"stage",
 	"k"
 ])
 /** A sitting's end, open. */
-const OpenEnd = relation("End", { ...sitting, k: natural, at: pg.bigint }, ["child", "stage"])
+const OpenEnd = relation("End", { ...sitting, k: natural, at: int8 }, ["child", "stage"])
 /** Each presentation of a member in a candidate session, by its instant, open. */
-const OpenPresented = relation("Presented", { ...sitting, at: pg.bigint, k: natural }, [
+const OpenPresented = relation("Presented", { ...sitting, at: int8, k: natural }, [
 	"child",
 	"stage",
 	"at"
 ])
 
 /** A learner's cohort, closed, one row a learner. */
-const Cohort = relation("Cohort", { child: pg.integer, cohort: pg.integer }, ["child"])
+const Cohort = relation("Cohort", { child: int4, cohort: int4 }, ["child"])
 
 /** The four relations, open, in the learner's unit, beside the learner's cohort. */
 const OpenSittings = schema(
 	"LostFlat",
 	[OpenVisit, OpenSuspension, OpenEnd, OpenPresented, Cohort],
 	[
-		unit("Learner", { child: pg.integer }),
+		unit("Learner", { child: int4 }),
 		mutable(OpenVisit),
 		mutable(OpenSuspension),
 		mutable(OpenEnd),

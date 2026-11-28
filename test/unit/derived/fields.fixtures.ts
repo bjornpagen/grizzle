@@ -17,7 +17,7 @@ import { type TextSearchConfiguration, textSearchConfigurations } from "#compile
 import { numericMaxFractionDigits, numericMaxIntegerDigits } from "#compiler/scalar/values/fault.ts"
 import {
 	fieldSketchGen,
-	type PgMember,
+	type PlainMember,
 	type SketchedField
 } from "#test/support/unit/schema/field-sketch.ts"
 import { upTo } from "#test/support/up-to.ts"
@@ -55,7 +55,7 @@ export const declaredGen: Gen<DeclaredCase> = (source) => {
  * A declared field's kind, a `pg` member's by its member: each member is a descriptor of its own, which its own arm of
  * declaredDescOf gives back, so a case of one member reaches no other's.
  */
-export type DeclaredFeature = `kind ${Exclude<SketchedField["kind"], "pg">}` | `pg ${PgMember}`
+export type DeclaredFeature = `kind ${Exclude<SketchedField["kind"], "pg">}` | `pg ${PlainMember}`
 
 /**
  * Where a derived definition's cast stands: in its head; in an aggregate of its head, the ledger's LastPresence,
@@ -112,8 +112,8 @@ export const variantCaseGen: Gen<VariantCase> = (source) => ({
 
 /**
  * A stored field of a read's column, one of the three kinds a records relation keeps of a read's heading: a search
- * document of a configuration (pg.tsvector), numeric of no typmod within a computed bound (pg.numeric.within), or at
- * numeric's own limits (pg.numeric, the bound's one descriptor), and an instant stored as it is (instant.stored).
+ * document of a configuration (tsvector), numeric of no typmod within a computed bound (numeric.within), or at
+ * numeric's own limits (numeric, the bound's one descriptor), and an instant stored as it is (instant.stored).
  */
 export type StoredKind =
 	| { readonly kind: "search"; readonly configuration: TextSearchConfiguration }

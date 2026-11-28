@@ -3,7 +3,7 @@
 import { constant, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { bigint } from "@bjornpagen/testing/values"
 import { String as Str } from "effect"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 
 /** A numeric typmod over the whole box, scale 0 one draw in two: numeric(p, 0) is the integer one. */
 export interface Typmod {
@@ -31,7 +31,7 @@ export const scaleFeatureOf = (scale: number): ScaleFeature =>
 /** A value of a typmod's type, as numeric_out writes it, and the host value it is (`valueGen`). */
 export interface Written {
 	readonly text: string
-	readonly value: Decimal | bigint
+	readonly value: Numeric | bigint
 }
 
 /**
@@ -53,7 +53,7 @@ const outputText = (units: bigint, scale: number): string => {
 /**
  * A value of numeric(p, s) with its output text: a count of 10^-s units below 10^p in magnitude, drawn over the whole
  * range, at its ends and among the small ones, or NaN, which a typmod but scale 0 holds. The value restates the host
- * type the value space gives (the model): numeric(p, 0)'s integer is its bigint, any other value its Decimal.
+ * type the value space gives (the model): numeric(p, 0)'s integer is its bigint, any other value its Numeric.
  */
 export const valueGen = (typmod: Typmod): Gen<Written> => {
 	const most = 10n ** BigInt(typmod.precision) - 1n
@@ -66,12 +66,12 @@ export const valueGen = (typmod: Typmod): Gen<Written> => {
 	const finite: Gen<Written> = (source) => {
 		const u = source.draw(units)
 		const text = outputText(u, typmod.scale)
-		return { text, value: typmod.scale === 0 ? u : Decimal.of(text) }
+		return { text, value: typmod.scale === 0 ? u : Numeric.of(text) }
 	}
 	return typmod.scale === 0
 		? finite
 		: weighted<Written>([
 				[5, finite],
-				[1, (): Written => ({ text: "NaN", value: Decimal.nan })]
+				[1, (): Written => ({ text: "NaN", value: Numeric.nan })]
 			])
 }

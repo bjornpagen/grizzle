@@ -9,7 +9,7 @@ import { buildTheory } from "#compiler/analysis/theory/theory.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { descIdentity, type InferredQuery } from "#compiler/ir/desc.ts"
 import { queryInput } from "#compiler/program/input.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -39,19 +39,13 @@ export type Reached =
 	| "a union over every row"
 	| "an import read three times"
 
-const Node = relation("Node", { doc: pg.integer, start: pg.integer, kind: pg.integer }, [
+const Node = relation("Node", { doc: int4, start: int4, kind: int4 }, ["doc", "start"])
+const Attr = relation("Attr", { doc: int4, start: int4, name: int4, value: int4 }, [
 	"doc",
-	"start"
+	"start",
+	"name"
 ])
-const Attr = relation(
-	"Attr",
-	{ doc: pg.integer, start: pg.integer, name: pg.integer, value: pg.integer },
-	["doc", "start", "name"]
-)
-const BV = relation("BV", { doc: pg.integer, start: pg.integer, attribute: pg.integer }, [
-	"doc",
-	"start"
-])
+const BV = relation("BV", { doc: int4, start: int4, attribute: int4 }, ["doc", "start"])
 const Base = schema("navigation_extent", [Node, Attr, BV], [])
 
 /** The named attribute of a node: an import of one rule, a join of Attr and Node. */

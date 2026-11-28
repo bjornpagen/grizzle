@@ -13,7 +13,7 @@ import {
 	openFull
 } from "#bench/write/support/writes.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { accumulated, drawn, natural, pg } from "#compiler/public/fields.ts"
+import { accumulated, drawn, natural, int4, int8 } from "#compiler/public/fields.ts"
 import {
 	contained,
 	counted,
@@ -27,20 +27,16 @@ import {
 } from "#compiler/public/schema.ts"
 import { carrierReads } from "#test/support/carrier-reads.ts"
 
-const Owner = relation("Owner", { id: pg.integer, v: pg.bigint, n: drawn(natural) }, ["id"])
+const Owner = relation("Owner", { id: int4, v: int8, n: drawn(natural) }, ["id"])
 
-const Item = relation(
-	"Item",
-	{ id: pg.integer, owner: pg.integer, cv: accumulated(pg.bigint, 0n) },
-	["id"]
-)
+const Item = relation("Item", { id: int4, owner: int4, cv: accumulated(int8, 0n) }, ["id"])
 
 /**
  * A relation whose `w` is a candidate key, so its put deletes the facts it displaces and inserts its own, never updated
  * in place, where an UPDATE moving one fact's w to another's would raise 23505 at a lawful state (write/put/choose.ts
  * candidateKey).
  */
-const Fixed = relation("Fixed", { id: pg.integer, w: pg.integer }, ["id"])
+const Fixed = relation("Fixed", { id: int4, w: int4 }, ["id"])
 
 /**
  * The box's schema: owners counting their items, each item copying its owner's v (a refill when the owner's v changes),
@@ -57,7 +53,7 @@ const build = (name: string) =>
 			mutable(Owner),
 			mutable(Item),
 			mutable(Fixed),
-			unit("Row", { id: pg.integer })
+			unit("Row", { id: int4 })
 		]
 	)
 

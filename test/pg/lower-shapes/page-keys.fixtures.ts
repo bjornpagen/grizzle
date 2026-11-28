@@ -19,7 +19,7 @@ import { fillStatement } from "#compiler/physical/derived/objects.ts"
 import type { Row as DeliveredRow, Param } from "#compiler/plan/common.ts"
 import { columnPosition, rowCell, scalarReader } from "#compiler/plan/runtime.ts"
 import { Type } from "#compiler/public/compute.ts"
-import { closedId, natural, pg } from "#compiler/public/fields.ts"
+import { closedId, natural, int4, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	closed,
@@ -82,23 +82,22 @@ const Session = context("Session", { sub: Clerk })
 const People = relation("Person", { person: Person }, ["person"])
 const ClerkAccount = relation("ClerkAccount", { clerk: Clerk, person: Person }, ["clerk"])
 const PersonEmail = relation("PersonEmail", { person: Person, email: Email }, ["person"])
-const Test = relation("Test", { test: pg.bigint, name: Name, grade: pg.integer }, ["test"])
+const Test = relation("Test", { test: int8, name: Name, grade: int4 }, ["test"])
 const Assignment = relation(
 	"Assignment",
-	{ child: Learner, number: natural, test: pg.bigint, assignedAt: pg.bigint, user: natural },
+	{ child: Learner, number: natural, test: int8, assignedAt: int8, user: natural },
 	["child", "number"]
 )
-const Mark = relation("Mark", { child: Learner, number: natural, tag: pg.integer }, [
+const Mark = relation("Mark", { child: Learner, number: natural, tag: int4 }, [
 	"child",
 	"number",
 	"tag"
 ])
 /** Each tag a learner defines, with its label: every mark of the learner's sittings carries one of them. */
-const TagDefinition = relation(
-	"TagDefinition",
-	{ child: Learner, tag: pg.integer, label: pg.integer },
-	["child", "tag"]
-)
+const TagDefinition = relation("TagDefinition", { child: Learner, tag: int4, label: int4 }, [
+	"child",
+	"tag"
+])
 const EventKind = closed.unordered("EventKind", ["start", "pause", "submit", "abandon"])
 const SittingEvent = relation(
 	"SittingEvent",
@@ -126,7 +125,7 @@ const RecordedQuestionAwaiting = relation(
  */
 const SittingResult = relation(
 	"SittingResult",
-	{ child: Learner, number: natural, at: pg.bigint, percent: pg.integer },
+	{ child: Learner, number: natural, at: int8, percent: int4 },
 	["child", "number"]
 )
 const AssignmentTestType = relation("AssignmentTestType", { number: natural, testType: Name }, [
@@ -139,21 +138,15 @@ const AssignmentOrigin = relation("AssignmentOrigin", { number: natural, origin:
  * chain from the call's value (metis's email-keyed read of users, METIS-PERFBAR's restatement), and each user's grade.
  */
 const UserByEmail = relation("UserByEmail", { email: Email, user: natural }, ["email", "user"])
-const UserGrade = relation("UserGrade", { user: natural, grade: pg.integer }, ["user"])
+const UserGrade = relation("UserGrade", { user: natural, grade: int4 }, ["user"])
 
 /**
  * A work queue shaped as den's: each kind's steps by when each is available (the greater of its due time and its
  * lease's end), which a worker takes in that order among those available now (den's law L4).
  */
-const Queue = relation("Queue", { kind: pg.integer, step: natural, available: pg.bigint }, [
-	"kind",
-	"step"
-])
+const Queue = relation("Queue", { kind: int4, step: natural, available: int8 }, ["kind", "step"])
 /** The kinds each worker serves, as den's scheduler runs several step kinds at once. */
-const QueueWorker = relation("QueueWorker", { worker: natural, kind: pg.integer }, [
-	"worker",
-	"kind"
-])
+const QueueWorker = relation("QueueWorker", { worker: natural, kind: int4 }, ["worker", "kind"])
 
 /**
  * A staff ledger shaped as metis's ops level: the capabilities a person may be granted, each person's grants, and the
@@ -392,7 +385,7 @@ const DashboardEntry = derived(
 					number,
 					user,
 					scored: false,
-					at: Type.literal(pg.bigint, 0n),
+					at: Type.literal(int8, 0n),
 					assignedAt
 				})
 		})
@@ -423,7 +416,7 @@ const DashboardEntry = derived(
 					number,
 					user,
 					scored: false,
-					at: Type.literal(pg.bigint, 0n),
+					at: Type.literal(int8, 0n),
 					assignedAt
 				})
 		})
@@ -625,7 +618,7 @@ const windowOf = (w: SittingWindow) =>
 						.find({ number, student, name, status })
 				case "grade":
 					return body
-						.where(r.eq(grade, r.param("grade", pg.integer)))
+						.where(r.eq(grade, r.param("grade", int4)))
 						.find({ number, student, name, status })
 				case "email":
 					return body
@@ -929,14 +922,11 @@ const queueWindow = (after: boolean) =>
 			const { step, available } = v(Queue, "queued")
 			const body = r
 				.match(may, { program: after ? "queueAfter" : "queue" })
-				.match(Queue, { kind: r.param("kind", pg.integer), step, available })
+				.match(Queue, { kind: r.param("kind", int4), step, available })
 			return (
 				after
-					? body.where(
-							r.le(available, r.param("now", pg.bigint)),
-							r.gt(step, r.param("after", natural))
-						)
-					: body.where(r.le(available, r.param("now", pg.bigint)))
+					? body.where(r.le(available, r.param("now", int8)), r.gt(step, r.param("after", natural)))
+					: body.where(r.le(available, r.param("now", int8)))
 			).find({ step, available })
 		})
 		.orderBy(["available", "asc"], ["step", "asc"])
@@ -955,7 +945,7 @@ const queueOfKindsWindow = query(Ops)
 			.match(may, { program: "queueOfKinds" })
 			.match(QueueWorker, { worker, kind })
 			.match(Queue, { kind, step, available })
-			.where(r.eq(worker, r.param("worker", natural)), r.le(available, r.param("now", pg.bigint)))
+			.where(r.eq(worker, r.param("worker", natural)), r.le(available, r.param("now", int8)))
 			.find({ kind, step, available })
 	})
 	.orderBy(["available", "asc"], ["step", "asc"])

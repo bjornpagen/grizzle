@@ -9,9 +9,9 @@ import { predicateTable } from "#compiler/ir/expr.ts"
 import { type Installation, installOptions } from "#compiler/physical/install/compile.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
 import { Text } from "#compiler/public/compute.ts"
-import { generated, pg } from "#compiler/public/fields.ts"
+import { generated, float8, int4 } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
-import { doubleText } from "#compiler/public/text.ts"
+import { float8Text } from "#compiler/public/text.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { compiledExpr, noParamLeaf } from "#compiler/scalar/compute/evaluate.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
@@ -127,13 +127,13 @@ export const featuresOf = (text: string, conversion: Conversion): ReadonlyArray<
 	)
 }
 
-/** The host evaluator's parse of a text: the evaluation, as a generated field's check lowers it, of parseDouble(v). */
-const keyField = testPg.regex(doubleText.source, "u")
+/** The host evaluator's parse of a text: the evaluation, as a generated field's check lowers it, of parseFloat8(v). */
+const keyField = testPg.regex(float8Text.source, "u")
 
 const lowered = succeeded(
 	lowerWith(
 		"check",
-		spelledExpr(computeCore.parseDouble(v("v", keyField)).expr),
+		spelledExpr(computeCore.parseFloat8(v("v", keyField)).expr),
 		{ v: { kind: "column", type: keyField.scalar } },
 		false,
 		baseParams
@@ -162,9 +162,9 @@ export const hostBits = (text: string): bigint => {
 
 const Keys = relation.generated(
 	"Keys",
-	{ id: pg.integer, key: regexField<string>(doubleText.source, []) },
+	{ id: int4, key: regexField<string>(float8Text.source, []) },
 	["id"],
-	(r) => ({ value: generated(pg["double precision"], Text.parseDouble(r.key)) })
+	(r) => ({ value: generated(float8, Text.parseFloat8(r.key)) })
 )
 
 const parsed = schema("ParseDouble", [Keys], [])

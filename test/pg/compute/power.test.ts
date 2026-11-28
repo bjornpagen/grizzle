@@ -21,7 +21,7 @@ import { Array as Arr, Effect, Formatter } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { type ScalarTerm } from "#compiler/scalar/compute/term.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 import {
 	baseField,
 	expr,
@@ -112,7 +112,7 @@ export const numericPowerAgainstPostgreSQL19AgreesOnTheValueDisplayScaleAndFailu
 							for (const [ord, { pair, near }] of pairs.entries()) {
 								yield* Effect.yieldNow
 								const [a, b] = pair
-								const base = Decimal.of(a)
+								const base = Numeric.of(a)
 								const field = baseField(base)
 								if (field === undefined) {
 									continue
@@ -122,7 +122,7 @@ export const numericPowerAgainstPostgreSQL19AgreesOnTheValueDisplayScaleAndFailu
 									expr,
 									{
 										a: { kind: "literal", field, value: base },
-										b: { kind: "bare", value: Decimal.of(b) }
+										b: { kind: "bare", value: Numeric.of(b) }
 									},
 									false,
 									baseParams
@@ -242,8 +242,8 @@ export const numericPowerAgainstPostgreSQL19NeverProvesAPowerOverAGuardedBaseTha
 								const proved = Arr.flatMap(batch, (g) => {
 									const x = v("x", testPg.computedNumeric)
 									const power = (base: ScalarTerm) =>
-										computeCore.power(base, Decimal.of(g.exponent))
-									const zero = Decimal.of("0")
+										computeCore.power(base, Numeric.of(g.exponent))
+									const zero = Numeric.of("0")
 									const guard = g.guard
 									const term =
 										guard.kind === "positive"
@@ -251,14 +251,14 @@ export const numericPowerAgainstPostgreSQL19NeverProvesAPowerOverAGuardedBaseTha
 													computeCore.positive(x),
 													(y: ScalarTerm) =>
 														computeCore.when(
-															computeCore.within(y, zero, Decimal.of(guard.high)),
+															computeCore.within(y, zero, Numeric.of(guard.high)),
 															power,
 															zero
 														),
 													zero
 												)
 											: computeCore.when(
-													computeCore.within(x, Decimal.of(guard.low), Decimal.of(guard.high)),
+													computeCore.within(x, Numeric.of(guard.low), Numeric.of(guard.high)),
 													power,
 													zero
 												)

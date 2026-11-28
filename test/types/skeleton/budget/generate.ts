@@ -26,7 +26,7 @@ import { entriesFrom } from "#test/support/types/query/budget/generate.ts"
 const largestSkeletonSize = 200
 
 const relationDeclaration = (ns: string, i: number): string =>
-	`export const ${ns}R${i} = relation("R${i}", { id: Id, parent: Id, amount: ${ns}Cents, label: ${ns}Label, kind: closedId(${ns}Kind), qty: pg.integer }, ["id"])\n`
+	`export const ${ns}R${i} = relation("R${i}", { id: Id, parent: Id, amount: ${ns}Cents, label: ${ns}Label, kind: closedId(${ns}Kind), qty: int4 }, ["id"])\n`
 
 /** One relation's queries, ChangeSet and its once, under the prefix `ns`, in a schema of `relations` relations. */
 const relationBlock = (ns: string, i: number, relations: number): string => {
@@ -87,7 +87,7 @@ const declarations = (
 	declared: ReadonlyArray<number>,
 	blocked: ReadonlyArray<number>,
 	relations: number
-): string => `export const ${ns}Cents = contract<typeof centsKey>()("Cents", pg.bigint, (x) => Logic.ge(x, 0n))
+): string => `export const ${ns}Cents = contract<typeof centsKey>()("Cents", int8, (x) => Logic.ge(x, 0n))
 export const ${ns}toCents = mintOf(centsKey)
 export const ${ns}Label = str.regex("^[a-z]{1,32}$")
 export const ${ns}Kind = closed.ordered("Kind", ["A", "B", "C"])

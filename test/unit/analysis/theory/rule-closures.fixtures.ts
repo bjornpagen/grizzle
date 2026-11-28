@@ -10,19 +10,15 @@ import { liveReading } from "#compiler/analysis/theory/query.ts"
 import { type RegionRead, ruleClosures } from "#compiler/analysis/theory/unit.ts"
 import type { SchemaArtifacts } from "#compiler/program/schema.ts"
 import { Num } from "#compiler/public/compute.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, relation, schema, unit } from "#compiler/public/schema.ts"
 
 /** A place's marks, each by its number under the place, keyed by the document, the place and the number. */
-const Mark = relation("Mark", { doc: pg.integer, at: pg.integer, n: pg.integer, v: pg.integer }, [
-	"doc",
-	"at",
-	"n"
-])
+const Mark = relation("Mark", { doc: int4, at: int4, n: int4, v: int4 }, ["doc", "at", "n"])
 
 /** The base: the marks, in the unit of the document, which each definition's place is wider than. */
-const base = schema("RuleClosures", [Mark], [unit("Document", { doc: pg.integer })])
+const base = schema("RuleClosures", [Mark], [unit("Document", { doc: int4 })])
 
 /**
  * A derived relation's definition, one rule over a place's marks, stored at the place:

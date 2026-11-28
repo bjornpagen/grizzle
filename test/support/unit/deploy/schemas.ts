@@ -1,7 +1,7 @@
 import { Array as Arr } from "effect"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
-import { Bits, closedId, generated, pg } from "#compiler/public/fields.ts"
+import { Bit, closedId, generated, bool, int4 } from "#compiler/public/fields.ts"
 import * as api from "#compiler/public/schema.ts"
 import {
 	type AuthoredStatementDesc,
@@ -205,14 +205,14 @@ export const setsSchema = (version: "first" | SetChange) => {
 	const Flag = api.closed.ordered("Flag", ["x", "y", "z"])
 	const Tagged = api.relation.generated(
 		"Tagged",
-		{ id: pg.integer, flag: closedId(Flag), other: closedId(Flag) },
+		{ id: int4, flag: closedId(Flag), other: closedId(Flag) },
 		["id"],
 		(r) => ({
 			covered: generated(
-				pg.boolean,
+				bool,
 				version === "its generated field"
-					? Bits.subset(Bits.singleton(r.flag), Bits.singleton(r.other))
-					: Bits.subset(Bits.singleton(r.other), Bits.singleton(r.flag))
+					? Bit.subset(Bit.singleton(r.flag), Bit.singleton(r.other))
+					: Bit.subset(Bit.singleton(r.other), Bit.singleton(r.flag))
 			)
 		})
 	)
@@ -223,8 +223,8 @@ export const setsSchema = (version: "first" | SetChange) => {
 			api.check("Admitted", Tagged, (t) =>
 				t.eq(
 					version === "its CHECK"
-						? Bits.subset(Bits.singleton(t.other), Bits.singleton(t.flag))
-						: Bits.subset(Bits.singleton(t.flag), Bits.singleton(t.other)),
+						? Bit.subset(Bit.singleton(t.other), Bit.singleton(t.flag))
+						: Bit.subset(Bit.singleton(t.flag), Bit.singleton(t.other)),
 					true
 				)
 			)

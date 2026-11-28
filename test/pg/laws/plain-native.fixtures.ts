@@ -8,7 +8,7 @@ import type { LawId } from "#compiler/core/ids.ts"
 import { lawsOfConstraint } from "#compiler/ir/products.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { contained, key, on, relation, schema } from "#compiler/public/schema.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { asDataStep } from "#test/support/data-step.ts"
@@ -19,18 +19,15 @@ import { attempt } from "#test/support/substrate.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 
 /** The source: a row of a unit g at its place i, of a kind. */
-const C = relation("C", { g: pg.integer, i: pg.integer, kind: pg.integer }, ["g", "i"])
+const C = relation("C", { g: int4, i: int4, kind: int4 }, ["g", "i"])
 /** A target keyed by the unit first, with a field beyond its key. */
-const B = relation("B", { g: pg.integer, i: pg.integer, kind: pg.integer }, ["g", "i"])
+const B = relation("B", { g: int4, i: int4, kind: int4 }, ["g", "i"])
 /** A target with a declared key (g, j) beside its primary key. */
-const G = relation("G", { g: pg.integer, i: pg.integer, j: pg.integer }, ["g", "i"])
+const G = relation("G", { g: int4, i: int4, j: int4 }, ["g", "i"])
 /** A target with a field beyond a superkey of its key. */
-const F = relation("F", { g: pg.integer, i: pg.integer, kind: pg.integer, n: pg.integer }, [
-	"g",
-	"i"
-])
+const F = relation("F", { g: int4, i: int4, kind: int4, n: int4 }, ["g", "i"])
 /** A target each of whose fields is its key's. */
-const E = relation("E", { g: pg.integer, i: pg.integer }, ["g", "i"])
+const E = relation("E", { g: int4, i: int4 }, ["g", "i"])
 
 /** The plain containments of the schema, by the target each reaches. */
 const containments = ["into B", "into G", "into F", "into E"] as const

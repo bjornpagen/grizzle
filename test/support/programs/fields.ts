@@ -7,10 +7,10 @@ export {
 	accumulated,
 	contract,
 	generated,
+	int8,
 	lexical,
 	lexicalForm,
 	Logic,
-	pg,
 	relation,
 	Type,
 	uuid

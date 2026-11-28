@@ -9,13 +9,13 @@ import { checkQuery } from "#compiler/check/index.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { InferredQuery, InferredRule } from "#compiler/ir/desc.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { everyCallCount } from "#test/support/kernel/calls.ts"
-import { int4 } from "#test/support/oracle/gen/domain.ts"
+import { int4 as int4Type } from "#test/support/oracle/gen/domain.ts"
 import { canonicalFacts } from "#test/support/oracle/gen/facts.ts"
 import type { GenSchema } from "#test/support/oracle/gen/schema.ts"
 import { noBindings, Reference, unobserved } from "#test/support/oracle/reference/evaluate.ts"
@@ -27,24 +27,20 @@ import { descOf } from "#test/support/unit/write/changeset/fixtures.ts"
  * A ledger's sittings as edullm's holds them: each child's sittings of a stage, the ends of some, each item session of a
  * sitting, each attempt of an item, the attempts response processing has run on, and the sittings already final.
  */
-const Sitting = relation("Sitting", { child: pg.integer, stage: pg.integer }, ["child", "stage"])
-const TestEnd = relation("TestEnd", { child: pg.integer, stage: pg.integer }, ["child", "stage"])
-const ItemSession = relation(
-	"ItemSession",
-	{ child: pg.integer, stage: pg.integer, item: pg.integer },
-	["child", "stage", "item"]
-)
-const Attempt = relation("Attempt", { child: pg.integer, item: pg.integer, n: pg.integer }, [
+const Sitting = relation("Sitting", { child: int4, stage: int4 }, ["child", "stage"])
+const TestEnd = relation("TestEnd", { child: int4, stage: int4 }, ["child", "stage"])
+const ItemSession = relation("ItemSession", { child: int4, stage: int4, item: int4 }, [
+	"child",
+	"stage",
+	"item"
+])
+const Attempt = relation("Attempt", { child: int4, item: int4, n: int4 }, ["child", "item", "n"])
+const Processed = relation("Processed", { child: int4, item: int4, n: int4 }, [
 	"child",
 	"item",
 	"n"
 ])
-const Processed = relation("Processed", { child: pg.integer, item: pg.integer, n: pg.integer }, [
-	"child",
-	"item",
-	"n"
-])
-const Final = relation("Final", { child: pg.integer, stage: pg.integer }, ["child", "stage"])
+const Final = relation("Final", { child: int4, stage: int4 }, ["child", "stage"])
 const Settle = schema(
 	"NavigationRows",
 	[Sitting, TestEnd, ItemSession, Attempt, Processed, Final],
@@ -71,7 +67,7 @@ const referenceSchema: GenSchema = {
 		const columns = columnsOf[name]
 		return {
 			name,
-			columns: Arr.map(columns, (c) => ({ name: c, type: int4 })),
+			columns: Arr.map(columns, (c) => ({ name: c, type: int4Type })),
 			primaryKey: columns,
 			keys: [],
 			mutable: false
@@ -209,19 +205,19 @@ const attempted = query(Settle).rule((r) => {
 		.find({ child, stage })
 })
 
-const sittingHeading = { child: pg.integer, stage: pg.integer } as const
+const sittingHeading = { child: int4, stage: int4 } as const
 
 /** The rows the call binds `sittings` to. */
 const rowsOf = (rows: Rows) =>
 	rows === "the call's parameters"
 		? query(Settle).rule((r) =>
-				r.find({ child: r.param("child", pg.integer), stage: r.param("stage", pg.integer) })
+				r.find({ child: r.param("child", int4), stage: r.param("stage", int4) })
 			)
 		: query(Settle).rule((r) => {
 				const { child, stage } = v(Sitting, "sitting")
 				return r
 					.match(Sitting, { child, stage })
-					.where(r.eq(child, r.param("child", pg.integer)))
+					.where(r.eq(child, r.param("child", int4)))
 					.find({ child, stage })
 			})
 
@@ -370,16 +366,16 @@ export const answerOf = (c: RowsCase, member: InferredQuery): ReadonlyArray<stri
 			Rec.map(c.facts, (rows) => Arr.map(rows, (row) => Arr.map(row, literal)))
 		),
 		params: {
-			child: { kind: "scalar", type: int4, value: literal(c.child) },
-			stage: { kind: "scalar", type: int4, value: literal(c.stage) },
+			child: { kind: "scalar", type: int4Type, value: literal(c.child) },
+			stage: { kind: "scalar", type: int4Type, value: literal(c.stage) },
 			...Rec.fromEntries(
 				Arr.map(relationParamsOf(member), (name) => [
 					name,
 					{
 						kind: "relation",
 						heading: [
-							{ name: "child", type: int4 },
-							{ name: "stage", type: int4 }
+							{ name: "child", type: int4Type },
+							{ name: "stage", type: int4Type }
 						],
 						rows: Arr.map(calledOf(c), (row) => Arr.map(row, literal))
 					}
@@ -420,7 +416,7 @@ const attemptedAtSittings = query(Settle).rule((r) => {
 
 /** The call's children beside the sittings attempted, at their child alone. */
 const attemptedAtChildren = query(Settle).rule((r) => {
-	const children = r.relation("children", { child: pg.integer })
+	const children = r.relation("children", { child: int4 })
 	const { child } = v(children, "child")
 	const { stage } = v(attempted, "attempted")
 	return r.match(children, { child }).match(attempted, { child, stage }).find({ child, stage })
@@ -503,9 +499,9 @@ const attemptedByParameter = query(Settle).rule((r) => {
 	const { stage } = v(sittings, "sitting")
 	const { item } = v(attemptedAtOne, "a")
 	return r
-		.match(sittings, { child: r.param("child", pg.integer), stage })
-		.match(attemptedAtOne, { child: r.param("child", pg.integer), item })
-		.find({ child: r.param("child", pg.integer), stage: item })
+		.match(sittings, { child: r.param("child", int4), stage })
+		.match(attemptedAtOne, { child: r.param("child", int4), item })
+		.find({ child: r.param("child", int4), stage: item })
 })
 
 const attemptedByEquated = query(Settle).rule((r) => {
@@ -513,9 +509,9 @@ const attemptedByEquated = query(Settle).rule((r) => {
 	const { stage } = v(sittings, "sitting")
 	const { child, item } = v(attemptedAtOne, "a")
 	return r
-		.match(sittings, { child: r.param("child", pg.integer), stage })
+		.match(sittings, { child: r.param("child", int4), stage })
 		.match(attemptedAtOne, { child, item })
-		.where(r.eq(child, r.param("child", pg.integer)))
+		.where(r.eq(child, r.param("child", int4)))
 		.find({ child, stage: item })
 })
 

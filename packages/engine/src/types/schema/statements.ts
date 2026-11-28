@@ -18,7 +18,7 @@ import type {
 import type { Generation, GenerationsOf } from "#compiler/types/evidence/evidence.ts"
 import type {
 	AccumulatedField,
-	BitsField,
+	BitField,
 	NaturalDomain,
 	FieldBase,
 	GeneratedField,
@@ -292,7 +292,7 @@ export type NoSetKey<C, T extends ReadonlyArray<AnyTerm>> = [
 	: Refusal<"a key lists no set: a set's bit string is too wide for an index entry">
 
 /** The sets of the heading C. */
-type SetIn<C> = { [K in keyof C]-?: C[K] extends BitsField<unknown> ? K : never }[keyof C] & string
+type SetIn<C> = { [K in keyof C]-?: C[K] extends BitField<unknown> ? K : never }[keyof C] & string
 
 /** The heading of R: the record of carriers its facts are made of. */
 type HeadingOf<R> = R extends Headed<infer C> ? C : never
@@ -486,10 +486,10 @@ export type OwnerRelationOf<Fa> = Fa extends { readonly slots: Fin<infer O, stri
 /** The SQL types a monoid's step value may be of: exact numbers for sum, sets for or and twos, least-valued ones for max. */
 type MonoidSql = {
 	readonly count: never
-	readonly sum: "smallint" | "integer" | "bigint" | "numeric" | "money"
-	readonly or: "bits"
-	readonly twos: "bits"
-	readonly max: "smallint" | "integer" | "bigint" | "code" | "money"
+	readonly sum: "int2" | "int4" | "int8" | "numeric" | "money"
+	readonly or: "bit"
+	readonly twos: "bit"
+	readonly max: "int2" | "int4" | "int8" | "code" | "money"
 	readonly concat: "text"
 }
 
@@ -542,7 +542,7 @@ type Accumulators<C, Rest, X, Planes> = Rest extends readonly []
 			: false
 
 /** count's value and accumulators are naturals: natural's domain and SQL type. */
-type NaturalType = readonly [NaturalDomain, "bigint"]
+type NaturalType = readonly [NaturalDomain, "int8"]
 
 /**
  * A fold's step, the terms T over the member's heading C: the family's group, then its value (none for count) of a
@@ -725,7 +725,7 @@ type FieldTypeOf<C, K> = K extends keyof C ? readonly [DomainOf<C[K]>, SqlOfCarr
 /**
  * What field K of the heading C pairs as in a containment's side: its domain's base carrier, its contracts stripped
  * (BaseOf) and its roster's brands kept (RosterKeysOf), and its PostgreSQL type. natural, an instant and a contract over
- * pg.bigint pair as pg.bigint does, since a refinement only narrows the values and the inclusion is one law under the
+ * int8 pair as int8 does, since a refinement only narrows the values and the inclusion is one law under the
  * base's equality.
  */
 type PairedTypeOf<C, K> = K extends keyof C

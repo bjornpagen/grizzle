@@ -202,13 +202,13 @@ const connective =
 const isTextDesc = (desc: FieldDesc): boolean =>
 	desc.kind === "text" || (desc.kind === "contract" && isTextDesc(desc.base))
 
-const integerDesc: FieldDesc = { kind: "pg", type: "integer" }
+const integerDesc: FieldDesc = { kind: "pg", type: "int4" }
 const integerType: TermType = {
 	desc: integerDesc,
 	typing: {
 		kind: "typed",
 		scalar: plainType("int4"),
-		carrier: { column: plainColumns.integer, sql: "integer" }
+		carrier: { column: plainColumns.int4, sql: "int4" }
 	}
 }
 

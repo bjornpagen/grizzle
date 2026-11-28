@@ -4,7 +4,7 @@ import { deepEquals } from "@bjornpagen/testing/assert"
 import { element, type Gen, int, shuffled } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { isRecord } from "#compiler/core/record.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { mutable, relation, schema, unit } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { fixtureTemplate } from "#test/support/pg/reads/support.ts"
@@ -28,15 +28,11 @@ import { fixtureTemplate } from "#test/support/pg/reads/support.ts"
  */
 const Tag = str.regex("^[a-z]{1,4}$")
 
-export const Item = relation("Item", { id: pg.integer, score: pg.integer }, ["id"])
+export const Item = relation("Item", { id: int4, score: int4 }, ["id"])
 
-export const Label = relation("Label", { item: pg.integer, tag: Tag }, ["item", "tag"])
+export const Label = relation("Label", { item: int4, tag: Tag }, ["item", "tag"])
 
-export const Labels = schema(
-	"Labels",
-	[Item, Label],
-	[mutable(Item), unit("Scored", { id: pg.integer })]
-)
+export const Labels = schema("Labels", [Item, Label], [mutable(Item), unit("Scored", { id: int4 })])
 
 /** What every case installs: Labels, its login's workload holding no member of its own. */
 export const labelsInstall = { label: "labels", programs: {} } as const

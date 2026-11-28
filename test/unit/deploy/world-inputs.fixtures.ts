@@ -13,7 +13,7 @@ import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
 import { Logic } from "#compiler/public/compute.ts"
-import { generated, pg } from "#compiler/public/fields.ts"
+import { generated, int8 } from "#compiler/public/fields.ts"
 import { contained, login, on, relation, role, schema } from "#compiler/public/schema.ts"
 import { installationsOf, ownLogin, rostersOf } from "#compiler/schema/own.ts"
 import { loginDescOf } from "#compiler/schema/world.ts"
@@ -43,8 +43,8 @@ export const turnGen: Gen<Turn> = (s) => ({
  * Item and List, whole. */
 const installationOf = (turn: Turn, keyed: boolean, step: bigint): Installation => {
 	const List = relation("List", { id: Id }, ["id"])
-	const Item = relation.generated("Item", { id: Id, list: Id, n: pg.bigint }, ["id"], (r) => ({
-		g: generated(pg.bigint, Logic.cond(Logic.gt(r.n, step), r.n, 0n))
+	const Item = relation.generated("Item", { id: Id, list: Id, n: int8 }, ["id"], (r) => ({
+		g: generated(int8, Logic.cond(Logic.gt(r.n, step), r.n, 0n))
 	}))
 	const base = schema(
 		"WorldInputs",

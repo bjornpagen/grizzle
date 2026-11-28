@@ -4,7 +4,17 @@ import { assert } from "@bjornpagen/testing/assert"
 import { aimed, type Aimed, array, element, type Gen, map, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Record as Rec } from "effect"
 import { baseOf, sameScalarType, type ScalarType } from "#compiler/ir/scalar.ts"
-import { closedId, Decimal, Money, pg } from "#compiler/public/fields.ts"
+import {
+	closedId,
+	Numeric,
+	Money,
+	bool,
+	float8,
+	int4,
+	int8,
+	money,
+	numeric
+} from "#compiler/public/fields.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { queryOver, type QueryValue, varsOver } from "#compiler/query/build/query.ts"
@@ -23,7 +33,7 @@ import { checking } from "#test/support/policy.ts"
  * gives it, or refuses the union exactly when the oracle does. The oracle is the rule over a small universe whose types
  * and admissions this file states itself: a term-typed arm (a field, a handle, a typed literal) delivers its own type;
  * a plain literal takes the type the term-typed arms agree on when that type admits its value, and otherwise its
- * value's JavaScript default (bareLiteralType: a string text, a safe integer integer, a bigint bigint, a Decimal
+ * value's JavaScript default (bareLiteralType: a string text, a safe integer integer, a bigint bigint, a Numeric
  * numeric, a Money money, a boolean boolean, any other number refused); the arms' types then agree, combine to text
  * when they are text of different refinements, or are refused. The handle a match fixes never types a literal, however
  * the fix is spelled: a plain "A" whose rule fixes Kind to "A" or to Kind.handle("A") is text, which the value-aware
@@ -38,15 +48,15 @@ const Short = str.regex("^.{0,4}$", "su")
 const Cell = relation(
 	"Cell",
 	{
-		id: pg.integer,
+		id: int4,
 		h: closedId(Kind),
 		s: Short,
-		n: pg.integer,
-		b: pg.bigint,
-		x: pg.numeric(10, 2),
-		m: pg.money,
-		f: pg["double precision"],
-		t: pg.boolean
+		n: int4,
+		b: int8,
+		x: numeric(10, 2),
+		m: money,
+		f: float8,
+		t: bool
 	},
 	["id"]
 )
@@ -85,7 +95,7 @@ const fields: Arr.NonEmptyReadonlyArray<Field> = ["h", "s", "n", "b", "x", "m", 
 
 /**
  * The plain literals a head may hold: two handle spellings, a text no handle spells, a text too long for Short (so a
- * plain text beside Short's field combines to text), and one of every other kind, a Decimal and a Money among them.
+ * plain text beside Short's field combines to text), and one of every other kind, a Numeric and a Money among them.
  */
 const plainValues = [
 	"A",
@@ -94,7 +104,7 @@ const plainValues = [
 	"lengthy",
 	1,
 	7n,
-	Decimal.of("2.5"),
+	Numeric.of("2.5"),
 	Money.of(150n),
 	true,
 	1.5
@@ -152,7 +162,7 @@ const admits = (type: Token, value: Plain): boolean => {
 		case "bigint":
 			return typeof value === "bigint"
 		case "numeric":
-			return value instanceof Decimal || typeof value === "bigint"
+			return value instanceof Numeric || typeof value === "bigint"
 		case "money":
 			return value instanceof Money
 		case "float8":
@@ -173,7 +183,7 @@ const defaultOf = (value: Plain): Token | undefined => {
 	if (typeof value === "boolean") {
 		return "boolean"
 	}
-	if (value instanceof Decimal) {
+	if (value instanceof Numeric) {
 		return "numeric"
 	}
 	if (value instanceof Money) {
@@ -272,10 +282,7 @@ const armRule =
 				return r.match(Cell, bindings).find({ c: Kind.handle(d.member) })
 			case "typed":
 				return r.match(Cell, bindings).find({
-					c:
-						d.type === "integer"
-							? computeCore.literal(pg.integer, 7)
-							: computeCore.literal(pg.bigint, 7n)
+					c: d.type === "integer" ? computeCore.literal(int4, 7) : computeCore.literal(int8, 7n)
 				})
 			case "plain":
 				return r.match(Cell, bindings).find({ c: d.value })
@@ -294,7 +301,7 @@ export const unionOf = (arms: Arr.NonEmptyReadonlyArray<Arm>): QueryValue => {
 export type Feature =
 	| "a plain text its rule fixes Kind to"
 	| "a plain text its rule fixes Kind to by a handle"
-	| "a Decimal or a Money"
+	| "a Numeric or a Money"
 	| "a plain literal beside a term-typed arm"
 	| "a plain literal the term-typed arms' type refuses"
 	| "a handle"
@@ -326,8 +333,8 @@ export const featuresOf = (
 	if (Arr.some(fixedTo, (a) => a.spelling === "handle")) {
 		out.push("a plain text its rule fixes Kind to by a handle")
 	}
-	if (Arr.some(plains, (v) => v instanceof Decimal || v instanceof Money)) {
-		out.push("a Decimal or a Money")
+	if (Arr.some(plains, (v) => v instanceof Numeric || v instanceof Money)) {
+		out.push("a Numeric or a Money")
 	}
 	if (plains.length > 0 && terms.length > 0) {
 		out.push("a plain literal beside a term-typed arm")

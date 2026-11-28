@@ -4,7 +4,7 @@ import { aimed, array, element, type Gen, int, weighted } from "@bjornpagen/test
 import { Array as Arr } from "effect"
 import { bytesChunkLength } from "#compiler/codec/delivery.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { bytes, drawn as drawnField, natural } from "#compiler/public/fields.ts"
+import { bytea, drawn as drawnField, natural } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { fin, mutable, on, ordered, relation, schema, unit } from "#compiler/public/schema.ts"
 import { Id } from "#test/support/ids.ts"
@@ -106,9 +106,9 @@ export const notes = (d: Drawn): ReadonlyArray<Feature> => {
 	return out
 }
 
-const Owner = relation("Owner", { id: Id, badge: bytes, members: drawnField(natural) }, ["id"])
+const Owner = relation("Owner", { id: Id, badge: bytea, members: drawnField(natural) }, ["id"])
 
-const Member = relation("Member", { id: Id, owner: Id, at: drawnField(natural), body: bytes }, [
+const Member = relation("Member", { id: Id, owner: Id, at: drawnField(natural), body: bytea }, [
 	"id"
 ])
 

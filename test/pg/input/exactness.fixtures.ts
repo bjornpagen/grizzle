@@ -18,7 +18,7 @@ import { resultTextCasts } from "#compiler/codec/scalar.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { wildcardText } from "#compiler/scalar/compute/types.ts"
 import { plainType } from "#compiler/scalar/native.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 import {
 	canonicalText,
 	type Carrier,
@@ -39,9 +39,9 @@ interface Column {
 }
 
 /**
- * A numeric(p, s) column, its values any value of its host type, and now and then one of no numeric's: a Decimal and a
+ * A numeric(p, s) column, its values any value of its host type, and now and then one of no numeric's: a Numeric and a
  * JavaScript number or text, but numeric(p, 0)'s host value a bigint since 4da9792ba, an integer type's, from the edges
- * of its precision and past them, beside a Decimal, a number and a text, none of which it admits.
+ * of its precision and past them, beside a Numeric, a number and a text, none of which it admits.
  */
 const numericColumn = (precision: number, scale: number): Column => {
 	const edge = 10n ** BigInt(precision)
@@ -53,7 +53,7 @@ const numericColumn = (precision: number, scale: number): Column => {
 			scale === 0
 				? weighted<unknown>([
 						[12, bigint(-2n * edge, 2n * edge)],
-						[1, element<unknown>([Decimal.of("1"), 1.5, "1"])]
+						[1, element<unknown>([Numeric.of("1"), 1.5, "1"])]
 					])
 				: weighted<unknown>([
 						[12, decimalGen],

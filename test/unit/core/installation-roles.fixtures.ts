@@ -6,7 +6,7 @@ import { Array as Arr, String as Str } from "effect"
 import { identifierOf, identity, type RoleSpace, roleSpaceOf } from "#compiler/core/identity.ts"
 import { resolveVariables } from "#compiler/deploy/render/variables.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import {
 	type AnyLogin,
 	type AnySchema,
@@ -56,8 +56,8 @@ export type RolesFeature =
 /** A declared function, which gives its installation a function owner. */
 const doubled = fn("doubled", {
 	calls: [],
-	args: { x: pg.integer },
-	returns: pg.integer,
+	args: { x: int4 },
+	returns: int4,
 	volatility: "immutable",
 	nullInput: "called",
 	language: "sql",

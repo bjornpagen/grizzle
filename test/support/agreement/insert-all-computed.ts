@@ -3,7 +3,7 @@ import { Array as Arr, Effect, Record as Rec } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import { catchCompileError } from "#compiler/core/canonical.ts"
-import { drawn, natural, pg } from "#compiler/public/fields.ts"
+import { drawn, natural, int4 } from "#compiler/public/fields.ts"
 import { param } from "#compiler/public/query.ts"
 import { fin, on, ordered, relation, schema, tree } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -167,8 +167,8 @@ const computedOf = (
 			return { text: "{}", value: () => ({}) }
 		case "type":
 			return {
-				text: '{ package: param("package", pg.integer) }',
-				value: () => ({ package: param("package", pg.integer) })
+				text: '{ package: param("package", int4) }',
+				value: () => ({ package: param("package", int4) })
 			}
 		case "stranger":
 			return {

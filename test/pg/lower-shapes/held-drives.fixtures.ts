@@ -14,14 +14,14 @@ import {
 } from "#bench/write/support/writes.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { natural, pg } from "#compiler/public/fields.ts"
+import { natural, int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema, unit } from "#compiler/public/schema.ts"
 import { type PgClassState, pgClassStates, standIn } from "#test/support/advice.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
-const i = pg.integer
+const i = int4
 
 /**
  * A ledger's learner rows, as qti-pie's holds them, each under the learner's unit: each item session of a learner's

@@ -19,7 +19,7 @@ import { compilePage, statedOrderOf } from "#compiler/lower/shapes/page/compile.
 import { type QueryTemplate } from "#compiler/program/compile.ts"
 import { queryInput } from "#compiler/program/input.ts"
 import { ALLEN } from "#compiler/public/allen.ts"
-import { date, pg, Vector } from "#compiler/public/fields.ts"
+import { date, Vector, int4, int8 } from "#compiler/public/fields.ts"
 import { keyLookup } from "#compiler/query/build/key.ts"
 import { isQueryValue, queryOver, type QueryValue, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
@@ -126,7 +126,7 @@ import { upTo } from "#test/support/up-to.ts"
  *
  * A constant stands in every term position: a JavaScript value (`literal`), Tone's handle (`handle`) at Item.tone in a
  * binding, a filter, first in a comparison, a head, a union's discriminant and a binding at Tones, the union source of
- * ./schema.ts, whose arm it selects, and a typed constant (`constant`), `Type.literal(pg.integer, v)` where its
+ * ./schema.ts, whose arm it selects, and a typed constant (`constant`), `Type.literal(int4, v)` where its
  * value never reaches the evidence (scalar operands, a conditional's branch) and `Type.literal(Cents, v)` where it
  * stands for a value of Item.cost: its type keeps its descriptor's whole host type, the one approximation of a typed
  * constant's value, so the evidence never reads it.
@@ -269,7 +269,7 @@ type Planted = "clean" | Fault
  * over Cents opposite one over bigint, the subtle pair whose carriers agree and whose brands do not, by an Allen
  * predicate or a producer (endpointOf), which the faulted space aims a case at while no witness has reached it
  * (faultCases), a pair one spanEndpoints case in about ten draws of itself; or a negation across refining types, a
- * variable of one contract over pg.bigint negated at a field of the other (negationOver), an equality across
+ * variable of one contract over int8 negated at a field of the other (negationOver), an equality across
  * refining types, two such variables equated, or a variable of one such contract equated to a computed term of its base
  * carrier, the other variable's Type.base (`computedRefining`, filtersOver), which the clean space aims a case at while
  * no witness has reached each (evidenceSpace).
@@ -327,7 +327,7 @@ export type FaultNote = `${Fault} refused` | `${Fault} admitted` | MisbindingNot
 
 /**
  * What a refiningBinding fault's binding is, each refused by the builder and the types alike: a variable of a contract
- * over pg.bigint bound at a plain bigint field, a plain bigint one at a contract's field, and a variable of one contract
+ * over int8 bound at a plain bigint field, a plain bigint one at a contract's field, and a variable of one contract
  * at another's field over the same base (misbindings).
  */
 const misbindingNotes = [
@@ -404,7 +404,7 @@ const duringField: Field = { rel: "Slot", name: "during", kind: "span" }
 const whenField: Field = { rel: "Slot", name: "when", kind: "dateSpan" }
 const dayField: Field = { rel: "Slot", name: "day", kind: "date" }
 const slotItemField: Field = { rel: "Slot", name: "item", kind: "uuid" }
-/** Item's Cents cost, and Cell's id and its fields over pg.bigint: plain, natural and Cents (./schema.ts). */
+/** Item's Cents cost, and Cell's id and its fields over int8: plain, natural and Cents (./schema.ts). */
 const itemCost: Field = { rel: "Item", name: "cost", kind: "cents" }
 const cellId: Field = { rel: "Cell", name: "id", kind: "uuid" }
 const cellBigint: Field = { rel: "Cell", name: "bigint", kind: "big" }
@@ -524,7 +524,7 @@ const toneField: Field = itemField("code")
 const isSpan = (kind: Kind): boolean =>
 	kind === "span" || kind === "bigSpan" || kind === "centsSpan" || kind === "dateSpan"
 
-/** The kind of a span's endpoints, which a point it holds is of: none for a kind that is no span's. */
+/** The kind of a range's endpoints, which a point it holds is of: none for a kind that is no span's. */
 const pointKind = (kind: Kind): Kind | undefined => {
 	switch (kind) {
 		case "span":
@@ -1523,7 +1523,7 @@ const allenOver = (v: Var): Pred => ({
 })
 
 /**
- * A rule's span predicates over its bound spans, as its plan holds them: an Allen predicate relating a span to a span
+ * A rule's range predicates over its bound spans, as its plan holds them: an Allen predicate relating a span to a span
  * of its type or a span parameter under a drawn mask, and a point's test of a variable or parameter of a span's
  * endpoint type, an integer, a bigint, Cents or a date, in that span or a parameter of its type.
  */
@@ -1619,8 +1619,8 @@ const spanKindOf = (kind: Kind): SpanKind | undefined => {
 
 /** The endpoint descriptor of a span kind, which Range.width takes beside the span: its source and its value. */
 const endpointDescriptors: { readonly [K in SpanKind]: readonly [string, unknown] } = {
-	span: ["pg.integer", pg.integer],
-	bigSpan: ["pg.bigint", pg.bigint],
+	span: ["int4", int4],
+	bigSpan: ["int8", int8],
 	centsSpan: ["Cents", Cents],
 	dateSpan: ["date", date]
 }
@@ -1785,7 +1785,7 @@ const strangerOf = (
 }
 
 /**
- * What a refiningBinding fault binds, each a variable of one type over pg.bigint at a field of another, both of
+ * What a refiningBinding fault binds, each a variable of one type over int8 at a field of another, both of
  * carrierOf's int8: Item's Cents cost at Cell's plain bigint and at its natural, and Cell's own plain bigint and natural
  * at its Cents. Each is a match of Cell, which no other draw matches, so its one binding is the fault's alone.
  */
@@ -2014,7 +2014,7 @@ const flaggedOver = (d: Drawing, bound: ReadonlyArray<Var>): Flagged | undefined
 
 /**
  * A kind's base carrier, as a negation pairs a variable with a field (scalar/compute/types.ts sameCarrier): Cents and
- * natural, two contracts over pg.bigint, are pg.bigint's, int8, and every other kind its own.
+ * natural, two contracts over int8, are int8's, int8, and every other kind its own.
  */
 const carrierOf = (kind: Kind): string =>
 	kind === "cents" || kind === "nat" || kind === "big" ? "int8" : kind
@@ -2525,7 +2525,7 @@ class Rendering {
 				if (t.of === "cents") {
 					return `Type.literal(Cents, toCents(${t.value}n))`
 				}
-				return `Type.literal(pg.integer, ${t.value})`
+				return `Type.literal(int4, ${t.value})`
 			case "handle":
 				return `Tone.handle(${jsonText(toneOf(t.value))})`
 			case "vector":
@@ -2675,7 +2675,7 @@ class Rendering {
 				case "uuid":
 					return `${f.name}: Id`
 				case "int":
-					return `${f.name}: pg.integer`
+					return `${f.name}: int4`
 				case "code":
 				case "cents":
 				case "big":
@@ -2776,7 +2776,7 @@ const maskValue = (mask: Mask): number => {
 
 /**
  * The faults whose diagnostic is on the first arm's return line: a binding's, a match's, a fold's, an Allen
- * predicate's, a cosine distance's, a span's endpoints', a pack's, a producer's and a variable's bound at a field of
+ * predicate's, a cosine distance's, a range's endpoints', a pack's, a producer's and a variable's bound at a field of
  * another refining type.
  */
 const returnFaults: ReadonlySet<Planted> = new Set<Planted>([
@@ -3207,7 +3207,7 @@ const rowsDescriptor = (f: Field): unknown => {
 		case "uuid":
 			return Id
 		case "int":
-			return pg.integer
+			return int4
 		case "code":
 		case "cents":
 		case "big":
@@ -3432,7 +3432,7 @@ const refusalOf = (spec: QuerySpec, reason: CompileReason): RefusedQuery | undef
 					)
 				: undefined
 		case "allenTerm":
-			return malformed && label === "r.allen" ? named("a span term is required") : undefined
+			return malformed && label === "r.allen" ? named("a range term is required") : undefined
 		case "cosineDims":
 			return malformed && label === "Distance.cosine"
 				? prose("cosine distance needs one dimension count")
@@ -3449,7 +3449,7 @@ const refusalOf = (spec: QuerySpec, reason: CompileReason): RefusedQuery | undef
 			return malformed && Arr.contains(spanLabels, label)
 				? prose(
 						label === "r.pointIn"
-							? "a point of the span's endpoint type"
+							? "a point of the range's endpoint type"
 							: "two spans over one endpoint type"
 					)
 				: undefined
@@ -3459,8 +3459,8 @@ const refusalOf = (spec: QuerySpec, reason: CompileReason): RefusedQuery | undef
 			return unsupported && label === "rule"
 				? named(
 						Arr.some(spec.arms[0].head, ([, h]) => h.kind === "count")
-							? "aggregate and span producer in one head: a producer yields facts per binding, an aggregate folds them"
-							: "one span producer per head"
+							? "aggregate and range producer in one head: a producer yields facts per binding, an aggregate folds them"
+							: "one range producer per head"
 					)
 				: undefined
 		case "nearestBy":
@@ -3472,7 +3472,7 @@ const refusalOf = (spec: QuerySpec, reason: CompileReason): RefusedQuery | undef
 				? named(
 						Arr.some(spec.arms[0].head, ([, h]) => h.kind === "count")
 							? "approximateNearest over one rule's projection; this source is an aggregate rule, whose output is a nonlinear fold rather than a distance of one stored vector"
-							: "approximateNearest over one rule's projection; this source is a rule whose head produces spans, facts per binding rather than its projection"
+							: "approximateNearest over one rule's projection; this source is a rule whose head produces ranges, facts per binding rather than its projection"
 					)
 				: undefined
 		case "refiningBinding":
@@ -3924,7 +3924,7 @@ const constantTermValue = (
 		case "constant":
 			return t.of === "cents"
 				? computeCore.literal(Cents, BigInt(t.value))
-				: computeCore.literal(pg.integer, t.value)
+				: computeCore.literal(int4, t.value)
 		case "handle":
 			return Tone.handle(toneOf(t.value))
 	}
@@ -4172,7 +4172,7 @@ const keyedNotes = (k: KeyedVerdict): ReadonlyArray<AgreementNote> => {
 	}
 }
 
-/** Whether a span predicate or producer of an arm relates a span over Cents to a span over its base, bigint. */
+/** Whether a range predicate or producer of an arm relates a span over Cents to a span over its base, bigint. */
 const contractAgainstBase = (arm: RuleSpec): boolean => {
 	const kinds = (a: Term, b: Term): boolean =>
 		a.kind === "var" &&
@@ -4388,7 +4388,7 @@ export const agreementReached = (
 /**
  * What the clean space's witnesses must reach: every construct the evidence types reason about, a constant in each
  * position, both cardinalities, a variable two filters fix, a contract in a head, a self-join the engine proves at
- * most one row, a span parameter opposite each span predicate and in a producer, a distance to a vector parameter, a
+ * most one row, a span parameter opposite each range predicate and in a producer, a distance to a vector parameter, a
  * search the engine proves at most one row, a closed relation, a roster and a derived relation matched, each span
  * construct over a span of dates, its parameter and its width in days beside an integer span's width, an extension's
  * Db reading a base query and a base Db refused an extension's, a keyed get admitted through each kind of key position

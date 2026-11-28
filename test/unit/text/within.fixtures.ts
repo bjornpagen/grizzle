@@ -12,7 +12,7 @@ import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { array, constant, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option } from "effect"
 import { Type } from "#compiler/public/compute.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -256,10 +256,10 @@ const castTypes = {
 export type CastType = keyof typeof castTypes
 
 const castHolders = {
-	learner: relation("CastLearner", { n: pg.bigint, x: castTypes.learner }, ["n"]),
-	person: relation("CastPerson", { n: pg.bigint, x: castTypes.person }, ["n"]),
-	state: relation("CastState", { n: pg.bigint, x: castTypes.state }, ["n"]),
-	slug: relation("CastSlug", { n: pg.bigint, x: castTypes.slug }, ["n"])
+	learner: relation("CastLearner", { n: int8, x: castTypes.learner }, ["n"]),
+	person: relation("CastPerson", { n: int8, x: castTypes.person }, ["n"]),
+	state: relation("CastState", { n: int8, x: castTypes.state }, ["n"]),
+	slug: relation("CastSlug", { n: int8, x: castTypes.slug }, ["n"])
 } as const
 
 const Casts = schema(
@@ -289,7 +289,7 @@ export const castCompiles = (c: CastCase): boolean => {
 	const read = query(Casts).rule((r) => {
 		const { x } = v(castHolders[c.from], "held")
 		return r
-			.match(castHolders[c.from], { n: r.param("n", pg.bigint), x })
+			.match(castHolders[c.from], { n: r.param("n", int8), x })
 			.find({ cast: Type.cast(x, castTypes[c.to]) })
 	})
 	return compileTemplate(read, undefined, testCompile).ok

@@ -78,7 +78,7 @@ import {
 } from "#compiler/scalar/values/fault.ts"
 
 /**
- * Literals, as authored (LiteralOf): the host value. A numeric literal is a Decimal or a bigint, or an
+ * Literals, as authored (LiteralOf): the host value. A numeric literal is a Numeric or a bigint, or an
  * exact decimal string the checker parses; a JavaScript number is a smallint, integer, real or double precision
  * literal. A Money is its owned value (Money.of), carried as "~m:"; a Vector, a caller's mutable Float32Array, is the
  * frozen snapshot of its components Vector.canonical takes, carried as "~v:". Spans and the float special values are
@@ -109,18 +109,18 @@ export const literalPattern = (value: LiteralDesc): PatternValue | undefined =>
 	typeof value === "object" && "spelling" in value ? value : undefined
 
 /**
- * The pg descriptors' types, each by the one name PostgreSQL prints for it: `numeric` is numeric of no typmod, every
- * value numeric holds, as format_type prints it (pg.numeric), and numeric(p, s) is the numeric arm of FieldDesc.
+ * The plain descriptors' types, each by its name in PostgreSQL's catalog, pg_type.typname, the one a cast spells:
+ * `numeric` is numeric of no typmod, every value numeric holds, and numeric(p, s) is the numeric arm of FieldDesc.
  */
 export const pgScalarNames = [
-	"smallint",
-	"integer",
-	"bigint",
+	"int2",
+	"int4",
+	"int8",
 	"numeric",
-	"real",
-	"double precision",
+	"float4",
+	"float8",
 	"money",
-	"boolean",
+	"bool",
 	"date",
 	"inet",
 	"cidr"
@@ -130,11 +130,11 @@ export type PgScalarName = (typeof pgScalarNames)[number]
 /**
  * A field's descriptor, as a declaration states it, the Description boundary carries it (fieldDescShape) and a derived
  * relation's heading infers it (schema/field-desc.ts fieldDescOf): numeric is numeric(p, s), its precision and
- * scale both declared, and `pg` numeric is numeric of no typmod, which holds every numeric value (ir/scalar.ts
+ * scale both declared, and the plain `numeric` is numeric of no typmod, which holds every numeric value (ir/scalar.ts
  * NumericValueType at numeric's own limits); computedNumeric is numeric of no typmod within a narrower bound
  * (ir/scalar.ts NumericBound), a sum's, a mean's or an operation's, which a derived relation's column carries and a
- * stored field holds exactly (pg.numeric.within), its bound a column CHECK; a bound at numeric's own limits is
- * pg.numeric's, so no type has two descriptors. An exact value (exact) is an exact integer or exact money of any size,
+ * stored field holds exactly (numeric.within), its bound a column CHECK; a bound at numeric's own limits is
+ * numeric's, so no type has two descriptors. An exact value (exact) is an exact integer or exact money of any size,
  * the type integer and money arithmetic delivers (ir/scalar.ts ExactType) at numeric's own limit. A set over a roster
  * (bits) is bit(n), one bit per code the roster has minted, holes included. A pattern is a closed relation's text of
  * Text.matches patterns (str.pattern), each value a pattern of grizzle's grammar admitted once where the relation is
@@ -273,8 +273,8 @@ export const computeFns = [
 	"cutFrom",
 	"replace",
 	"isXsdPattern",
-	"parseDouble",
-	"parseDecimal",
+	"parseFloat8",
+	"parseNumeric",
 	"sha256",
 	"floatBits",
 	"cosineDistance",
@@ -618,9 +618,9 @@ export type ExprDesc<L = Located, R extends Refs = Spelled> =
 	  }
 
 /** The boolean field descriptor, the one a connective's unit is typed by. */
-export const booleanField: { readonly kind: "pg"; readonly type: "boolean" } = Object.freeze({
+export const booleanField: { readonly kind: "pg"; readonly type: "bool" } = Object.freeze({
 	kind: "pg",
-	type: "boolean"
+	type: "bool"
 })
 
 /**
@@ -1218,10 +1218,10 @@ export const contextFieldAdmits = (desc: FieldDesc): boolean => {
 	switch (desc.kind) {
 		case "pg":
 			return (
-				desc.type === "smallint" ||
-				desc.type === "integer" ||
-				desc.type === "bigint" ||
-				desc.type === "boolean" ||
+				desc.type === "int2" ||
+				desc.type === "int4" ||
+				desc.type === "int8" ||
+				desc.type === "bool" ||
 				desc.type === "inet" ||
 				desc.type === "cidr"
 			)
@@ -3229,8 +3229,8 @@ const computeCases: {
 	cutFrom: unscaledCompute,
 	replace: unscaledCompute,
 	isXsdPattern: unscaledCompute,
-	parseDouble: unscaledCompute,
-	parseDecimal: unscaledCompute,
+	parseFloat8: unscaledCompute,
+	parseNumeric: unscaledCompute,
 	sha256: unscaledCompute,
 	floatBits: unscaledCompute,
 	cosineDistance: unscaledCompute,
@@ -3466,7 +3466,7 @@ const fieldDescBody: S.Shape<FieldDesc> = S.tagged<FieldDesc>()("kind", {
 	),
 	span: S.structStated(
 		{ endpoint: fieldDescShape },
-		{ width: S.refine(S.bigint, (w) => w > 0n, "a positive span width") },
+		{ width: S.refine(S.bigint, (w) => w > 0n, "a positive range width") },
 		{}
 	),
 	closedId: S.structStated({ roster: name }, { only: S.nonEmptyUniqueStrings("handles") }, {}),
@@ -3532,7 +3532,7 @@ const fieldMapShape = S.recordShape(fieldDescShape, name)
 
 /** What a context's fields must be: at least one, each a type a context admits (contextFieldAdmits). */
 const contextFieldsCapability =
-	"a context of at least one field, each text, uuid, boolean, an integer type, inet, cidr, a contract over one, or a closed handle"
+	"a context of at least one field, each text, uuid, bool, int2, int4 or int8, inet, cidr, a contract over one, or a closed handle"
 
 /**
  * A context's source (ContextFactSource): a token's, with the nested claim object its fields are read from, or
@@ -3876,7 +3876,7 @@ const keyWriting = (decl: FieldDecl | undefined): boolean => {
  * rows' values are coded by within the relation. A span and a vector have no finite code space a cell reads, a set
  * is no row's value, bytes have no literal, a search document is PostgreSQL's parse of a row's texts, never a literal,
  * an exact value of any size has no literal a constant spells (a closed row's integer is a bigint's or a
- * pg.numeric(p, 0)'s, its amount a money's), a variant has no code space a cell reads, and an instant is the
+ * numeric(p, 0)'s, its amount a money's), a variant has no code space a cell reads, and an instant is the
  * database's clock's, never a row's literal (ir/instant.ts).
  */
 const closedFieldAdmits = (desc: FieldDesc): boolean => {
@@ -3964,7 +3964,7 @@ export const recordAdmitted = (desc: WrittenClosedRelation): AdmittedClosedRelat
 
 /** What a closed relation's fields must be: at least one, each one a closed relation admits (closedFieldAdmits). */
 const closedFieldsCapability =
-	"a closed relation of at least one field, each a closed id or an open type that is no span, set, vector, bytes, exact value or variant, and no field grizzle or PostgreSQL writes"
+	"a closed relation of at least one field, each a closed id or an open type that is no range, set, vector, bytea, exact value or variant, and no field grizzle or PostgreSQL writes"
 
 /** What a closed relation must be beside its fields' own rules: its key, its slots and its rows as one. */
 const closedRelationCapability =
@@ -4699,7 +4699,7 @@ export const sideOver = (
  * pass consumes only Descriptions and IR, never builder objects.
  *
  * Every Description is JSON-safe under the canonical serializer: no
- * null anywhere, a bigint travels as "~n:<integer>", a Decimal as "~d:<exact text>", a Money as "~m:<minor units>", a
+ * null anywhere, a bigint travels as "~n:<integer>", a Numeric as "~d:<exact text>", a Money as "~m:<minor units>", a
  * Vector as "~v:[c1,...,cn]", and a string beginning with "~" is escaped. Descriptions are plain data: a
  * Description that decodes is an owned, frozen copy, and one that does not is MalformedDescription with the path of
  * the first offending value. The checks here are structural and local (shapes, required fields, closed vocabularies,

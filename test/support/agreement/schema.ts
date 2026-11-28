@@ -1,6 +1,19 @@
 import { Record as Rec } from "effect"
 import { Logic } from "#compiler/public/compute.ts"
-import { closedId, contract, date, mintOf, natural, pg, span } from "#compiler/public/fields.ts"
+import {
+	closedId,
+	contract,
+	date,
+	mintOf,
+	natural,
+	range,
+	bool,
+	int4,
+	int8,
+	money,
+	numeric,
+	vector
+} from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	closed,
@@ -62,7 +75,7 @@ import { Id } from "#test/support/ids.ts"
 export const Tone = closed.ordered("Tone", ["low", "mid", "high"])
 export const Shade = closed.ordered("Shade", ["low", "dark"])
 const centsKey = Symbol("Cents")
-export const Cents = contract<typeof centsKey>()("Cents", pg.bigint, (x) => Logic.ge(x, 0n), {
+export const Cents = contract<typeof centsKey>()("Cents", int8, (x) => Logic.ge(x, 0n), {
 	proves: ["nonnegative"]
 })
 export const toCents = mintOf(centsKey)
@@ -71,31 +84,28 @@ export type CentsKey = typeof centsKey
 
 export const Item = relation(
 	"Item",
-	{ id: Id, owner: Id, n: pg.integer, m: pg.integer, tone: closedId(Tone), cost: Cents },
+	{ id: Id, owner: Id, n: int4, m: int4, tone: closedId(Tone), cost: Cents },
 	["id"]
 )
 
-export const Tag = relation("Tag", { item: Id, label: pg.integer, w: pg.integer }, [
-	"item",
-	"label"
-])
-export const Note = relation("Note", { item: Id, k: pg.integer }, ["item"])
-export const Stray = relation("Stray", { id: Id, n: pg.integer }, ["id"])
-export const Batch = relation("Batch", { id: Id, n: pg.integer }, ["id"])
+export const Tag = relation("Tag", { item: Id, label: int4, w: int4 }, ["item", "label"])
+export const Note = relation("Note", { item: Id, k: int4 }, ["item"])
+export const Stray = relation("Stray", { id: Id, n: int4 }, ["id"])
+export const Batch = relation("Batch", { id: Id, n: int4 }, ["id"])
 
 export const Cell = relation(
 	"Cell",
 	{
 		id: Id,
 		text: str.regex("^.*$", "su"),
-		integer: pg.integer,
-		bigint: pg.bigint,
+		integer: int4,
+		bigint: int8,
 		natural,
-		boolean: pg.boolean,
+		boolean: bool,
 		uuid: Id,
-		numeric: pg.numeric(10, 2),
-		money: pg.money,
-		vector: pg.vector(3),
+		numeric: numeric(10, 2),
+		money: money,
+		vector: vector(3),
 		tone: closedId(Tone),
 		shade: closedId(Shade),
 		cents: Cents,
@@ -108,13 +118,13 @@ export const Slot = relation(
 	"Slot",
 	{
 		item: Id,
-		during: span(pg.integer),
-		budget: span(Cents),
-		raw: span(pg.bigint),
+		during: range(int4),
+		budget: range(Cents),
+		raw: range(int8),
 		day: date,
-		when: span(date),
-		embedding: pg.vector(3),
-		image: pg.vector(3)
+		when: range(date),
+		embedding: vector(3),
+		image: vector(3)
 	},
 	["item", "during"]
 )
@@ -226,21 +236,13 @@ const PlanBudget = closed.relation(
 		{ plan: "Pro", budget: toCents(2n) }
 	]
 )
-const Account = relation("Account", { id: Id, rank: pg.integer, plan: closedId(Plan) }, ["id"])
-const Task = relation("Task", { id: Id, account: Id, kind: closedId(Kind), score: pg.integer }, [
-	"id"
-])
+const Account = relation("Account", { id: Id, rank: int4, plan: closedId(Plan) }, ["id"])
+const Task = relation("Task", { id: Id, account: Id, kind: closedId(Kind), score: int4 }, ["id"])
 const AutomaticTask = relation("AutomaticTask", { task: Id, budget: Cents }, ["task"])
-const ManualTask = relation("ManualTask", { task: Id, operator: pg.integer }, ["task"])
-const TaskNote = relation("TaskNote", { task: Id, note: pg.integer }, ["task"])
-const Label = relation("Label", { account: Id, label: pg.integer, color: pg.integer }, [
-	"account",
-	"label"
-])
-const TaskLabel = relation("TaskLabel", { task: Id, account: Id, label: pg.integer }, [
-	"task",
-	"label"
-])
+const ManualTask = relation("ManualTask", { task: Id, operator: int4 }, ["task"])
+const TaskNote = relation("TaskNote", { task: Id, note: int4 }, ["task"])
+const Label = relation("Label", { account: Id, label: int4, color: int4 }, ["account", "label"])
+const TaskLabel = relation("TaskLabel", { task: Id, account: Id, label: int4 }, ["task", "label"])
 export const Deliver = schema(
 	"Deliver",
 	[Kind, Plan, PlanBudget, Account, Task, AutomaticTask, ManualTask, TaskNote, Label, TaskLabel],

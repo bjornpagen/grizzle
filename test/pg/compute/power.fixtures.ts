@@ -7,7 +7,7 @@ import { type ExprDesc } from "#compiler/ir/desc.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { binary64MinExponent } from "#compiler/scalar/compute/cast.ts"
 import { binary64MaxExponent, binary64Precision } from "#compiler/scalar/lexical.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 import {
 	numericMaxFractionDigits,
 	numericMaxPrecision,
@@ -25,7 +25,7 @@ import { spelledExpr, type TestField, testPg, v } from "#test/support/unit/compu
  * numeric's declarable ones: no declared field holds it, so no literal base is it. The exponent stays a bare literal,
  * typed by the base it meets.
  */
-export const baseField = (base: Decimal): TestField | undefined => {
+export const baseField = (base: Numeric): TestField | undefined => {
 	if (base.isNaN()) {
 		return testPg.numericOf(1, 1)
 	}

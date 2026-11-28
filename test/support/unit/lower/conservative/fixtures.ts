@@ -46,7 +46,7 @@ import { present } from "#test/support/unit/lower/support.ts"
  */
 
 /**
- * The span endpoints and contract bases the fixture states, and its scalar types: each the one the registry builds
+ * The range endpoints and contract bases the fixture states, and its scalar types: each the one the registry builds
  * (fixtures/ir/scalar.ts), so every capability a lowering reads is production's.
  */
 export const E = { int4: plainType("int4"), int8: plainType("int8") } as const
@@ -132,7 +132,7 @@ export const ledgerSchema: SchemaDesc = {
 			"Reading",
 			{
 				id: f.integer,
-				value: f.pg("double precision"),
+				value: f.pg("float8"),
 				price: f.numeric(10, 2),
 				paid: f.pg("money"),
 				ok: f.boolean

@@ -8,7 +8,7 @@ import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, key, on, relation, schema, unit } from "#compiler/public/schema.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
@@ -27,8 +27,8 @@ export const fieldsOf = (order: Order): ReadonlyArray<"doc" | "at"> =>
 
 /** The schema whose key law over Placed states its key in `order`. */
 export const schemaOf = (order: Order) => {
-	const Doc = relation("Doc", { doc: pg.integer, at: pg.integer, v: pg.integer }, ["doc", "at"])
-	const base = schema("DeclaredKeyOrder", [Doc], [unit("Document", { doc: pg.integer })])
+	const Doc = relation("Doc", { doc: int4, at: int4, v: int4 }, ["doc", "at"])
+	const base = schema("DeclaredKeyOrder", [Doc], [unit("Document", { doc: int4 })])
 	const Placed = derived(
 		"Placed",
 		query(base).rule((r) => {

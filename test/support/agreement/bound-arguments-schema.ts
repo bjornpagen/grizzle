@@ -1,4 +1,4 @@
-import { pg } from "#compiler/public/fields.ts"
+import { int4, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { fn, relation, row, rows, schema } from "#compiler/public/schema.ts"
 
@@ -9,12 +9,12 @@ import { fn, relation, row, rows, schema } from "#compiler/public/schema.ts"
  * of no parameters and one of each kind of parameter a query has: a scalar parameter, a relation parameter, a
  * parameter of a union's second arm, of a take's count and of an attachment's child.
  */
-const K = rows({ k: pg.bigint })
+const K = rows({ k: int8 })
 const Out = rows({ out: K })
 
 export const f = fn("f", {
 	calls: [],
-	args: { a: K, x: pg.bigint },
+	args: { a: K, x: int8 },
 	returns: K,
 	volatility: "immutable",
 	nullInput: "called",
@@ -23,15 +23,15 @@ export const f = fn("f", {
 })
 export const g = fn("g", {
 	calls: [],
-	args: { a: K, x: pg.bigint },
+	args: { a: K, x: int8 },
 	returns: row(Out),
 	volatility: "immutable",
 	nullInput: "called",
 	language: "sql",
 	body: fn.body`SELECT ROW(a)::${Out}`
 })
-export const Item = relation("Item", { s: pg.integer, k: pg.bigint }, ["s", "k"])
-const Note = relation("Note", { k: pg.bigint, n: pg.integer }, ["k", "n"])
+export const Item = relation("Item", { s: int4, k: int8 }, ["s", "k"])
+const Note = relation("Note", { k: int8, n: int4 }, ["k", "n"])
 export const Bound = schema("Bound", [Item, Note, f, g], [])
 
 /** Every item's k: a query of no parameters. */
@@ -43,12 +43,12 @@ export const none = query(Bound).rule((r) => {
 /** The k of the items of s, a scalar parameter. */
 export const scalar = query(Bound).rule((r) => {
 	const { k } = v(Item, "item")
-	return r.match(Item, { s: r.param("s", pg.integer), k }).find({ k })
+	return r.match(Item, { s: r.param("s", int4), k }).find({ k })
 })
 
 /** The k of the rows of rel, a relation parameter. */
 export const relational = query(Bound).rule((r) => {
-	const rel = r.relation("rel", { k: pg.bigint })
+	const rel = r.relation("rel", { k: int8 })
 	const { k } = v(rel, "rel")
 	return r.match(rel, { k }).find({ k })
 })
@@ -56,7 +56,7 @@ export const relational = query(Bound).rule((r) => {
 /** none's rows, and a second arm of scalar's. */
 export const union = none.rule((r) => {
 	const { k } = v(Item, "item")
-	return r.match(Item, { s: r.param("s", pg.integer), k }).find({ k })
+	return r.match(Item, { s: r.param("s", int4), k }).find({ k })
 })
 
 /** none's first n rows by k, n a parameter. */
@@ -70,7 +70,7 @@ export const attached = none.attach(
 			const { n } = v(Note, "note")
 			return r
 				.match(Note, { k: p.k, n })
-				.where(r.gt(n, r.param("m", pg.integer)))
+				.where(r.gt(n, r.param("m", int4)))
 				.find({ n })
 		}),
 	"array"

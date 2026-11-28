@@ -3,7 +3,7 @@
 import { array, codePoint, element, type Gen, oneOf, string } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, String as Str } from "effect"
 import type { ParamPlace } from "#compiler/core/identity.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -24,7 +24,7 @@ export const Notes = schema("Notes", [Note], [])
 
 /** The slugs and codes a relation parameter carries, each with its position, delivered as they are. */
 const echoed = query(Notes).rule((r) => {
-	const rows = r.relation("rows", { slug: Slug, code: Code, n: pg.integer })
+	const rows = r.relation("rows", { slug: Slug, code: Code, n: int4 })
 	const { slug, code, n } = v(rows, "row")
 	return r.match(rows, { slug, code, n }).find({ slug, code, n })
 })

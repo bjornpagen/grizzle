@@ -5,7 +5,7 @@ import { constant, element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Cause, Effect, Exit, Fiber, Formatter } from "effect"
 import { identity } from "#compiler/core/identity.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { bool, int4, vector } from "#compiler/public/fields.ts"
 import { login, relation, role, schema, wholeEntriesOf } from "#compiler/public/schema.ts"
 import { type AmbientOwner, ambientOwner, ordinarySession } from "#test/support/ambient.ts"
 import { checkInstallation } from "#test/support/catalog/installed.ts"
@@ -51,9 +51,9 @@ export type Feature =
 	| "an installation sent by the real runner beside one sent by the harness's script door"
 	| "three installations at once"
 
-const Note = relation("Note", { id: pg.integer, done: pg.boolean }, ["id"])
+const Note = relation("Note", { id: int4, done: bool }, ["id"])
 
-const Embedding = relation("Embedding", { id: pg.integer, at: pg.vector(3) }, ["id"])
+const Embedding = relation("Embedding", { id: int4, at: vector(3) }, ["id"])
 
 /**
  * Each shape's schema under the allocated name `name` and its one login, `server`, whose role `reader` reads the whole

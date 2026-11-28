@@ -46,7 +46,7 @@ import {
 	scansOf,
 	summaryOf
 } from "#bench/query/support/plans.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -82,18 +82,14 @@ import { str } from "#compiler/public/text.ts"
  *   is the mechanism the rule removes; a projection that drops the key keeps exact deduplication and delivers no
  *   repeated row.
  */
-const Account = relation("Account", { id: pg.bigint, region: pg.integer }, ["id"])
+const Account = relation("Account", { id: int8, region: int4 }, ["id"])
 const Task = relation(
 	"Task",
-	{ id: pg.bigint, account: pg.bigint, priority: pg.integer, title: str.regex("^.{1,80}$", "su") },
+	{ id: int8, account: int8, priority: int4, title: str.regex("^.{1,80}$", "su") },
 	["id"]
 )
 
-const Note = relation(
-	"Note",
-	{ id: pg.bigint, task: pg.bigint, text: str.regex("^.{1,200}$", "su") },
-	["id"]
-)
+const Note = relation("Note", { id: int8, task: int8, text: str.regex("^.{1,200}$", "su") }, ["id"])
 
 const Fusion = schema(
 	"Fusion",
@@ -116,7 +112,7 @@ const urgentInRegion = query(Fusion).rule((r) => {
 	return r
 		.match(urgent, { id, account, priority })
 		.match(Account, { id: account, region })
-		.where(r.eq(region, r.param("region", pg.integer)))
+		.where(r.eq(region, r.param("region", int4)))
 		.find({ id, priority })
 })
 
@@ -132,7 +128,7 @@ const levelsInRegion = query(Fusion).rule((r) => {
 	return r
 		.match(levels, { account, priority })
 		.match(Account, { id: account, region })
-		.where(r.eq(region, r.param("region", pg.integer)))
+		.where(r.eq(region, r.param("region", int4)))
 		.find({ account, levels: r.count() })
 })
 
@@ -144,7 +140,7 @@ const notedInRegion = query(Fusion).rule((r) => {
 		.match(Task, { id, account })
 		.match(Account, { id: account, region })
 		.match(Note, { task: id })
-		.where(r.eq(region, r.param("region", pg.integer)))
+		.where(r.eq(region, r.param("region", int4)))
 		.find({ id })
 })
 
@@ -154,7 +150,7 @@ const unnotedInRegion = query(Fusion).rule((r) => {
 	return r
 		.match(Task, { id, account })
 		.match(Account, { id: account, region })
-		.where(r.eq(region, r.param("region", pg.integer)), r.not(Note, { task: id }))
+		.where(r.eq(region, r.param("region", int4)), r.not(Note, { task: id }))
 		.find({ id })
 })
 
@@ -164,7 +160,7 @@ const tasksAt = query(Fusion).rule((r) => {
 	return r
 		.match(Task, { id, account, priority })
 		.match(Account, { id: account })
-		.where(r.eq(priority, r.param("p", pg.integer)), r.lt(id, r.param("below", pg.bigint)))
+		.where(r.eq(priority, r.param("p", int4)), r.lt(id, r.param("below", int8)))
 		.find({ id, account })
 })
 
@@ -174,7 +170,7 @@ const tasksAtInRegion = query(Fusion).rule((r) => {
 	return r
 		.match(Task, { id, account, priority })
 		.match(Account, { id: account, region })
-		.where(r.eq(priority, r.param("p", pg.integer)), r.eq(region, r.param("region", pg.integer)))
+		.where(r.eq(priority, r.param("p", int4)), r.eq(region, r.param("region", int4)))
 		.find({ id, account })
 })
 
@@ -207,7 +203,7 @@ const regionPriorities = query(Fusion).rule((r) => {
 	return r
 		.match(Task, { account, priority })
 		.match(Account, { id: account, region })
-		.where(r.eq(region, r.param("region", pg.integer)))
+		.where(r.eq(region, r.param("region", int4)))
 		.find({ region, priority })
 })
 

@@ -4,14 +4,14 @@ import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { array, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order } from "effect"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4, int8 } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import type { Expr, FromItem, FromSource, SelectCore, SqlStatement } from "#compiler/sql/ast.ts"
 import { identityHooks, transformExpr, transformStatement } from "#compiler/sql/transform.ts"
 import { decodedQuery, type MatchDesc, type VarDesc } from "#test/support/fixtures/ir/desc.ts"
 import { pickGen } from "#test/support/pick.ts"
 
-const Edge = relation("Edge", { src: pg.bigint, dst: pg.bigint, w: pg.integer }, ["src", "dst"])
+const Edge = relation("Edge", { src: int8, dst: int8, w: int4 }, ["src", "dst"])
 
 export const Plan = schema("Plan", [Edge], [])
 
@@ -80,7 +80,7 @@ export const pathDesc = (path: Path): QueryDesc =>
 									w: {
 										kind: "param" as const,
 										name: "w",
-										type: { kind: "pg", type: "integer" } as const
+										type: { kind: "pg", type: "int4" } as const
 									}
 								}
 							: {})

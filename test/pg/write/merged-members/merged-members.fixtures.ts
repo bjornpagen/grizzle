@@ -4,28 +4,24 @@ import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonemp
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record as Rec } from "effect"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { instant, pg } from "#compiler/public/fields.ts"
+import { instant, int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, mutable, on, relation, schema, unit } from "#compiler/public/schema.ts"
 
 /** A child's moment, its at a clock of child `child`: qti's TestMoment. */
-export const Moment = relation("Moment", { child: pg.integer, at: instant }, ["child", "at"])
+export const Moment = relation("Moment", { child: int4, at: instant }, ["child", "at"])
 
 /** A child's budget at its visit `k`, its at a reference Moment's clock stamps at its child: qti's TestBudget. */
-export const Budget = relation(
-	"Budget",
-	{ child: pg.integer, k: pg.integer, remaining: pg.integer, at: instant },
-	["child", "k"]
-)
+export const Budget = relation("Budget", { child: int4, k: int4, remaining: int4, at: instant }, [
+	"child",
+	"k"
+])
 
 /**
  * A child's earlier note at a stored moment, keyed by the moment, so a delete states the instant of its key: mutable,
  * inside the unit of its child, which Moment and Budget sit in too.
  */
-export const Old = relation("Old", { child: pg.integer, at: instant, n: pg.integer }, [
-	"child",
-	"at"
-])
+export const Old = relation("Old", { child: int4, at: instant, n: int4 }, ["child", "at"])
 
 export const build = (name: string) =>
 	schema(
@@ -35,7 +31,7 @@ export const build = (name: string) =>
 			contained(on(Budget, "child", "at"), on(Moment, "child", "at")),
 			contained(on(Old, "child", "at"), on(Moment, "child", "at")),
 			mutable(Old),
-			unit("Learner", { child: pg.integer })
+			unit("Learner", { child: int4 })
 		]
 	)
 
@@ -171,7 +167,7 @@ const sourceNames = ["first", "second", "third"] as const
 /** A query source of Budget: the budgets of its relation parameter `name`. */
 const sourceQuery = (s: Schema, name: (typeof sourceNames)[number]) =>
 	query(s).rule((r) => {
-		const rows = r.relation(name, { child: pg.integer, k: pg.integer, remaining: pg.integer })
+		const rows = r.relation(name, { child: int4, k: int4, remaining: int4 })
 		const { child, k, remaining } = v(rows, "given")
 		return r.match(rows, { child, k, remaining }).find({ child, k, remaining })
 	})

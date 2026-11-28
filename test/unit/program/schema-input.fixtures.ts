@@ -215,9 +215,9 @@ export type ContentFeature = `renamed: ${IdentifierFeature}` | ContentChange
 /** The type a changed field takes: integer, or bigint for a field that is an integer. */
 const otherType = (field: FieldDecl): FieldDecl => ({
 	type:
-		field.type.kind === "pg" && field.type.type === "integer"
-			? { kind: "pg", type: "bigint" }
-			: { kind: "pg", type: "integer" },
+		field.type.kind === "pg" && field.type.type === "int4"
+			? { kind: "pg", type: "int8" }
+			: { kind: "pg", type: "int4" },
 	writing: { kind: "caller" }
 })
 
@@ -257,7 +257,7 @@ const changesOf = (base: SchemaDesc): ReadonlyArray<Change> =>
 				: [
 						withFields("a field added", {
 							...relation.fields,
-							extra: { type: { kind: "pg", type: "integer" }, writing: { kind: "caller" } }
+							extra: { type: { kind: "pg", type: "int4" }, writing: { kind: "caller" } }
 						})
 					]),
 			...Arr.map(others, ([removed]) =>

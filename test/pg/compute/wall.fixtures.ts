@@ -8,7 +8,7 @@ import { Array as Arr, Option } from "effect"
 import { clockReadingRange, millisPerDay, wallCycle } from "#compiler/core/clock.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Logic, Num, Time, Type } from "#compiler/public/compute.ts"
-import { closedId, contract, date, generated, pg } from "#compiler/public/fields.ts"
+import { closedId, contract, date, generated, int4, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { daysFromCivil, floorDiv } from "#test/support/oracle/reference/calendar.ts"
@@ -286,13 +286,13 @@ const millisKey = Symbol("Millis")
  */
 const wallSchema = (name: string, roster: Arr.NonEmptyReadonlyArray<string>) => {
 	const Zone = closed.zones("Zone", roster)
-	const Millis = contract<typeof millisKey>()("Millis", pg.bigint, (x) =>
+	const Millis = contract<typeof millisKey>()("Millis", int8, (x) =>
 		Logic.and([
 			Logic.ge(x, clockReadingRange.millis.low),
 			Logic.le(x, clockReadingRange.millis.high)
 		])
 	)
-	const Probe = relation("Probe", { id: pg.integer, at: Millis, zone: closedId(Zone) }, ["id"])
+	const Probe = relation("Probe", { id: int4, at: Millis, zone: closedId(Zone) }, ["id"])
 	const s = schema(name, [Zone, Probe], [])
 	return {
 		s,
@@ -374,8 +374,8 @@ export const lastDay = daysFromCivil(9999n, 12n, 31n)
  * epoch day, and the date of the integer where it is the epoch day of one of grizzle's dates, 1970-01-01 elsewhere.
  */
 export const daysSchema = (name: string) => {
-	const Days = relation.generated("Days", { day: date, n: pg.integer }, ["day"], (d) => ({
-		epoch: generated(pg.integer, Time.epochDay(d.day)),
+	const Days = relation.generated("Days", { day: date, n: int4 }, ["day"], (d) => ({
+		epoch: generated(int4, Time.epochDay(d.day)),
 		back: generated(date, Time.dateOfEpochDay(Time.epochDay(d.day))),
 		ofN: generated(
 			date,

@@ -298,8 +298,8 @@ export interface ColumnRef {
 
 /**
  * A typed literal ("every literal is a typed literal"). The kind fixes the host representation and the
- * expression's type fixes the native type, and the two agree (literalProblem). Decimal, Money and Vector values are
- * held parsed and spell their canonical tags from their parts: the owned Decimal and Money travel here unchanged, and a
+ * expression's type fixes the native type, and the two agree (literalProblem). Numeric, Money and Vector values are
+ * held parsed and spell their canonical tags from their parts: the owned Numeric and Money travel here unchanged, and a
  * Vector as the frozen snapshot of its components (Vector.canonical). A Text.matches pattern is its pattern value
  * (ir/pattern.ts PatternValue), a text whose identity is its language and whose spelling the lowering reads, and it
  * stands only where a match reads its pattern.
@@ -1181,14 +1181,14 @@ export const literalProblem = (literal: TypedLiteral, outer: ScalarType): string
 							? dayRange
 							: undefined
 			if (range === undefined) {
-				return `a span literal is not a ${carrier} value`
+				return `a range literal is not a ${carrier} value`
 			}
 			if (!(literal.start < literal.end)) {
-				return "a span has start < end"
+				return "a range has start < end"
 			}
 			return inRange(literal.start, range) && inRange(literal.end, range)
 				? undefined
-				: `a span endpoint lies outside ${carrier}`
+				: `a range endpoint lies outside ${carrier}`
 		}
 		case "vector": {
 			if (carrier !== "vector") {

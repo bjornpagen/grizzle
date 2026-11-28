@@ -48,7 +48,7 @@ import { noClock, transactionClock } from "#compiler/ir/clock.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import { queryInput } from "#compiler/program/input.ts"
 import { templateFor } from "#compiler/program/template.ts"
-import { closedId, pg } from "#compiler/public/fields.ts"
+import { closedId, int4, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, contained, key, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -82,32 +82,24 @@ import { has, shapeOf } from "#test/support/kernel/shape.ts"
  * union over notes has no key in its common fields.
  */
 const Kind = closed.ordered("Kind", ["Open", "Done", "Held"])
-const Account = relation("Account", { id: pg.bigint, region: pg.integer }, ["id"])
+const Account = relation("Account", { id: int8, region: int4 }, ["id"])
 const Task = relation(
 	"Task",
 	{
-		id: pg.bigint,
-		account: pg.bigint,
+		id: int8,
+		account: int8,
 		kind: closedId(Kind),
 		title: str.regex("^.{1,80}$", "su"),
-		priority: pg.integer,
-		due: pg.integer
+		priority: int4,
+		due: int4
 	},
 	["id"]
 )
 
-const Note = relation(
-	"Note",
-	{ id: pg.bigint, task: pg.bigint, text: str.regex("^.{1,200}$", "su") },
-	["id"]
-)
+const Note = relation("Note", { id: int8, task: int8, text: str.regex("^.{1,200}$", "su") }, ["id"])
 
 /** At most one memo per task: `task` is a key. */
-const Memo = relation(
-	"Memo",
-	{ id: pg.bigint, task: pg.bigint, text: str.regex("^.{1,200}$", "su") },
-	["id"]
-)
+const Memo = relation("Memo", { id: int8, task: int8, text: str.regex("^.{1,200}$", "su") }, ["id"])
 
 const Unions = schema(
 	"Unions",
@@ -124,7 +116,7 @@ const openArm = query(Unions).rule((r) => {
 	const { id, account, title } = v(Task, "task")
 	return r
 		.match(Task, { id, account, kind: "Open", title })
-		.where(r.eq(account, r.param("account", pg.bigint)))
+		.where(r.eq(account, r.param("account", int8)))
 		.find({ id, kind: Kind.handle("Open"), title })
 })
 
@@ -134,7 +126,7 @@ const doneArm = query(Unions).rule((r) => {
 	return r
 		.match(Task, { id, account, kind: "Done" })
 		.match(Memo, { task: id, text })
-		.where(r.eq(account, r.param("account", pg.bigint)))
+		.where(r.eq(account, r.param("account", int8)))
 		.find({ id, kind: Kind.handle("Done"), text })
 })
 
@@ -144,7 +136,7 @@ const activity = query(Unions)
 		const { id, account, title } = v(Task, "task")
 		return r
 			.match(Task, { id, account, kind: "Open", title })
-			.where(r.eq(account, r.param("account", pg.bigint)))
+			.where(r.eq(account, r.param("account", int8)))
 			.find({ id, kind: Kind.handle("Open"), title })
 	})
 	.rule((r) => {
@@ -153,7 +145,7 @@ const activity = query(Unions)
 		return r
 			.match(Task, { id, account, kind: "Done" })
 			.match(Memo, { task: id, text })
-			.where(r.eq(account, r.param("account", pg.bigint)))
+			.where(r.eq(account, r.param("account", int8)))
 			.find({ id, kind: Kind.handle("Done"), text })
 	})
 const firstActivity = activity.orderBy(["id", "asc"]).take(10)
@@ -166,7 +158,7 @@ const noteActivity = query(Unions)
 		const { id, account, title } = v(Task, "task")
 		return r
 			.match(Task, { id, account, kind: "Open", title })
-			.where(r.eq(account, r.param("account", pg.bigint)))
+			.where(r.eq(account, r.param("account", int8)))
 			.find({ id, kind: Kind.handle("Open"), title })
 	})
 	.rule((r) => {
@@ -175,7 +167,7 @@ const noteActivity = query(Unions)
 		return r
 			.match(Task, { id, account, kind: "Done" })
 			.match(Note, { task: id, text })
-			.where(r.eq(account, r.param("account", pg.bigint)))
+			.where(r.eq(account, r.param("account", int8)))
 			.find({ id, kind: Kind.handle("Done"), text })
 	})
 	.orderBy(["id", "asc"])
@@ -183,7 +175,7 @@ const noteActivity = query(Unions)
 
 /** The bounded union consumed by another query: the ids of the first ten. */
 const firstIds = query(Unions).rule((r) => {
-	const first = firstActivity.bind({ account: r.param("account", pg.bigint) })
+	const first = firstActivity.bind({ account: r.param("account", int8) })
 	const { id } = v(first, "first")
 	return r.match(first, { id }).find({ id })
 })
@@ -194,7 +186,7 @@ const twice = query(Unions)
 		const { id, region } = v(Account, "account")
 		return r
 			.match(Account, { id, region })
-			.where(r.eq(region, r.param("region", pg.integer)))
+			.where(r.eq(region, r.param("region", int4)))
 			.find({ id })
 	})
 	.attach(

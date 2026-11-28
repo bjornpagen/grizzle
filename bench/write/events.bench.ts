@@ -23,7 +23,7 @@ import {
 	plainStatement,
 	writePhases
 } from "#bench/write/support/writes.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4, int8 } from "#compiler/public/fields.ts"
 import { contained, mutable, on, relation, schema, unit } from "#compiler/public/schema.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -49,8 +49,8 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * The fixture is a cycle of two containments, which grizzle defers (fin.md §5.1): an open Member, mutable inside the
  * unit of its id, in its Grp, and each Grp's lead among the members.
  */
-const Grp = relation("Grp", { id: pg.integer, lead: pg.bigint }, ["id"])
-const Member = relation("Member", { id: pg.bigint, grp: pg.integer }, ["id"])
+const Grp = relation("Grp", { id: int4, lead: int8 }, ["id"])
+const Member = relation("Member", { id: int8, grp: int4 }, ["id"])
 
 const build = (name: string) =>
 	schema(
@@ -59,7 +59,7 @@ const build = (name: string) =>
 		[
 			contained(on(Member, "grp"), on(Grp, "id")),
 			contained(on(Grp, "lead"), on(Member, "id")),
-			unit("Member", { id: pg.bigint }),
+			unit("Member", { id: int8 }),
 			mutable(Member)
 		]
 	)

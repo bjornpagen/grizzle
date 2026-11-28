@@ -8,7 +8,7 @@
  *
  * qti-pie's ledger (lane LEDGER-VALUECELL, QtiValue's integer arm on exactInteger) writes
  * `QtiValue.make("integer", { value: 1n })`, the kept case: a made value's field is a value's place, so the literal is
- * a value of the field's exact integer, the same value `Type.cast(Type.literal(pg.bigint, 1n), field)` writes.
+ * a value of the field's exact integer, the same value `Type.cast(Type.literal(int8, 1n), field)` writes.
  *
  * The box, exhausted: each position of a relation's generated field an exact integer literal stands at, built and
  * compiled as `grizzle generate` compiles it, a made value's field (the consumer's), a typed literal, a branch and an
@@ -220,7 +220,7 @@ export const aBareLiteralTakesItsPositionsExactTypeWithinItsDigitsAndIsRefusedPa
 						"test/unit/compute/exact-literals.test.ts#aBareLiteralTakesItsPositionsExactTypeWithinItsDigitsAndIsRefusedPastThem:-:0"
 					),
 					reason:
-						"qti-pie's ledger (lane LEDGER-VALUECELL, test-run-call.ts's numAttempts): QtiValue.make(\"integer\", { value: 1n }) over QtiValue's integer arm on exactInteger, refused as a literal of an exact value's family and written as Type.cast(Type.literal(pg.bigint, 1n), field) instead",
+						"qti-pie's ledger (lane LEDGER-VALUECELL, test-run-call.ts's numAttempts): QtiValue.make(\"integer\", { value: 1n }) over QtiValue's integer arm on exactInteger, refused as a literal of an exact value's family and written as Type.cast(Type.literal(int8, 1n), field) instead",
 					since: "2026-11-27"
 				}
 			],

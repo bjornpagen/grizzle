@@ -7,7 +7,7 @@ import { Array as Arr, Effect, Option, String as Str } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { check, derived, mutable, relation, schema, unit } from "#compiler/public/schema.ts"
 import { migrated } from "#test/support/installed.ts"
@@ -32,15 +32,11 @@ export type DataStepFeature =
 
 /** P, mutable, and the rule over a query Small: every row's v is under 10, a check over Seen, a query of P's rows. */
 const relationsOf = (withW: boolean) =>
-	relation(
-		"P",
-		withW ? { id: pg.integer, v: pg.integer, w: pg.integer } : { id: pg.integer, v: pg.integer },
-		["id"]
-	)
+	relation("P", withW ? { id: int4, v: int4, w: int4 } : { id: int4, v: int4 }, ["id"])
 
 const versionOf = (name: string, withW: boolean) => {
 	const P = relationsOf(withW)
-	const Base = schema(name, [P], [mutable(P), unit("Row", { id: pg.integer })])
+	const Base = schema(name, [P], [mutable(P), unit("Row", { id: int4 })])
 	const Seen = derived(
 		"Seen",
 		query(Base).rule((r) => {

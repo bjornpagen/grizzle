@@ -57,7 +57,7 @@ const evidences: Arr.NonEmptyReadonlyArray<WrittenEvidence> = [
 
 /** The schema and heading every cell's types are over. */
 const explicitHeader = (): ReadonlyArray<string> => [
-	'export const P = relation("P", { id: pg.integer }, ["id"])',
+	'export const P = relation("P", { id: int4 }, ["id"])',
 	'export const S = schema("S", [P], [])',
 	"export type Head = { readonly id: number }",
 	""

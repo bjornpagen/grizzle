@@ -16,7 +16,7 @@ import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
-import { accumulated, drawn as drawnField, natural, pg } from "#compiler/public/fields.ts"
+import { accumulated, drawn as drawnField, natural, int4 } from "#compiler/public/fields.ts"
 import { schema, select } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { relationBuilder as relation } from "#compiler/schema/relation.ts"
@@ -114,8 +114,8 @@ const docTreeOf = () => {
 			children: drawnField(natural),
 			start: drawnField(natural),
 			end: drawnField(natural),
-			kind: pg.integer,
-			parentKind: accumulated(pg.integer, 0),
+			kind: int4,
+			parentKind: accumulated(int4, 0),
 			before: accumulated(natural, 0n),
 			after: accumulated(natural, 0n),
 			total: accumulated(natural, 0n)
@@ -269,9 +269,9 @@ export const keyedTreeOf = () => {
 			children: drawnField(natural),
 			start: drawnField(natural),
 			end: drawnField(natural),
-			kind: pg.integer,
-			parentKind: accumulated(pg.integer, 0),
-			parentParentKind: accumulated(pg.integer, 0),
+			kind: int4,
+			parentKind: accumulated(int4, 0),
+			parentParentKind: accumulated(int4, 0),
 			before: accumulated(natural, 0n),
 			after: accumulated(natural, 0n),
 			total: accumulated(natural, 0n),
@@ -281,7 +281,7 @@ export const keyedTreeOf = () => {
 			anchor: natural,
 			sites: natural,
 			uses: drawnField(natural),
-			was: accumulated(pg.integer, 0)
+			was: accumulated(int4, 0)
 		},
 		["package", "path", "start"],
 		[]

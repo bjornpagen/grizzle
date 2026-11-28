@@ -10,7 +10,7 @@ import {
 } from "#compiler/lower/shapes/page/compile.ts"
 import { type QueryTemplate, querySchema } from "#compiler/program/compile.ts"
 import { queryInput } from "#compiler/program/input.ts"
-import { bytes, closedId, pg } from "#compiler/public/fields.ts"
+import { bytea, closedId, int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, contained, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -21,7 +21,7 @@ import { Id } from "#test/support/ids.ts"
 
 const Title = str.regex("^.+$", "su")
 const Level = closed.ordered("Level", ["Low", "High"])
-const Task = relation("Task", { id: Id, account: Id, priority: pg.integer, title: Title }, ["id"])
+const Task = relation("Task", { id: Id, account: Id, priority: int4, title: Title }, ["id"])
 const NoteText = str.regex("^[a-z0-9 ]{1,40}$", "u")
 const Note = relation("Note", { task: Id, note: NoteText }, ["task", "note"])
 const Flag = relation("Flag", { task: Id, level: closedId(Level) }, ["task"])
@@ -122,7 +122,7 @@ export const flaggedWithAidFirstIds = query(Paging).rule((r) => {
 	return r.match(first, { id }).find({ id })
 })
 
-const Attachment = relation("Attachment", { id: Id, task: Id, data: bytes }, ["id"])
+const Attachment = relation("Attachment", { id: Id, task: Id, data: bytea }, ["id"])
 
 /** Paging with each task's attachments, whose data is bytes. */
 const Attaching = schema(

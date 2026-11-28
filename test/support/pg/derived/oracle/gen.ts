@@ -2,7 +2,16 @@ import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { array, boolean, constant, type Gen, int, map, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order, Record as Rec } from "effect"
 import { Logic } from "#compiler/public/compute.ts"
-import { closedId, contract, natural, pg } from "#compiler/public/fields.ts"
+import {
+	closedId,
+	contract,
+	natural,
+	bool,
+	float8,
+	int4,
+	int8,
+	numeric
+} from "#compiler/public/fields.ts"
 import type { AnyRoster, AnyDerived, AnyRelation, AnySchema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { type QueryValue, queryOver as query, varsOver as v } from "#compiler/query/build/query.ts"
@@ -126,7 +135,7 @@ export type AggregateKey =
 	| `${"sum" | "mean"}(${SummedKind})`
 	| `${"min" | "max"}(${ExtremalKind})`
 
-/** Kinds a literal is written for: a numeric literal would need a Decimal carrier, so numerics are compared only
+/** Kinds a literal is written for: a numeric literal would need a Numeric carrier, so numerics are compared only
  * through variables. */
 const literal: ReadonlySet<Kind> = new Set([
 	"uuid",
@@ -142,7 +151,7 @@ const literal: ReadonlySet<Kind> = new Set([
 
 /**
  * The native result kinds: a contract contributes its base type to sum and mean. The sum of an integer of any width
- * is an exact numeric (README: "the r.sum of an integer is an exact Decimal"), so only a float's sum is a float.
+ * is an exact numeric (README: "the r.sum of an integer is an exact Numeric"), so only a float's sum is a float.
  */
 const sumKind = (k: Kind): Kind => (k === "f8" ? "f8" : "num")
 const meanKind = (k: Kind): Kind => (k === "f8" ? "f8" : "num")
@@ -201,7 +210,7 @@ const condColumn = "p"
 
 const Color = closed("Color", ["red", "green", "blue"], "ordered", [])
 const centsKey = Symbol("Cents")
-const Cents = contract<typeof centsKey>()("Cents", pg.bigint, (x) => Logic.ge(x, 0n))
+const Cents = contract<typeof centsKey>()("Cents", int8, (x) => Logic.ge(x, 0n))
 const Word = str.regex("^[a-z]{0,4}$")
 
 const descriptor = (k: BaseKind): FieldBase => {
@@ -209,11 +218,11 @@ const descriptor = (k: BaseKind): FieldBase => {
 		case "uuid":
 			return Id
 		case "int4":
-			return pg.integer
+			return int4
 		case "int8":
-			return pg.bigint
+			return int8
 		case "bool":
-			return pg.boolean
+			return bool
 		case "text":
 			return Word
 		case "cents":
@@ -221,9 +230,9 @@ const descriptor = (k: BaseKind): FieldBase => {
 		case "color":
 			return closedId(Color)
 		case "dec":
-			return pg.numeric(6, 2)
+			return numeric(6, 2)
 		case "f8":
-			return pg["double precision"]
+			return float8
 		case "nat":
 			return natural
 	}
@@ -827,7 +836,7 @@ const runRule = (
 		if (sketch.cond && Option.isSome(flag) && !countOnly) {
 			add(
 				condColumn,
-				r.sum(computeCore.cond(flag.value.term, computeCore.literal(pg.integer, 1), 0)),
+				r.sum(computeCore.cond(flag.value.term, computeCore.literal(int4, 1), 0)),
 				{ fn: "cond" },
 				"cond"
 			)

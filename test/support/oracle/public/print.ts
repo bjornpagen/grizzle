@@ -92,7 +92,7 @@ const operand = (o: Operand<ParentColumn>): string => {
 const padding = (p: Padding): string => {
 	const v = variable(p.arg)
 	const [low, high] = paddingBounds(p.arg.field.type)
-	return `Logic.when(Num.within(${v}, ${literal(low)}, ${literal(high)}), (${v}) => Num.numeric(Type.cast(${v}, pg.numeric(1000, ${p.scale}))), Num.numeric(${v}))`
+	return `Logic.when(Num.within(${v}, ${literal(low)}, ${literal(high)}), (${v}) => Num.numeric(Type.cast(${v}, numeric(1000, ${p.scale}))), Num.numeric(${v}))`
 }
 
 const argTerm = (a: ArgTerm): string => (a.kind === "var" ? variable(a.var) : padding(a.padding))

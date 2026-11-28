@@ -18,7 +18,7 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import { Text, Type } from "#compiler/public/compute.ts"
-import { generated, pg } from "#compiler/public/fields.ts"
+import { generated, int4 } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -45,7 +45,7 @@ const schemaOf = (target: Target, cast: boolean) =>
 	schema(
 		"Casts",
 		[
-			relation.generated("T", { id: pg.integer, x: keyText, w: wideText }, ["id"], (r) => ({
+			relation.generated("T", { id: int4, x: keyText, w: wideText }, ["id"], (r) => ({
 				g: generated(
 					keyText,
 					!cast

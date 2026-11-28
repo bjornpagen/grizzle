@@ -1,5 +1,5 @@
 /** What the property of absent-claims.test.ts reads: its schema, role and login, its template and its settings. */
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { context, login, relation, role, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -14,7 +14,7 @@ import { noDeclarations } from "#test/support/migrate/kit.ts"
  */
 const Subject = str.regex("^u_[a-z]{1,8}$")
 
-const Seat = relation("Seat", { id: pg.integer, holder: Subject }, ["id"])
+const Seat = relation("Seat", { id: int4, holder: Subject }, ["id"])
 
 export const seatsAt = (name: string) => {
 	const base = schema(name, [Seat], [])

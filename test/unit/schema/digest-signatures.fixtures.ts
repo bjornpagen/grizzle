@@ -4,7 +4,7 @@ import { type Gen, subset } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect } from "effect"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { Fn } from "#compiler/public/compute.ts"
-import { pg, sha256 } from "#compiler/public/fields.ts"
+import { sha256, int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { type AnyFunction, fn, relation, row, rows, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -38,7 +38,7 @@ const Digested = rows({ digest: sha256, label: Text })
 const seedOf = fn("seedOf", {
 	calls: [],
 	args: { seed: sha256 },
-	returns: pg.integer,
+	returns: int4,
 	volatility: "immutable",
 	nullInput: "called",
 	language: "sql",
@@ -86,7 +86,7 @@ const functionsAt: { readonly [P in Place]: AnyFunction } = {
 	"a row of a heading holding a digest": single
 }
 
-const Note = relation("Note", { id: pg.integer, text: Text }, ["id"])
+const Note = relation("Note", { id: int4, text: Text }, ["id"])
 
 /** What grizzle makes of a case: whether it owns, and where it does, its statements and the read's served SQL. */
 export type Made =

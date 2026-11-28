@@ -7,7 +7,7 @@ import { isRecord } from "#compiler/core/record.ts"
 import { clockedMember } from "#compiler/program/workload/value.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Logic } from "#compiler/public/compute.ts"
-import { contract, pg } from "#compiler/public/fields.ts"
+import { contract, int4, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import type { Generated } from "#test/support/install-migrate.ts"
@@ -35,29 +35,25 @@ import type { SubstrateTemplate } from "#test/support/substrate/substrate.ts"
 
 const instantKey = Symbol("Instant")
 /** An instant, and the instants on either side of 2100-01-01 in milliseconds since the epoch. */
-const Instant = contract<typeof instantKey>()("Instant", pg.bigint)
+const Instant = contract<typeof instantKey>()("Instant", int8)
 
 const year2100 = 4_102_444_800_000n
 
 const before2100Key = Symbol("Before2100")
-const Before2100 = contract<typeof before2100Key>()("Before2100", pg.bigint, (x) =>
+const Before2100 = contract<typeof before2100Key>()("Before2100", int8, (x) =>
 	Logic.le(x, year2100)
 )
 
 const after2100Key = Symbol("After2100")
-const After2100 = contract<typeof after2100Key>()("After2100", pg.bigint, (x) =>
-	Logic.ge(x, year2100)
-)
+const After2100 = contract<typeof after2100Key>()("After2100", int8, (x) => Logic.ge(x, year2100))
 
-const Wanted = relation("Wanted", { key: pg.integer, due: Instant }, ["key"])
+const Wanted = relation("Wanted", { key: int4, due: Instant }, ["key"])
 
-const Stamp = relation("Stamp", { key: pg.integer, at: Instant }, ["key"])
+const Stamp = relation("Stamp", { key: int4, at: Instant }, ["key"])
 
-const Mark = relation("Mark", { key: pg.integer, at: Instant }, ["key"])
+const Mark = relation("Mark", { key: int4, at: Instant }, ["key"])
 
-const Bounds = relation("Bounds", { key: pg.integer, before: Before2100, after: After2100 }, [
-	"key"
-])
+const Bounds = relation("Bounds", { key: int4, before: Before2100, after: After2100 }, ["key"])
 
 export const Clock = schema("Clock", [Wanted, Stamp, Mark, Bounds], [])
 
@@ -136,9 +132,7 @@ const stampsOf = (target: typeof Stamp | typeof Mark) =>
 export const clockPrograms = (unit: Unit) => ({
 	reading: clockedMember(instant(), { now: unit }),
 	both: clockedMember(
-		query(Clock).rule((r) =>
-			r.find({ us: r.param("us", pg.bigint), ms: r.param("ms", pg.bigint) })
-		),
+		query(Clock).rule((r) => r.find({ us: r.param("us", int8), ms: r.param("ms", int8) })),
 		{ us: "micros", ms: "millis" }
 	),
 	want: ChangeSet.empty(Clock).insert(Wanted, []),

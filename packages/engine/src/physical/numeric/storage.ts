@@ -80,7 +80,7 @@ export const exactNumeric = Object.freeze({
 
 /**
  * The bound of a column of numeric of no typmod narrower than numeric's own limits, a computed numeric's
- * (pg.numeric.within); none for pg.numeric, whose bound PostgreSQL's own format is, and for every other type.
+ * (numeric.within); none for numeric, whose bound PostgreSQL's own format is, and for every other type.
  */
 const narrowerBoundOf = (type: ScalarType): NumericBound | undefined => {
 	const bound = numericBoundOf(type)
@@ -122,7 +122,7 @@ const boundPredicate = (column: Expr, bound: NumericBound): Expr => {
 /**
  * A computed numeric column's CHECK, a column CHECK (physical/ddl/column-checks.ts ColumnCheckKind).
  *
- * pg.numeric.within(digits, scale) is numeric of no typmod within a computed numeric's bound (ir/scalar.ts
+ * numeric.within(digits, scale) is numeric of no typmod within a computed numeric's bound (ir/scalar.ts
  * NumericBound): its column is `pg_catalog.numeric NOT NULL`, which holds every numeric value, so the column carries
  * the named CHECK of the bound, NaN and the infinities passing as numeric of no typmod holds them:
  *

@@ -7,7 +7,14 @@ import { Db } from "#adapter/public/db.ts"
 import { lawsOf } from "#compiler/program/laws.ts"
 import { ChangeSet, type Law } from "#compiler/public/changeset.ts"
 import { Type } from "#compiler/public/compute.ts"
-import { accumulated, closedId, drawn as drawnField, natural, pg } from "#compiler/public/fields.ts"
+import {
+	accumulated,
+	closedId,
+	drawn as drawnField,
+	natural,
+	int4,
+	int8
+} from "#compiler/public/fields.ts"
 import {
 	check,
 	closed,
@@ -41,7 +48,7 @@ const shapes: Readonly<
 const Kind = closed.ordered("Kind", kinds)
 const Shape = closed.relation(
 	"Shape",
-	{ kind: closedId(Kind), min: pg.bigint, max: pg.bigint, floor: pg.bigint },
+	{ kind: closedId(Kind), min: int8, max: int8, floor: int8 },
 	["kind"],
 	Arr.map(kinds, (kind) => ({ kind, ...shapes[kind] }))
 )
@@ -50,15 +57,15 @@ const Shape = closed.relation(
 const Cell = relation(
 	"Cell",
 	{
-		id: pg.integer,
-		a: pg.integer,
+		id: int4,
+		a: int4,
 		kind: closedId(Kind),
 		n: drawnField(natural),
-		total: accumulated(pg.bigint, 0n)
+		total: accumulated(int8, 0n)
 	},
 	["id"]
 )
-const Part = relation("Part", { cell: pg.integer, at: pg.integer, w: pg.bigint }, ["cell", "at"])
+const Part = relation("Part", { cell: int4, at: int4, w: int8 }, ["cell", "at"])
 const cellParts = counted(on(Part, "cell"), fin(Cell, "n"))
 const cellTotal = fold(cellParts, Monoid.sum, on(Part, "cell", "w"), on(Cell, "id", "total"))
 

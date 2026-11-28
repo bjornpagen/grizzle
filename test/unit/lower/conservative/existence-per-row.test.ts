@@ -28,20 +28,20 @@ import { assert } from "@bjornpagen/testing/assert"
 import { element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, String as Str } from "effect"
-import { closedId, natural, pg } from "#compiler/public/fields.ts"
+import { closedId, natural, int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
 
-const A = relation("A", { k1: pg.integer, k2: pg.integer, v: natural }, ["k1", "k2"])
-const B = relation("B", { k1: pg.integer, k2: pg.integer, x: pg.integer }, ["k1", "k2", "x"])
-const C = relation("C", { k1: pg.integer, k2: pg.integer, y: pg.integer }, ["k1", "k2", "y"])
+const A = relation("A", { k1: int4, k2: int4, v: natural }, ["k1", "k2"])
+const B = relation("B", { k1: int4, k2: int4, x: int4 }, ["k1", "k2", "x"])
+const C = relation("C", { k1: int4, k2: int4, y: int4 }, ["k1", "k2", "y"])
 const Mark = closed.ordered("Mark", ["low", "high"])
 /** A closed relation of A's keys by their mark: its rows the schema's own, held by no table. */
 const D = closed.relation(
 	"D",
-	{ mark: closedId(Mark), k1: pg.integer, k2: pg.integer },
+	{ mark: closedId(Mark), k1: int4, k2: int4 },
 	["mark"],
 	[
 		{ mark: "low", k1: 1, k2: 1 },
@@ -81,7 +81,7 @@ const foldedAt = query(S).rule((r) => {
 	const { k1, k2, x } = v(B, "b")
 	return r
 		.match(B, { k1, k2, x })
-		.where(r.eq(k1, r.param("k", pg.integer)))
+		.where(r.eq(k1, r.param("k", int4)))
 		.find({ k1, k2, n: r.count() })
 })
 
@@ -107,7 +107,7 @@ const negated = (shape: Shape) =>
 				return matched.where(r.not(folded, { k1, n: value })).find({ k1, k2 })
 			case "a fold at the statement's value":
 				return matched
-					.where(r.not(foldedAt.bind({ k: r.param("k", pg.integer) }), { k1, k2 }))
+					.where(r.not(foldedAt.bind({ k: r.param("k", int4) }), { k1, k2 }))
 					.find({ k1, k2 })
 			case "a closed relation's rows":
 				return matched.where(r.not(marked, { k1, k2 })).find({ k1, k2 })

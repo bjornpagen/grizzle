@@ -18,7 +18,7 @@ import { Db } from "#adapter/public/db.ts"
 import type { WriteOutcome } from "#compiler/live/index.ts"
 import { ChangeSet, type Law } from "#compiler/public/changeset.ts"
 import { Logic, Num, Text, Type } from "#compiler/public/compute.ts"
-import { closedId, generated, pg } from "#compiler/public/fields.ts"
+import { closedId, generated, float8, int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	check,
@@ -317,7 +317,7 @@ const PickPattern = str.pattern
 
 type TextTerm = Term<string, unknown, unknown, "text", unknown>
 
-type DoubleTerm = Term<number, unknown, unknown, "double precision", unknown>
+type DoubleTerm = Term<number, unknown, unknown, "float8", unknown>
 
 /** The terms a predicate reads of its row, each built where the row's own type is known. */
 interface Reads {
@@ -398,7 +398,7 @@ const schemaOf = (c: RewriteCase) => {
 	const Kind = closed.ordered("Kind", [kindOf(0), ...upTo(c.kinds - 1, (i) => kindOf(i + 1))])
 	const Pick = closed.relation(
 		"Pick",
-		{ kind: closedId(Kind), t: Short, p: PickPattern, f: pg["double precision"] },
+		{ kind: closedId(Kind), t: Short, p: PickPattern, f: float8 },
 		["kind"],
 		Arr.flatMap(c.pick, (p, kind) =>
 			p === undefined ? [] : [{ kind: kindOf(kind), t: p.t, p: p.t, f: p.f }]
@@ -411,12 +411,12 @@ const schemaOf = (c: RewriteCase) => {
 		Arr.flatMap(c.allowed, (held, kind) => (held ? [{ kind: kindOf(kind) }] : []))
 	)
 	const fields = {
-		id: pg.integer,
+		id: int4,
 		kind: closedId(Kind),
 		t: Short,
-		x: pg["double precision"],
-		n: pg.integer,
-		m: pg.integer
+		x: float8,
+		n: int4,
+		m: int4
 	}
 	const itemOf = <const N extends string>(name: RelationName<N>) => relation(name, fields, ["id"])
 	/** A row's reads, built where the row's own type is known: its text and double, and Pick's at its kind. */
@@ -441,7 +441,7 @@ const schemaOf = (c: RewriteCase) => {
 	const Queried = itemOf("Queried")
 	const GenCond = relation.generated("GenCond", fields, ["id"], (r) => ({
 		g: generated(
-			pg.integer,
+			int4,
 			Logic.cond(
 				predicateOf(
 					c.generated,

@@ -1,7 +1,7 @@
 /**
  * The stored kinds a records relation keeps of a read, on PostgreSQL 19 (stored-kinds.fixtures.ts): a search document
- * stored as a read delivered it (pg.tsvector), an instant stored as it is (instant.stored), the database drawing
- * nothing, and a computed numeric of a bound (pg.numeric.within). Over drawn rows, each written into Source by a direct
+ * stored as a read delivered it (tsvector), an instant stored as it is (instant.stored), the database drawing
+ * nothing, and a computed numeric of a bound (numeric.within). Over drawn rows, each written into Source by a direct
  * writer, a document of drawn text, repeats, disorder and repeated positions among them, as tsvectorin stores it, an
  * instant of drawn microseconds up to bigint's top and an amount about Kept's bound or a special, the case reads Source
  * through grizzle and stores what it read in Kept through the served workload:
@@ -222,7 +222,7 @@ export const eachStoredKindIsWrittenAndReadBackExactlyAsAReadDeliveredItACompute
 				file: "packages/engine/src/analysis/schema.ts",
 				original: '\t\tif (searchedOnly(type) && w.kind !== "generated" && w.kind !== "caller") {',
 				replacement: '\t\tif (searchedOnly(type) && w.kind !== "generated") {',
-				why: "A search document its caller writes is refused, as before pg.tsvector: Source and Kept do not compile."
+				why: "A search document its caller writes is refused, as before tsvector: Source and Kept do not compile."
 			},
 			{
 				file: "packages/engine/src/analysis/schema.ts",

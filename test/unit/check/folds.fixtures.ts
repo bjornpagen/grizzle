@@ -5,7 +5,7 @@ import { Array as Arr, Option, Order, Record as Rec } from "effect"
 import type { CompileReason } from "#compiler/core/errors.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { RelNode } from "#compiler/ir/rel.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 import { f, relation, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import type {
 	BindingsDesc,
@@ -438,13 +438,13 @@ const meanDigits = 9
  * integers is an exact numeric of scale 0, scalar/aggregate.ts widenedSum, so a sum of 1 is "1").
  */
 const exactText = (value: Value): string =>
-	typeof value === "bigint" || value instanceof Decimal
+	typeof value === "bigint" || value instanceof Numeric
 		? value.toString()
 		: `a value of no fold this box folds: ${typeof value}`
 
 /** A mean as the host's canonical text: its numeric to meanDigits places. */
 const meanText = (value: Value): string =>
-	value instanceof Decimal
+	value instanceof Numeric
 		? Number(value.toString()).toFixed(meanDigits)
 		: `a mean that is no numeric: ${typeof value}`
 

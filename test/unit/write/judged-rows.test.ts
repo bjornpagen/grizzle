@@ -32,7 +32,7 @@ import { identifierOf } from "#compiler/core/identity.ts"
 import { StoredRelationName } from "#compiler/core/ids.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import { columnKeyOf } from "#compiler/ir/law.ts"
-import { drawn, natural, pg } from "#compiler/public/fields.ts"
+import { drawn, natural, int8 } from "#compiler/public/fields.ts"
 import { check, counted, fin, on, relation, schema, tree } from "#compiler/public/schema.ts"
 import { bindWrite, type InsertedRow } from "#compiler/runtime/write/bind.ts"
 import { keyWitness } from "#compiler/runtime/write/outcome.ts"
@@ -62,11 +62,11 @@ const T = relation(
 		start: drawn(natural),
 		end: drawn(natural),
 		members: drawn(natural),
-		kind: pg.bigint
+		kind: int8
 	},
 	["root", "start"]
 )
-const M = relation("M", { root: Id, start: natural, name: pg.bigint }, ["root", "start", "name"])
+const M = relation("M", { root: Id, start: natural, name: int8 }, ["root", "start", "name"])
 const Judged = schema(
 	"Judged",
 	[T, M],

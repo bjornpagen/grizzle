@@ -2,17 +2,17 @@
 
 import { type Gen, int } from "@bjornpagen/testing/gen"
 import { Logic, Num, Type } from "#compiler/public/compute.ts"
-import { contract, pg } from "#compiler/public/fields.ts"
+import { contract, int4, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { fixtureTemplate } from "#test/support/pg/reads/support.ts"
 
 const smallKey = Symbol("Small")
 /** The contract a series' element is cast into: within [-20, 20]. */
-const Small = contract<typeof smallKey>()("Small", pg.bigint, (x) => Num.within(x, -20n, 20n))
+const Small = contract<typeof smallKey>()("Small", int8, (x) => Num.within(x, -20n, 20n))
 
 /** A relation holding a Small, so the installation installs its domain, which the element's cast is into. */
-const Held = relation("Held", { id: pg.integer, small: Small }, ["id"])
+const Held = relation("Held", { id: int4, small: Small }, ["id"])
 
 export const Series = schema("Series", [Held], [])
 
@@ -22,10 +22,10 @@ export const Series = schema("Series", [Held], [])
  * interval, its ends' [-20, 20], with no guard.
  */
 const elements = query(Series).rule((r) => {
-	const top = Type.literal(pg.bigint, 20n)
-	const bottom = Type.literal(pg.bigint, -20n)
-	const low = Logic.greatest(Logic.least(r.param("lo", pg.bigint), top), bottom)
-	const high = Logic.greatest(Logic.least(r.param("hi", pg.bigint), top), bottom)
+	const top = Type.literal(int8, 20n)
+	const bottom = Type.literal(int8, -20n)
+	const low = Logic.greatest(Logic.least(r.param("lo", int8), top), bottom)
+	const high = Logic.greatest(Logic.least(r.param("hi", int8), top), bottom)
 	const s = r.series(low, high)
 	const { at } = v(s, "element")
 	return r.match(s, { at }).find({ at, small: Type.cast(at, Small, smallKey) })

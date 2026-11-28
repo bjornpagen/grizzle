@@ -59,12 +59,12 @@ export type Precondition =
 /**
  * The lexical form a parse reads its text by, which its `lexical` precondition names: its target type's own (`target`,
  * scalar/lexical.ts lexicalTargetOf), a Type.cast's, cut to the values the type holds exactly; every decimal text
- * of a double (`doubleText`), Text.parseDouble's, whose every member rounds to a double; or every decimal text
- * within the bytes whose every value plain numeric holds (`decimalText`), Text.parseDecimal's. The registry states
+ * of a double (`float8Text`), Text.parseFloat8's, whose every member rounds to a double; or every decimal text
+ * within the bytes whose every value plain numeric holds (`numericText`), Text.parseNumeric's. The registry states
  * it per overload and a proof carries it, so a language proved inside one form never stands for another's
  * precondition: the forms over one type differ, and the proof kernel compares them.
  */
-export const parseForms = ["target", "doubleText", "decimalText"] as const
+export const parseForms = ["target", "float8Text", "numericText"] as const
 export type ParseForm = (typeof parseForms)[number]
 
 /** A fact about every value of a term that its type states: never zero, never below zero, never NaN or an infinity. */

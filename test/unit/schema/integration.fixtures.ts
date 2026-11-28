@@ -1,20 +1,20 @@
 /** What the properties of integration.test.ts read: its spaces, models and helpers. */
 
 import { Logic } from "#compiler/public/compute.ts"
-import { closedId, contract, pg } from "#compiler/public/fields.ts"
+import { closedId, contract, int4, int8 } from "#compiler/public/fields.ts"
 import { closed, relation, type RowScalars } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 
 const Slug = str.regex("^[a-z]{1,20}$")
 
 const centsKey = Symbol("Cents")
-export const Cents = contract<typeof centsKey>()("Cents", pg.bigint, (v) => Logic.ge(v, 0n))
+export const Cents = contract<typeof centsKey>()("Cents", int8, (v) => Logic.ge(v, 0n))
 
 export const Kind = closed.ordered("Kind", ["a", "b"])
 
 export const Account = relation(
 	"Account",
-	{ id: pg.integer, slug: Slug, bal: Cents, kind: closedId(Kind) },
+	{ id: int4, slug: Slug, bal: Cents, kind: closedId(Kind) },
 	["id"]
 )
 
@@ -27,9 +27,9 @@ export type Row = RowScalars<typeof Account>
 const Loose = relation(
 	"Account",
 	{
-		id: pg.integer,
+		id: int4,
 		slug: Slug,
-		bal: pg.integer,
+		bal: int4,
 		kind: closedId(closed.ordered("Kind", ["a", "b", "c"]))
 	},
 	["id"]

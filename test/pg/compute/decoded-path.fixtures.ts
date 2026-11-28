@@ -8,7 +8,7 @@ import { Array as Arr, Option, Order, String as Str } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Type } from "#compiler/public/compute.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -20,7 +20,7 @@ import { fixtureTemplate } from "#test/support/pg/reads/support.ts"
 const Written = str.bytes(256, regexField<string>("^.*$", ["su"]))
 
 /** Each written path, by its id. */
-const Encoded = relation("Encoded", { id: pg.integer, text: Written }, ["id"])
+const Encoded = relation("Encoded", { id: int4, text: Written }, ["id"])
 
 export const Paths = schema("Paths", [Encoded], [])
 

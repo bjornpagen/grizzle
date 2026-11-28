@@ -1,5 +1,5 @@
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { closedId, natural, pg } from "#compiler/public/fields.ts"
+import { closedId, natural, int4, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	closed,
@@ -29,7 +29,7 @@ const customerName = str.regex("^[a-z]{1,40}$")
  */
 export type ShopWorkload = "full" | "withoutByName" | "none"
 
-const Order = relation("Order", { id: Id, customer: Id, cents: pg.bigint }, ["id"])
+const Order = relation("Order", { id: Id, customer: Id, cents: int8 }, ["id"])
 
 /**
  * The shop schema under `name` at version 1, Customer(id, name), its login owning the workload `programs` names. Each
@@ -85,7 +85,7 @@ export const shopV1 = (name: string, programs: ShopWorkload) => {
  * Each call builds a schema of its own: a schema and its login are read from one call.
  */
 export const shopV2 = (name: string, programs: ShopWorkload) => {
-	const Customer = relation("Customer", { id: Id, name: customerName, tier: pg.integer }, ["id"])
+	const Customer = relation("Customer", { id: Id, name: customerName, tier: int4 }, ["id"])
 	const s = schema(name, [Customer, Order], [contained(on(Order, "customer"), on(Customer, "id"))])
 	const reader = role(s, "reader", wholeEntriesOf(s))
 	const writer = role(s, "writer", wholeEntriesOf(s), wholeWritesOf(s))
@@ -166,15 +166,13 @@ export const shop = (name: string, version: 1 | 2, programs: ShopWorkload): Shop
 export const ledger = (name: string) => {
 	const Plan = closed.ordered("Plan", ["Card", "Invoice"])
 	const Customer = relation("Customer", { id: Id, name: customerName }, ["id"])
-	const Payment = relation(
-		"Payment",
-		{ id: Id, customer: Id, plan: closedId(Plan), cents: pg.bigint },
-		["id"]
-	)
+	const Payment = relation("Payment", { id: Id, customer: Id, plan: closedId(Plan), cents: int8 }, [
+		"id"
+	])
 	const CardPayment = relation("CardPayment", { payment: Id, last4: str.regex("^[0-9]{4}$") }, [
 		"payment"
 	])
-	const InvoicePayment = relation("InvoicePayment", { payment: Id, days: pg.integer }, ["payment"])
+	const InvoicePayment = relation("InvoicePayment", { payment: Id, days: int4 }, ["payment"])
 	const base = schema(
 		name,
 		[Plan, Customer, Payment, CardPayment, InvoicePayment],
@@ -257,7 +255,7 @@ const subject = str.regex("^u_[a-z]{1,8}$")
  * builds a schema of its own.
  */
 export const worlds = (name: string) => {
-	const Doc = relation("Doc", { id: Id, owner: subject, words: pg.integer }, ["id"])
+	const Doc = relation("Doc", { id: Id, owner: subject, words: int4 }, ["id"])
 	const Note = relation("Note", { id: Id, doc: Id, author: subject }, ["id"])
 	const Session = context("Session", { sub: subject })
 	const base = schema(

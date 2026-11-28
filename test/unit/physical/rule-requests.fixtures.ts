@@ -6,7 +6,7 @@ import { Array as Arr, Order } from "effect"
 import { keyTermText, type PlannedIndex } from "#compiler/physical/indexes/engine.ts"
 import { installOptions } from "#compiler/physical/install/compile.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	contained,
@@ -63,18 +63,10 @@ const joinColumns = (join: Join): ReadonlyArray<"g" | "h"> => (join === "gh" ? [
  * where it is probed, so D is live in both, held in S at its pack.
  */
 const schemaOf = (shape: Shape) => {
-	const T = relation(
-		"T",
-		{ package: pg.integer, id: pg.integer, g: pg.integer, h: pg.integer, x: pg.integer },
-		["package", "id"]
-	)
-	const U = relation(
-		"U",
-		{ package: pg.integer, id: pg.integer, g: pg.integer, h: pg.integer, w: pg.integer },
-		["package", "id"]
-	)
-	const S = relation("S", { pack: pg.integer, x: pg.integer }, ["pack", "x"])
-	const Q = relation("Q", { g: pg.integer }, ["g"])
+	const T = relation("T", { package: int4, id: int4, g: int4, h: int4, x: int4 }, ["package", "id"])
+	const U = relation("U", { package: int4, id: int4, g: int4, h: int4, w: int4 }, ["package", "id"])
+	const S = relation("S", { pack: int4, x: int4 }, ["pack", "x"])
+	const Q = relation("Q", { g: int4 }, ["g"])
 	const Base = schema(
 		"rule_requests",
 		[T, U, S, Q],
@@ -83,9 +75,9 @@ const schemaOf = (shape: Shape) => {
 			...(shape.unitLocal
 				? []
 				: [
-						unit("Package", { package: pg.integer }),
-						unit("Packs", { pack: pg.integer }),
-						unit("Gs", { g: pg.integer }),
+						unit("Package", { package: int4 }),
+						unit("Packs", { pack: int4 }),
+						unit("Gs", { g: int4 }),
 						mutable(T),
 						mutable(U),
 						mutable(S),

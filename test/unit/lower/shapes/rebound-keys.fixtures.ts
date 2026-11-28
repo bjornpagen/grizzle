@@ -12,7 +12,7 @@ import {
 	whole
 } from "#compiler/lower/shapes/share/keys.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -35,17 +35,16 @@ const Name = str.bytes(200, str.regex("^.+$", "su"))
  * sitting's moments, the test's items, and the outcomes a write records, each keyed by the learner first; and the
  * claims of sittings an attachment's head reads, its learner as the ledger keys it or as a person's.
  */
-const Session = relation(
-	"Session",
-	{ child: Learner, stage: pg.bigint, package: Name, path: Name },
-	["child", "stage"]
-)
+const Session = relation("Session", { child: Learner, stage: int8, package: Name, path: Name }, [
+	"child",
+	"stage"
+])
 const Presented = relation(
 	"Presented",
-	{ child: Learner, stage: pg.bigint, at: pg.bigint, k: pg.bigint, package: Name, path: Name },
+	{ child: Learner, stage: int8, at: int8, k: int8, package: Name, path: Name },
 	["child", "stage", "at"]
 )
-const Moment = relation("Moment", { child: Learner, stage: pg.bigint, at: pg.bigint }, [
+const Moment = relation("Moment", { child: Learner, stage: int8, at: int8 }, [
 	"child",
 	"stage",
 	"at"
@@ -57,17 +56,13 @@ const Member = relation("Member", { package: Name, path: Name, item: Name }, [
 ])
 const Outcome = relation(
 	"Outcome",
-	{ child: Learner, stage: pg.bigint, package: Name, path: Name, until: pg.bigint },
+	{ child: Learner, stage: int8, package: Name, path: Name, until: int8 },
 	["child", "stage", "package", "path"]
 )
-const LearnerClaim = relation(
-	"LearnerClaim",
-	{ claim: pg.bigint, child: Learner, stage: pg.bigint },
-	["claim"]
-)
-const PersonClaim = relation("PersonClaim", { claim: pg.bigint, child: Person, stage: pg.bigint }, [
+const LearnerClaim = relation("LearnerClaim", { claim: int8, child: Learner, stage: int8 }, [
 	"claim"
 ])
+const PersonClaim = relation("PersonClaim", { claim: int8, child: Person, stage: int8 }, ["claim"])
 
 const Ledger = schema(
 	"ReboundKeys",
@@ -126,7 +121,7 @@ export const boxGen: Gen<Box> = element<Box>(
  * `durations` reads ItemDuration at the sitting the call names, its learner of the type its guards deliver.
  */
 const durationsOf = (heading: Heading) => {
-	const sittings = { child: heading === "another refinement" ? Person : Learner, stage: pg.bigint }
+	const sittings = { child: heading === "another refinement" ? Person : Learner, stage: int8 }
 	return query(Ledger).rule((r) => {
 		const given = r.relation("sittings", sittings)
 		const { child, stage } = v(given, "sitting")
@@ -153,13 +148,13 @@ const attachedOf = (heading: Heading) => {
 			? query(Ledger).rule((r) => {
 					const { child, stage } = v(PersonClaim, "claim")
 					return r
-						.match(PersonClaim, { claim: r.param("claim", pg.bigint), child, stage })
+						.match(PersonClaim, { claim: r.param("claim", int8), child, stage })
 						.find({ child, stage })
 				})
 			: query(Ledger).rule((r) => {
 					const { child, stage } = v(LearnerClaim, "claim")
 					return r
-						.match(LearnerClaim, { claim: r.param("claim", pg.bigint), child, stage })
+						.match(LearnerClaim, { claim: r.param("claim", int8), child, stage })
 						.find({ child, stage })
 				})
 	return head.attach(

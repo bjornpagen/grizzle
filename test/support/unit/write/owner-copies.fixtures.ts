@@ -6,7 +6,7 @@
 import { nonEmpty } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
-import { accumulated, drawn, natural, pg } from "#compiler/public/fields.ts"
+import { accumulated, drawn, natural, int4 } from "#compiler/public/fields.ts"
 import { param } from "#compiler/public/query.ts"
 import { schema, type Statement } from "#compiler/public/schema.ts"
 import { relationBuilder as relation } from "#compiler/schema/relation.ts"
@@ -24,7 +24,7 @@ import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 
 /** Every value of the box but a place: an integer, which a parameter binds as its field's type with no domain of its
  * own (pantry's package and path are texts; the stamps and the host's groups read no type). */
-const Key = pg.integer
+const Key = int4
 
 /** The owner's shape: a tree whose root fields are (pkg, path), each node keyed (pkg, path, start) by its place in its
  * tree; or a plain relation keyed (pkg, path, start), its start stated. */

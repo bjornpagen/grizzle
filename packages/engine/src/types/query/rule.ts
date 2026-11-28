@@ -202,9 +202,9 @@ type ProducerAlone<H, X> =
 	X extends Producer<unknown, never>
 		? [KeysOfKind<H, Aggregate<unknown, never>>] extends [never]
 			? IsUnion<KeysOfKind<H, Producer<unknown, never>>> extends true
-				? Refusal<"one span producer per head">
+				? Refusal<"one range producer per head">
 				: unknown
-			: Refusal<"aggregate and span producer in one head: a producer yields facts per binding, an aggregate folds them">
+			: Refusal<"aggregate and range producer in one head: a producer yields facts per binding, an aggregate folds them">
 		: unknown
 
 /** The keys of a head whose terms are of kind X: never a term refused already, which is never and of every kind. */
@@ -477,7 +477,7 @@ type StoredOnlyFieldsIn<C> = {
  * The SQL types min and max are defined over: the numeric family and money, booleans (bool_and and bool_or), text and
  * closed ids, whose order is their codes', but an unordered roster's, which has none (HasOrder).
  */
-type MinMaxSql = NumericSql | "boolean" | "text" | "code"
+type MinMaxSql = NumericSql | "bool" | "text" | "code"
 
 /**
  * How one rule's type relates to another's, its members being functions over the rule they are called on (Rule): its
@@ -750,13 +750,13 @@ type RuleSeries = <const L extends TermBase, const H extends TermBase>(
 >
 
 /** The SQL types a series' end is of (RuleSeries): an integer's, a bigint's and an exact integer's. */
-type SeriesSql = "smallint" | "integer" | "bigint" | "exact integer"
+type SeriesSql = "int2" | "int4" | "int8" | "exact integer"
 
 /** A series' end (RuleSeries): a term of a SeriesSql type, any other refused by name. */
 type SeriesEnd<X> =
 	SqlOfTerm<X> extends SeriesSql
 		? unknown
-		: Refusal<"an integer for each end of r.series: an integer, bigint or exact integer term, parameter or typed constant">
+		: Refusal<"an integer for each end of r.series: an int2, int4, int8 or exact integer term, parameter or typed constant">
 
 /** A series' heading (RuleSeries): `at`, each element, an exact integer, as integer arithmetic counts. */
 type SeriesFields = { readonly at: ExactIntegerField }
@@ -985,7 +985,7 @@ export interface Rule<S, Params = unknown, Sole = "no match", Facts = NoFacts, C
 	 * (EqualityStates), as the engine lowers it to one; a number, whose relations the types do not know, states nothing.
 	 */
 	allen<A extends TermBase | FirstValue, B extends SpanOperand<T<A>>, M extends AllenMask | number>(
-		left: A & Requires<IsSpan<A>, "a span term is required"> & FirstTerm<A>,
+		left: A & Requires<IsSpan<A>, "a range term is required"> & FirstTerm<A>,
 		mask: M,
 		right: B
 	): Predicate<P<A> & P<B>, Reads<readonly [A, B]>> &
@@ -1016,12 +1016,12 @@ export interface Rule<S, Params = unknown, Sole = "no match", Facts = NoFacts, C
 		spans: A & FirstTerm<A> & Term<X, PA, OA, "range", V, ProvedFacts, L>
 	): Producer<V, PA, X, L, ComputedOrigin<OA>>
 	/**
-	 * Zero or one fact, the span from `start` to `end`, start included and end excluded, of the span type over the start's
-	 * type: none where the end is not after the start. The start is a term of a span endpoint's type, integer, bigint,
+	 * Zero or one fact, the range from `start` to `end`, start included and end excluded, of the range type over the
+	 * start's type: none where the end is not after the start. The start is a term of a range endpoint's type, int4, int8,
 	 * date or a contract over one, never an instant, the database's alone; the end a term of that type, a typed constant
 	 * (Type.literal) among them. It states that it produces at most one fact per binding, as an intersection does.
 	 */
-	span<
+	range<
 		A extends TermBase | FirstValue,
 		D,
 		PA,
@@ -1041,7 +1041,7 @@ export interface Rule<S, Params = unknown, Sole = "no match", Facts = NoFacts, C
 	 * count is a natural, whose host and SQL type are bigint's; sum and mean take their result type off the SUM and AVG
 	 * tables by their argument's SQL type (scalar/compute/tables.ts): a sum over any integer is an exact numeric.
 	 */
-	count(): Aggregate<bigint, unknown, "bigint", NaturalDomain, bigint, "count">
+	count(): Aggregate<bigint, unknown, "int8", NaturalDomain, bigint, "count">
 	sum<A extends TermBase | FirstValue, X, PA, OA, S extends NumericSql>(
 		term: A & FirstTerm<A> & InputTerm<X, PA, OA, S>
 	): OfFamily<

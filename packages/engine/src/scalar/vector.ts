@@ -18,7 +18,7 @@ interface VectorDescriptor<N extends number = number> extends Descriptor<"vector
  */
 export const admitVectorDimensions = (dimensions: unknown, extra: ReadonlyArray<unknown>): void => {
 	if (extra.length > 0) {
-		throw malformedDescription(captureLoc("pg.vector", []), "pg.vector(n): the dimensions alone")
+		throw malformedDescription(captureLoc("vector", []), "vector(n): the dimensions alone")
 	}
 	if (
 		typeof dimensions !== "number" ||
@@ -27,14 +27,14 @@ export const admitVectorDimensions = (dimensions: unknown, extra: ReadonlyArray<
 		dimensions > vectorMaxDimensions
 	) {
 		throw malformedDescription(
-			captureLoc("pg.vector dimensions", []),
+			captureLoc("vector dimensions", []),
 			`vector dimensions: an integer 1-${vectorMaxDimensions}`
 		)
 	}
 }
 
 /**
- * pg.vector(n): the pgvector field descriptor.
+ * vector(n): the pgvector field descriptor.
  *
  * `n` is the native type's fixed dimensions, 1..16000, pgvector's storage limit; the 2000-dimension HNSW limit is a
  * retrieval capability decided where approximate retrieval is compiled, not a field limit. A vector is
@@ -52,7 +52,7 @@ export const vector = <const N extends number>(
 		carrierSql.vector,
 		{ kind: "vector", dimensions },
 		{ dimensions, column: vectorColumn(dimensions) },
-		SourceLoc("pg.vector", []),
+		SourceLoc("vector", []),
 		bareEnv
 	)
 }

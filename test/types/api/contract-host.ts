@@ -40,15 +40,15 @@ import { batchOwned, caseOwned, type Entry, type Program } from "#test/support/t
 
 /** Each base of the host box: the base, and what follows it in the contract's call (its check and its facts), or nothing. */
 const bases = {
-	"pg.smallint": ["pg.smallint", ""],
-	"pg.integer": ["pg.integer", ""],
-	"pg.bigint": ["pg.bigint", ""],
-	"pg.numeric at scale 0": ["pg.numeric(9, 0)", ""],
-	"pg.numeric at scale 2": ["pg.numeric(9, 2)", ""],
-	"pg.real": ["pg.real", ""],
-	'pg["double precision"]': ['pg["double precision"]', ""],
-	"pg.money": ["pg.money", ""],
-	"pg.boolean": ["pg.boolean", ""],
+	int2: ["int2", ""],
+	int4: ["int4", ""],
+	int8: ["int8", ""],
+	"numeric at scale 0": ["numeric(9, 0)", ""],
+	"numeric at scale 2": ["numeric(9, 2)", ""],
+	float4: ["float4", ""],
+	float8: ["float8", ""],
+	money: ["money", ""],
+	bool: ["bool", ""],
 	uuid: ["uuid", ""],
 	natural: ["natural", ""],
 	date: ["date", ""],
@@ -60,28 +60,25 @@ const bases = {
 	"a closed id of an ordered roster": ["closedId(Ordered)", ""],
 	"a closed id of an unordered roster": ["closedId(Unordered)", ""],
 	"a closed id of a subset": ['closedId(Ordered, { only: ["low"] })', ""],
-	"a span": ["span(pg.integer)", ""],
-	"a vector": ["pg.vector(3)", ""],
+	"a range": ["range(int4)", ""],
+	"a vector": ["vector(3)", ""],
 	"another contract": ["Cents", ""],
-	"a contract that checks and proves": [
-		"pg.bigint",
-		', (v) => Logic.ne(v, 0n), { proves: ["nonzero"] }'
-	]
+	"a contract that checks and proves": ["int8", ', (v) => Logic.ne(v, 0n), { proves: ["nonzero"] }']
 } as const
 
 type Base = keyof typeof bases
 
 /** The cells of contractHostBox, minted as a dictionary in its door (test/types/api/contract-host.dictionary.ts). */
 export const contractHostBoxItems: Arr.NonEmptyReadonlyArray<Base> = [
-	"pg.smallint",
-	"pg.integer",
-	"pg.bigint",
-	"pg.numeric at scale 0",
-	"pg.numeric at scale 2",
-	"pg.real",
-	'pg["double precision"]',
-	"pg.money",
-	"pg.boolean",
+	"int2",
+	"int4",
+	"int8",
+	"numeric at scale 0",
+	"numeric at scale 2",
+	"float4",
+	"float8",
+	"money",
+	"bool",
 	"uuid",
 	"natural",
 	"date",
@@ -93,7 +90,7 @@ export const contractHostBoxItems: Arr.NonEmptyReadonlyArray<Base> = [
 	"a closed id of an ordered roster",
 	"a closed id of an unordered roster",
 	"a closed id of a subset",
-	"a span",
+	"a range",
 	"a vector",
 	"another contract",
 	"a contract that checks and proves"
@@ -109,7 +106,7 @@ const header: ReadonlyArray<string> = [
 	'export const Ordered = closed.ordered("Ordered", ["low", "high"])',
 	'export const Unordered = closed.unordered("Unordered", ["a", "b"])',
 	'export const centsKey = Symbol("Cents")',
-	'export const Cents = contract<typeof centsKey>()("Cents", pg.bigint)',
+	'export const Cents = contract<typeof centsKey>()("Cents", int8)',
 	""
 ]
 
@@ -136,7 +133,7 @@ const hostLines = (base: Base, at: number): ReadonlyArray<string> => {
 		`export declare const held${at}: Infer<typeof C${at}>`,
 		`export declare const plain${at}: Infer<typeof base${at}>`,
 		`export declare const other${at}: Infer<typeof O${at}>`,
-		`export const R${at} = relation("R${at}", { id: pg.integer, value: C${at} }, ["id"])`,
+		`export const R${at} = relation("R${at}", { id: int4, value: C${at} }, ["id"])`,
 		`export const S${at} = schema("S${at}", [Ordered, Unordered, R${at}], [])`,
 		`export const written${at} = ${write(`held${at}`)}`,
 		`export const minted${at} = ${write(`to${at}(plain${at})`)}`,
@@ -216,11 +213,11 @@ export const contractValueBoxItems: Arr.NonEmptyReadonlyArray<ValueCell> = Arr.f
 const valueHeader: ReadonlyArray<string> = [
 	'export const amountKey = Symbol("Amount")',
 	'export const otherKey = Symbol("Other")',
-	'export const Amount = contract<typeof amountKey>()("Amount", pg.bigint)',
-	'export const Other = contract<typeof otherKey>()("Other", pg.bigint)',
+	'export const Amount = contract<typeof amountKey>()("Amount", int8)',
+	'export const Other = contract<typeof otherKey>()("Other", int8)',
 	"export const toAmount = mintOf(amountKey)",
 	"export const toOther = mintOf(otherKey)",
-	'export const Ledger = relation("Ledger", { id: pg.integer, amount: Amount }, ["id"])',
+	'export const Ledger = relation("Ledger", { id: int4, amount: Amount }, ["id"])',
 	'export const Books = schema("Books", [Ledger], [])',
 	""
 ]
@@ -318,7 +315,7 @@ const keyLines = (cell: KeyCell, at: number): ReadonlyArray<string> => [
 	`export const k${at}${keys[cell.key]}`,
 	...(cell.key === "a unique symbol" ? [] : [`// @ts-expect-error -- refusal: ${keyRefusal}`]),
 	cell.position === "a contract"
-		? `export const C${at} = contract<typeof k${at}>()("C${at}", pg.bigint)`
+		? `export const C${at} = contract<typeof k${at}>()("C${at}", int8)`
 		: `export const to${at} = mintOf(k${at})`,
 	""
 ]
@@ -444,13 +441,13 @@ export const contractMintBoxItems: Arr.NonEmptyReadonlyArray<MintCell> = [
 /** The mint box's declarations: two contracts, one over the other, each with its key and mint, a roster, and T. */
 const mintHeader: ReadonlyArray<string> = [
 	'export const centsKey = Symbol("Cents")',
-	'export const Cents = contract<typeof centsKey>()("Cents", pg.bigint, (x) => Logic.ge(x, 0n))',
+	'export const Cents = contract<typeof centsKey>()("Cents", int8, (x) => Logic.ge(x, 0n))',
 	"export const toCents = mintOf(centsKey)",
 	'export const outerKey = Symbol("Outer")',
 	'export const Outer = contract<typeof outerKey>()("Outer", Cents)',
 	"export const toOuter = mintOf(outerKey)",
 	'export const Arm = closed.unordered("Arm", ["a", "b"])',
-	'export const T = relation("T", { id: pg.integer, n: pg.bigint }, ["id"])',
+	'export const T = relation("T", { id: int4, n: int8 }, ["id"])',
 	'export const S = schema("S", [T], [])',
 	""
 ]
@@ -460,7 +457,7 @@ const targetText: { readonly [T in MintTarget]: readonly [string, string] } = {
 	"a consumer's contract": ["Cents", "toCents(0n)"],
 	"a contract over another": ["Outer", "toOuter(toCents(0n))"],
 	natural: ["natural", "0n"],
-	bigint: ["pg.bigint", "0n"]
+	bigint: ["int8", "0n"]
 }
 
 /** What follows a mint's own arguments, as the program spells it. */
@@ -491,15 +488,15 @@ const mintStatement = (cell: Extract<MintCell, { readonly kind: "mint" }>, at: n
 		case "a cast":
 			return `export const q${at} = query(S).rule((r) => { const { id, n } = v(T, "t"); return r.match(T, { id, n }).find({ id, x: Type.cast(n, ${target}${key}) }) })`
 		case "a drawn field":
-			return `export const R${at} = relation("R${at}", { id: pg.integer, n: drawn(${target}${key}) }, ["id"])`
+			return `export const R${at} = relation("R${at}", { id: int4, n: drawn(${target}${key}) }, ["id"])`
 		case "an accumulated field":
-			return `export const R${at} = relation("R${at}", { id: pg.integer, total: accumulated(${target}, ${start}${key}) }, ["id"])`
+			return `export const R${at} = relation("R${at}", { id: int4, total: accumulated(${target}, ${start}${key}) }, ["id"])`
 	}
 }
 
 /** Each clock parameter's type as the program spells it. */
 const paramText = {
-	bigint: "pg.bigint",
+	bigint: "int8",
 	natural: "natural",
 	"a consumer's contract": "Cents",
 	"a contract over another": "Outer"
@@ -521,7 +518,7 @@ const clockKeysText = (clock: ClockCase): string => {
 
 /** The refusal of a clock bound to a parameter of a contract over another's. */
 const clockRefusal =
-	"clocked binds only parameters of the program whose values are bigints: bigint, natural, or one consumer's contract over either, under its key"
+	"clocked binds only parameters of the program whose values are bigints: int8, natural, or one consumer's contract over either, under its key"
 
 /** Each result shape over a type as the program spells it, a variant's declared on a line before the function. */
 const resultText = (shape: ResultShape, type: string, at: number): string => {
@@ -539,7 +536,7 @@ const resultText = (shape: ResultShape, type: string, at: number): string => {
 
 /** Each result type as the program spells it. */
 const resultTypeText = {
-	"its base": "pg.bigint",
+	"its base": "int8",
 	"a consumer's contract": "Cents",
 	"a contract over another": "Outer"
 } as const

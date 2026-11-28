@@ -8,7 +8,7 @@ import { Array as Arr, Order, String as Str } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Type } from "#compiler/public/compute.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -35,15 +35,13 @@ const NoComma = str.bytes(64, regexField<string>("^[a/ é😀\\t]*$", ["u"]))
 const NoWide = str.bytes(64, regexField<string>("^[a,/ é\\t]*$", ["u"]))
 
 /** Each text split, by its id: a drawn one, and the same text again as any text. */
-const Written = relation("Written", { id: pg.integer, text: Drawn, loose: Loose }, ["id"])
+const Written = relation("Written", { id: int4, text: Drawn, loose: Loose }, ["id"])
 
 /** Each text and the prefix its rest is read after, by its id. */
-const Prefixed = relation("Prefixed", { id: pg.integer, text: Drawn, prefix: Drawn }, ["id"])
+const Prefixed = relation("Prefixed", { id: int4, text: Drawn, prefix: Drawn }, ["id"])
 
 /** A relation holding each type a read casts into, so the installation installs its domain. */
-const Held = relation("Held", { id: pg.integer, noComma: NoComma, noWide: NoWide, drawn: Drawn }, [
-	"id"
-])
+const Held = relation("Held", { id: int4, noComma: NoComma, noWide: NoWide, drawn: Drawn }, ["id"])
 
 export const Splits = schema("Splits", [Written, Prefixed, Held], [])
 

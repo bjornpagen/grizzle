@@ -4,7 +4,7 @@ import { assert } from "@bjornpagen/testing/assert"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, type Rule, v } from "#compiler/public/query.ts"
 import { check, derived, relation, schema } from "#compiler/public/schema.ts"
 import { fullWorldRole, servedRead, servedRun } from "#test/support/advice.ts"
@@ -23,7 +23,7 @@ import type { SubstrateTemplate } from "#test/support/substrate/substrate.ts"
  * written beside its sitting's limits and a fact of its own, its sitting not held, which a check holds to the limit. Each
  * rule reads the limits at its own budget's sitting, a copy of one sub-query each rule's judge reads at its row.
  */
-const i = pg.integer
+const i = int4
 const Assignment = relation("Assignment", { number: i, child: i, test: i }, ["number"])
 const Limit = relation("Limit", { test: i, kind: i, seconds: i }, ["test", "kind"])
 const Budget = relation("Budget", { child: i, stage: i, remaining: i }, ["child", "stage"])

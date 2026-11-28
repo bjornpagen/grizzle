@@ -13,7 +13,7 @@ import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import { dataStepBracket } from "#compiler/physical/ddl/immutable.ts"
-import { natural, pg } from "#compiler/public/fields.ts"
+import { natural, bool, int4, int8 } from "#compiler/public/fields.ts"
 import type { AnyRelation } from "#compiler/public/schema.ts"
 import { type QueryValue, queryOver as query, varsOver as v } from "#compiler/query/build/query.ts"
 import type { FinishedValue, RuleValue } from "#compiler/query/build/rule.ts"
@@ -30,10 +30,10 @@ import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** A sitting's fields, a learner's stage, which leads every key of a sitting's facts. */
-const sitting = { child: pg.integer, stage: pg.integer } as const
+const sitting = { child: int4, stage: int4 } as const
 
 /** A sitting's fact at a candidate session k and an instant: the fields every holder has, under its own key. */
-const fact = { ...sitting, k: natural, at: pg.bigint } as const
+const fact = { ...sitting, k: natural, at: int8 } as const
 
 /**
  * The four holders, in the learner's unit, by the name a drawn rule reads each by: a sitting's candidate sessions and
@@ -413,7 +413,7 @@ const schemaOf = (c: DeltaCase, name: string) => {
 		name,
 		Arr.map(holderNames, (h) => holders[h]),
 		[
-			unitBuilder("Learner", { child: pg.integer }, []),
+			unitBuilder("Learner", { child: int4 }, []),
 			...(c.open ? Arr.map(holderNames, (h) => mutableBuilder(holders[h])) : [])
 		],
 		[]
@@ -427,7 +427,7 @@ const schemaOf = (c: DeltaCase, name: string) => {
 			const two = v(second, "two")
 			const child = one["child"]
 			const stage = one["stage"]
-			const strict = computeCore.literal(pg.boolean, sketch.strict)
+			const strict = computeCore.literal(bool, sketch.strict)
 			const pair = (later: unknown) => ({ child, stage, earlier: one["at"], later, strict })
 			switch (sketch.join) {
 				case "single":
@@ -480,7 +480,7 @@ const schemaOf = (c: DeltaCase, name: string) => {
 				q.where(
 					r.not(holders[n.holder], n.at === "session" ? { child, stage, k } : { child, stage })
 				)
-			).find({ child, stage, k, at, tag: computeCore.literal(pg.integer, sketch.tag) })
+			).find({ child, stage, k, at, tag: computeCore.literal(int4, sketch.tag) })
 		}
 	const [standing, ...more] = c.standing
 	const Standing = derivedBuilder(

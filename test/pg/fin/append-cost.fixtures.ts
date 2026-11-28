@@ -14,7 +14,7 @@ import {
 } from "#bench/write/support/writes.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { drawn, natural, pg } from "#compiler/public/fields.ts"
+import { drawn, natural, int8 } from "#compiler/public/fields.ts"
 import {
 	counted,
 	fin,
@@ -28,20 +28,16 @@ import {
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** A sequence's owner, its count the slots of its lines. */
-const Doc = relation("Doc", { id: pg.bigint, lines: drawn(natural) }, ["id"])
+const Doc = relation("Doc", { id: int8, lines: drawn(natural) }, ["id"])
 
 /** A sequence's member at its drawn slot, keyed apart from its place, so a put moves it to another doc's end. */
-const Line = relation(
-	"Line",
-	{ id: pg.bigint, doc: pg.bigint, at: drawn(natural), payload: pg.bigint },
-	["id"]
-)
+const Line = relation("Line", { id: int8, doc: int8, at: drawn(natural), payload: int8 }, ["id"])
 
 /** A counted family's owner. */
-const Group = relation("Group", { id: pg.bigint, size: drawn(natural) }, ["id"])
+const Group = relation("Group", { id: int8, size: drawn(natural) }, ["id"])
 
 /** A counted family's member, a row of its own naming its group. */
-const Tag = relation("Tag", { id: pg.bigint, grp: pg.bigint, payload: pg.bigint }, ["id"])
+const Tag = relation("Tag", { id: int8, grp: int8, payload: int8 }, ["id"])
 
 /** The box's schema: a sequence and a counted family, each of a mutable owner, the sequence's lines mutable too. */
 const build = (name: string) =>
@@ -54,7 +50,7 @@ const build = (name: string) =>
 			mutable(Doc),
 			mutable(Line),
 			mutable(Group),
-			unit("Id", { id: pg.bigint })
+			unit("Id", { id: int8 })
 		]
 	)
 

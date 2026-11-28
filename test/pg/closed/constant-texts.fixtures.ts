@@ -19,7 +19,7 @@ import { Db } from "#adapter/public/db.ts"
 import type { WriteOutcome } from "#compiler/live/index.ts"
 import { ChangeSet, type Law } from "#compiler/public/changeset.ts"
 import { Logic, Text, Type } from "#compiler/public/compute.ts"
-import { closedId, generated, pg } from "#compiler/public/fields.ts"
+import { closedId, generated, int4 } from "#compiler/public/fields.ts"
 import {
 	check,
 	closed,
@@ -403,9 +403,9 @@ const schemaOf = (c: ConstantCase) => {
 				return Logic.not(constOf(p.arg))
 		}
 	}
-	const fields = { id: pg.integer, kind: closedId(Kind), n: pg.integer, m: pg.integer }
+	const fields = { id: int4, kind: closedId(Kind), n: int4, m: int4 }
 	const itemOf = <const N extends string>(name: RelationName<N>) => relation(name, fields, ["id"])
-	type Row = { readonly n: Term<number, unknown, unknown, "integer"> }
+	type Row = { readonly n: Term<number, unknown, unknown, "int4"> }
 	const phiOf = (phi: Phi, r: Row): Predicate => {
 		const constant = constOf(phi.constant)
 		switch (phi.mixed.kind) {
@@ -418,7 +418,7 @@ const schemaOf = (c: ConstantCase) => {
 		}
 	}
 	const GenCond = relation.generated("GenCond", fields, ["id"], (r) => ({
-		g: generated(pg.integer, Logic.cond(phiOf(c.generated, r), r.n, r.m))
+		g: generated(int4, Logic.cond(phiOf(c.generated, r), r.n, r.m))
 	}))
 	const GenText = relation.generated("GenText", fields, ["id"], () => ({
 		g: generated(Wild, termOf(c.text))

@@ -171,7 +171,7 @@ const parameterHeader: ReadonlyArray<string> = [
 	"export type IdValue = Infer<typeof Id>",
 	'export const Doc = relation("Doc", { id: Id }, ["id"])',
 	'export const Node = relation("Node", { id: Id, document: Id }, ["id"])',
-	'export const Comment = relation("Comment", { node: Id, value: pg.bigint }, ["node"])',
+	'export const Comment = relation("Comment", { node: Id, value: int8 }, ["node"])',
 	...Arr.flatMap(schemas, (box) => Str.split(schemaBlock(box), "\n")),
 	""
 ]

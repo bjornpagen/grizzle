@@ -6,7 +6,7 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { CompletedOrder } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 import {
 	type CarrierHost,
 	type CarrierSpec,
@@ -43,7 +43,7 @@ const isHostValue = (value: unknown): value is CarrierHost[keyof CarrierHost] =>
 	typeof value === "bigint" ||
 	typeof value === "boolean" ||
 	typeof value === "string" ||
-	value instanceof Decimal ||
+	value instanceof Numeric ||
 	value instanceof Money ||
 	isVector(value) ||
 	isSpanValue(value)

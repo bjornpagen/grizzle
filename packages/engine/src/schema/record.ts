@@ -18,7 +18,7 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import type { Built } from "#compiler/core/phantom.ts"
 import { frozenRecordOf } from "#compiler/core/record.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import type { CallFields } from "#compiler/types/compute/call.ts"
 import type {
@@ -216,13 +216,13 @@ export const calledFields = <A, Fields>(
 	sources: ReadonlyArray<readonly [string, unknown]>
 ): CallFields<A, Fields> => assembled<CallFields<A, Fields>>(sources)
 
-/** Whether a head entry is a JavaScript value: a string, a number, a bigint, a boolean, a Decimal or a Money. */
+/** Whether a head entry is a JavaScript value: a string, a number, a bigint, a boolean, a Numeric or a Money. */
 const isHeadValue = (entry: unknown) =>
 	typeof entry === "string" ||
 	typeof entry === "number" ||
 	typeof entry === "bigint" ||
 	typeof entry === "boolean" ||
-	entry instanceof Decimal ||
+	entry instanceof Numeric ||
 	entry instanceof Money
 
 /** A head as find holds it (see the header): a JavaScript value made the head literal `literal` gives it. */

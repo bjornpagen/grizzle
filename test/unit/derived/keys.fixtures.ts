@@ -23,7 +23,7 @@ import type { Refused } from "#compiler/core/refusals.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import { Fn, Type } from "#compiler/public/compute.ts"
-import { natural, pg } from "#compiler/public/fields.ts"
+import { natural, int4, vector } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	derived,
@@ -1158,13 +1158,13 @@ const storedField = (t: StoredType): FieldBase => {
 		case "uuid":
 			return Id
 		case "integer":
-			return pg.integer
+			return int4
 		case "text":
 			return regex(`^[a-z]{0,${t.max}}$`, "u")
 		case "wildcard":
 			return wildcard
 		case "vector":
-			return pg.vector(t.dimensions)
+			return vector(t.dimensions)
 	}
 }
 
@@ -1187,7 +1187,7 @@ export const storableOf = (c: StorableCase) => {
 		"Wide",
 		{
 			id: Id,
-			...Rec.fromEntries(Arr.map(indices(width), (i) => [wideName(i), pg.integer] as const))
+			...Rec.fromEntries(Arr.map(indices(width), (i) => [wideName(i), int4] as const))
 		},
 		["id"]
 	)
@@ -1381,7 +1381,7 @@ export const storableModel = (c: StorableCase): Expected => {
 				nonEmpty(
 					Arr.map(indices(shape.width), (i): ModelColumn => ({
 						name: wideName(i),
-						desc: descOf(pg.integer)
+						desc: descOf(int4)
 					})),
 					"the wide heading"
 				)
@@ -1486,7 +1486,7 @@ const Piece = str.bytes(64, str.regex("^.*$", "su"))
  */
 const Listed = relation(
 	"Listed",
-	{ id: Id, list: str.regex("^.*$", "su"), lo: pg.integer, hi: pg.integer, path: Piece },
+	{ id: Id, list: str.regex("^.*$", "su"), lo: int4, hi: int4, path: Piece },
 	["id"]
 )
 
@@ -1494,7 +1494,7 @@ const Listed = relation(
 const pieces = fn("pieces", {
 	calls: [],
 	args: { t: str.regex("^.*$", "su") },
-	returns: rows({ at: pg.integer, piece: Piece }),
+	returns: rows({ at: int4, piece: Piece }),
 	volatility: "immutable",
 	nullInput: "strict",
 	language: "sql",
@@ -1613,7 +1613,7 @@ const seriesStored = (c: CallKeyCase) =>
 					return r
 						.match(Listed, { id, lo, hi })
 						.match(series, { at })
-						.find({ id, at: Type.cast(at, pg.integer) })
+						.find({ id, at: Type.cast(at, int4) })
 				})
 			)
 		: derived(

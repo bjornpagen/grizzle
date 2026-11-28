@@ -98,7 +98,7 @@ post-beta swarm's fixes for the next release.
     exprPatternReads, patternParts), refusing at the expression. It moves a term's refusal out of the lowering, which
     test/unit/compute/text.test.ts holds.
   - Pattern analysis carried on its values (REGEX2, 2026-11-09; held by main, generate-only after the cutover):
-    Logic.when guards analyze x ∧ p again, 103 calls for 14 distinct, about 90–105 ms, and Text.parseDouble's lexical
+    Logic.when guards analyze x ∧ p again, 103 calls for 14 distinct, about 90–105 ms, and Text.parseFloat8's lexical
     inclusion rebuilds the inner and form DFAs, 39 calls for 10 distinct, about 110–150 ms. The move: the pure regex
     engine (scalar/regex table, charset, ir, parse, nfa, partition, dfa, are, space, admit, source, inclusion's NFA
     core) becomes a zone `regex` importing only core, with TextBounds and ir/dag.ts postorder moved out of ir; ir,

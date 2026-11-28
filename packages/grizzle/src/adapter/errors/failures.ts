@@ -891,7 +891,7 @@ export class SpanKeyChange extends Data.TaggedError("SpanKeyChange")<{
 	readonly relation: string
 }> {
 	override get message(): string {
-		return `an insert into ${this.relation}'s span key met an occupant a concurrent transaction changed`
+		return `an insert into ${this.relation}'s range key met an occupant a concurrent transaction changed`
 	}
 }
 

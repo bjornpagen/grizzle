@@ -29,7 +29,7 @@ import { noSpellings } from "#compiler/ir/pattern.ts"
 import { type Carrier, routable, type ScalarType } from "#compiler/ir/scalar.ts"
 import { anyNumeric, wildcardText } from "#compiler/scalar/compute/types.ts"
 import { plainType } from "#compiler/scalar/native.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 import { parseValue, type CarrierHost } from "#compiler/scalar/values/identity.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { isVector, Vector } from "#compiler/scalar/values/vector.ts"
@@ -100,21 +100,15 @@ const scalars = Object.freeze({
 	numeric10000: scalarOf({ kind: "numeric", precision: 1000, scale: 0 }, {}),
 	kind: scalarOf({ kind: "closedId", roster: "Kind", only: undefined }, { Kind: kindHandles }),
 	kinds: scalarOf({ kind: "bits", roster: "Kind" }, { Kind: kindHandles }),
-	range4: scalarOf(
-		{ kind: "span", endpoint: { kind: "pg", type: "integer" }, width: undefined },
-		{}
-	),
-	range8: scalarOf(
-		{ kind: "span", endpoint: { kind: "pg", type: "bigint" }, width: undefined },
-		{}
-	),
+	range4: scalarOf({ kind: "span", endpoint: { kind: "pg", type: "int4" }, width: undefined }, {}),
+	range8: scalarOf({ kind: "span", endpoint: { kind: "pg", type: "int8" }, width: undefined }, {}),
 	vector3: scalarOf({ kind: "vector", dimensions: 3 }, {}),
 	vector16: scalarOf({ kind: "vector", dimensions: 16 }, {}),
 	cents: scalarOf(
 		{
 			kind: "contract",
 			name: "Cents",
-			base: { kind: "pg", type: "bigint" },
+			base: { kind: "pg", type: "int8" },
 			predicate: undefined,
 			facts: []
 		},
@@ -195,14 +189,14 @@ const realGen: Gen<number> = oneOf([
  * A numeric(7,2) value, by construction: NaN, or a whole part below 10^5 - 1 in magnitude and up to two fraction
  * digits, each a value the typmod holds as it is.
  */
-const numeric72Gen: Gen<Decimal> = weighted([
-	[1, constant(Decimal.nan)],
+const numeric72Gen: Gen<Numeric> = weighted([
+	[1, constant(Numeric.nan)],
 	[
 		12,
 		(source) => {
 			const whole = source.draw(int(-99_998, 99_998))
 			const fraction = source.draw(string(codePoint(0x30, 0x39), { min: 0, max: 2 }))
-			return Decimal.of(fraction.length === 0 ? `${whole}` : `${whole}.${fraction}`)
+			return Numeric.of(fraction.length === 0 ? `${whole}` : `${whole}.${fraction}`)
 		}
 	]
 ])
@@ -275,9 +269,9 @@ interface Case {
 export const roundTripRuns = 15
 
 export const cases: Arr.NonEmptyReadonlyArray<Case> = [
-	{ label: "smallint", type: plainType("int2"), values: int(-32768, 32767) },
-	{ label: "integer", type: plainType("int4"), values: int4Gen },
-	{ label: "bigint", type: plainType("int8"), values: int8Gen },
+	{ label: "int2", type: plainType("int2"), values: int(-32768, 32767) },
+	{ label: "int4", type: plainType("int4"), values: int4Gen },
+	{ label: "int8", type: plainType("int8"), values: int8Gen },
 	{ label: "numeric", type: anyNumeric, values: decimalGen },
 	{
 		label: "numeric(7,2)",
@@ -286,10 +280,10 @@ export const cases: Arr.NonEmptyReadonlyArray<Case> = [
 	},
 	{ label: "numeric(1,0)", type: scalars.numeric10, values: integerNumericGen(1) },
 	{ label: "numeric(1000,0)", type: scalars.numeric10000, values: integerNumericGen(1000) },
-	{ label: "real", type: plainType("float4"), values: realGen },
-	{ label: "double precision", type: plainType("float8"), values: doubleGen },
+	{ label: "float4", type: plainType("float4"), values: realGen },
+	{ label: "float8", type: plainType("float8"), values: doubleGen },
 	{ label: "money", type: plainType("money"), values: map(int8Gen, (u) => Money.of(u)) },
-	{ label: "boolean", type: plainType("bool"), values: boolean },
+	{ label: "bool", type: plainType("bool"), values: boolean },
 	{ label: "uuid", type: scalars.uuid, values: caseShuffled },
 	{ label: "text", type: wildcardText, values: textGen },
 	{ label: "closed id", type: scalars.kind, values: element(kindHandles) },
@@ -344,7 +338,7 @@ const sameHost = (a: unknown, b: unknown): boolean => {
 	if (a instanceof Set && b instanceof Set) {
 		return a.size === b.size && Arr.every(Arr.fromIterable(a), (x) => b.has(x))
 	}
-	if (a instanceof Decimal && b instanceof Decimal) {
+	if (a instanceof Numeric && b instanceof Numeric) {
 		return a.equals(b)
 	}
 	if (a instanceof Money && b instanceof Money) {
@@ -471,9 +465,9 @@ export const readingOver = (names: SqlNames) => {
 		{ field: "id", type: scalars.uuid, sql: "uuid" },
 		{ field: "amount", type: scalars.cents, sql: `${names.schema}."cents"` },
 		{ field: "rate", type: scalars.numeric72, sql: "numeric(7,2)" },
-		{ field: "raw", type: plainType("float4"), sql: "real" },
+		{ field: "raw", type: plainType("float4"), sql: "float4" },
 		{ field: "charge", type: plainType("money"), sql: "money" },
-		{ field: "kind", type: scalars.kind, sql: "smallint" },
+		{ field: "kind", type: scalars.kind, sql: "int2" },
 		{ field: "kinds", type: scalars.kinds, sql: wireSql(scalars.kinds, names) },
 		{ field: "label", type: wildcardText, sql: "text COLLATE pg_catalog.pg_c_utf8" },
 		{ field: "during", type: scalars.range8, sql: "int8range" },
@@ -526,7 +520,7 @@ export const readingOver = (names: SqlNames) => {
 export const factOf = (id: string) => (source: Source) => ({
 	id,
 	amount: source.draw(bigint(0n, int8Max)),
-	rate: source.draw(map(int(-9999999, 9999999), (n) => Decimal.of(`${n}e-2`))),
+	rate: source.draw(map(int(-9999999, 9999999), (n) => Numeric.of(`${n}e-2`))),
 	raw: source.draw(realGen),
 	charge: source.draw(map(int8Gen, (u) => Money.of(u))),
 	kind: source.draw(element(kindHandles)),

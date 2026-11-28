@@ -1,7 +1,7 @@
 /** What the properties of race.test.ts read: its spaces, models and helpers. */
 
 import { boolean, element, type Gen } from "@bjornpagen/testing/gen"
-import { drawn, natural, pg, span } from "#compiler/public/fields.ts"
+import { drawn, natural, range, int4, int8 } from "#compiler/public/fields.ts"
 import {
 	closed,
 	counted,
@@ -79,7 +79,7 @@ const plainR = (key: KeyShape) => {
 		case "whole":
 			return relation("R", { k: Id, holder: Id }, ["k", "holder"])
 		case "span":
-			return relation("R", { k: Id, during: span(pg.bigint), holder: Id }, ["k", "during"])
+			return relation("R", { k: Id, during: range(int8), holder: Id }, ["k", "during"])
 		case "drawn":
 			return relation("R", { k: Id, n: drawn(natural), holder: Id }, ["k", "n"])
 	}
@@ -99,7 +99,7 @@ export const schemaOf = (c: RaceCase): unknown => {
 		}
 		case "family": {
 			if (c.part === "member") {
-				const R = relation("R", { o: Id, n: pg.integer, holder: Id }, ["o", "n"])
+				const R = relation("R", { o: Id, n: int4, holder: Id }, ["o", "n"])
 				const O = relation("O", { id: Id, n: drawn(natural) }, ["id"])
 				const family = counted(on(R, "o"), fin(O, "n"))
 				return schema(
@@ -109,7 +109,7 @@ export const schemaOf = (c: RaceCase): unknown => {
 				)
 			}
 			const R = relation("R", { id: Id, holder: Id, n: drawn(natural) }, ["id"])
-			const M = relation("M", { o: Id, n: pg.integer }, ["o", "n"])
+			const M = relation("M", { o: Id, n: int4 }, ["o", "n"])
 			const family = counted(on(M, "o"), fin(R, "n"))
 			return schema(
 				"Races",

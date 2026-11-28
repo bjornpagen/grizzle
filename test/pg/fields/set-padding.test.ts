@@ -22,7 +22,7 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Layer, Order } from "effect"
 import { Db } from "#adapter/public/db.ts"
-import { Bits } from "#compiler/public/fields.ts"
+import { Bit } from "#compiler/public/fields.ts"
 import {
 	space,
 	codesOf,
@@ -89,8 +89,8 @@ export const theSetAlgebraOverADraftedBitsDomainComputesEverySetWithItsPaddingBi
 												R: Arr.map(d.rows, (row, id) => ({
 													id,
 													k: handleOf(row.k),
-													a: Bits.of(S, Arr.map(row.a, handleOf)),
-													b: Bits.of(S, Arr.map(row.b, handleOf))
+													a: Bit.of(S, Arr.map(row.a, handleOf)),
+													b: Bit.of(S, Arr.map(row.b, handleOf))
 												}))
 											}
 										}

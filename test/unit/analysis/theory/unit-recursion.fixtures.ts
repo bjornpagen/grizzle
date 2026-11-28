@@ -2,7 +2,7 @@
 
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import type { CompileError } from "#compiler/core/errors.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, type Rule, type SelfSource, v } from "#compiler/public/query.ts"
 import {
 	check,
@@ -20,16 +20,12 @@ import {
  * A document's nodes, each with its parent's place, keyed by its document first; a link from a node to a node of any
  * document; a document's claim of a node it reaches. The document is the unit every rule over a walk is judged in.
  */
-const Node = relation("Node", { doc: pg.integer, start: pg.integer, parent: pg.integer }, [
+const Node = relation("Node", { doc: int4, start: int4, parent: int4 }, ["doc", "start"])
+const Link = relation("Link", { doc: int4, start: int4, toDoc: int4, toStart: int4 }, [
 	"doc",
 	"start"
 ])
-const Link = relation(
-	"Link",
-	{ doc: pg.integer, start: pg.integer, toDoc: pg.integer, toStart: pg.integer },
-	["doc", "start"]
-)
-const Claim = relation("Claim", { doc: pg.integer, start: pg.integer }, ["doc", "start"])
+const Claim = relation("Claim", { doc: int4, start: int4 }, ["doc", "start"])
 
 /**
  * Where the walk's step reaches its next node:
@@ -113,9 +109,9 @@ const Base = (mutability: Mutability) =>
 		"UnitWalk",
 		[Node, Link, Claim],
 		mutability === "Node mutable in its document"
-			? [unit("Document", { doc: pg.integer }), mutable(Node)]
+			? [unit("Document", { doc: int4 }), mutable(Node)]
 			: mutability === "Node mutable in its place"
-				? [unit("Place", { doc: pg.integer, start: pg.integer }), mutable(Node)]
+				? [unit("Place", { doc: int4, start: int4 }), mutable(Node)]
 				: []
 	)
 
@@ -142,7 +138,7 @@ export const walkSchemaOf = (c: WalkCase) => {
 		})
 	)
 	const Edges = schema.extend([B], "UnitWalkEdges", [Within, Across], [])
-	const row = { doc: pg.integer, node: pg.integer }
+	const row = { doc: int4, node: int4 }
 	type Walk = SelfSource<typeof row>
 	const stepOf = (r: Rule<typeof Edges>, self: Walk) => {
 		const s = v(self, "s")

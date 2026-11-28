@@ -303,7 +303,7 @@ const ProjectKey = str.regex("^[A-Z]{2,8}$")
 
 export const Task = relation(
 	"Task",
-	{ org: OrgId, project: ProjectKey, number: natural, title: Title, done: pg.boolean },
+	{ org: OrgId, project: ProjectKey, number: natural, title: Title, done: bool },
 	["org", "project", "number"]
 )
 export const Tracker = schema("Tracker", [Task], [unit("Org", { org: OrgId }), mutable(Task)])
@@ -360,8 +360,8 @@ export const tokenless =
 const microsKey = Symbol("Micros")
 const millisKey = Symbol("Millis")
 /** Millionths of a dollar, never negative; milliseconds since the epoch. */
-const Micros = contract<typeof microsKey>()("Micros", pg.bigint, (m) => Logic.ge(m, 0n))
-const Millis = contract<typeof millisKey>()("Millis", pg.bigint)
+const Micros = contract<typeof microsKey>()("Micros", int8, (m) => Logic.ge(m, 0n))
+const Millis = contract<typeof millisKey>()("Millis", int8)
 const RequestId = str.regex("^req_[0-9A-Za-z]{1,64}$")
 const Workspace = str.regex("^ws_[0-9a-z]{1,32}$")
 const Model = str.regex("^[a-z0-9.-]{1,64}$")
@@ -401,16 +401,16 @@ Its rows are typed exactly, nested array included, as `HeadOf<typeof topModels>`
 ```ts
 type TopModelsRow = {
 	readonly workspace: string
-	readonly spend: Decimal
+	readonly spend: Numeric
 	readonly models: ReadonlyArray<{
 		readonly model: string
 		readonly calls: bigint
-		readonly spend: Decimal
+		readonly spend: Numeric
 	}>
 }
 ```
 
-A count is a `bigint` and a sum a `Decimal`, so no total ever loses precision. `contract` makes `Micros` a type of its
+A count is a `bigint` and a sum a `Numeric`, so no total ever loses precision. `contract` makes `Micros` a type of its
 own: a plain `2_500_000n` doesn't typecheck where a `Micros` is expected.
 
 A sum over a join can count a row twice, so grizzle refuses an aggregate whose rule doesn't bind the key of what it
@@ -488,7 +488,7 @@ export const folderSizes = query(Drive).rule((r) => {
 })
 ```
 
-`folderSizes` takes `{ root: string }` and returns `{ folder: string; bytes: Decimal }` rows: one recursive query and
+`folderSizes` takes `{ root: string }` and returns `{ folder: string; bytes: Numeric }` rows: one recursive query and
 one aggregate, in a single statement.
 
 ### No double booking
@@ -496,17 +496,17 @@ one aggregate, in a single statement.
 ```ts
 const minuteKey = Symbol("Minute")
 /** Minutes since the epoch. */
-const Minute = contract<typeof minuteKey>()("Minute", pg.bigint)
+const Minute = contract<typeof minuteKey>()("Minute", int8)
 const RoomName = str.regex("^[A-Za-z0-9 -]{1,64}$")
 
 export const Room = relation("Room", { name: RoomName }, ["name"])
 /** When a room is open: a room's openings never overlap. */
-export const Opening = relation("Opening", { room: RoomName, hours: span(Minute) }, [
+export const Opening = relation("Opening", { room: RoomName, hours: range(Minute) }, [
 	"room",
 	"hours"
 ])
 /** A booking: a room's bookings never overlap, and each is covered by the room's openings. */
-export const Booking = relation("Booking", { room: RoomName, during: span(Minute), by: UserId }, [
+export const Booking = relation("Booking", { room: RoomName, during: range(Minute), by: UserId }, [
 	"room",
 	"during"
 ])
@@ -579,14 +579,13 @@ const EntryId = str.regex("^JE-[0-9]{1,12}$")
 
 export const Entry = relation(
 	"Entry",
-	{ id: EntryId, memo: Title, postings: drawn(natural), total: accumulated(pg.bigint, 0n) },
+	{ id: EntryId, memo: Title, postings: drawn(natural), total: accumulated(int8, 0n) },
 	["id"]
 )
-export const Posting = relation(
-	"Posting",
-	{ entry: EntryId, account: Account, amount: pg.bigint },
-	["entry", "account"]
-)
+export const Posting = relation("Posting", { entry: EntryId, account: Account, amount: int8 }, [
+	"entry",
+	"account"
+])
 
 const entryPostings = counted(on(Posting, "entry"), fin(Entry, "postings"))
 
@@ -828,7 +827,7 @@ export const calls = (workspace: string) =>
 
 ### Contracts and schemas that build on each other
 
-`Micros` above is a `contract`: a type of its own over `pg.bigint`, with a check, whose values only the holder of
+`Micros` above is a `contract`: a type of its own over `int8`, with a check, whose values only the holder of
 `microsKey` can make, through `mintOf(microsKey)`. Two systems' ids, or cents and micros, never mix.
 
 `contractParser(Micros, microsKey)`, from `@bjornpagen/grizzle/contract`, is the checked mint: it parses a value from

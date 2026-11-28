@@ -4,7 +4,7 @@ import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { array, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { accumulated, drawn, natural, pg, span } from "#compiler/public/fields.ts"
+import { accumulated, drawn, natural, range, int4 } from "#compiler/public/fields.ts"
 import {
 	counted,
 	fin,
@@ -22,18 +22,18 @@ import { fixtureTemplate } from "#test/support/pg/reads/support.ts"
 export const SpanOwner = relation(
 	"SpanOwner",
 	{
-		id: pg.integer,
-		during: span(pg.integer),
-		label: pg.integer,
+		id: int4,
+		during: range(int4),
+		label: int4,
 		n: drawn(natural),
-		end: accumulated(pg.integer, 0)
+		end: accumulated(int4, 0)
 	},
 	["id", "during"]
 )
 
 export const SpanMember = relation(
 	"SpanMember",
-	{ member: pg.integer, g: pg.integer, gd: span(pg.integer), x: pg.integer },
+	{ member: int4, g: int4, gd: range(int4), x: int4 },
 	["member"]
 )
 
@@ -53,8 +53,8 @@ export const SpanEdited = schema(
 		),
 		mutable(SpanOwner),
 		mutable(SpanMember),
-		unit("Spanned", { id: pg.integer }),
-		unit("Counted", { member: pg.integer })
+		unit("Spanned", { id: int4 }),
+		unit("Counted", { member: int4 })
 	]
 )
 

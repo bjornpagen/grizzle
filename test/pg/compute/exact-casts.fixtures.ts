@@ -5,7 +5,7 @@ import { regex } from "arkregex"
 import { String as Str } from "effect"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Logic, Text, Type } from "#compiler/public/compute.ts"
-import { exactInteger, generated, pg } from "#compiler/public/fields.ts"
+import { exactInteger, generated, int4, numeric } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -23,7 +23,7 @@ export const textBytes = 40
  */
 export const Digits = relation.generated(
 	"Digits",
-	{ id: pg.integer, t: str.bytes(textBytes, str.regex("^.*$", "su")), n: pg.numeric(30, 0) },
+	{ id: int4, t: str.bytes(textBytes, str.regex("^.*$", "su")), n: numeric(30, 0) },
 	["id"],
 	(r) => ({
 		parsed: generated(

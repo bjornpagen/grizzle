@@ -1,11 +1,11 @@
 import { ALLEN } from "#compiler/public/allen.ts"
-import { closedId, contract, pg, span } from "#compiler/public/fields.ts"
+import { closedId, contract, range, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, contained, key, on, relation, schema } from "#compiler/public/schema.ts"
 import { Id } from "#test/support/ids.ts"
 
-const RoomOpen = relation("RoomOpen", { room: Id, during: span(pg.bigint) }, ["room", "during"])
-export const Booking = relation("Booking", { room: Id, during: span(pg.bigint), guest: Id }, [
+const RoomOpen = relation("RoomOpen", { room: Id, during: range(int8) }, ["room", "during"])
+export const Booking = relation("Booking", { room: Id, during: range(int8), guest: Id }, [
 	"room",
 	"during"
 ])
@@ -46,15 +46,15 @@ export const strictlyInside = query(Schedule).rule((r) => {
 
 const instantKey = Symbol("Instant")
 /** A calendar as a span relation, its days keyed and its spans a nonoverlap key. */
-const Instant = contract<typeof instantKey>()("Instant", pg.bigint)
+const Instant = contract<typeof instantKey>()("Instant", int8)
 const chicagoDayKey = Symbol("ChicagoDay")
-const ChicagoDay = contract<typeof chicagoDayKey>()("ChicagoDay", pg.bigint)
+const ChicagoDay = contract<typeof chicagoDayKey>()("ChicagoDay", int8)
 const chicagoWeekKey = Symbol("ChicagoWeek")
-const ChicagoWeek = contract<typeof chicagoWeekKey>()("ChicagoWeek", pg.bigint)
+const ChicagoWeek = contract<typeof chicagoWeekKey>()("ChicagoWeek", int8)
 const Weekday = closed.ordered("Weekday", ["mon", "tue", "wed", "thu", "fri", "sat", "sun"])
 export const ChicagoCalendar = relation(
 	"ChicagoCalendar",
-	{ day: ChicagoDay, span: span(Instant), week: ChicagoWeek, weekday: closedId(Weekday) },
+	{ day: ChicagoDay, span: range(Instant), week: ChicagoWeek, weekday: closedId(Weekday) },
 	["day"]
 )
 /** A fact that carries only an instant, bucketed into days by the calendar join. */

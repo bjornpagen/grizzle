@@ -973,7 +973,7 @@ const accessRequest = (
 				"gist",
 				ascending([...columnsOf(access.eq), access.column]),
 				columnsOf(access.eq).length,
-				"span predicate"
+				"range predicate"
 			)
 		case "network":
 			return keyedRequest(table, "gist", ascending([access.column]), 0, "network containment")

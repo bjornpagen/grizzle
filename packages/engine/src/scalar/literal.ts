@@ -9,7 +9,7 @@ import type { LiteralDesc } from "#compiler/ir/desc.ts"
 import { baseOf, type PlainType, type Roster, type ScalarType } from "#compiler/ir/scalar.ts"
 import { irLiteral } from "#compiler/scalar/compute/literal.ts"
 import { statedRoster } from "#compiler/scalar/values/bits.ts"
-import { Decimal, normalizeNumeric, withinBound } from "#compiler/scalar/values/decimal.ts"
+import { Numeric, normalizeNumeric, withinBound } from "#compiler/scalar/values/decimal.ts"
 import { describeFault } from "#compiler/scalar/values/fault.ts"
 import { toReal } from "#compiler/scalar/values/float.ts"
 import { unreadableOf } from "#compiler/scalar/values/identity.ts"
@@ -25,7 +25,7 @@ const isSafeInteger = (value: unknown): value is number =>
  * A literal operand for a term of type `t`, as the Description boundary carries it (ir/desc.ts LiteralDesc): the
  * host value of t's base, since a literal compared with or written into a contract term adopts the contract.
  * The host representation is checked here, at construction: a JavaScript number is never a
- * numeric literal, an exact decimal string is parsed into its Decimal, a uuid takes its canonical lowercase spelling,
+ * numeric literal, an exact decimal string is parsed into its Numeric, a uuid takes its canonical lowercase spelling,
  * text must be storable, a handle must be in the roster, a vector must have the type's dimensions, and the
  * float specials travel wrapped. Ranges, typmods and refinements are the checker's: a value that is the right kind
  * but does not fit is ContractLiteral or MalformedDescription at compilation. The value is read once through hostRead:
@@ -48,7 +48,7 @@ export const literalDescFor = (
  * holds a subset of its roster without it (codeSubset, the column's subset CHECK), every other literal itself.
  */
 const assigned = (base: PlainType, literal: LiteralDesc): Result.Result<LiteralDesc, ValueFault> =>
-	base.carrier === "numeric" && literal instanceof Decimal
+	base.carrier === "numeric" && literal instanceof Numeric
 		? base.typmod === undefined
 			? withinBound(literal, base.bound)
 			: normalizeNumeric(literal, base.typmod)
@@ -96,7 +96,7 @@ const hostLiteral = (base: PlainType, value: unknown): Result.Result<LiteralDesc
 			if (typeof value === "number") {
 				return Result.err("decimalNumber")
 			}
-			return Decimal.parse(value)
+			return Numeric.parse(value)
 		case "float4":
 		case "float8":
 			if (typeof value !== "number") {

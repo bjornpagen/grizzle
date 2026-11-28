@@ -305,15 +305,12 @@ export const isNatural = (t: ScalarType): boolean =>
 	sameScalarType(t, scalarOf(naturalDescriptor.desc, {}))
 
 /**
- * What admits answered of a monoid at a carrier, and sum admitting numeric of no typmod, pg.numeric's, as a field or a
+ * What admits answered of a monoid at a carrier, and sum admitting numeric of no typmod, numeric's, as a field or a
  * contract's base declares it.
  */
-export type AdmitsFeature =
-	| `${MonoidName} admits`
-	| `${MonoidName} refuses`
-	| "sum admits pg.numeric"
+export type AdmitsFeature = `${MonoidName} admits` | `${MonoidName} refuses` | "sum admits numeric"
 
-/** Whether a carrier is numeric of no typmod, pg.numeric or a contract over it (ir/scalar.ts numericBoundOf). */
+/** Whether a carrier is numeric of no typmod, numeric or a contract over it (ir/scalar.ts numericBoundOf). */
 export const isPgNumeric = (t: ScalarType): boolean => numericBoundOf(t) !== undefined
 
 /** A monoid, and a declared type it may admit. */
@@ -323,7 +320,7 @@ export type AdmitsCase = readonly [MonoidName, ScalarType]
 export const admitsCaseGen: Gen<AdmitsCase> = (source) =>
 	[source.draw(element(monoidNames)), source.draw(declaredTypeGen)] as const
 
-/** pg.numeric, bare and as a contract's base: numeric of no typmod at numeric's own limits. */
+/** numeric, bare and as a contract's base: numeric of no typmod at numeric's own limits. */
 const pgNumericTypes: Arr.NonEmptyReadonlyArray<ScalarType> = [
 	scalarOf({ kind: "pg", type: "numeric" }, {}),
 	scalarOf(
@@ -344,16 +341,16 @@ const atSet =
 	(source) =>
 		[name, source.draw(setTypeGen)] as const
 
-/** sum at pg.numeric, bare or a contract's base. */
+/** sum at numeric, bare or a contract's base. */
 const sumAtPgNumeric: Gen<AdmitsCase> = (source) =>
 	["sum", source.draw(element(pgNumericTypes))] as const
 
 /**
  * The cases aimed at the carriers declaredTypeGen draws least often: or and twos at a drawn set type, and sum at
- * pg.numeric, one of nine pg types, about one case in 470 at sum.
+ * numeric, one of nine pg types, about one case in 470 at sum.
  */
 export const admitsAims: ReadonlyArray<readonly [AdmitsFeature, Gen<AdmitsCase>]> = [
 	["or admits", atSet("or")],
 	["twos admits", atSet("twos")],
-	["sum admits pg.numeric", sumAtPgNumeric]
+	["sum admits numeric", sumAtPgNumeric]
 ]

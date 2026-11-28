@@ -7,7 +7,7 @@ import { scalarCodec } from "#compiler/codec/scalar.ts"
 import type { ValueFault } from "#compiler/core/errors.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
-import { Decimal, integerOfDecimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
+import { Numeric, integerOfDecimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import type { CaseSession } from "#test/support/substrate/session.ts"
@@ -75,7 +75,7 @@ const overflowFaults: ReadonlyArray<ValueFault> = ["numericOverflow", "numericIn
  * numeric field overflow and for an infinity under a typmod).
  */
 export const hostAnswer = (c: Case): string => {
-	const normalized = normalizeNumeric(succeeded(Decimal.fromString(c.v)), {
+	const normalized = normalizeNumeric(succeeded(Numeric.fromString(c.v)), {
 		precision: c.p,
 		scale: c.s
 	})
@@ -88,7 +88,7 @@ export const hostAnswer = (c: Case): string => {
 
 /**
  * The numeric(p, s) codec's answer: the value its encoder writes for the literal, read back as its one text, or
- * "refused". The literal is given as the type's host value: a Decimal, but numeric(p, 0)'s bigint, an integer type's
+ * "refused". The literal is given as the type's host value: a Numeric, but numeric(p, 0)'s bigint, an integer type's
  * (codec/scalar.ts carrierSpecOf, ir/carriers.ts isIntegerTypmod), whose caller holds no fraction, so a literal with one
  * is refused there before the encoder.
  */
@@ -97,13 +97,13 @@ export const codecAnswer = (c: Case): string => {
 		scalarOf({ kind: "numeric", precision: c.p, scale: c.s }, {}),
 		emptyCodebook
 	)
-	const literal = succeeded(Decimal.fromString(c.v))
+	const literal = succeeded(Numeric.fromString(c.v))
 	const host = c.s === 0 ? integerOfDecimal(literal) : literal
 	if (host === undefined) {
 		return "refused"
 	}
 	const encoded = codec.encode(host)
-	return encoded.ok ? Decimal.fromOutput(encoded.value).toString() : "refused"
+	return encoded.ok ? Numeric.fromOutput(encoded.value).toString() : "refused"
 }
 
 /**
@@ -111,7 +111,7 @@ export const codecAnswer = (c: Case): string => {
  * PostgreSQL stores that value unchanged, and refuses wherever PostgreSQL stores another or refuses it.
  */
 export const parsesExactly = (c: Case, host: string, codec: string): boolean => {
-	const literal = succeeded(Decimal.fromString(c.v)).toString()
+	const literal = succeeded(Numeric.fromString(c.v)).toString()
 	return codec === "refused" ? host !== literal : codec === literal && host === literal
 }
 
@@ -121,11 +121,11 @@ export const typeSql = "format('numeric(%s,%s)', c.p, c.s)"
 
 /**
  * The order, equality and DISTINCT of one batch of numeric spellings on PostgreSQL against the host's values: the
- * spellings travel as written, so PostgreSQL stores their display scales, and the host reads each as its one Decimal.
+ * spellings travel as written, so PostgreSQL stores their display scales, and the host reads each as its one Numeric.
  */
 export const orderAgreement = (db: CaseSession, spellings: ReadonlyArray<string>) =>
 	Effect.gen(function* () {
-		const values = Arr.map(spellings, (text) => Decimal.of(text))
+		const values = Arr.map(spellings, (text) => Numeric.of(text))
 		const payload = jsonText(Arr.map(spellings, (v, ord) => ({ ord, v })))
 		const source = "jsonb_to_recordset($1::text::jsonb) AS c(ord int4, v text)"
 		const ascending = orderOf(values, (a, b) => a.compare(b))
@@ -150,7 +150,7 @@ export const orderAgreement = (db: CaseSession, spellings: ReadonlyArray<string>
 			Arr.map(distinct, (r) => Number(r[0])),
 			[identities.length]
 		)
-		/** DISTINCT keeps one value per Decimal; its trimmed text is the Decimal's one text. */
+		/** DISTINCT keeps one value per Numeric; its trimmed text is the Numeric's one text. */
 		const kept = yield* db.values(`SELECT DISTINCT trim_scale(c.v::numeric)::text FROM ${source}`, [
 			payload
 		])

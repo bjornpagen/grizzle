@@ -1,5 +1,5 @@
 /**
- * Text.parseDecimal on PostgreSQL 19: over drawn pairs of decimal texts (test/support/lexical.ts decimalTextGen),
+ * Text.parseNumeric on PostgreSQL 19: over drawn pairs of decimal texts (test/support/lexical.ts decimalTextGen),
  * each part's count of digits at an edge the parse turns on (256 integer and 255 fraction digits, the widest
  * numeric(p, s) form's, and the form's own 16,384 bytes, numeric's 16,383 fraction digits among them), leading and
  * trailing zeros, signs, bare fractions, trailing points and zeros, the second of a pair the first's value spelled
@@ -10,7 +10,7 @@
  *   (test/support/oracle/evaluate/decimal-text.ts), apart from the engine and PostgreSQL;
  * - grizzle's host evaluator (scalar/compute/evaluate.ts) over the parse as a check lowers it;
  * - PostgreSQL: the parse's SQL as a check lowers it, over every text, read by numeric_out; and an installed relation of
- *   the downstream's range shape, its two texts typed str.bytes(16384, str.regex(decimalText)), whose generated fields
+ *   the downstream's range shape, its two texts typed str.bytes(16384, str.regex(numericText)), whose generated fields
  *   store whether the first's value is below the second's and whether they are one value, and the first's value itself
  *   where a guard bounds its text within 500 bytes, cast into numeric(1000, 499), which that bound proves it fits.
  *
@@ -44,7 +44,7 @@ import { canonicalDecimal, decimalOrder } from "#test/support/oracle/evaluate/de
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**
- * Text.parseDecimal on PostgreSQL 19 the parse's SQL, a stored range, the host evaluator and XML Schema's decimal mapping agree exactly on every decimal text.
+ * Text.parseNumeric on PostgreSQL 19 the parse's SQL, a stored range, the host evaluator and XML Schema's decimal mapping agree exactly on every decimal text.
  *
  * Its budget, measured (fastcycle's cull):
  *
@@ -147,9 +147,9 @@ export const computeParseDecimalOnPostgreSQL19TheParsesSQLAStoredRangeTheHostEva
 			{
 				file: "packages/engine/src/scalar/lexical.ts",
 				original:
-					"\tif (n === undefined || text.length > decimalTextMaxBytes) {\n\t\treturn undefined\n\t}\n\tconst { units, scale } = unitsOf(n)\n",
+					"\tif (n === undefined || text.length > numericTextMaxBytes) {\n\t\treturn undefined\n\t}\n\tconst { units, scale } = unitsOf(n)\n",
 				replacement:
-					"\tif (n === undefined || text.length > decimalTextMaxBytes) {\n\t\treturn undefined\n\t}\n\treturn decimalValue(text, { precision: 511, scale: 255 })\n\tconst { units, scale } = unitsOf(n)\n",
+					"\tif (n === undefined || text.length > numericTextMaxBytes) {\n\t\treturn undefined\n\t}\n\treturn decimalValue(text, { precision: 511, scale: 255 })\n\tconst { units, scale } = unitsOf(n)\n",
 				why: "91f8347df's fix reverted on the host: the parse reads a decimal text only within numeric(511, 255)'s form, the widest a pattern counted before it, so the downstream's range past 256 integer or 255 fraction digits has no host value where PostgreSQL's numeric reads it exactly."
 			}
 		]

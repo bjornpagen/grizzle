@@ -7,7 +7,7 @@ import { OpenError } from "#adapter/errors/execution.ts"
 import { isCompileError } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
@@ -193,7 +193,7 @@ export const deletingAGroupWholeAndReplacingItOnPostgreSQL19EveryChangeSetStores
 																	const { doc } = v(Node, "node")
 																	return r
 																		.match(Node, { doc, start: 0n })
-																		.where(r.eq(doc, r.param(param, pg.bigint)))
+																		.where(r.eq(doc, r.param(param, int8)))
 																		.find({ doc })
 																})
 															)
@@ -219,7 +219,7 @@ export const deletingAGroupWholeAndReplacingItOnPostgreSQL19EveryChangeSetStores
 																	const { id, note } = v(Shelf, "shelf")
 																	return r
 																		.match(Shelf, { id, note })
-																		.where(r.eq(id, r.param(param, pg.bigint)))
+																		.where(r.eq(id, r.param(param, int8)))
 																		.find({ id, note })
 																})
 															)
@@ -255,7 +255,7 @@ export const deletingAGroupWholeAndReplacingItOnPostgreSQL19EveryChangeSetStores
 																	const { t, note } = v(Test, "test")
 																	return r
 																		.match(Test, { t, note })
-																		.where(r.eq(t, r.param(param, pg.bigint)))
+																		.where(r.eq(t, r.param(param, int8)))
 																		.find({ t, note })
 																})
 															)
@@ -287,7 +287,7 @@ export const deletingAGroupWholeAndReplacingItOnPostgreSQL19EveryChangeSetStores
 																	const { a, note } = v(Asm, "asm")
 																	return r
 																		.match(Asm, { a, note })
-																		.where(r.eq(a, r.param(param, pg.bigint)))
+																		.where(r.eq(a, r.param(param, int8)))
 																		.find({ a, note })
 																})
 															)

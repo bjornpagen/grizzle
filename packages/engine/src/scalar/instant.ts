@@ -4,15 +4,15 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import { instantName } from "#compiler/ir/instant.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { contractParts } from "#compiler/scalar/contract.ts"
-import { pgDescriptors } from "#compiler/scalar/pg.ts"
+import { int8 } from "#compiler/scalar/pg.ts"
 import { defineField } from "#compiler/scalar/registry.ts"
 
 /**
- * instant's admission: the contract `instant` over pg.bigint, whose values are never below zero, natural's very
+ * instant's admission: the contract `instant` over int8, whose values are never below zero, natural's very
  * definition, so it is installed as natural's domain, one domain of one definition (physical/ddl/domains.ts), and its
  * columns are natural's. Its name is its own, so a term of it meets only another instant's.
  */
-const parts = contractParts(instantName, pgDescriptors.bigint, [
+const parts = contractParts(instantName, int8, [
 	(v: unknown) => computeCore.ge(v, 0n),
 	{ proves: ["nonnegative"] }
 ])
@@ -25,13 +25,13 @@ const parts = contractParts(instantName, pgDescriptors.bigint, [
  */
 export type Instant = bigint & Brand.Brand<"instant">
 
-/** pg.bigint's column, its values claimed Instant (core/decoder.ts hostColumn): what an instant's values are read by. */
-const column: Column<Instant> = hostColumn<bigint, Instant>(pgDescriptors.bigint.column)
+/** int8's column, its values claimed Instant (core/decoder.ts hostColumn): what an instant's values are read by. */
+const column: Column<Instant> = hostColumn<bigint, Instant>(int8.column)
 
 /** The members every instant descriptor has: the builtin contract's name, base and predicate, and its column. */
 const members = Object.freeze({
 	name: parts.name,
-	base: pgDescriptors.bigint,
+	base: int8,
 	predicate: parts.predicate,
 	column
 })
@@ -39,13 +39,13 @@ const members = Object.freeze({
 /**
  * instant.stored: a field of instant's type its caller writes as it is, a copy of an instant a read delivered, the
  * database drawing nothing (ir/desc.ts Writing `caller` over instant's type): microseconds since the Unix epoch on the
- * database's clock, the builtin contract `instant` over pg.bigint, `CHECK (VALUE >= 0)` (ir/instant.ts instantName).
+ * database's clock, the builtin contract `instant` over int8, `CHECK (VALUE >= 0)` (ir/instant.ts instantName).
  * Its host values are Instant, so a host stores only an instant it read; it is no brand constructor, and no parameter,
  * literal, cast or contract is of its type.
  */
 const storedInstantDescriptor = defineField(
 	{},
-	pgDescriptors.bigint.sql,
+	int8.sql,
 	parts.desc,
 	members,
 	SourceLoc(`${instantName}.stored`, []),
@@ -60,7 +60,7 @@ const storedInstantDescriptor = defineField(
  */
 export const instantDescriptor = defineField(
 	{},
-	pgDescriptors.bigint.sql,
+	int8.sql,
 	parts.desc,
 	{ ...members, instant: true, stored: storedInstantDescriptor },
 	SourceLoc(instantName, []),

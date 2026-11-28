@@ -8,7 +8,7 @@ import type { ChangeSource } from "#adapter/live/source.ts"
 import { loadServed } from "#adapter/served/load.ts"
 import { type CallError, type CallErrorKind } from "#compiler/live/index.ts"
 import { workload } from "#compiler/program/workload/value.ts"
-import { closedId, pg } from "#compiler/public/fields.ts"
+import { closedId, int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, login, relation, role, schema, wholeEntriesOf } from "#compiler/public/schema.ts"
 import { servedFile } from "#compiler/served/json.ts"
@@ -26,15 +26,13 @@ import {
 import { nothingReported, serverError } from "#test/support/server-error.ts"
 import { upTo } from "#test/support/up-to.ts"
 
-const Sitting = relation("Sitting", { id: pg.integer, student: pg.integer, week: pg.integer }, [
-	"id"
-])
+const Sitting = relation("Sitting", { id: int4, student: int4, week: int4 }, ["id"])
 
 const Kind = closed.ordered("Kind", ["light", "heavy"])
 
 const Weights = closed.relation(
 	"Weights",
-	{ kind: closedId(Kind), weight: pg.integer },
+	{ kind: closedId(Kind), weight: int4 },
 	["kind"],
 	[
 		{ kind: "light", weight: 1 },
@@ -48,7 +46,7 @@ const app = role(Edu, "app", wholeEntriesOf(Edu))
 
 const sittingsOf = query(Edu).rule((r) => {
 	const { id, week } = v(Sitting, "sitting")
-	return r.match(Sitting, { id, student: r.param("student", pg.integer), week }).find({ id, week })
+	return r.match(Sitting, { id, student: r.param("student", int4), week }).find({ id, week })
 })
 
 const server = login(Edu, "server", [app], {

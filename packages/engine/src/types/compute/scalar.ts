@@ -2,7 +2,7 @@ import type { Refused } from "#compiler/core/refusals.ts"
 import type { CastTargetsBySql } from "#compiler/scalar/compute/registry.ts"
 import type { guarded } from "#compiler/scalar/compute/term.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
-import type { Decimal } from "#compiler/scalar/values/decimal.ts"
+import type { Numeric } from "#compiler/scalar/values/decimal.ts"
 import type { Money } from "#compiler/scalar/values/money.ts"
 import type { Span } from "#compiler/scalar/values/span.ts"
 import type { Vector } from "#compiler/scalar/values/vector.ts"
@@ -144,7 +144,7 @@ type TextFacts<V extends string> = { readonly finite: true } & ([
 /**
  * Whether TypeScript sees a JavaScript value's facts: a number or bigint literal type, or a string literal type spelling
  * an exact decimal (DecimalSign), unbranded, read under a contract's host marks (Unmarked), so a value its consumer's
- * mint made of a literal, `toCents(0n)`, is that literal's. A wider type (number, bigint, string, a Decimal, a Money)
+ * mint made of a literal, `toCents(0n)`, is that literal's. A wider type (number, bigint, string, a Numeric, a Money)
  * has a value TypeScript cannot see.
  */
 type Seen<V> = SeenValue<Unmarked<V>>
@@ -397,13 +397,13 @@ type OwnTerm<A> = Requires<
 	IsHeadLiteral<A> extends true ? false : true,
 	"a term first: a literal takes its place opposite a term, never first"
 >
-/** A JavaScript value written where a first operand belongs: a primitive, a Decimal, a Money, a vector, a span or a set. */
+/** A JavaScript value written where a first operand belongs: a primitive, a Numeric, a Money, a vector, a span or a set. */
 export type FirstValue =
 	| string
 	| number
 	| bigint
 	| boolean
-	| Decimal
+	| Numeric
 	| Money
 	| Vector
 	| Span<number>

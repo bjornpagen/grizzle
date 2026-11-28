@@ -31,7 +31,7 @@ import { exprsOf, type RelNode } from "#compiler/ir/rel.ts"
 import { baseOf, subsumes } from "#compiler/ir/scalar.ts"
 import { queryInput } from "#compiler/program/input.ts"
 import { Logic, Type } from "#compiler/public/compute.ts"
-import { contract, natural, pg } from "#compiler/public/fields.ts"
+import { contract, natural, int4, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { binaryCoercion } from "#compiler/scalar/compute/registry.ts"
@@ -64,7 +64,7 @@ const noUpCast = (dag: LogicalQuery["dag"], where: string): void => {
 	}
 }
 
-const Held = relation("Held", { id: pg.integer, number: natural, other: pg.bigint }, ["id"])
+const Held = relation("Held", { id: int4, number: natural, other: int8 }, ["id"])
 const Subsumed = schema("Subsumed", [Held], [])
 
 /** The case's query: a head term through Type.base of a natural column, by one rule, two, or beside a bigint term. */
@@ -275,14 +275,14 @@ export const aContractsPredicateReadsAStoredValueBareAtItsBaseAndALiteralOpposit
 			situations: [],
 			check: () => (bounds) =>
 				Effect.sync(() => {
-					const Minutes = contract<typeof minutesKey>()("Minutes", pg.integer, (n) =>
+					const Minutes = contract<typeof minutesKey>()("Minutes", int4, (n) =>
 						bounds === "lower"
 							? Logic.gt(n, 0)
 							: bounds === "upper"
 								? Logic.le(n, 360)
 								: Logic.and([Logic.gt(n, 0), Logic.le(n, 360)])
 					)
-					const Granted = relation("Granted", { id: pg.integer, minutes: Minutes }, ["id"])
+					const Granted = relation("Granted", { id: int4, minutes: Minutes }, ["id"])
 					succeeded(
 						testArtifacts(schema("Granted", [Granted], []), testCompile),
 						`${bounds}: the schema storing the contract installs`

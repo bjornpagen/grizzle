@@ -5,7 +5,7 @@ import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record } from "effect"
 import type { ConstraintName } from "#compiler/core/ids.ts"
 import type { SchemaArtifacts } from "#compiler/program/schema.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, relation, schema, sealed, unit } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
@@ -50,7 +50,7 @@ type ViewName = "DocWords" | "LongLines"
 export type EvidenceFeature = ViewName | "read-back over a stored relation"
 
 /** A line of a document: its place and its word count. */
-const Line = relation("Line", { doc: Id, at: pg.integer, words: pg.integer }, ["doc", "at"])
+const Line = relation("Line", { doc: Id, at: int4, words: int4 }, ["doc", "at"])
 
 /** The documents, sealed at founding: a document's lines are put by the transaction that founds it, so DocWords, which
  * re-derives a document's whole count and sum, is stored, upkept at that founding write alone (analysis/derived/

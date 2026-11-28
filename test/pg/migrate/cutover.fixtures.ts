@@ -32,7 +32,7 @@ import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
 import { findMarkers, splitStatements } from "#compiler/plan/migration.ts"
-import { accumulated, drawn as drawnField, natural, pg } from "#compiler/public/fields.ts"
+import { accumulated, drawn as drawnField, natural, int4, int8 } from "#compiler/public/fields.ts"
 import { type AnyRelation, schema, type Statement } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { varlenaHeaderBytes } from "#compiler/scalar/values/fault.ts"
@@ -457,7 +457,7 @@ const builtOf = (w: World, declared: string) => {
 			case "compound":
 				fields["ka"] = textField(rel.key.widths.a)
 				fields["kb"] = textField(rel.key.widths.b)
-				fields["kc"] = pg.bigint
+				fields["kc"] = int8
 				break
 		}
 		for (const ref of rel.refs) {
@@ -472,11 +472,11 @@ const builtOf = (w: World, declared: string) => {
 				case "compound":
 					fields[`p${ref.target}a`] = textField(target.key.widths.a)
 					fields[`p${ref.target}b`] = textField(target.key.widths.b)
-					fields[`p${ref.target}c`] = pg.bigint
+					fields[`p${ref.target}c`] = int8
 					break
 			}
 		}
-		fields["x"] = pg.integer
+		fields["x"] = int4
 		if (isOrderedMember(rel)) {
 			fields["at"] = drawnField(natural)
 		}
@@ -484,12 +484,12 @@ const builtOf = (w: World, declared: string) => {
 			if (o.link.kind !== "contained") {
 				fields[`n${o.member}`] = drawnField(natural)
 				if (o.link.fold) {
-					fields[`e${o.member}`] = accumulated(pg.integer, 0)
+					fields[`e${o.member}`] = accumulated(int4, 0)
 				}
 			}
 		}
 		for (const k of indices(rel.filled)) {
-			fields[`y${k}`] = pg.integer
+			fields[`y${k}`] = int4
 		}
 		const key = keyFields(rel.key)
 		values.push(
@@ -503,7 +503,7 @@ const builtOf = (w: World, declared: string) => {
 							Rec.fromEntries(
 								Arr.map(
 									indices(rel.generated),
-									(k) => [`g${k}`, generatedField(pg.integer, row["x"], [])] as const
+									(k) => [`g${k}`, generatedField(int4, row["x"], [])] as const
 								)
 							),
 						[]

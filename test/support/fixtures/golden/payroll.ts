@@ -6,7 +6,7 @@
  * t0 < t5 < t9 a few days apart, the run period [p0, p1) inside [t0, t9), two eight-hour pending shifts inside
  * employment, and weeks counted since the epoch.
  */
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 import { id } from "#test/support/fixtures/golden/types.ts"
 
 const acme = id(1, 1)
@@ -31,7 +31,7 @@ const s4 = s3 + 8n * hour
 const w1 = 2922n
 
 const span = (start: bigint, end: bigint) => ({ start, end })
-const dec = (exact: string): Decimal => Decimal.of(exact)
+const dec = (exact: string): Numeric => Numeric.of(exact)
 
 type Facts = Readonly<Record<string, ReadonlyArray<Readonly<Record<string, unknown>>>>>
 
@@ -91,7 +91,7 @@ const draftLinesFacts: Facts = {
 type LevyLineRow = {
 	readonly line: string
 	readonly levy: string
-	readonly employeeRate: Decimal
+	readonly employeeRate: Numeric
 	readonly withheld: bigint
 }
 

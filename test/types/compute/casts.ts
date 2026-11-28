@@ -2,7 +2,19 @@ import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { Array as Arr, Effect, String as Str } from "effect"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
-import { Decimal, exactInteger, exactMoney, Money, pg } from "#compiler/public/fields.ts"
+import {
+	Numeric,
+	exactInteger,
+	exactMoney,
+	Money,
+	float4,
+	float8,
+	int2,
+	int4,
+	int8,
+	money,
+	numeric
+} from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
@@ -56,52 +68,52 @@ const exactSum = (
 const castTypes: Arr.NonEmptyReadonlyArray<CastType> = [
 	{
 		sql: "smallint",
-		descriptor: "pg.smallint",
-		to: pg.smallint,
-		...constant("pg.smallint", pg.smallint, "1", 1)
+		descriptor: "int2",
+		to: int2,
+		...constant("int2", int2, "1", 1)
 	},
 	{
 		sql: "integer",
-		descriptor: "pg.integer",
-		to: pg.integer,
-		...constant("pg.integer", pg.integer, "1", 1)
+		descriptor: "int4",
+		to: int4,
+		...constant("int4", int4, "1", 1)
 	},
 	{
 		sql: "bigint",
-		descriptor: "pg.bigint",
-		to: pg.bigint,
-		...constant("pg.bigint", pg.bigint, "1n", 1n)
+		descriptor: "int8",
+		to: int8,
+		...constant("int8", int8, "1n", 1n)
 	},
 	{
 		sql: "numeric",
-		descriptor: "pg.numeric",
-		to: pg.numeric,
-		...constant("pg.numeric", pg.numeric, 'Decimal.of("1")', Decimal.of("1"))
+		descriptor: "numeric",
+		to: numeric,
+		...constant("numeric", numeric, 'Numeric.of("1")', Numeric.of("1"))
 	},
-	{ sql: "real", descriptor: "pg.real", to: pg.real, ...constant("pg.real", pg.real, "1", 1) },
+	{ sql: "real", descriptor: "float4", to: float4, ...constant("float4", float4, "1", 1) },
 	{
 		sql: "double precision",
-		descriptor: 'pg["double precision"]',
-		to: pg["double precision"],
-		...constant('pg["double precision"]', pg["double precision"], "1", 1)
+		descriptor: "float8",
+		to: float8,
+		...constant("float8", float8, "1", 1)
 	},
 	{
 		sql: "money",
-		descriptor: "pg.money",
-		to: pg.money,
-		...constant("pg.money", pg.money, "Money.of(100n)", Money.of(100n))
+		descriptor: "money",
+		to: money,
+		...constant("money", money, "Money.of(100n)", Money.of(100n))
 	},
 	{
 		sql: "exact integer",
 		descriptor: "exactInteger",
 		to: exactInteger,
-		...exactSum("pg.bigint", pg.bigint, "1n", 1n)
+		...exactSum("int8", int8, "1n", 1n)
 	},
 	{
 		sql: "exact money",
 		descriptor: "exactMoney",
 		to: exactMoney,
-		...exactSum("pg.money", pg.money, "Money.of(100n)", Money.of(100n))
+		...exactSum("money", money, "Money.of(100n)", Money.of(100n))
 	}
 ]
 
@@ -117,9 +129,9 @@ export const castsBoxItems: Arr.NonEmptyReadonlyArray<CastCell> = Arr.flatMap(ca
 )
 
 /** The relation every cell's rule matches, and its schema, as the program states them and as the engine builds them. */
-const T = relation("T", { id: pg.integer }, ["id"])
+const T = relation("T", { id: int4 }, ["id"])
 const S = schema("Casts", [T], [])
-const castsHeader = `export const T = relation("T", { id: pg.integer }, ["id"])
+const castsHeader = `export const T = relation("T", { id: int4 }, ["id"])
 export const S = schema("Casts", [T], [])
 `
 

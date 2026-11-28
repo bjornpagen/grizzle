@@ -19,7 +19,18 @@ import {
 	relation,
 	schema
 } from "#compiler/public/schema.ts"
-import { pgDescriptors } from "#compiler/scalar/pg.ts"
+import {
+	bool,
+	cidr,
+	float4,
+	float8,
+	inet,
+	int2,
+	int4,
+	int8,
+	money,
+	numeric
+} from "#compiler/scalar/pg.ts"
 import {
 	closedBuilder,
 	closedRelation as closedRelationBuilder,
@@ -37,6 +48,20 @@ import { succeeded } from "#test/support/assert.ts"
 import type { FixtureSchema } from "#test/support/compile.ts"
 import { Id } from "#test/support/ids.ts"
 import { ownedInput } from "#test/support/policy.ts"
+
+/** PostgreSQL's plain descriptors, by their pg_type names. */
+const plainDescriptors = {
+	int2,
+	int4,
+	int8,
+	numeric,
+	float4,
+	float8,
+	money,
+	bool,
+	inet,
+	cidr
+} as const
 
 const Version = closed.ordered("Version", ["v0", "v1"])
 
@@ -364,7 +389,7 @@ export const faultTags: { readonly [K in FaultKind]: "MalformedDescription" | "R
 }
 
 /** The carriers a count may be declared with that are not natural. */
-type Counting = "integer" | "bigint" | "smallint"
+type Counting = "int4" | "int8" | "int2"
 
 /** How an owner key fails to pair with the count relation's: its fields in the other order, or their rosters swapped. */
 type Unpaired = "reordered" | "rosters swapped"
@@ -412,7 +437,7 @@ const faultGen =
 					count: BigInt(s.draw(int(4, 6)))
 				}
 			case "a count that is not natural":
-				return { kind, carrier: s.draw(element<Counting>(["integer", "bigint", "smallint"])) }
+				return { kind, carrier: s.draw(element<Counting>(["int4", "int8", "int2"])) }
 			case "an owner key that does not pair":
 				return { kind, how: s.draw(element<Unpaired>(["reordered", "rosters swapped"])) }
 			case "a family over a closed relation's fin":
@@ -499,7 +524,7 @@ export const plant = ({ declaration: d, fault }: Faulted): Planted => {
 				attempt: () => {
 					const Counts = closedRelationBuilder(
 						"Counts",
-						{ ...prefix, positions: pgDescriptors[fault.carrier] },
+						{ ...prefix, positions: plainDescriptors[fault.carrier] },
 						["version", "parent"],
 						[],
 						[]

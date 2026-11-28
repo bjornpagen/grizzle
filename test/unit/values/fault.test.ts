@@ -2,7 +2,7 @@
  * A value fault never carries the value it refuses (scalar/values/fault.ts): a refusal is one fixed word of the
  * vocabulary, so a diagnostic never holds a parameter's value.
  *
- * - Secrecy: Decimal.of refuses a decimal past numeric's range, or misspelt, with a CompileError whose printed and
+ * - Secrecy: Numeric.of refuses a decimal past numeric's range, or misspelt, with a CompileError whose printed and
  *   formatted text holds none of the refused digits.
  *
  * Oracle: the specification turned into a checker, the refused text's digit run sought in every text the error prints.
@@ -18,7 +18,7 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { regex } from "arkregex"
 import { Effect, Formatter } from "effect"
 import { isCompileError } from "#compiler/core/errors.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 import { numericMaxIntegerDigits } from "#compiler/scalar/values/fault.ts"
 import type { Refused } from "#test/unit/values/fault.fixtures.ts"
 
@@ -40,7 +40,7 @@ export const valueFaultsNeverCarryTheRefusedValue = property.explore(
 					const text =
 						refused === "out of range" ? `${secret}.5e${numericMaxIntegerDigits}` : `${secret}.5x`
 					assert.throws(
-						() => Decimal.of(text),
+						() => Numeric.of(text),
 						(error: unknown) => {
 							assert.ok(isCompileError(error))
 							lacksText(Formatter.format(error, { ignoreToString: true }), secret)
@@ -57,9 +57,9 @@ export const valueFaultsNeverCarryTheRefusedValue = property.explore(
 		kills: [
 			{
 				file: "packages/engine/src/scalar/values/decimal.ts",
-				original: '\t\t\tthrow faultError(parsed.error, SourceLoc("Decimal literal", []))',
-				replacement: `\t\t\tthrow faultError(parsed.error, SourceLoc(\`Decimal literal \${String(input)}\`, []))`,
-				why: "Decimal.admit's refusal names the refused input in its location; the secrecy property fails."
+				original: '\t\t\tthrow faultError(parsed.error, SourceLoc("Numeric literal", []))',
+				replacement: `\t\t\tthrow faultError(parsed.error, SourceLoc(\`Numeric literal \${String(input)}\`, []))`,
+				why: "Numeric.admit's refusal names the refused input in its location; the secrecy property fails."
 			}
 		]
 	}

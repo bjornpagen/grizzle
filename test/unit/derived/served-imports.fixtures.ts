@@ -26,7 +26,7 @@ import { compileQuery, querySchema } from "#compiler/program/compile.ts"
 import { parseSchemaInput, queryInput } from "#compiler/program/input.ts"
 import { baseArtifacts, type SchemaArtifacts } from "#compiler/program/schema.ts"
 import { Fn } from "#compiler/public/compute.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int2, int4 } from "#compiler/public/fields.ts"
 import { param, query, v } from "#compiler/public/query.ts"
 import { fn, relation, row, rows, schema, sealed, unit } from "#compiler/public/schema.ts"
 import { fullRoleDesc, ownLogin, rostersOf } from "#compiler/schema/own.ts"
@@ -82,42 +82,39 @@ export const contentRelations = ["Attribute", "Node"] as const
 const Node = relation(
 	"Node",
 	{
-		package: pg.integer,
-		path: pg.integer,
-		start: pg.integer,
-		kind: pg.smallint,
-		parentKind: pg.smallint
+		package: int4,
+		path: int4,
+		start: int4,
+		kind: int2,
+		parentKind: int2
 	},
 	["package", "path", "start"]
 )
 const Attribute = relation(
 	"Attribute",
 	{
-		package: pg.integer,
-		path: pg.integer,
-		start: pg.integer,
-		name: pg.smallint,
-		value: pg.integer
+		package: int4,
+		path: int4,
+		start: int4,
+		name: int2,
+		value: int4
 	},
 	["package", "path", "start", "name"]
 )
-const Visit = relation("Visit", { child: pg.integer, stage: pg.integer, package: pg.integer }, [
-	"child",
-	"stage"
-])
-const Seen = relation("Seen", { child: pg.integer, stage: pg.integer, identifier: pg.integer }, [
+const Visit = relation("Visit", { child: int4, stage: int4, package: int4 }, ["child", "stage"])
+const Seen = relation("Seen", { child: int4, stage: int4, identifier: int4 }, [
 	"child",
 	"stage",
 	"identifier"
 ])
 
 /** The rows a call admits: the identifiers it reads off its argument's roots. */
-const admittedRows = row(rows({ admitted: rows({ identifier: pg.integer }) }))
+const admittedRows = row(rows({ admitted: rows({ identifier: int4 }) }))
 
 /** Response admission's shape over the roots of one package, its argument their identifiers. */
 const admitLesson = fn("admitLesson", {
 	calls: [],
-	args: { roots: rows({ identifier: pg.integer }) },
+	args: { roots: rows({ identifier: int4 }) },
 	returns: admittedRows,
 	volatility: "immutable",
 	nullInput: "called",
@@ -128,7 +125,7 @@ const admitLesson = fn("admitLesson", {
 /** Response admission's shape over the roots themselves, each with its package and its path. */
 const admitPaths = fn("admitPaths", {
 	calls: [],
-	args: { roots: rows({ package: pg.integer, path: pg.integer, identifier: pg.integer }) },
+	args: { roots: rows({ package: int4, path: int4, identifier: int4 }) },
 	returns: admittedRows,
 	volatility: "immutable",
 	nullInput: "called",
@@ -139,7 +136,7 @@ const admitPaths = fn("admitPaths", {
 /** Response admission's shape over the roots themselves, each with its package. */
 const admitPackages = fn("admitPackages", {
 	calls: [],
-	args: { roots: rows({ package: pg.integer, identifier: pg.integer }) },
+	args: { roots: rows({ package: int4, identifier: int4 }) },
 	returns: admittedRows,
 	volatility: "immutable",
 	nullInput: "called",
@@ -154,8 +151,8 @@ const contentOf = (sealing: Sealing) =>
 		[Node, Attribute, Visit, Seen, admitLesson, admitPaths, admitPackages],
 		[
 			sealing === "sealed"
-				? sealed(unit("Package", { package: pg.integer }))
-				: unit("Package", { package: pg.integer })
+				? sealed(unit("Package", { package: int4 }))
+				: unit("Package", { package: int4 })
 		]
 	)
 
@@ -200,16 +197,12 @@ const built = (c: ServedCase): Built => {
 	const lessonOf = (roots: typeof perPackage) =>
 		query(content).rule((r) => {
 			const { identifier } = v(roots, "root")
-			return r
-				.match(roots, { package: r.param("package", pg.integer), identifier })
-				.find({ identifier })
+			return r.match(roots, { package: r.param("package", int4), identifier }).find({ identifier })
 		})
 	const lessonOfPaths = (roots: typeof perPath) =>
 		query(content).rule((r) => {
 			const { identifier } = v(roots, "root")
-			return r
-				.match(roots, { package: r.param("package", pg.integer), identifier })
-				.find({ identifier })
+			return r.match(roots, { package: r.param("package", int4), identifier }).find({ identifier })
 		})
 	/** The learner's visit at a stage, bound by the call's parameters, and each root of its package. */
 	const visited = (() => {
@@ -219,7 +212,7 @@ const built = (c: ServedCase): Built => {
 					const { stage: at, package: p } = v(Visit, "visit")
 					const { identifier } = v(across, "root")
 					return r
-						.match(Visit, { child: r.param("child", pg.integer), stage: at, package: p })
+						.match(Visit, { child: r.param("child", int4), stage: at, package: p })
 						.match(across, { identifier })
 						.find({ stage: at, identifier })
 				})
@@ -229,7 +222,7 @@ const built = (c: ServedCase): Built => {
 							const { stage: at, package: p } = v(Visit, "visit")
 							const { identifier } = v(perPackage, "root")
 							return r
-								.match(Visit, { child: r.param("child", pg.integer), stage: at, package: p })
+								.match(Visit, { child: r.param("child", int4), stage: at, package: p })
 								.match(perPackage, { package: p, identifier })
 								.find({ stage: at, identifier })
 						})
@@ -238,7 +231,7 @@ const built = (c: ServedCase): Built => {
 							const lesson = lessonOf(perPackage)
 							const { identifier } = v(lesson, "lesson")
 							return r
-								.match(Visit, { child: r.param("child", pg.integer), stage: at, package: p })
+								.match(Visit, { child: r.param("child", int4), stage: at, package: p })
 								.match(lesson.bind({ package: p }), { identifier })
 								.find({ stage: at, identifier })
 						})
@@ -248,7 +241,7 @@ const built = (c: ServedCase): Built => {
 							const { stage: at, package: p } = v(Visit, "visit")
 							const { identifier } = v(perPath, "root")
 							return r
-								.match(Visit, { child: r.param("child", pg.integer), stage: at, package: p })
+								.match(Visit, { child: r.param("child", int4), stage: at, package: p })
 								.match(perPath, { package: p, identifier })
 								.find({ stage: at, identifier })
 						})
@@ -257,7 +250,7 @@ const built = (c: ServedCase): Built => {
 							const lesson = lessonOfPaths(perPath)
 							const { identifier } = v(lesson, "lesson")
 							return r
-								.match(Visit, { child: r.param("child", pg.integer), stage: at, package: p })
+								.match(Visit, { child: r.param("child", int4), stage: at, package: p })
 								.match(lesson.bind({ package: p }), { identifier })
 								.find({ stage: at, identifier })
 						})
@@ -296,9 +289,9 @@ const built = (c: ServedCase): Built => {
 }
 
 /** The call's parameters: the learner and the stage, and the visit's package. */
-const child = param("child", pg.integer)
-const stage = param("stage", pg.integer)
-const lesson = param("package", pg.integer)
+const child = param("child", int4)
+const stage = param("stage", int4)
+const lesson = param("package", int4)
 
 /**
  * What the case's served program compiles to (analysis/derived/served.ts): the relations its statement reads, the

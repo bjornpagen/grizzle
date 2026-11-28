@@ -6,7 +6,7 @@ import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -30,10 +30,10 @@ export type Refinement = keyof typeof refinements
 
 /** A relation holding a learner's id at each refinement, keyed by a number and the id. */
 const holders = {
-	learner: relation("LearnerHeld", { n: pg.bigint, child: refinements.learner }, ["n", "child"]),
-	person: relation("PersonHeld", { n: pg.bigint, child: refinements.person }, ["n", "child"]),
-	lower: relation("LowerHeld", { n: pg.bigint, child: refinements.lower }, ["n", "child"]),
-	upper: relation("UpperHeld", { n: pg.bigint, child: refinements.upper }, ["n", "child"])
+	learner: relation("LearnerHeld", { n: int8, child: refinements.learner }, ["n", "child"]),
+	person: relation("PersonHeld", { n: int8, child: refinements.person }, ["n", "child"]),
+	lower: relation("LowerHeld", { n: int8, child: refinements.lower }, ["n", "child"]),
+	upper: relation("UpperHeld", { n: int8, child: refinements.upper }, ["n", "child"])
 } as const
 
 const Held = schema(
@@ -46,7 +46,7 @@ const Held = schema(
 const deliveredBy = (holder: Refinement): ScalarType => {
 	const read = query(Held).rule((r) => {
 		const { child } = v(holders[holder], "held")
-		return r.match(holders[holder], { n: r.param("n", pg.bigint), child }).find({ child })
+		return r.match(holders[holder], { n: r.param("n", int8), child }).find({ child })
 	})
 	return deliveredChild(
 		succeeded(compileTemplate(read, undefined, testCompile), "the read compiles")
@@ -100,8 +100,8 @@ export const boundOf = (c: BindingCase): Result.Result<ScalarType, CompileError>
 	const read = query(Held).rule((r) => {
 		const { child } = v(holders[c.first], "first")
 		return r
-			.match(holders[c.first], { n: r.param("n", pg.bigint), child })
-			.match(holders[c.second], { n: r.param("n", pg.bigint), child })
+			.match(holders[c.first], { n: r.param("n", int8), child })
+			.match(holders[c.second], { n: r.param("n", int8), child })
 			.find({ child })
 	})
 	return Result.map(compileTemplate(read, undefined, testCompile), deliveredChild)

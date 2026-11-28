@@ -11,7 +11,7 @@ import {
 import { array, boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { swarm } from "@bjornpagen/testing/swarm"
 import { Array as Arr, Option, Order, Record as Rec } from "effect"
-import { accumulated, drawn as drawnField, natural, pg } from "#compiler/public/fields.ts"
+import { accumulated, drawn as drawnField, natural, int8 } from "#compiler/public/fields.ts"
 import {
 	counted,
 	fin,
@@ -83,39 +83,39 @@ import { fullWorldTemplate } from "#test/support/installed.ts"
 export const Node = relation(
 	"Node",
 	{
-		doc: pg.bigint,
+		doc: int8,
 		parent: drawnField(natural),
 		at: drawnField(natural),
 		children: drawnField(natural),
 		start: drawnField(natural),
 		end: drawnField(natural),
-		label: pg.bigint,
+		label: int8,
 		attrs: drawnField(natural),
-		weight: accumulated(pg.bigint, 0n)
+		weight: accumulated(int8, 0n)
 	},
 	["doc", "start"]
 )
 
 export const Attr = relation(
 	"Attr",
-	{ doc: pg.bigint, start: natural, name: pg.bigint, v: pg.bigint, toks: drawnField(natural) },
+	{ doc: int8, start: natural, name: int8, v: int8, toks: drawnField(natural) },
 	["doc", "start", "name"]
 )
 
 const Tok = relation(
 	"Tok",
-	{ doc: pg.bigint, start: natural, name: pg.bigint, at: drawnField(natural), t: pg.bigint },
+	{ doc: int8, start: natural, name: int8, at: drawnField(natural), t: int8 },
 	["doc", "start", "name", "at"]
 )
 
 export const Shelf = relation(
 	"Shelf",
 	{
-		id: pg.bigint,
-		note: pg.bigint,
+		id: int8,
+		note: int8,
 		books: drawnField(natural),
 		tags: drawnField(natural),
-		pages: accumulated(pg.bigint, 0n)
+		pages: accumulated(int8, 0n)
 	},
 	["id"]
 )
@@ -123,16 +123,16 @@ export const Shelf = relation(
 const Book = relation(
 	"Book",
 	{
-		shelf: pg.bigint,
+		shelf: int8,
 		at: drawnField(natural),
-		words: pg.bigint,
-		before: accumulated(pg.bigint, 0n),
-		after: accumulated(pg.bigint, 0n)
+		words: int8,
+		before: accumulated(int8, 0n),
+		after: accumulated(int8, 0n)
 	},
 	["shelf", "at"]
 )
 
-export const Tag = relation("Tag", { shelf: pg.bigint, label: pg.bigint }, ["shelf", "label"])
+export const Tag = relation("Tag", { shelf: int8, label: int8 }, ["shelf", "label"])
 
 export const nodes = tree(on(Node, "parent", "at"), fin(Node, "children"), { root: ["doc"] })
 
@@ -158,36 +158,26 @@ export const pages = fold(
 
 export const tags = counted(on(Tag, "shelf"), fin(Shelf, "tags"))
 
-export const Test = relation(
-	"Test",
-	{ t: pg.bigint, note: pg.bigint, insts: drawnField(natural) },
-	["t"]
-)
+export const Test = relation("Test", { t: int8, note: int8, insts: drawnField(natural) }, ["t"])
 
 export const Inst = relation(
 	"Inst",
 	{
-		t: pg.bigint,
+		t: int8,
 		parent: drawnField(natural),
 		at: drawnField(natural),
 		children: drawnField(natural),
 		start: drawnField(natural),
 		end: drawnField(natural),
-		label: pg.bigint,
+		label: int8,
 		places: drawnField(natural)
 	},
 	["t", "start"]
 )
 
-export const Asm = relation("Asm", { a: pg.bigint, note: pg.bigint, places: drawnField(natural) }, [
-	"a"
-])
+export const Asm = relation("Asm", { a: int8, note: int8, places: drawnField(natural) }, ["a"])
 
-export const Place = relation("Place", { t: pg.bigint, start: natural, a: pg.bigint }, [
-	"t",
-	"start",
-	"a"
-])
+export const Place = relation("Place", { t: int8, start: natural, a: int8 }, ["t", "start", "a"])
 
 const instances = tree(on(Inst, "parent", "at"), fin(Inst, "children"), { root: ["t"] })
 
@@ -218,11 +208,11 @@ export const worldOf = (name: string) =>
 	schema(name, Rec.values(relations), [
 		...statements,
 		...Arr.map(Rec.values(relations), (r) => mutable(r)),
-		unit("Document", { doc: pg.bigint }),
-		unit("Shelved", { id: pg.bigint }),
-		unit("Racked", { shelf: pg.bigint }),
-		unit("Exam", { t: pg.bigint }),
-		unit("Assembly", { a: pg.bigint })
+		unit("Document", { doc: int8 }),
+		unit("Shelved", { id: int8 }),
+		unit("Racked", { shelf: int8 }),
+		unit("Exam", { t: int8 }),
+		unit("Assembly", { a: int8 })
 	])
 
 export type RelationName = keyof typeof relations

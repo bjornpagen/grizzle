@@ -11,7 +11,7 @@ import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Fn } from "#compiler/public/compute.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { float8, int4, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { fn, relation, row, rows, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -54,17 +54,17 @@ import { fullWorld } from "#test/support/worlds.ts"
 /** A text of a field, short: an item's v and the row's flow. */
 const Text = str.regex("^[a-z]{0,2}$", "u")
 
-const A = rows({ k: pg.bigint, v: Text })
+const A = rows({ k: int8, v: Text })
 
-const B = rows({ f: pg["double precision"], k: pg.bigint })
+const B = rows({ f: float8, k: int8 })
 
 const Out = rows({ a: A, b: B, c: A, flow: Text })
 
-const Input = rows({ k: pg.bigint, mark: pg.integer, slot: pg.integer, v: Text })
+const Input = rows({ k: int8, mark: int4, slot: int4, v: Text })
 
 const machine = fn("machine", {
 	calls: [],
-	args: { items: Input, seed: pg.bigint },
+	args: { items: Input, seed: int8 },
 	returns: row(Out),
 	volatility: "immutable",
 	nullInput: "called",
@@ -76,21 +76,20 @@ CASE WHEN EXISTS (SELECT FROM unnest(items) AS i WHERE i.slot = 2 AND i.mark = 3
 'f' || seed::text)::${Out} END`
 })
 
-const OutA = relation("OutA", { k: pg.bigint, v: Text }, ["k", "v"])
+const OutA = relation("OutA", { k: int8, v: Text }, ["k", "v"])
 
-const OutB = relation("OutB", { k: pg.bigint, f: pg["double precision"] }, ["k"])
+const OutB = relation("OutB", { k: int8, f: float8 }, ["k"])
 
-const OutC = relation("OutC", { k: pg.bigint, v: Text }, ["k", "v"])
+const OutC = relation("OutC", { k: int8, v: Text }, ["k", "v"])
 
 /** Each session's items, machine's rows argument. */
-const Item = relation(
-	"Item",
-	{ session: pg.integer, slot: pg.integer, k: pg.bigint, v: Text, mark: pg.integer },
-	["session", "k"]
-)
+const Item = relation("Item", { session: int4, slot: int4, k: int8, v: Text, mark: int4 }, [
+	"session",
+	"k"
+])
 
 /** The sessions `each` reads, each with its seed. */
-const Session = relation("Session", { session: pg.integer, seed: pg.bigint }, ["session"])
+const Session = relation("Session", { session: int4, seed: int8 }, ["session"])
 
 /** The schema of a case under `name`: the items and sessions, the relations `land` writes, and machine. */
 const fieldsSchema = (name: string) => schema(name, [Item, Session, OutA, OutB, OutC, machine], [])
@@ -102,21 +101,21 @@ export const programsOf = (name: string) => {
 	const itemsOf = query(level).rule((r) => {
 		const { slot, k, v: x, mark } = v(Item, "item")
 		return r
-			.match(Item, { session: r.param("session", pg.integer), slot, k, v: x, mark })
+			.match(Item, { session: r.param("session", int4), slot, k, v: x, mark })
 			.find({ slot, k, v: x, mark })
 	})
 	const alone = query(level).rule((r) => {
 		const read = Fn.row(machine, {
-			items: itemsOf.bind({ session: r.param("session", pg.integer) }),
-			seed: r.param("seed", pg.bigint)
+			items: itemsOf.bind({ session: r.param("session", int4) }),
+			seed: r.param("seed", int8)
 		}).a
 		const { k, v: x } = v(read, "a")
 		return r.match(read, { k, v: x }).find({ k, v: x })
 	})
 	const pair = query(level).rule((r) => {
 		const fields = Fn.row(machine, {
-			items: itemsOf.bind({ session: r.param("session", pg.integer) }),
-			seed: r.param("seed", pg.bigint)
+			items: itemsOf.bind({ session: r.param("session", int4) }),
+			seed: r.param("seed", int8)
 		})
 		const { k, v: x } = v(fields.a, "a")
 		const { k: j, f } = v(fields.b, "b")
@@ -125,16 +124,16 @@ export const programsOf = (name: string) => {
 	const either = query(level)
 		.rule((r) => {
 			const read = Fn.row(machine, {
-				items: itemsOf.bind({ session: r.param("session", pg.integer) }),
-				seed: r.param("seed", pg.bigint)
+				items: itemsOf.bind({ session: r.param("session", int4) }),
+				seed: r.param("seed", int8)
 			}).a
 			const { k, v: x } = v(read, "a")
 			return r.match(read, { k, v: x }).find({ k, v: x })
 		})
 		.rule((r) => {
 			const read = Fn.row(machine, {
-				items: itemsOf.bind({ session: r.param("session", pg.integer) }),
-				seed: r.param("seed", pg.bigint)
+				items: itemsOf.bind({ session: r.param("session", int4) }),
+				seed: r.param("seed", int8)
 			}).c
 			const { k, v: x } = v(read, "c")
 			return r.match(read, { k, v: x }).find({ k, v: x })
@@ -155,8 +154,8 @@ export const programsOf = (name: string) => {
 			OutA,
 			query(level).rule((r) => {
 				const read = Fn.row(machine, {
-					items: itemsOf.bind({ session: r.param("session", pg.integer) }),
-					seed: r.param("seed", pg.bigint)
+					items: itemsOf.bind({ session: r.param("session", int4) }),
+					seed: r.param("seed", int8)
 				}).a
 				const { k, v: x } = v(read, "a")
 				return r.match(read, { k, v: x }).find({ k, v: x })
@@ -166,8 +165,8 @@ export const programsOf = (name: string) => {
 			OutB,
 			query(level).rule((r) => {
 				const read = Fn.row(machine, {
-					items: itemsOf.bind({ session: r.param("session", pg.integer) }),
-					seed: r.param("seed", pg.bigint)
+					items: itemsOf.bind({ session: r.param("session", int4) }),
+					seed: r.param("seed", int8)
 				}).b
 				const { k, f } = v(read, "b")
 				return r.match(read, { k, f }).find({ k, f })
@@ -177,8 +176,8 @@ export const programsOf = (name: string) => {
 			OutC,
 			query(level).rule((r) => {
 				const read = Fn.row(machine, {
-					items: itemsOf.bind({ session: r.param("session", pg.integer) }),
-					seed: r.param("seed", pg.bigint)
+					items: itemsOf.bind({ session: r.param("session", int4) }),
+					seed: r.param("seed", int8)
 				}).c
 				const { k, v: x } = v(read, "c")
 				return r.match(read, { k, v: x }).find({ k, v: x })

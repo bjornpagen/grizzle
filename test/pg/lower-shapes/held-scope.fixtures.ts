@@ -5,7 +5,7 @@ import { type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
 import type { BenchSession } from "#bench/harness/session.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { key, on, relation, schema, unit } from "#compiler/public/schema.ts"
 import { fullWorldRole, servedRead, servedRun } from "#test/support/advice.ts"
@@ -15,7 +15,7 @@ import { fullWorldTemplate } from "#test/support/installed.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import type { RolledBack } from "#test/support/substrate/substrate.ts"
 
-const i = pg.integer
+const i = int4
 
 /**
  * A learner's item sessions, each of a stage, by the learner and its place; each session's attempts, by their instant;

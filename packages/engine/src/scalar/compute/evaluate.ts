@@ -672,7 +672,7 @@ const applied = (op: NativeOp, argTypes: ReadonlyArray<ScalarType>, type: Scalar
 		case "upper": {
 			if (c !== "range4" && c !== "range8" && c !== "rangeDate") {
 				return () => {
-					defect(`${fn} of a span, not of a ${c}`)
+					defect(`${fn} of a range, not of a ${c}`)
 				}
 			}
 			return fn === "lower"
@@ -748,12 +748,12 @@ const applied = (op: NativeOp, argTypes: ReadonlyArray<ScalarType>, type: Scalar
 			return refused("regexp_count alone, which only utf16Length's SQL reads")
 		case "strpos":
 			return refused("strpos alone, which only contains's SQL reads")
-		case "parseDouble":
+		case "parseFloat8":
 			return (args) => {
 				const value = doubleOfText(hostOf("text", a(args)))
 				return value === undefined ? undefinedAt("lexical") : Result.ok(value)
 			}
-		case "parseDecimal":
+		case "parseNumeric":
 			return (args) => {
 				const value = decimalOfText(hostOf("text", a(args)))
 				return value === undefined ? undefinedAt("lexical") : Result.ok(value)
@@ -1493,7 +1493,7 @@ interface LiteralRefusal {
  *
  * Every value is its type carrier's host value, the codec's own (scalar/values/identity.ts CarrierHost), so a row's field
  * and an evaluated term are read and written as they are, with no form of the evaluator's own, but an integer numeric's,
- * numeric(p, 0), whose field holds a bigint and whose evaluated value is the Decimal numeric.c computes with: a field
+ * numeric(p, 0), whose field holds a bigint and whose evaluated value is the Numeric numeric.c computes with: a field
  * enters at evaluatedValue and a generated value leaves at heldValue (identity.ts). An integer operation widens its
  * operands to bigints and narrows its result to its type's carrier, so smallint's and integer's values stay JavaScript
  * integers. Comparison is PostgreSQL's total order of the type (identity.ts compareValues, the host's one): NaN above

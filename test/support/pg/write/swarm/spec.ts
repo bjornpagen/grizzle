@@ -23,7 +23,7 @@ import { boolean, type Gen, int } from "@bjornpagen/testing/gen"
 import { keep, type Swarm, swarm, swarmChoice, weightOf } from "@bjornpagen/testing/swarm"
 import { Array as Arr, Option, Order, Record as Rec, String as Str } from "effect"
 import { int8Min } from "#compiler/ir/carriers.ts"
-import { accumulated, bits, drawn, natural, pg } from "#compiler/public/fields.ts"
+import { accumulated, bit, drawn, natural, int8 } from "#compiler/public/fields.ts"
 import { type AnyFamily, type RowScalars, schema, type Statement } from "#compiler/public/schema.ts"
 import {
 	accumulatedField,
@@ -640,12 +640,12 @@ const Mask = closed("Mask", maskHandles, "ordered", [])
 /** The fields of family relation `r`, fill.ts's in its order, then its set `b` and each extra end it owns. */
 const fieldsOf = (spec: SwarmSpec, r: number): Record<string, FieldBase> => {
 	const core = spec.fill
-	const fields: Record<string, FieldBase> = { id: Id, v: pg.bigint }
+	const fields: Record<string, FieldBase> = { id: Id, v: int8 }
 	for (const [f, family] of core.families.entries()) {
 		if (family.owner === r) {
 			fields[countName(f)] = drawn(natural)
 			if (family.fold === "sum") {
-				fields[foldName(f)] = accumulated(pg.bigint, 0n)
+				fields[foldName(f)] = accumulated(int8, 0n)
 			}
 			if (family.fold === "count") {
 				fields[foldName(f)] = accumulated(natural, 0n)
@@ -674,18 +674,18 @@ const fieldsOf = (spec: SwarmSpec, r: number): Record<string, FieldBase> => {
 		if (holderOf(core, copy) === r) {
 			fields[copyName(j)] = naturalSource(core, copy.source, new Set([j]))
 				? accumulated(natural, 0n)
-				: accumulated(pg.bigint, 0n)
+				: accumulated(int8, 0n)
 		}
 	}
 	if (holdsMask(spec, r)) {
-		fields["b"] = bits(Mask)
+		fields["b"] = bit(Mask)
 	}
 	for (const end of spec.ends) {
 		if (familyOf(spec, end.family).owner === r) {
 			fields[endName(end.family)] =
 				end.monoid === "max"
-					? accumulated(pg.bigint, maxIdentity)
-					: accumulatedField(bits(Mask), bitsOf(Mask, [], []), [])
+					? accumulated(int8, maxIdentity)
+					: accumulatedField(bit(Mask), bitsOf(Mask, [], []), [])
 		}
 	}
 	return { ...fields, ...namedFields(spec, r) }
@@ -703,7 +703,7 @@ const namedFields = (spec: SwarmSpec, r: number): Readonly<Record<string, FieldB
 		Arr.flatMap(namedFamilies(spec, r), (f): ReadonlyArray<readonly [string, FieldBase]> => [
 			[groupName(f), Id],
 			[namedIdName(f), Id],
-			[namedValueName(f), pg.bigint]
+			[namedValueName(f), int8]
 		])
 	)
 
@@ -713,8 +713,8 @@ const namedFields = (spec: SwarmSpec, r: number): Readonly<Record<string, FieldB
  */
 export const callerFields = (spec: SwarmSpec, r: number): Readonly<Record<string, FieldBase>> => ({
 	id: Id,
-	v: pg.bigint,
-	...(holdsMask(spec, r) ? { b: bits(Mask) } : {}),
+	v: int8,
+	...(holdsMask(spec, r) ? { b: bit(Mask) } : {}),
 	...namedFields(spec, r)
 })
 
@@ -782,7 +782,7 @@ export const swarmFacts = (
 
 /** The fields of plain relation `j`. */
 const plainFields = (p: PlainSpec): Record<string, FieldBase> =>
-	p.kind === "set" ? { x: pg.bigint } : { id: Id, r: Id, x: pg.bigint }
+	p.kind === "set" ? { x: int8 } : { id: Id, r: Id, x: int8 }
 
 /** The field names of family relation `r` (its generated `g` among them) or of plain relation `j`, in heading order. */
 export const fieldNames = (

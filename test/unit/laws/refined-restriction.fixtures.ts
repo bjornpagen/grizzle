@@ -5,7 +5,7 @@ import { element, type Gen } from "@bjornpagen/testing/gen"
 import { installOptions } from "#compiler/physical/install/compile.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
 import { Logic, Type } from "#compiler/public/compute.ts"
-import { contract, natural, pg } from "#compiler/public/fields.ts"
+import { contract, natural, int4, int8 } from "#compiler/public/fields.ts"
 import { query, type Rule, v } from "#compiler/public/query.ts"
 import { check, derived, relation, schema } from "#compiler/public/schema.ts"
 import { owning } from "#test/support/policy.ts"
@@ -39,18 +39,15 @@ export type Feature =
 	| "metis's first budget"
 
 const stageKey = Symbol("Stage")
-/** A sitting's stage, a contract over pg.bigint, as qti-pie's SittingKey is. */
-const Stage = contract<typeof stageKey>()("Stage", pg.bigint, (s) => Logic.ge(s, 0n))
+/** A sitting's stage, a contract over int8, as qti-pie's SittingKey is. */
+const Stage = contract<typeof stageKey>()("Stage", int8, (s) => Logic.ge(s, 0n))
 
-const Assignment = relation("Assignment", { child: pg.integer, number: natural }, [
-	"child",
-	"number"
-])
-const Budget = relation("Budget", { child: pg.integer, stage: Stage, remaining: pg.bigint }, [
+const Assignment = relation("Assignment", { child: int4, number: natural }, ["child", "number"])
+const Budget = relation("Budget", { child: int4, stage: Stage, remaining: int8 }, [
 	"child",
 	"stage"
 ])
-const Limit = relation("Limit", { number: natural, seconds: pg.bigint }, ["number"])
+const Limit = relation("Limit", { number: natural, seconds: int8 }, ["number"])
 const Base = schema("refined_restriction", [Assignment, Budget, Limit], [])
 
 /** Each assignment's sitting, its stage its number cast into Stage under the contract's key. */

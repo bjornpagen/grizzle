@@ -10,7 +10,7 @@ import type { LoadedMember } from "#adapter/served/load.ts"
 import { type CompileError, isCompileError } from "#compiler/core/errors.ts"
 import { type Anchor, type KeyFields, keyOf } from "#compiler/live/index.ts"
 import { pagedMember, workload } from "#compiler/program/workload/value.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int2, int4, int8 } from "#compiler/public/fields.ts"
 import { queryOver, type QueryValue, varsOver } from "#compiler/query/build/query.ts"
 import type { FinishedValue, RuleValue } from "#compiler/query/build/rule.ts"
 import type { ServedFile } from "#compiler/served/forms.ts"
@@ -333,8 +333,7 @@ const attachedRead = (
  * type of an integer; none for another, which no recursive read is drawn over.
  */
 export const rowField = (domain: FieldDomain): Option.Option<unknown> => {
-	const integer = (bits: 16 | 32 | 64): unknown =>
-		bits === 16 ? pg.smallint : bits === 32 ? pg.integer : pg.bigint
+	const integer = (bits: 16 | 32 | 64): unknown => (bits === 16 ? int2 : bits === 32 ? int4 : int8)
 	switch (domain.kind) {
 		case "uuid":
 			return Option.some(Id)

@@ -17,13 +17,13 @@ export type {
  *
  * A search document is a tsvector PostgreSQL parses from texts under one text search configuration of pg_catalog's,
  * its identity as a type, and stores in a generated field (searchDocument), or holds as its caller wrote it in a field
- * of its own (pg.tsvector): its host value is the text PostgreSQL prints for it (SearchDocument), which a read delivers
+ * of its own (tsvector): its host value is the text PostgreSQL prints for it (SearchDocument), which a read delivers
  * and a write of a stored one sends back as it is, and nothing more of it is the host's. A query is matched against a
  * document, and ranks it, under the document's own configuration, so no query is ever read under another, and every
  * match and rank is PostgreSQL's alone (UnhostedOrigin): a contract predicate, a row check and a generated field refuse
  * one.
  *
- * A search document's field: a tsvector of configuration C, pg.tsvector(C)'s, its caller's, and searchDocument's
+ * A search document's field: a tsvector of configuration C, tsvector(C)'s, its caller's, and searchDocument's
  * generated field's type.
  */
 export interface SearchDocumentField<out C extends TextSearchConfiguration> extends Field<

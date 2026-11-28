@@ -18,7 +18,7 @@ import { type Direction, directions } from "#compiler/core/order.ts"
 import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
 import { decodeDesc, descText, type QueryDesc } from "#compiler/ir/desc.ts"
 import { toQueryDescription } from "#compiler/ir/describe.ts"
-import { closedId, pg } from "#compiler/public/fields.ts"
+import { closedId, int8, numeric } from "#compiler/public/fields.ts"
 import {
 	isOrderedValue,
 	isQueryValue,
@@ -326,7 +326,7 @@ export const work: Grammar<WorkArm> = {
 		}
 		const extra =
 			arm.compute === "cast"
-				? { x: computeCore.cast(computeCore.base(budget), pg.numeric(19, 0)) }
+				? { x: computeCore.cast(computeCore.base(budget), numeric(19, 0)) }
 				: arm.compute === "numeric"
 					? { x: computeCore.numeric(computeCore.base(budget)) }
 					: arm.compute === "cond"
@@ -386,7 +386,7 @@ export const spans: Grammar<SpanArm> = {
 			rule = rule.where(r.allen(a["during"], ALLEN.intersects, b["during"]))
 		}
 		if (arm.pointIn) {
-			rule = rule.where(r.pointIn(computeCore.lower(b["during"], pg.bigint), a["during"]))
+			rule = rule.where(r.pointIn(computeCore.lower(b["during"], int8), a["during"]))
 		}
 		switch (arm.producer) {
 			case "none":

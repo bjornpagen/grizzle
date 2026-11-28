@@ -1591,7 +1591,7 @@ class Checker {
 			const a = vars.get(e.a)
 			const b = vars.get(e.b)
 			/**
-			 * Whether the two are of one carrier, contract identity, roster, vector dimension count and span endpoint
+			 * Whether the two are of one carrier, contract identity, roster, vector dimension count and range endpoint
 			 * (types.ts compatible), so one operator compares them; their refinements and typmods may differ: the checker
 			 * binds a variable's column of another refinement to a hidden variable of that column's type and equates the
 			 * two (check/checker.ts RuleCheck `#equated`), whose values lie in both.

@@ -6,20 +6,20 @@ import { constant, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Formatter, Option, Order, Result } from "effect"
 import type { CallError, WriteOutcome } from "#compiler/live/index.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { instant, pg } from "#compiler/public/fields.ts"
+import { instant, int4 } from "#compiler/public/fields.ts"
 import { login, relation, role, schema } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
 import type { WriteAnswer } from "#test/support/calls.ts"
 import { rigTemplate } from "#test/support/schedules/rig.ts"
 
-export const Log = relation("Log", { child: pg.integer, at: instant, note: pg.integer }, [
+export const Log = relation("Log", { child: int4, at: instant, note: int4 }, [
 	"child",
 	"at",
 	"note"
 ])
 
 /** The relation a held call inserts last, which the owner's SHARE lock holds it at. */
-export const Gate = relation("Gate", { n: pg.integer }, ["n"])
+export const Gate = relation("Gate", { n: int4 }, ["n"])
 
 /** The schema, the role `writer`, which inserts Log and Gate and nothing else, and its two logins. */
 export const clocks = (name: string) => {

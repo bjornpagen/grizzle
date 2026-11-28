@@ -14,7 +14,7 @@ import { noClock, transactionClock } from "#compiler/ir/clock.ts"
 import { isSequence } from "#compiler/ir/family.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { writeWorldOf } from "#compiler/program/write-world.ts"
-import { Bits, Money, pg } from "#compiler/public/fields.ts"
+import { Bit, Money, int8 } from "#compiler/public/fields.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { bindWrite } from "#compiler/runtime/write/bind.ts"
@@ -277,8 +277,8 @@ const fieldsOf: { readonly [R in RelName]: Arr.NonEmptyReadonlyArray<FieldInfo> 
 			name: "flags",
 			key: false,
 			values: [
-				{ text: 'Bits.of(Flag, ["on"])', value: Bits.of(Flag, ["on"]) },
-				{ text: "Bits.of(Flag, [])", value: Bits.of(Flag, []) }
+				{ text: 'Bit.of(Flag, ["on"])', value: Bit.of(Flag, ["on"]) },
+				{ text: "Bit.of(Flag, [])", value: Bit.of(Flag, []) }
 			],
 			outside: [anotherType(plainNumber)]
 		},
@@ -1980,7 +1980,7 @@ class Rendering {
 		| "Kind"
 		| "TaskCount"
 		| "Cents"
-		| "Bits"
+		| "Bit"
 		| "Flag"
 		| RoleName
 		| "plain"
@@ -2000,8 +2000,8 @@ class Rendering {
 		if (Str.startsWith("Money.")(l.text)) {
 			this.uses.add("Money")
 		}
-		if (Str.startsWith("Bits.")(l.text)) {
-			this.uses.add("Bits")
+		if (Str.startsWith("Bit.")(l.text)) {
+			this.uses.add("Bit")
 			this.uses.add("Flag")
 		}
 		return l.text
@@ -2048,7 +2048,7 @@ class Rendering {
 				this.uses.add("Num")
 				this.uses.add("Type")
 				this.uses.add("pg")
-				return `Logic.when(Num.within(Num.add(s.${t.field}, ${t.param}), -9223372036854775808n, 9223372036854775807n), (g) => Type.cast(g, pg.bigint), s.${t.field})`
+				return `Logic.when(Num.within(Num.add(s.${t.field}, ${t.param}), -9223372036854775808n, 9223372036854775807n), (g) => Type.cast(g, int8), s.${t.field})`
 		}
 	}
 
@@ -2084,7 +2084,7 @@ class Rendering {
 					if (param.field === undefined) {
 						this.uses.add("pg")
 					}
-					return `const ${param.name} = r.param(${jsonText(param.name)}, ${param.field === undefined ? "pg.bigint" : `${p.relation}.fields.${param.field}`}); `
+					return `const ${param.name} = r.param(${jsonText(param.name)}, ${param.field === undefined ? "int8" : `${p.relation}.fields.${param.field}`}); `
 				})
 				const record = (fields: ReadonlyArray<readonly [string, HeadTerm]>): string =>
 					`{ ${Arr.join(
@@ -2261,7 +2261,7 @@ const describedQuery = (m: Extract<MemberSpec, { readonly kind: "query" }>) =>
 				(p) =>
 					[
 						p.name,
-						r.param(p.name, p.field === undefined ? pg.bigint : descriptors[m.relation][p.field])
+						r.param(p.name, p.field === undefined ? int8 : descriptors[m.relation][p.field])
 					] as const
 			)
 		)
@@ -2282,7 +2282,7 @@ const describedQuery = (m: Extract<MemberSpec, { readonly kind: "query" }>) =>
 							-9223372036854775808n,
 							9223372036854775807n
 						),
-						(g: unknown) => computeCore.cast(g, pg.bigint),
+						(g: unknown) => computeCore.cast(g, int8),
 						s[t.field]
 					)
 			}
@@ -2502,7 +2502,7 @@ const hostText = (t: ScalarType): string => {
 		case "exactInteger":
 			return "bigint"
 		case "numeric":
-			return "Decimal"
+			return "Numeric"
 		case "money":
 		case "exactMoney":
 			return "Money"
@@ -3689,7 +3689,7 @@ export const changeSetProgram = (
 						...(uses.has("bigintOf") ? ["declare const bigintOf: (n: number) => bigint"] : []),
 						"export const widen = <R>(_relation: R, facts: ReadonlyArray<Addition<R>>): ReadonlyArray<Addition<R>> => facts",
 						"export type SchemaOf<C> = C extends Phantom<{ readonly schema: Invariant<infer S> }> ? S : never",
-						'export type Hosts = [CalendarDate, Decimal, Money, Uuid, Infer<typeof Cents>, typeof pg, BitsOf<typeof Flag>, Rostered<"Kind">, RegexInfer<"", "u">]',
+						'export type Hosts = [CalendarDate, Numeric, Money, Uuid, Infer<typeof Cents>, typeof pg, BitsOf<typeof Flag>, Rostered<"Kind">, RegexInfer<"", "u">]',
 						""
 					]
 				},

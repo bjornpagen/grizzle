@@ -585,7 +585,7 @@ const gistPlacements = (keys: Keys, columns: Columns, label: string): Placements
 			: fail(
 					"MalformedDescription",
 					label,
-					"a GiST request binding a span or a column of many values"
+					"a GiST request binding a range or a column of many values"
 				),
 		others: [
 			{ kind: "keyed", method: "gist", within: keys },
@@ -643,7 +643,7 @@ const btreeNeeds: Readonly<Record<AccessUse, "lookup" | "range" | "order" | "non
 	"prefix search": "range",
 	"take seek": "order",
 	"page seek": "order",
-	"span predicate": "none",
+	"range predicate": "none",
 	"approximate vector retrieval": "none",
 	"text search": "none",
 	"network containment": "none",

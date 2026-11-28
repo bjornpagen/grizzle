@@ -615,13 +615,13 @@ const comparableVar = (rule: JsonRecord, stored: ReadonlyArray<Stored>): KeyVar 
 const keyFieldDesc = (key: KeyVar): JsonRecord => {
 	switch (key.kind) {
 		case "int4":
-			return { kind: "pg", type: "integer" }
+			return { kind: "pg", type: "int4" }
 		case "int8":
-			return { kind: "pg", type: "bigint" }
+			return { kind: "pg", type: "int8" }
 		case "bool":
-			return { kind: "pg", type: "boolean" }
+			return { kind: "pg", type: "bool" }
 		case "float8":
-			return { kind: "pg", type: "double precision" }
+			return { kind: "pg", type: "float8" }
 		case "uuid":
 			return idDesc
 		case "fixed": {
@@ -947,7 +947,7 @@ const corruptions: Arr.NonEmptyReadonlyArray<Corruption<Live, Refusal, RuleName>
 		(rule) =>
 			withMatches(rule, [
 				relationParamMatch("rp", { f: idDesc }),
-				relationParamMatch("rp", { f: { kind: "pg", type: "bigint" } })
+				relationParamMatch("rp", { f: { kind: "pg", type: "int8" } })
 			]),
 		"rule",
 		malformed

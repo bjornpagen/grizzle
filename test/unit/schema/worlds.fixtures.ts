@@ -19,7 +19,7 @@ import type { LoginRule, RoleRule } from "#compiler/core/causes.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4, vector } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, context, derived, relation, schema, unit } from "#compiler/public/schema.ts"
 import {
@@ -37,7 +37,7 @@ import { buildSchema } from "#test/support/pg/derived/oracle/gen.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
 import {
 	fieldSketchGen,
-	pgField,
+	plainField,
 	type SketchedField
 } from "#test/support/unit/schema/field-sketch.ts"
 import { rawClosedId, regex } from "#test/support/unit/schema/support.ts"
@@ -48,13 +48,13 @@ const Author = regex("^user_[a-z]{1,8}$", "u")
 
 export const Post = relation(
 	"Post",
-	{ id: Id, author: Author, kind: rawClosedId(Kind), words: pg.integer },
+	{ id: Id, author: Author, kind: rawClosedId(Kind), words: int4 },
 	["id"]
 )
 
 export const Note = relation("Note", { id: Id, post: Id }, ["id"])
 
-const Doc = relation("Doc", { id: Id, a: pg.vector(3), b: pg.vector(3) }, ["id"])
+const Doc = relation("Doc", { id: Id, a: vector(3), b: vector(3) }, ["id"])
 
 /** The blog: every relation keyed by its id sits in the unit Entry, so a stored relation over Post sits in it too. */
 const Blog = schema("Blog", [Kind, Post, Note, Doc], [unit("Entry", { id: Id })])
@@ -673,7 +673,7 @@ export const claimable = (f: ContextFieldSketch): boolean =>
 export const claimDescribed = (t: SketchedField): boolean => {
 	switch (t.kind) {
 		case "pg":
-			return claimTypes.has(pgField(t.member).sql)
+			return claimTypes.has(plainField(t.member).sql)
 		case "uuid":
 		case "text":
 		case "closedId":

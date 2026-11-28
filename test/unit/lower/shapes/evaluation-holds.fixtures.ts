@@ -3,13 +3,13 @@
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, String as Str } from "effect"
 import { Fn } from "#compiler/public/compute.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, type Rule, v } from "#compiler/public/query.ts"
 import { fn, relation, row, rows, schema } from "#compiler/public/schema.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
 
-const A = rows({ k: pg.integer, v: pg.integer })
+const A = rows({ k: int4, v: int4 })
 
 /** machine: three rows arguments of (k, v), and one row of one field of rows of (k, v). */
 const machine = fn("machine", {
@@ -23,16 +23,9 @@ const machine = fn("machine", {
 })
 
 /** A child's item sessions, each at its stage, their attempts, and six relations of an attempt's values. */
-const Session = relation("Session", { child: pg.integer, item: pg.integer, stage: pg.integer }, [
-	"child",
-	"item"
-])
-const Attempt = relation("Attempt", { child: pg.integer, item: pg.integer, at: pg.integer }, [
-	"child",
-	"item",
-	"at"
-])
-const valueFields = { child: pg.integer, item: pg.integer, at: pg.integer, v: pg.integer } as const
+const Session = relation("Session", { child: int4, item: int4, stage: int4 }, ["child", "item"])
+const Attempt = relation("Attempt", { child: int4, item: int4, at: int4 }, ["child", "item", "at"])
+const valueFields = { child: int4, item: int4, at: int4, v: int4 } as const
 const values = [
 	relation("ValueA", valueFields, ["child", "item", "at", "v"]),
 	relation("ValueB", valueFields, ["child", "item", "at", "v"]),
@@ -45,7 +38,7 @@ type Values = (typeof values)[number]
 const Held = schema("EvaluationHolds", [Session, Attempt, ...values, machine], [])
 
 /** A sitting: a child's stage. */
-const sittingHeading = { child: pg.integer, stage: pg.integer } as const
+const sittingHeading = { child: int4, stage: int4 } as const
 
 /**
  * Each session of the sittings at its latest attempt: a fold over the attempts of the sittings' sessions, as edullm's
@@ -88,11 +81,9 @@ const valuesAtLatest = (held: Values, copies: Copies) => (r: Rule<typeof Held>) 
 
 /** The stage of the session at a child and item: the sittings every argument reads. */
 const stageOf = query(Held).rule((r) => {
-	const child = r.param("child", pg.integer)
+	const child = r.param("child", int4)
 	const { stage } = v(Session, "keyed")
-	return r
-		.match(Session, { child, item: r.param("item", pg.integer), stage })
-		.find({ child, stage })
+	return r.match(Session, { child, item: r.param("item", int4), stage }).find({ child, stage })
 })
 
 /** A child's sessions, the parent rows machine's run is read at. */
@@ -100,7 +91,7 @@ const sessions = query(Held).rule((r) => {
 	const { child, item, stage } = v(Session, "parent")
 	return r
 		.match(Session, { child, item, stage })
-		.where(r.eq(child, r.param("child", pg.integer)))
+		.where(r.eq(child, r.param("child", int4)))
 		.find({ child, item })
 })
 

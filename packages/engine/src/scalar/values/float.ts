@@ -127,7 +127,7 @@ export const toReal = (x: unknown): Result.Result<number, ValueFault> => {
 }
 
 /**
- * Float semantics of pg.real and pg["double precision"].
+ * Float semantics of float4 and float8.
  *
  * grizzle follows PostgreSQL, not IEEE 754 and not JavaScript:
  *
@@ -157,7 +157,7 @@ export const compareFloat = (a: number, b: number): -1 | 0 | 1 => {
 }
 
 /**
- * The text form of pg.real and pg["double precision"], and the value's one text: "NaN", "Infinity", "-Infinity", "-0",
+ * The text form of float4 and float8, and the value's one text: "NaN", "Infinity", "-Infinity", "-0",
  * or the shortest round-trip decimal. Distinct binary64 values have distinct texts, -0 and +0 among them, NaN one text,
  * so it is the float's fact identity, and float4in and float8in read it as exactly the value, its zero's sign kept.
  *

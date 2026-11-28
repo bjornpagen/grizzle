@@ -17,7 +17,7 @@
  *   of its predecessor's after, the plane's identity at the first slot; its after `combine(before, x)` where the step
  *   side's selection holds and its before elsewhere; its end a last-axis copy of the last member's after, the identity
  *   for an empty family. Folds combine exactly, in the monoid's own arithmetic (bigint for count and sum's integers,
- *   Decimal and Money for sum, sets of handles for or and twos, the carrier's order for max, text for concat), and an
+ *   Numeric and Money for sum, sets of handles for or and twos, the carrier's order for max, text for concat), and an
  *   after outside its carrier is refused before any statement is sent: PostgreSQL would refuse its row (22003), since
  *   `after = combine(before, x)` is proved in exact arithmetic.
  *
@@ -69,7 +69,7 @@ import { hostOfLiteral, integerHostOf } from "#compiler/scalar/compute/literal.t
 import * as N from "#compiler/scalar/compute/numeric.ts"
 import type { PatternReads } from "#compiler/scalar/regex/patterns.ts"
 import { isAdmittedBytes } from "#compiler/scalar/values/bytes.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 import {
 	admitted,
 	storedValue,
@@ -784,7 +784,7 @@ const sumHost = (a: unknown, b: unknown): unknown => {
 	if (typeof a === "bigint" && typeof b === "bigint") {
 		return a + b
 	}
-	if (a instanceof Decimal && b instanceof Decimal) {
+	if (a instanceof Numeric && b instanceof Numeric) {
 		const s = N.add(a, b)
 		return s.ok ? s.value : undefined
 	}

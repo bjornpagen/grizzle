@@ -47,7 +47,7 @@ import type { UnmatchedQuery } from "#compiler/write/unmatched.ts"
  * `migrations/<schema>/served/<login>.json` (servedPath) under the snapshot's fingerprint, and the only thing a
  * running layer reads: it holds every fact of the installation its programs, prologue and refusals read, and nothing
  * else of the snapshot. Every member is pure data: records, arrays, strings, finite numbers, booleans, bigints, Maps,
- * Sets, ScalarTypes and canonical values (a Decimal, a Money, a Roster). What runs a member, its codecs, readers,
+ * Sets, ScalarTypes and canonical values (a Numeric, a Money, a Roster). What runs a member, its codecs, readers,
  * decoders, merges and classifier, is rebuilt from it at load, under the codebook of its own rosters, by the
  * constructors the compile path runs it through too.
  *

@@ -80,7 +80,7 @@ export const theSeenStateEstimateMultipliesIndependentCountersAComputedColumnByT
 							c.note("the widest grid")
 						}
 						const sum: HeadTermDesc = summed
-							? narrowed(compute("add", s("x"), s("y")), "integer")
+							? narrowed(compute("add", s("x"), s("y")), "int4")
 							: integerLit(0)
 						const q = succeeded(
 							checkAuthored(

@@ -37,13 +37,14 @@ import { sameLaw } from "#compiler/public/changeset.ts"
 import { Text, Type } from "#compiler/public/compute.ts"
 import {
 	accumulated,
-	Bits,
-	bits,
+	Bit,
+	bit,
 	closedId,
 	drawn,
 	generated,
 	natural,
-	pg
+	int4,
+	int8
 } from "#compiler/public/fields.ts"
 import {
 	closed,
@@ -162,7 +163,7 @@ const paletteOf = (hues: Hues) => {
 	const hue = closedId(Hue)
 	const Glow = closed.relation(
 		"Glow",
-		{ hue, lum: pg.bigint },
+		{ hue, lum: int8 },
 		["hue"],
 		hues[1] === "b"
 			? [
@@ -185,14 +186,14 @@ const paletteOf = (hues: Hues) => {
 			n: drawn(natural),
 			strokes: drawn(natural),
 			peak: accumulated(hue, "a"),
-			seen: accumulated(bits(Hue), Bits.of(Hue, [])),
+			seen: accumulated(bit(Hue), Bit.of(Hue, [])),
 			label: Label
 		},
 		["hue", "id"],
 		(row) => ({
-			lum: generated(pg.bigint, Glow.at("lum", row.tone)),
+			lum: generated(int8, Glow.at("lum", row.tone)),
 			tag: generated(Label, Type.cast(Text.collapse(row.label), Label)),
-			width: generated(pg.integer, Text.octetLength(Type.cast(Text.collapse(row.label), Label)))
+			width: generated(int4, Text.octetLength(Type.cast(Text.collapse(row.label), Label)))
 		})
 	)
 	const Dab = relation(
@@ -202,11 +203,11 @@ const paletteOf = (hues: Hues) => {
 			hue,
 			swatch: Id,
 			shade: hue,
-			marks: bits(Hue),
+			marks: bit(Hue),
 			tone: accumulated(hue, "a"),
-			lum: accumulated(pg.bigint, 0n),
+			lum: accumulated(int8, 0n),
 			tag: accumulated(Label, ""),
-			width: accumulated(pg.integer, 0)
+			width: accumulated(int4, 0)
 		},
 		["id"],
 		[]
@@ -421,7 +422,7 @@ const paletteFacts = (
 			hue: s.hue,
 			swatch: paletteUuid(s.id),
 			shade: fault === "dropped handle" && i === 0 ? "b" : d.shade,
-			marks: Bits.of(Hue, d.marks)
+			marks: Bit.of(Hue, d.marks)
 		}))
 	)
 	const extraSwatch =
@@ -444,7 +445,7 @@ const paletteFacts = (
 						hue: first.hue,
 						swatch: paletteUuid(98),
 						shade: "a",
-						marks: Bits.of(Hue, [])
+						marks: Bit.of(Hue, [])
 					}
 				]
 			: []
@@ -458,7 +459,7 @@ const paletteFacts = (
 						hue: first.hue,
 						swatch: paletteUuid(first.id),
 						shade: "b",
-						marks: Bits.of(Hue, [])
+						marks: Bit.of(Hue, [])
 					}
 				]
 			: []

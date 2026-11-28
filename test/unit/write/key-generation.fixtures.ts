@@ -3,7 +3,7 @@
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Predicate, Record } from "effect"
 import { Crypto } from "#compiler/public/compute.ts"
-import { generated, pg, sha256 } from "#compiler/public/fields.ts"
+import { generated, sha256, int4 } from "#compiler/public/fields.ts"
 import { mutable, relation, schema, unit } from "#compiler/public/schema.ts"
 import type { KeyValues } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -30,19 +30,15 @@ const Path = str.regex("^.*$", "su")
 export const schemaOf = (primary: Primary) => {
 	const R = relation.generated(
 		"R",
-		{ b: pg.integer, p: Path, x: pg.integer },
+		{ b: int4, p: Path, x: int4 },
 		primary === "(b, h)" ? ["b", "h"] : primary === "(h, b)" ? ["h", "b"] : ["h"],
 		(row) => ({ h: generated(sha256, Crypto.sha256(row.p)) })
 	)
-	const S = relation("S", { b: pg.integer, p: Path, x: pg.integer }, ["b"])
+	const S = relation("S", { b: int4, p: Path, x: int4 }, ["b"])
 	return {
 		R,
 		S,
-		s: schema(
-			"Keyed",
-			[R, S],
-			primary === "(b, h)" ? [unit("Bs", { b: pg.integer }), mutable(R)] : []
-		)
+		s: schema("Keyed", [R, S], primary === "(b, h)" ? [unit("Bs", { b: int4 }), mutable(R)] : [])
 	}
 }
 

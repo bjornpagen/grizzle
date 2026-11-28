@@ -36,7 +36,7 @@ export const sameValue = (a: HostValue | undefined, b: HostValue | undefined): b
 	a === undefined || b === undefined ? a === b : valueText(a) === valueText(b)
 
 /**
- * A value as PostgreSQL spells it, whether a host value or one grizzle decoded into a witness, whose span endpoints may
+ * A value as PostgreSQL spells it, whether a host value or one grizzle decoded into a witness, whose range endpoints may
  * be bigints. An object that is no span is no value, a defect of whoever handed it over.
  */
 const anyText = (x: unknown): string => {

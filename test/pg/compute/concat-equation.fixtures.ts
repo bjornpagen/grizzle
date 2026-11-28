@@ -13,7 +13,7 @@ import { lawsOfConstraint } from "#compiler/ir/products.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
 import { Text } from "#compiler/public/compute.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { check, derived, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -201,14 +201,14 @@ const Short = str.bytes(64, str.regex("^.*$", "su"))
 
 const Attribute = relation(
 	"Attribute",
-	{ package: Short, element: pg.integer, name: Short, lexical: Short },
+	{ package: Short, element: int4, name: Short, lexical: Short },
 	["package", "element", "name"]
 )
 const Reference = relation(
 	"Reference",
 	{
 		package: Short,
-		element: pg.integer,
+		element: int4,
 		name: Short,
 		lead: Short,
 		target: Short,
@@ -221,7 +221,7 @@ const Inline = relation(
 	"Inline",
 	{
 		package: Short,
-		element: pg.integer,
+		element: int4,
 		lexical: Short,
 		lead: Short,
 		target: Short,

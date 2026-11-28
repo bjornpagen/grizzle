@@ -2,7 +2,16 @@
 
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record as Rec } from "effect"
-import { closedId, generated, natural, pg, sha256, variant } from "#compiler/public/fields.ts"
+import {
+	closedId,
+	generated,
+	natural,
+	sha256,
+	variant,
+	bool,
+	float8,
+	int4
+} from "#compiler/public/fields.ts"
 import {
 	type AnyClosed,
 	type AnyRelation,
@@ -41,15 +50,15 @@ const Text = str.bytes(256, str.regex("^.*$", "su"))
 
 /** Each base type's fields, as the ledger's leaf states them. */
 const leaf = {
-	boolean: { value: pg.boolean },
+	boolean: { value: bool },
 	directedPair: { source: Identifier, target: Identifier },
-	duration: { value: pg["double precision"] },
+	duration: { value: float8 },
 	file: { digest: sha256, name: Text, type: Text },
-	float: { value: pg["double precision"] },
+	float: { value: float8 },
 	identifier: { value: Identifier },
-	integer: { value: pg.integer },
+	integer: { value: int4 },
 	pair: { greatest: Identifier, least: Identifier },
-	point: { x: pg.integer, y: pg.integer },
+	point: { x: int4, y: int4 },
 	string: { value: Text },
 	uri: { value: Text }
 } as const

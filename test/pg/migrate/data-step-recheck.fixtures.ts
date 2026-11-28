@@ -7,7 +7,7 @@ import { type FolderTexts } from "#adapter/migrate/input.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { lawsOfConstraint } from "#compiler/ir/products.ts"
 import { type Installation } from "#compiler/physical/install/compile.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	type AnyRelation,
@@ -50,17 +50,17 @@ type Change = "first" | "grown" | "noted" | "memo" | "widened"
  *   and none an UPDATE of Parent's cap gives.
  */
 const familyOf = (name: string) => {
-	const Parent = relation("Parent", { g: pg.integer, p: pg.integer, cap: pg.integer }, ["g", "p"])
-	const Toy = relation("Toy", { g: pg.integer, p: pg.integer, t: pg.integer }, ["g", "p", "t"])
-	const Child = relation("Child", { c: pg.integer, g: pg.integer, p: pg.integer }, ["c"])
+	const Parent = relation("Parent", { g: int4, p: int4, cap: int4 }, ["g", "p"])
+	const Toy = relation("Toy", { g: int4, p: int4, t: int4 }, ["g", "p", "t"])
+	const Child = relation("Child", { c: int4, g: int4, p: int4 }, ["c"])
 	const Base = schema(
 		name,
 		[Parent, Toy, Child],
 		[
 			contained(on(Child, "g", "p"), on(Parent, "g", "p")),
 			contained(on(Toy, "g", "p"), on(Parent, "g", "p")),
-			unit("Family", { g: pg.integer }),
-			unit("Kin", { c: pg.integer })
+			unit("Family", { g: int4 }),
+			unit("Kin", { c: int4 })
 		]
 	)
 	const Childless = derived(
@@ -111,7 +111,7 @@ const notedOf = (
 	family: ReturnType<typeof familyOf>,
 	change: Exclude<Change, "widened">
 ): Version => {
-	const Mark = relation("Mark", { m: pg.integer, g: pg.integer, v: pg.integer }, ["m"])
+	const Mark = relation("Mark", { m: int4, g: int4, v: int4 }, ["m"])
 	const Marking = schema.extend([family.Top], `${name}_mark`, [Mark], [])
 	const Marked = derived(
 		"Marked",
@@ -122,10 +122,10 @@ const notedOf = (
 	)
 	const Note: AnyRelation =
 		change === "grown"
-			? relation("Note", { n: pg.integer, memo: pg.integer, tier: pg.integer }, ["n"])
+			? relation("Note", { n: int4, memo: int4, tier: int4 }, ["n"])
 			: change === "memo"
-				? relation("Note", { n: pg.integer, memo: pg.bigint }, ["n"])
-				: relation("Note", { n: pg.integer, memo: pg.integer }, ["n"])
+				? relation("Note", { n: int4, memo: int8 }, ["n"])
+				: relation("Note", { n: int4, memo: int4 }, ["n"])
 	const Marks = schema.extend(
 		[Marking],
 		`${name}_marks`,
@@ -137,7 +137,7 @@ const notedOf = (
 			[Marks],
 			`${name}_note`,
 			[Note],
-			[unit("Noted", { n: pg.integer }), ...(change === "noted" ? [mutable(Note)] : [])]
+			[unit("Noted", { n: int4 }), ...(change === "noted" ? [mutable(Note)] : [])]
 		),
 		logins: []
 	}
@@ -145,7 +145,7 @@ const notedOf = (
 
 /** The level of notes and marks (`notedOf`) with Mark's v widened to bigint, which the version's fill sets. */
 const markedOf = (name: string, family: ReturnType<typeof familyOf>): Version => {
-	const Mark = relation("Mark", { m: pg.integer, g: pg.integer, v: pg.bigint }, ["m"])
+	const Mark = relation("Mark", { m: int4, g: int4, v: int8 }, ["m"])
 	const Marking = schema.extend([family.Top], `${name}_mark`, [Mark], [])
 	const Marked = derived(
 		"Marked",
@@ -154,7 +154,7 @@ const markedOf = (name: string, family: ReturnType<typeof familyOf>): Version =>
 			return r.match(Mark, { m, g, v: mark }).match(family.Parent, { g, p: m }).find({ m, mark })
 		})
 	)
-	const Note = relation("Note", { n: pg.integer, memo: pg.integer }, ["n"])
+	const Note = relation("Note", { n: int4, memo: int4 }, ["n"])
 	const Marks = schema.extend(
 		[Marking],
 		`${name}_marks`,
@@ -162,7 +162,7 @@ const markedOf = (name: string, family: ReturnType<typeof familyOf>): Version =>
 		[check("Marked_low", Marked, (d) => d.ge(d.mark, 1n))]
 	)
 	return {
-		schema: schema.extend([Marks], `${name}_note`, [Note], [unit("Noted", { n: pg.integer })]),
+		schema: schema.extend([Marks], `${name}_note`, [Note], [unit("Noted", { n: int4 })]),
 		logins: []
 	}
 }

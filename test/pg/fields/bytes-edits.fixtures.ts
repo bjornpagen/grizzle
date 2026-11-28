@@ -2,7 +2,7 @@ import { defined } from "@bjornpagen/testing/assert"
 import { array, element, type Gen, int, proportional } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order } from "effect"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { bytes, pg } from "#compiler/public/fields.ts"
+import { bytea, int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { mutable, relation, schema, unit } from "#compiler/public/schema.ts"
 import { fixtureTemplate } from "#test/support/pg/reads/support.ts"
@@ -216,14 +216,14 @@ export const notes = (d: Drawn): ReadonlyArray<Feature> => {
 	return out
 }
 
-const Blob = relation("Blob", { id: pg.integer, body: bytes }, ["id"])
-const Held = relation("Held", { id: pg.integer, body: bytes }, ["id"])
-const Stage = relation("Stage", { id: pg.integer, body: bytes }, ["id"])
+const Blob = relation("Blob", { id: int4, body: bytea }, ["id"])
+const Held = relation("Held", { id: int4, body: bytea }, ["id"])
+const Stage = relation("Stage", { id: int4, body: bytea }, ["id"])
 /** Each id's rows, Blob's, Held's and Stage's, one unit: Blob and Held are put and deleted in place. */
 export const Edits = schema(
 	"BytesEdits",
 	[Blob, Held, Stage],
-	[mutable(Blob), mutable(Held), unit("Slot", { id: pg.integer })]
+	[mutable(Blob), mutable(Held), unit("Slot", { id: int4 })]
 )
 
 /** Every row of `target`, with its value. */

@@ -276,7 +276,7 @@ const sourceShape = (kind: RelKind): string => {
 		case "SemiJoin":
 		case "AntiJoin":
 		case "Produce":
-			return "a rule whose head produces spans, facts per binding rather than its projection"
+			return "a rule whose head produces ranges, facts per binding rather than its projection"
 		case "Intersect":
 		case "Difference":
 		case "Forbid":

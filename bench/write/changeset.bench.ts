@@ -33,7 +33,7 @@ import {
 import { trusted } from "#compiler/core/trusted.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Logic, Num, Type } from "#compiler/public/compute.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { mutable, relation as defineRelation, schema, unit } from "#compiler/public/schema.ts"
 import type { SqlError } from "#test/support/pg.ts"
@@ -64,21 +64,15 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  *   on distinct accounts, and concurrent overlapping appliers posting one account in each, of which exactly one posts
  *   the account's entries and every other ends no-change or in a TransientFailure.
  */
-const Account = defineRelation("Account", { id: pg.bigint, balance: pg.bigint }, ["id"])
-const Pending = defineRelation(
-	"Pending",
-	{ id: pg.bigint, account: pg.bigint, amount: pg.bigint },
-	["id"]
-)
+const Account = defineRelation("Account", { id: int8, balance: int8 }, ["id"])
+const Pending = defineRelation("Pending", { id: int8, account: int8, amount: int8 }, ["id"])
 
-const Entry = defineRelation("Entry", { id: pg.bigint, account: pg.bigint, amount: pg.bigint }, [
-	"id"
-])
+const Entry = defineRelation("Entry", { id: int8, account: int8, amount: int8 }, ["id"])
 const relations = { Account, Pending, Entry } as const
 /** The ledger: Account, which a credit puts, and Pending, which a post deletes, open in the unit of their id. */
 const build = (name: string) =>
 	schema(name, Rec.values(relations), [
-		unit("Id", { id: pg.bigint }),
+		unit("Id", { id: int8 }),
 		mutable(Account),
 		mutable(Pending)
 	])
@@ -99,11 +93,11 @@ const credit = (s: LedgerSchema) =>
 					id: r.param("id", Account.fields.id),
 					balance: Logic.when(
 						Num.within(
-							Num.add(balance, r.param("amount", pg.bigint)),
+							Num.add(balance, r.param("amount", int8)),
 							-9223372036854775808n,
 							9223372036854775807n
 						),
-						(credited) => Type.cast(credited, pg.bigint),
+						(credited) => Type.cast(credited, int8),
 						balance
 					)
 				})

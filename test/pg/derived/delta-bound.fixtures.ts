@@ -12,7 +12,7 @@ import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Order, String as Str } from "effect"
 import { compileInstallation } from "#compiler/program/install.ts"
 import { Type } from "#compiler/public/compute.ts"
-import { contract, pg } from "#compiler/public/fields.ts"
+import { contract, bool, int4, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, derived, on, relation, schema, sealed, unit } from "#compiler/public/schema.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
@@ -33,76 +33,74 @@ import type { RawSession } from "#test/support/substrate/session.ts"
 
 const childKey = Symbol("Child")
 /** A learner, by a number of its own type, so no package's number leads a learner's key. */
-const Child = contract<typeof childKey>()("Child", pg.integer)
+const Child = contract<typeof childKey>()("Child", int4)
 const packageNoKey = Symbol("PackageNo")
 /** A package, by a number of its own type. */
-const PackageNo = contract<typeof packageNoKey>()("PackageNo", pg.integer)
+const PackageNo = contract<typeof packageNoKey>()("PackageNo", int4)
 
 /** A package's test. */
-const Test = relation("Test", { package: PackageNo, test: pg.integer }, ["package", "test"])
+const Test = relation("Test", { package: PackageNo, test: int4 }, ["package", "test"])
 /** A package's item, adaptive or not. */
-const Item = relation("Item", { package: PackageNo, item: pg.integer, adaptive: pg.boolean }, [
+const Item = relation("Item", { package: PackageNo, item: int4, adaptive: bool }, [
 	"package",
 	"item"
 ])
 /** An item's attempts in a test, as its test's scopes state them: ledger's MemberControl, stored at publication. */
 const MemberControl = relation(
 	"MemberControl",
-	{ package: PackageNo, test: pg.integer, item: pg.integer, tries: pg.bigint },
+	{ package: PackageNo, test: int4, item: int4, tries: int8 },
 	["package", "test", "item"]
 )
 /** An item's outcome variable an external scorer sets: ledger's externallyScored. */
 const ExternalOutcome = relation(
 	"ExternalOutcome",
-	{ package: PackageNo, item: pg.integer, variable: pg.integer },
+	{ package: PackageNo, item: int4, variable: int4 },
 	["package", "item", "variable"]
 )
 /** A learner's sitting of a test, by its stage. */
 const TestSession = relation(
 	"TestSession",
-	{ child: Child, stage: pg.integer, package: PackageNo, test: pg.integer },
+	{ child: Child, stage: int4, package: PackageNo, test: int4 },
 	["child", "stage"]
 )
 /** A learner's item session, numbered under its item, in the sitting of its stage. */
 const ItemSession = relation(
 	"ItemSession",
-	{ child: Child, package: PackageNo, item: pg.integer, n: pg.integer, stage: pg.integer },
+	{ child: Child, package: PackageNo, item: int4, n: int4, stage: int4 },
 	["child", "package", "item", "n"]
 )
 /** A response snapshot of an item session, at its instant. */
 const ResponseSnapshot = relation(
 	"ResponseSnapshot",
-	{ child: Child, package: PackageNo, item: pg.integer, n: pg.integer, at: pg.integer },
+	{ child: Child, package: PackageNo, item: int4, n: int4, at: int4 },
 	["child", "package", "item", "n", "at"]
 )
 /** A sitting's candidate session k, begun at its instant. */
-const TestVisit = relation(
-	"TestVisit",
-	{ child: Child, stage: pg.integer, k: pg.integer, at: pg.integer },
-	["child", "stage", "k"]
-)
+const TestVisit = relation("TestVisit", { child: Child, stage: int4, k: int4, at: int4 }, [
+	"child",
+	"stage",
+	"k"
+])
 /** The suspension that ended a sitting's candidate session k, at its instant. */
 const TestSuspension = relation(
 	"TestSuspension",
-	{ child: Child, stage: pg.integer, k: pg.integer, at: pg.integer },
+	{ child: Child, stage: int4, k: int4, at: int4 },
 	["child", "stage", "k"]
 )
 /** A sitting's end, in its candidate session k, at its instant. */
-const TestEnd = relation(
-	"TestEnd",
-	{ child: Child, stage: pg.integer, k: pg.integer, at: pg.integer },
-	["child", "stage"]
-)
+const TestEnd = relation("TestEnd", { child: Child, stage: int4, k: int4, at: int4 }, [
+	"child",
+	"stage"
+])
 /** A stage's control, which the application's decision states: ledger's StageControl. */
-const StageControl = relation(
-	"StageControl",
-	{ child: Child, stage: pg.integer, tries: pg.bigint },
-	["child", "stage"]
-)
+const StageControl = relation("StageControl", { child: Child, stage: int4, tries: int8 }, [
+	"child",
+	"stage"
+])
 /** An attempt of an item session, at its instant. */
 const Attempt = relation(
 	"Attempt",
-	{ child: Child, package: PackageNo, item: pg.integer, n: pg.integer, at: pg.integer },
+	{ child: Child, package: PackageNo, item: int4, n: int4, at: int4 },
 	["child", "package", "item", "n", "at"]
 )
 /** An attempt's processing, run, and whether it left the item session completed: ledger's ProcessedAttempt. */
@@ -111,10 +109,10 @@ const Processed = relation(
 	{
 		child: Child,
 		package: PackageNo,
-		item: pg.integer,
-		n: pg.integer,
-		at: pg.integer,
-		completed: pg.boolean
+		item: int4,
+		n: int4,
+		at: int4,
+		completed: bool
 	},
 	["child", "package", "item", "n", "at"]
 )
@@ -124,10 +122,10 @@ const OutcomeAssertion = relation(
 	{
 		child: Child,
 		package: PackageNo,
-		item: pg.integer,
-		n: pg.integer,
-		at: pg.integer,
-		variable: pg.integer
+		item: int4,
+		n: int4,
+		at: int4,
+		variable: int4
 	},
 	["child", "package", "item", "n", "at", "variable"]
 )
@@ -135,22 +133,22 @@ const OutcomeAssertion = relation(
 const Enrolled = relation("Enrolled", { child: Child }, ["child"])
 /** An item's response variable whose true value counts no attempt, an end-attempt interaction's: ledger's
  * uncountingResponses, content. */
-const Uncounting = relation(
-	"Uncounting",
-	{ package: PackageNo, item: pg.integer, variable: pg.integer },
-	["package", "item", "variable"]
-)
+const Uncounting = relation("Uncounting", { package: PackageNo, item: int4, variable: int4 }, [
+	"package",
+	"item",
+	"variable"
+])
 /** A response snapshot's boolean value of a variable: ledger's SnapshotSingleBoolean. */
 const SnapshotBoolean = relation(
 	"SnapshotBoolean",
 	{
 		child: Child,
 		package: PackageNo,
-		item: pg.integer,
-		n: pg.integer,
-		at: pg.integer,
-		variable: pg.integer,
-		value: pg.boolean
+		item: int4,
+		n: int4,
+		at: int4,
+		variable: int4,
+		value: bool
 	},
 	["child", "package", "item", "n", "at", "variable"]
 )

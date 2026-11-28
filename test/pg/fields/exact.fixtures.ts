@@ -6,7 +6,7 @@ import { Array as Arr } from "effect"
 import { int8Max } from "#compiler/ir/carriers.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Num } from "#compiler/public/compute.ts"
-import { exactInteger, exactMoney, generated, Money, pg } from "#compiler/public/fields.ts"
+import { exactInteger, exactMoney, generated, Money, int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { check, mutable, relation, schema, unit } from "#compiler/public/schema.ts"
 import { fixtureTemplate } from "#test/support/pg/reads/support.ts"
@@ -17,15 +17,13 @@ import { fixtureTemplate } from "#test/support/pg/reads/support.ts"
  */
 export const Ledger = relation.generated(
 	"Ledger",
-	{ id: pg.integer, count: exactInteger, total: exactMoney },
+	{ id: int4, count: exactInteger, total: exactMoney },
 	["id"],
 	(row) => ({ twice: generated(exactInteger, Num.add(row.count, row.count)) })
 )
 
 /** Each ledger row doubled, written from a query of Ledger: count + count and total + total, exact sums. */
-const Doubled = relation("Doubled", { id: pg.integer, count: exactInteger, total: exactMoney }, [
-	"id"
-])
+const Doubled = relation("Doubled", { id: int4, count: exactInteger, total: exactMoney }, ["id"])
 
 /**
  * No doubled row's count is one: count + count, an exact integer the row check computes, is never 2, which every row the
@@ -37,7 +35,7 @@ const notOne = check("NotOne", Doubled, (d) => d.ne(Num.add(d.count, d.count), 2
 export const Exact = schema(
 	"Exact",
 	[Ledger, Doubled],
-	[notOne, mutable(Ledger), unit("Entry", { id: pg.integer })]
+	[notOne, mutable(Ledger), unit("Entry", { id: int4 })]
 )
 
 /** Every ledger row, its generated twice among its fields. */

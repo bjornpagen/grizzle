@@ -7,7 +7,16 @@ import type { ArgumentZeros } from "#compiler/lower/conservative/group/index.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Logic } from "#compiler/public/compute.ts"
-import { contract, pg } from "#compiler/public/fields.ts"
+import {
+	contract,
+	float4,
+	float8,
+	int2,
+	int4,
+	int8,
+	money,
+	numeric
+} from "#compiler/public/fields.ts"
 import { mutable, relation, schema, unit } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
@@ -91,23 +100,23 @@ export const noWork: Readonly<Record<Work, number>> = {
  * every other type an aggregate, a merge or a write branches on, each with the aggregates it is defined on.
  */
 const fieldTypes = [
-	{ name: "real", field: pg.real, float: true, aggregates: ["min", "max", "sum", "mean"] },
+	{ name: "real", field: float4, float: true, aggregates: ["min", "max", "sum", "mean"] },
 	{
 		name: "double precision",
-		field: pg["double precision"],
+		field: float8,
 		float: true,
 		aggregates: ["min", "max", "sum", "mean"]
 	},
-	{ name: "smallint", field: pg.smallint, float: false, aggregates: ["min", "max", "sum", "mean"] },
-	{ name: "integer", field: pg.integer, float: false, aggregates: ["min", "max", "sum", "mean"] },
-	{ name: "bigint", field: pg.bigint, float: false, aggregates: ["min", "max", "sum", "mean"] },
+	{ name: "smallint", field: int2, float: false, aggregates: ["min", "max", "sum", "mean"] },
+	{ name: "integer", field: int4, float: false, aggregates: ["min", "max", "sum", "mean"] },
+	{ name: "bigint", field: int8, float: false, aggregates: ["min", "max", "sum", "mean"] },
 	{
 		name: "numeric(10, 2)",
-		field: pg.numeric(10, 2),
+		field: numeric(10, 2),
 		float: false,
 		aggregates: ["min", "max", "sum", "mean"]
 	},
-	{ name: "money", field: pg.money, float: false, aggregates: ["min", "max", "sum"] },
+	{ name: "money", field: money, float: false, aggregates: ["min", "max", "sum"] },
 	{
 		name: "text",
 		field: str.bytes(64, str.regex("^.*$", "su")),
@@ -171,9 +180,9 @@ export const workCaseGen: Gen<WorkCase> = (source) => {
 
 /** The statements a case compiles to: a read's under both lowerings, a write's optimized artifact. */
 export const statementsOf = (c: WorkCase): ReadonlyArray<SqlStatement> => {
-	const R = relation("R", { k: pg.bigint, g: pg.bigint, x: c.type.field }, ["k"])
-	const S = relation("S", { k: pg.bigint, x: c.type.field }, ["k"])
-	const Values = schema("Values", [R, S], [unit("Ks", { k: pg.bigint }), mutable(R)])
+	const R = relation("R", { k: int8, g: int8, x: c.type.field }, ["k"])
+	const S = relation("S", { k: int8, x: c.type.field }, ["k"])
+	const Values = schema("Values", [R, S], [unit("Ks", { k: int8 }), mutable(R)])
 	const at = `the ${c.shape} over ${c.type.name}`
 	const read = (
 		rules: Arr.NonEmptyReadonlyArray<(r: RuleValue) => unknown>
@@ -289,35 +298,29 @@ export const argumentCaseGen: Gen<ArgumentCase> = (source) => ({
 })
 
 const aboveZeroKey = Symbol("AboveZero")
-const AboveZero = contract<typeof aboveZeroKey>()("AboveZero", pg["double precision"], (v) =>
-	Logic.gt(v, 0)
-)
+const AboveZero = contract<typeof aboveZeroKey>()("AboveZero", float8, (v) => Logic.gt(v, 0))
 const neverZeroKey = Symbol("NeverZero")
-const NeverZero = contract<typeof neverZeroKey>()("NeverZero", pg["double precision"], (v) =>
-	Logic.ne(v, 0)
-)
+const NeverZero = contract<typeof neverZeroKey>()("NeverZero", float8, (v) => Logic.ne(v, 0))
 const atOrAboveZeroKey = Symbol("AtOrAboveZero")
-const AtOrAboveZero = contract<typeof atOrAboveZeroKey>()(
-	"AtOrAboveZero",
-	pg["double precision"],
-	(v) => Logic.ge(v, 0)
+const AtOrAboveZero = contract<typeof atOrAboveZeroKey>()("AtOrAboveZero", float8, (v) =>
+	Logic.ge(v, 0)
 )
 
 const F = relation(
 	"F",
 	{
-		k: pg.bigint,
-		g: pg.bigint,
-		n: pg.integer,
-		d: pg["double precision"],
-		r: pg.real,
+		k: int8,
+		g: int8,
+		n: int4,
+		d: float8,
+		r: float4,
 		above: AboveZero,
 		never: NeverZero,
 		atOrAbove: AtOrAboveZero
 	},
 	["k"]
 )
-const Floats = schema("Floats", [F], [unit("Ks", { k: pg.bigint }), mutable(F)])
+const Floats = schema("Floats", [F], [unit("Ks", { k: int8 }), mutable(F)])
 
 /** The statements an argument case compiles to: its grouped aggregate's read under both lowerings. */
 export const argumentStatementsOf = (c: ArgumentCase): ReadonlyArray<SqlStatement> => {
@@ -333,9 +336,9 @@ export const argumentStatementsOf = (c: ArgumentCase): ReadonlyArray<SqlStatemen
 			never: x["never"],
 			atOrAbove: x["atOrAbove"]
 		}
-		const double = pg["double precision"]
+		const double = float8
 		const integer = (): unknown => computeCore.cast(x["n"], double)
-		const positive = (): unknown => computeCore.gt(x["n"], computeCore.literal(pg.integer, 0))
+		const positive = (): unknown => computeCore.gt(x["n"], computeCore.literal(int4, 0))
 		const argument = ((): unknown => {
 			switch (c.form.name) {
 				case "a double":

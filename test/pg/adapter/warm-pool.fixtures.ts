@@ -11,7 +11,7 @@ import { Db } from "#adapter/public/db.ts"
 import type { Transport } from "#adapter/types/layer.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { mutable, relation, schema, unit } from "#compiler/public/schema.ts"
 import { writeAnswerOf } from "#test/support/calls.ts"
@@ -25,10 +25,10 @@ import { openSession } from "#test/support/substrate/session.ts"
 import type { SubstrateCase } from "#test/support/substrate/substrate.ts"
 import { testVerify } from "#test/support/worlds.ts"
 
-const Note = relation("Note", { id: pg.integer, n: pg.integer }, ["id"])
+const Note = relation("Note", { id: int4, n: int4 }, ["id"])
 
 /** One mutable relation, put and read by its key. */
-const Notes = schema("warm_pool", [Note], [mutable(Note), unit("Noted", { id: pg.integer })])
+const Notes = schema("warm_pool", [Note], [mutable(Note), unit("Noted", { id: int4 })])
 
 /**
  * The login's two programs, a write and a read, as an application's requests call them: a put of the notes it is given,
@@ -38,7 +38,7 @@ const programs = Object.freeze({
 	put: ChangeSet.empty(Notes).put(Note, []),
 	read: query(Notes).rule((r) => {
 		const { n } = v(Note, "note")
-		return r.match(Note, { id: r.param("id", pg.integer), n }).find({ n })
+		return r.match(Note, { id: r.param("id", int4), n }).find({ n })
 	})
 })
 

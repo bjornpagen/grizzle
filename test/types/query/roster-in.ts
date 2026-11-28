@@ -81,7 +81,7 @@ export const rosterInBoxItems: Arr.NonEmptyReadonlyArray<FilterCell> = [
 const rosterInHeader = (): ReadonlyArray<string> => [
 	'export const Status = closed.ordered("Status", ["ASSIGNED", "IN_PROGRESS", "PAUSED", "COMPLETED", "ABANDONED"])',
 	'export const Label = str.regex("^[a-z]{1,16}$")',
-	'export const Sitting = relation("Sitting", { number: pg.integer, status: closedId(Status), mirror: closedId(Status), label: Label }, ["number"])',
+	'export const Sitting = relation("Sitting", { number: int4, status: closedId(Status), mirror: closedId(Status), label: Label }, ["number"])',
 	'export const Sittings = schema("Sittings", [Status, Sitting], [])',
 	"export declare const either: boolean",
 	"export type Equals<A, B> = (<X>() => X extends A ? 1 : 2) extends <X>() => X extends B ? 1 : 2 ? true : false",

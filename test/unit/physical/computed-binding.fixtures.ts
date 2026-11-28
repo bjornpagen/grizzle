@@ -7,7 +7,7 @@ import { keyTermText } from "#compiler/physical/indexes/engine.ts"
 import { installOptions } from "#compiler/physical/install/compile.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
 import { Logic, Num, Text, Type } from "#compiler/public/compute.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, derived, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -52,16 +52,9 @@ const mutability = (c: Case, relations: ReadonlyArray<Openable<FieldBase>>) =>
 const schemaOf = (c: Case) => {
 	switch (c.term) {
 		case "a sum": {
-			const T = relation("T", { package: pg.integer, id: pg.integer, x: pg.integer }, [
-				"package",
-				"id"
-			])
-			const U = relation(
-				"U",
-				{ package: pg.integer, id: pg.integer, g: pg.integer, w: pg.integer },
-				["package", "id"]
-			)
-			const S = relation("S", { pack: pg.integer, w: pg.integer }, ["pack", "w"])
+			const T = relation("T", { package: int4, id: int4, x: int4 }, ["package", "id"])
+			const U = relation("U", { package: int4, id: int4, g: int4, w: int4 }, ["package", "id"])
+			const S = relation("S", { pack: int4, w: int4 }, ["pack", "w"])
 			const Base = schema("computed_binding", [T, U, S], mutability(c, [T, U, S]))
 			const D = derived(
 				"D",
@@ -82,16 +75,9 @@ const schemaOf = (c: Case) => {
 			)
 		}
 		case "a conditional": {
-			const T = relation("T", { package: pg.integer, id: pg.integer, x: pg.integer }, [
-				"package",
-				"id"
-			])
-			const U = relation(
-				"U",
-				{ package: pg.integer, id: pg.integer, g: pg.integer, w: pg.integer },
-				["package", "id"]
-			)
-			const S = relation("S", { pack: pg.integer, w: pg.integer }, ["pack", "w"])
+			const T = relation("T", { package: int4, id: int4, x: int4 }, ["package", "id"])
+			const U = relation("U", { package: int4, id: int4, g: int4, w: int4 }, ["package", "id"])
+			const S = relation("S", { pack: int4, w: int4 }, ["pack", "w"])
 			const Base = schema("computed_binding", [T, U, S], mutability(c, [T, U, S]))
 			const D = derived(
 				"D",
@@ -112,15 +98,9 @@ const schemaOf = (c: Case) => {
 			)
 		}
 		case "a bounded text's guarded cast": {
-			const T = relation("T", { package: pg.integer, id: pg.integer, x: anyText }, [
-				"package",
-				"id"
-			])
-			const U = relation("U", { package: pg.integer, id: pg.integer, g: wider, w: pg.integer }, [
-				"package",
-				"id"
-			])
-			const S = relation("S", { pack: pg.integer, w: pg.integer }, ["pack", "w"])
+			const T = relation("T", { package: int4, id: int4, x: anyText }, ["package", "id"])
+			const U = relation("U", { package: int4, id: int4, g: wider, w: int4 }, ["package", "id"])
+			const S = relation("S", { pack: int4, w: int4 }, ["pack", "w"])
 			const Base = schema("computed_binding", [T, U, S], mutability(c, [T, U, S]))
 			const D = derived(
 				"D",

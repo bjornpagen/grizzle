@@ -3,12 +3,12 @@
 import { element, type Gen, int, oneOf } from "@bjornpagen/testing/gen"
 import { pipe, String as Str } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
-import { date, pg } from "#compiler/public/fields.ts"
+import { date, int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { fixtureTemplate } from "#test/support/pg/reads/support.ts"
 
-export const Event = relation("Event", { id: pg.integer, day: date }, ["id"])
+export const Event = relation("Event", { id: int4, day: date }, ["id"])
 
 export const Events = schema("Events", [Event], [])
 

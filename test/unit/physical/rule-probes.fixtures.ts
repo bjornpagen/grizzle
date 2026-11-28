@@ -14,7 +14,7 @@ import type { InferredQuery } from "#compiler/ir/desc.ts"
 import { installOptions } from "#compiler/physical/install/compile.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
 import { Num, Type } from "#compiler/public/compute.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, derived, mutable, on, relation, schema, unit } from "#compiler/public/schema.ts"
 import type { PlStatement } from "#compiler/sql/ast.ts"
@@ -46,41 +46,35 @@ export type Reached = "a probe of several rows" | "a probe whose rows outnumber 
  * (analysis/derived/storage.ts, `hidden`): the containment into it reads its definition, whose probes the test reads.
  */
 const schemaOf = (shape: Shape) => {
-	const T = relation("T", { k: pg.integer, a: pg.integer }, ["k"])
-	const U = relation("U", { k: pg.integer }, ["k"])
-	const S = relation("S", { j: pg.integer }, ["j"])
+	const T = relation("T", { k: int4, a: int4 }, ["k"])
+	const U = relation("U", { k: int4 }, ["k"])
+	const S = relation("S", { j: int4 }, ["j"])
 	/** Mutable, T and U inside the unit of their key and S inside the unit of its own, so the containment over them reads
 	 * the rows of two units, two borrows, and is no whole rule but a probed one, whose probes the test reads. */
 	const Base = schema(
 		"rule_probes",
 		[T, U, S],
-		[
-			unit("Ks", { k: pg.integer }),
-			unit("Js", { j: pg.integer }),
-			mutable(T),
-			mutable(U),
-			mutable(S)
-		]
+		[unit("Ks", { k: int4 }), unit("Js", { j: int4 }), mutable(T), mutable(U), mutable(S)]
 	)
 	const first = query(Base).rule((r) => {
 		const { k } = v(T, "t")
 		const held = r.match(T, shape.literal ? { k, a: 1 } : { k })
 		return (shape.joined ? held.match(U, { k }) : held).find({
-			k: Type.cast(Num.add(k, 0), pg.integer)
+			k: Type.cast(Num.add(k, 0), int4)
 		})
 	})
 	const second = first.rule((r) => {
 		const { k } = v(T, "t")
 		const held = r.match(T, shape.literal ? { k, a: 2 } : { k })
 		return (shape.joined ? held.match(U, { k }) : held).find({
-			k: Type.cast(Num.add(k, 0), pg.integer)
+			k: Type.cast(Num.add(k, 0), int4)
 		})
 	})
 	const third = second.rule((r) => {
 		const { k } = v(T, "t")
 		const held = r.match(T, shape.literal ? { k, a: 3 } : { k })
 		return (shape.joined ? held.match(U, { k }) : held).find({
-			k: Type.cast(Num.add(k, 0), pg.integer)
+			k: Type.cast(Num.add(k, 0), int4)
 		})
 	})
 	const D = derived("D", shape.arms === 1 ? first : shape.arms === 2 ? second : third)

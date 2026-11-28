@@ -7,7 +7,7 @@ import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import { planNodes } from "#bench/harness/explain.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { check, derived, relation, schema } from "#compiler/public/schema.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
@@ -25,20 +25,17 @@ import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
 
 /** A seat of a unit, at its place `k`, sitting a test: the relation a write inserts into, whose probe the case reads. */
-const Seat = relation("Seat", { unit: pg.integer, k: pg.integer, test: pg.integer }, ["unit", "k"])
+const Seat = relation("Seat", { unit: int4, k: int4, test: int4 }, ["unit", "k"])
 
 /** The document each test delivers, as metis's TestContent binds a test to its QTI package and path. */
-const Content = relation("Content", { test: pg.integer, doc: pg.integer }, ["test"])
+const Content = relation("Content", { test: int4, doc: int4 }, ["test"])
 
 /** A document's timed scopes, and its paced ones: the content a union of two rules reads, as QTI's timing scopes. */
-const Timed = relation("Timed", { doc: pg.integer, scope: pg.integer }, ["doc", "scope"])
-const Paced = relation("Paced", { doc: pg.integer, scope: pg.integer }, ["doc", "scope"])
+const Timed = relation("Timed", { doc: int4, scope: int4 }, ["doc", "scope"])
+const Paced = relation("Paced", { doc: int4, scope: int4 }, ["doc", "scope"])
 
 /** A seat's budget left, at its unit and place. */
-const Budget = relation("Budget", { unit: pg.integer, k: pg.integer, remaining: pg.integer }, [
-	"unit",
-	"k"
-])
+const Budget = relation("Budget", { unit: int4, k: int4, remaining: int4 }, ["unit", "k"])
 
 const Base = schema("ProbeShare", [Seat, Content, Timed, Paced, Budget], [])
 

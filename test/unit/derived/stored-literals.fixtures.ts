@@ -6,7 +6,7 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { installOptions } from "#compiler/physical/install/compile.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
-import { natural, pg } from "#compiler/public/fields.ts"
+import { natural, int8 } from "#compiler/public/fields.ts"
 import { relation, schema, unit } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
@@ -56,7 +56,7 @@ const fieldOf = (column: Column) => {
 		case "pattern":
 			return str.regex("^[a-z]{1,8}$")
 		case "bigint":
-			return pg.bigint
+			return int8
 	}
 }
 
@@ -73,18 +73,18 @@ export const installationOf = (
 	stored: boolean
 ): Result.Result<Installation, CompileError> => {
 	const field = fieldOf(shape.column)
-	const Change = relation("Change", { child: pg.bigint, number: pg.bigint, change: field }, [
+	const Change = relation("Change", { child: int8, number: int8, change: field }, [
 		"child",
 		"number",
 		"change"
 	])
-	const Lifted = relation("Lifted", { child: pg.bigint, number: pg.bigint, change: field }, [
+	const Lifted = relation("Lifted", { child: int8, number: int8, change: field }, [
 		"child",
 		"number",
 		"change"
 	])
-	const Held = relation("Held", { child: pg.bigint, number: pg.bigint }, ["child", "number"])
-	const Kid = unit("Kid", { child: pg.bigint })
+	const Held = relation("Held", { child: int8, number: int8 }, ["child", "number"])
+	const Kid = unit("Kid", { child: int8 })
 	const base = schema("Base", [Change, Lifted, Held], stored ? [Kid] : [])
 	const literal = shape.column.literal
 	const termArm = (r: RuleValue) => {

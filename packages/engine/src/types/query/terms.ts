@@ -3,7 +3,7 @@ import type { Column, Decoded, FieldHost } from "#compiler/core/decoder.ts"
 import type { built, Domained, Languaged, Phantom } from "#compiler/core/phantom.ts"
 import type { AggregateName } from "#compiler/scalar/aggregate.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
-import type { Decimal } from "#compiler/scalar/values/decimal.ts"
+import type { Numeric } from "#compiler/scalar/values/decimal.ts"
 import type { Money } from "#compiler/scalar/values/money.ts"
 import type {
 	Carriers,
@@ -392,7 +392,7 @@ type WellTyped<B, C> = {
  * The arms that admit every constant the bindings give one of their fields: an arm admits a constant when the
  * constant's values may be among those its field delivers (Overlaps), its own constant's value or its column's type's
  * values. A constant whose value the types carry, a JavaScript primitive or a handle, is told apart from every other
- * value; one whose value they do not, a Decimal, a Money, a typed Type.literal, a value of a non-literal type, may
+ * value; one whose value they do not, a Numeric, a Money, a typed Type.literal, a value of a non-literal type, may
  * be any value of its type, so it selects every arm whose field it fits.
  */
 type LiteralArms<H, B> = H extends unknown
@@ -558,7 +558,7 @@ type HeadOriginKeys<X> =
 type OriginKeys<O> = O extends Origin<infer R, infer F, infer N> ? ScopedKey<R, F, N> : never
 
 /** A JavaScript value a head may hold, typed by what it meets or by its own default. */
-export type HeadValue = Literal | Decimal | Money
+export type HeadValue = Literal | Numeric | Money
 
 /**
  * A JavaScript value as a head holds it (HeadTerms): a term whose column delivers the value, of its JavaScript
@@ -584,16 +584,16 @@ type JavaScriptType<L> = L extends string
 			: L extends boolean
 				? boolean
 				: L
-/** A JavaScript value's default SQL type: a string's text, a number's integer, a Decimal's numeric, a Money's money. */
+/** A JavaScript value's default SQL type: a string's text, a number's integer, a Numeric's numeric, a Money's money. */
 type JavaScriptSql<L> = L extends string
 	? "text"
 	: L extends number
-		? "integer"
+		? "int4"
 		: L extends bigint
-			? "bigint"
+			? "int8"
 			: L extends boolean
-				? "boolean"
-				: L extends Decimal
+				? "bool"
+				: L extends Numeric
 					? "numeric"
 					: "money"
 /**

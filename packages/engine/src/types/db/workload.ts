@@ -146,7 +146,7 @@ type ClockBindingOf<X, B> = [keyof B] extends [never]
 	? Refusal<"clocked binds at least one parameter of the program to the database's clock">
 	: [Exclude<keyof B, ClockableOf<X>>] extends [never]
 		? unknown
-		: Refusal<"clocked binds only parameters of the program whose values are bigints: bigint, natural, or one consumer's contract over either, under its key">
+		: Refusal<"clocked binds only parameters of the program whose values are bigints: int8, natural, or one consumer's contract over either, under its key">
 
 /**
  * clocked(program, binding, keys): the workload member that binds `program`'s parameters to the database's clock

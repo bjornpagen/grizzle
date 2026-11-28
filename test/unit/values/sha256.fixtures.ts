@@ -13,7 +13,7 @@ import {
 import { regex } from "arkregex"
 import { String as Str } from "effect"
 import { sha256Octets } from "#compiler/core/digest.ts"
-import { pg, Sha256, sha256 } from "#compiler/public/fields.ts"
+import { Sha256, sha256, int4 } from "#compiler/public/fields.ts"
 import { check, relation, schema } from "#compiler/public/schema.ts"
 import { hexDigitsPerByte, hexOf } from "#test/support/unit/values/support.ts"
 
@@ -133,6 +133,6 @@ export const digestPairs: Gen<DigestPair> = (s) => {
 }
 
 /** A pair of digests in one row, and the check that they are one. */
-export const Pair = relation("Pair", { id: pg.integer, first: sha256, second: sha256 }, ["id"])
+export const Pair = relation("Pair", { id: int4, first: sha256, second: sha256 }, ["id"])
 
 export const Pairs = schema("Pairs", [Pair], [check("Same", Pair, (r) => r.eq(r.first, r.second))])

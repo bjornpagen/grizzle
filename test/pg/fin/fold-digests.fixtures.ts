@@ -18,8 +18,8 @@ import {
 	drawn as drawnField,
 	generated,
 	natural,
-	pg,
-	sha256
+	sha256,
+	bool
 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
@@ -84,7 +84,7 @@ const Node = relation.generated(
 		start: drawnField(natural),
 		end: drawnField(natural),
 		piece: Text,
-		stepped: pg.boolean,
+		stepped: bool,
 		before: accumulated(Text, ""),
 		after: accumulated(Text, ""),
 		text: accumulated(Text, "")

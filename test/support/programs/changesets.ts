@@ -22,8 +22,23 @@ export {
 	Type,
 	Xml
 } from "#compiler/public/compute.ts"
-export { Bits, Money, pg } from "#compiler/public/fields.ts"
-export type { CalendarDate, Decimal, DomainOf, Uuid } from "#compiler/public/fields.ts"
+export {
+	Bit,
+	bool,
+	cidr,
+	float4,
+	float8,
+	inet,
+	int2,
+	int4,
+	int8,
+	Money,
+	money,
+	numeric,
+	tsvector,
+	vector
+} from "#compiler/public/fields.ts"
+export type { CalendarDate, Numeric, DomainOf, Uuid } from "#compiler/public/fields.ts"
 export { query, v } from "#compiler/public/query.ts"
 export type { ParamsOf, ParamType } from "#compiler/public/query.ts"
 export type { ArraysOf, ReadsOf, WritesOf } from "#compiler/types/changeset/changeset.ts"

@@ -14,7 +14,7 @@ export {
 	Type,
 	Xml
 } from "#compiler/public/compute.ts"
-export { pg, uuid, Vector } from "#compiler/public/fields.ts"
+export { int4, uuid, Vector, vector } from "#compiler/public/fields.ts"
 export { query, v } from "#compiler/public/query.ts"
 export { relation, schema } from "#compiler/public/schema.ts"
 export { Id } from "#test/support/ids.ts"

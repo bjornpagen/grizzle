@@ -9,7 +9,7 @@ import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
 import { compareOps } from "#compiler/ir/desc.ts"
 import { keyTermText } from "#compiler/physical/indexes/engine.ts"
 import { type Installation } from "#compiler/physical/install/compile.ts"
-import { natural, pg } from "#compiler/public/fields.ts"
+import { natural, numeric } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, relation, schema, sealed, unit } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
@@ -62,7 +62,7 @@ const BusyBudget = derived(
 export const Redefined = schema.extend([Books], "Reports", [BusyBudget], [])
 
 /** The stored table's columns: its key, its count, a natural, and its computed numeric, each with a parameter type it compares to. */
-const viewColumns = { account: Id, tasks: natural, budget: pg.numeric(38, 0) } as const
+const viewColumns = { account: Id, tasks: natural, budget: numeric(38, 0) } as const
 
 type ViewColumn = keyof typeof viewColumns
 

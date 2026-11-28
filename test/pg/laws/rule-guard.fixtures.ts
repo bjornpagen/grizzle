@@ -14,7 +14,7 @@ import {
 import { baselineRuleChecks } from "#compiler/deploy/snapshot/violation.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { check, contained, derived, on, relation, schema } from "#compiler/public/schema.ts"
 import { printExpr, printStatement } from "#compiler/sql/print.ts"
@@ -40,30 +40,25 @@ import { ownerSession, type SubstrateShape } from "#test/support/substrate/subst
  * the judge probes a write of Node from the content side, every row of it reading Value at the node's package: the
  * probe's guard (analysis/theory/query.ts probeGuard).
  */
-const Node = relation(
-	"Node",
-	{ pkg: pg.integer, start: pg.integer, parent: pg.integer, kind: pg.integer },
-	["pkg", "start"]
-)
-const Bound = relation("Bound", { pkg: pg.integer, kind: pg.integer, bound: pg.integer }, [
+const Node = relation("Node", { pkg: int4, start: int4, parent: int4, kind: int4 }, [
 	"pkg",
-	"kind"
+	"start"
 ])
-const Value = relation(
-	"Value",
-	{ child: pg.integer, pkg: pg.integer, start: pg.integer, score: pg.integer },
-	["child", "pkg", "start"]
-)
-const Wire = relation(
-	"Wire",
-	{ pkg: pg.integer, start: pg.integer, parent: pg.integer, kind: pg.integer },
-	["pkg", "start"]
-)
-const Mark = relation(
-	"Mark",
-	{ child: pg.integer, pkg: pg.integer, start: pg.integer, score: pg.integer },
-	["child", "pkg", "start"]
-)
+const Bound = relation("Bound", { pkg: int4, kind: int4, bound: int4 }, ["pkg", "kind"])
+const Value = relation("Value", { child: int4, pkg: int4, start: int4, score: int4 }, [
+	"child",
+	"pkg",
+	"start"
+])
+const Wire = relation("Wire", { pkg: int4, start: int4, parent: int4, kind: int4 }, [
+	"pkg",
+	"start"
+])
+const Mark = relation("Mark", { child: int4, pkg: int4, start: int4, score: int4 }, [
+	"child",
+	"pkg",
+	"start"
+])
 /**
  * qti's Servable in small: Item, a package's item documents; Doc, a document's parts keyed by the package first, a part
  * of kind 1 naming a template by `ref`, one of kind 2 publishing a template under its `ref` from ANY package; Sess, a
@@ -74,17 +69,13 @@ const Mark = relation(
  * a row of the probe and the guard reads Sess at the written part's package and document; removing one can make an item
  * of another package unready, so on the removed side no guard stands.
  */
-const Item = relation("Item", { pkg: pg.integer, item: pg.integer }, ["pkg", "item"])
-const Doc = relation(
-	"Doc",
-	{ pkg: pg.integer, item: pg.integer, kind: pg.integer, ref: pg.integer },
-	["pkg", "item", "kind"]
-)
-const Sess = relation("Sess", { child: pg.integer, pkg: pg.integer, item: pg.integer }, [
-	"child",
+const Item = relation("Item", { pkg: int4, item: int4 }, ["pkg", "item"])
+const Doc = relation("Doc", { pkg: int4, item: int4, kind: int4, ref: int4 }, [
 	"pkg",
-	"item"
+	"item",
+	"kind"
 ])
+const Sess = relation("Sess", { child: int4, pkg: int4, item: int4 }, ["child", "pkg", "item"])
 const Base = schema("rule_guard", [Node, Bound, Value, Wire, Mark, Item, Doc, Sess], [])
 
 /** Each node of kind 10 with the bound of its child's kind. */

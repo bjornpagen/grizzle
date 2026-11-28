@@ -31,7 +31,7 @@ import { textOf } from "#compiler/ir/scalar.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { computeSpecs } from "#compiler/scalar/compute/registry.ts"
 import type { TapeEntry, TermTyping, TypedNode } from "#compiler/scalar/compute/typing.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { spelled } from "#test/support/fixtures/ir/scalar.ts"
 import {
@@ -61,7 +61,7 @@ const fields: Readonly<Record<string, TestField>> = {
 	cents: testContract("Cents", testPg.bigint, (x) => computeCore.ge(x, 0n)),
 	mood: field({ kind: "closedId", roster: "Mood", only: undefined }, "code"),
 	zone: testPg.zone,
-	moods: field({ kind: "bits", roster: "Mood" }, "bits"),
+	moods: field({ kind: "bits", roster: "Mood" }, "bit"),
 	span: testSpan(testPg.integer),
 	bin: field({ kind: "bytes" }, "bytea"),
 	addr: testPg.inet,
@@ -215,8 +215,8 @@ const signatures: { readonly [F in ComputeFn]: Signature } = {
 	replace: { result: "text", args: ["text", "text", "text"] },
 	isXsdPattern: { result: "bool", args: ["text"] },
 	collapse: { result: "text", args: ["text"] },
-	parseDouble: { result: "float", args: ["text"] },
-	parseDecimal: { result: "numeric", args: ["text"] },
+	parseFloat8: { result: "float", args: ["text"] },
+	parseNumeric: { result: "numeric", args: ["text"] },
 	sha256: { result: "other", args: ["bytes"] },
 	floatBits: { result: "integer", args: ["float"] },
 	cosineDistance: { result: "float", args: ["other", "other"] },
@@ -393,14 +393,14 @@ const pickOf = <A>(items: Arr.NonEmptyReadonlyArray<A>, pick: number): A =>
 		"an item of a nonempty list"
 	)
 
-/** A bare literal of `family`: an integer or a bigint, a Decimal, a Money, a boolean, a string; else an integer. */
+/** A bare literal of `family`: an integer or a bigint, a Numeric, a Money, a boolean, a string; else an integer. */
 const bareValue = (family: Family, value: number): LiteralDesc => {
 	switch (family) {
 		case "integer":
 			return value % 2 === 0 ? value : BigInt(value)
 		case "numeric":
 		case "float":
-			return Decimal.of(`${value}.5`)
+			return Numeric.of(`${value}.5`)
 		case "money":
 			return Money.of(BigInt(value * 100 + 25))
 		case "bool":

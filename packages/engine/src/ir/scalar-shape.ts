@@ -405,7 +405,7 @@ const narrowContract = (t: WireScalarType, contract: WireContract): ScalarType |
 		return "a set over a roster is never a contract's base"
 	}
 	if (base.carrier === "bytes") {
-		return "bytes are never a contract's base"
+		return "bytea is never a contract's base"
 	}
 	if (base.carrier === "sha256") {
 		return "a digest is never a contract's base"
@@ -433,15 +433,15 @@ const narrowSpan = (carrier: SpanCarrier, span: WireSpan): SpanInfo | string => 
 	const { endpoint, width } = span
 	const want = carrier === "range4" ? "int4" : carrier === "range8" ? "int8" : "date"
 	if (endpoint.carrier !== want) {
-		return `a ${carrier} span has a ${want} endpoint`
+		return `a ${carrier} range has a ${want} endpoint`
 	}
 	if (endpoint.carrier !== "int4" && endpoint.carrier !== "int8" && !isDateType(endpoint)) {
-		return `a ${carrier} span has a ${want} endpoint`
+		return `a ${carrier} range has a ${want} endpoint`
 	}
 	if (width === undefined) {
 		return Object.freeze({ endpoint, width })
 	}
-	return width > 0n ? Object.freeze({ endpoint, width }) : "a span width is positive"
+	return width > 0n ? Object.freeze({ endpoint, width }) : "a range width is positive"
 }
 
 const narrowNumericTypmod = (typmod: WireTypmod): NumericTypmod | string => {
@@ -503,7 +503,7 @@ const narrowPlain = (t: WireScalarType): ScalarType | string => {
 		return "only a closed id holds a subset of its roster"
 	}
 	if (!isSpanCarrier(carrier) && t.span !== undefined) {
-		return "only a range type has a span endpoint"
+		return "only a range type has a range endpoint"
 	}
 	if (carrier !== "numeric" && carrier !== "vector" && t.typmod !== undefined) {
 		return `${carrier} has no typmod`
@@ -583,7 +583,7 @@ const narrowPlain = (t: WireScalarType): ScalarType | string => {
 		case "range8":
 		case "rangeDate": {
 			if (t.span === undefined) {
-				return "a span type names its endpoint"
+				return "a range type names its endpoint"
 			}
 			const span = narrowSpan(carrier, t.span)
 			return typeof span === "string" ? span : Object.freeze({ carrier, caps, contract, span })

@@ -1,7 +1,7 @@
 /**
  * @bjornpagen/grizzle/client: a login's served programs over HTTP, for a browser or any runtime with fetch. It loads no
  * Node module, no compiler and no served layer: the login's type alone (`import type`), its OpenAPI document as data,
- * Effect, and the exact values its answers decode into (Decimal, Money, Vector, keyed values).
+ * Effect, and the exact values its answers decode into (Numeric, Money, Vector, keyed values).
  *
  * `clientOf<typeof Web>(document, "web", { url, token })` is a Result: the client, which holds each role's programs,
  * `client.<role>.<program>`, each with `watch` and `once`, or ClientDocumentRefused where the document is another
@@ -29,7 +29,7 @@ export {
 	type CallError,
 	type CallErrorKind,
 	type CredentialReason,
-	Decimal,
+	Numeric,
 	KeyedList,
 	Money,
 	type RelationCounts,

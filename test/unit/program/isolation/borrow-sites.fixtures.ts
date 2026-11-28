@@ -13,7 +13,7 @@ import { silentPhases } from "#compiler/core/phase.ts"
 import { borrowInstallationOf } from "#compiler/program/isolation/borrows.ts"
 import { readCommittedChanges, variantsEntries } from "#compiler/program/workload/change.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { natural, pg } from "#compiler/public/fields.ts"
+import { natural, int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	contained,
@@ -46,8 +46,8 @@ export const caseGen: Gen<Case> = (s) =>
 	s.draw(boolean) ? { kind: "grant" } : { kind: "sitting", session: s.draw(element(SESSIONS)) }
 
 /** A child's unit, and a package's. */
-const Learner = unit("Learner", { child: pg.integer })
-const Package = unit("Package", { package: pg.integer })
+const Learner = unit("Learner", { child: int4 })
+const Package = unit("Package", { package: int4 })
 
 /**
  * A sitting's login: TestSession (child, stage, package), the package a learner's stage delivers, keyed by child first
@@ -59,11 +59,11 @@ const Package = unit("Package", { package: pg.integer })
 const sittingValue = (session: (typeof SESSIONS)[number]) => {
 	const TestSession = relation(
 		"TestSession",
-		{ child: pg.integer, stage: pg.integer, package: pg.integer },
+		{ child: int4, stage: int4, package: int4 },
 		session === "under Learner" ? ["child", "stage"] : ["stage", "child"]
 	)
-	const Node = relation("Node", { package: pg.integer, path: pg.integer }, ["package", "path"])
-	const Attempt = relation("Attempt", { child: pg.integer, stage: pg.integer, path: pg.integer }, [
+	const Node = relation("Node", { package: int4, path: int4 }, ["package", "path"])
+	const Attempt = relation("Attempt", { child: int4, stage: int4, path: int4 }, [
 		"child",
 		"stage",
 		"path"
@@ -76,9 +76,9 @@ const sittingValue = (session: (typeof SESSIONS)[number]) => {
 	const answer = ChangeSet.empty(learner).insert(
 		l.Attempt,
 		query(learner).rule((r) => {
-			const child = r.param("child", pg.integer)
-			const stage = r.param("stage", pg.integer)
-			const path = r.param("path", pg.integer)
+			const child = r.param("child", int4)
+			const stage = r.param("stage", int4)
+			const path = r.param("path", int4)
 			const { package: pkg } = v(l.TestSession, "s")
 			return r
 				.match(l.TestSession, { child, stage, package: pkg })

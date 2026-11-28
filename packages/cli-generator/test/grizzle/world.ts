@@ -9,7 +9,7 @@
  */
 import {
 	answered,
-	bytes,
+	bytea,
 	ChangeSet,
 	check,
 	clocked,
@@ -18,7 +18,6 @@ import {
 	login,
 	mutable,
 	paged,
-	pg,
 	query,
 	relation,
 	role,
@@ -27,7 +26,13 @@ import {
 	unit,
 	uuid,
 	v,
-	workload
+	workload,
+	bool,
+	float4,
+	int4,
+	int8,
+	money,
+	numeric
 } from "@bjornpagen/grizzle"
 
 /** A name of lower-case letters, one to eight. */
@@ -42,15 +47,15 @@ const Tag = contract<typeof itemTag>()("ItemTag", uuid)
 const Item = relation(
 	"Item",
 	{
-		id: pg.integer,
-		big: pg.bigint,
-		amount: pg.numeric(12, 2),
-		cash: pg.money,
-		flag: pg.boolean,
-		ratio: pg.real,
+		id: int4,
+		big: int8,
+		amount: numeric(12, 2),
+		cash: money,
+		flag: bool,
+		ratio: float4,
 		name: Name,
 		day: date,
-		blob: bytes,
+		blob: bytea,
 		tag: Tag
 	},
 	["id"]
@@ -61,7 +66,7 @@ const Item = relation(
 export const Items = schema(
 	"Items",
 	[Item],
-	[unit("Item", { id: pg.integer }), mutable(Item), check("Counted", Item, (x) => x.ge(x.id, 1))]
+	[unit("Item", { id: int4 }), mutable(Item), check("Counted", Item, (x) => x.ge(x.id, 1))]
 )
 
 /** Every item. */
@@ -83,7 +88,7 @@ const programs = Object.freeze({
 		const item = v(Item, "item")
 		return r
 			.match(Item, item)
-			.where(r.ge(item.big, r.param("floor", pg.bigint)))
+			.where(r.ge(item.big, r.param("floor", int8)))
 			.find(item)
 	}),
 	named: query(Items).rule((r) => {
@@ -100,7 +105,7 @@ const programs = Object.freeze({
 			const item = v(Item, "item")
 			return r
 				.match(Item, item)
-				.where(r.le(item.big, r.param("now", pg.bigint)))
+				.where(r.le(item.big, r.param("now", int8)))
 				.find(item)
 		}),
 		{ now: "millis" }

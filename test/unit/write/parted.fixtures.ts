@@ -5,7 +5,7 @@ import { Array as Arr, Effect, Order, Record as Rec } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -30,7 +30,7 @@ export const H = relation("H", { id: Id }, ["id"])
 const sidecarFields = Object.freeze({
 	id: Id,
 	variable: str.regex("^[a-z]{1,8}$"),
-	value: pg.bigint
+	value: int8
 })
 export const S1 = relation("S1", sidecarFields, ["id", "variable"])
 export const S2 = relation("S2", sidecarFields, ["id", "variable"])

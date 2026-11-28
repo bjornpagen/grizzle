@@ -6,7 +6,7 @@ import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
-import { generated, pg } from "#compiler/public/fields.ts"
+import { generated, int4 } from "#compiler/public/fields.ts"
 import { contained, on, relation, schema } from "#compiler/public/schema.ts"
 import { ambientOwner, ordinarySession } from "#test/support/ambient.ts"
 import { joined } from "#test/support/chunked.ts"
@@ -42,15 +42,15 @@ export const caseGen: Gen<DeferralCase> = (s) => ({
 	after: s.draw(element(parents))
 })
 
-const ParentAlone = relation("Parent", { id: pg.integer }, ["id"])
+const ParentAlone = relation("Parent", { id: int4 }, ["id"])
 
-const ParentBeside = relation.generated("Parent", { id: pg.integer }, ["id"], (r) => ({
-	copy: generated(pg.integer, r.id)
+const ParentBeside = relation.generated("Parent", { id: int4 }, ["id"], (r) => ({
+	copy: generated(int4, r.id)
 }))
 
 /** Child, keyed apart from Parent, its parent field contained in Parent's key: a foreign key whatever the version, its
  * join across units (laws/model/plan.ts containmentDischarge). */
-const Child = relation("Child", { id: pg.integer, parent: pg.integer }, ["id"])
+const Child = relation("Child", { id: int4, parent: int4 }, ["id"])
 
 /** The version whose Parent has `shape`, under `name`. */
 const schemaOf = (name: string, shape: ParentShape) => {

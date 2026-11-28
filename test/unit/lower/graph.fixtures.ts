@@ -15,7 +15,7 @@ import { metaSpecOf, type NodeOf } from "#compiler/ir/rel.ts"
 import { conjuncts } from "#compiler/logical/props.ts"
 import type { OptimizedProgram } from "#compiler/lower/optimize/pipeline.ts"
 import { Num, Type } from "#compiler/public/compute.ts"
-import { Bits, closedId, pg } from "#compiler/public/fields.ts"
+import { Bit, closedId, int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, contained, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -89,14 +89,14 @@ const recursions = (q: LogicalQuery): ReadonlyArray<NodeOf<"Recursive">> =>
 
 /** The Walks example: hops computed, the person advanced. */
 const Walks = query(Network).recursive("Walks", {
-	row: { person: Id, hops: pg.integer },
+	row: { person: Id, hops: int4 },
 	base: [
 		(r) => {
 			const { id } = v(Person, "person")
 			return r
 				.match(Person, { id })
 				.where(r.eq(id, r.param("start", Id)))
-				.find({ person: id, hops: Type.literal(pg.integer, 0) })
+				.find({ person: id, hops: Type.literal(int4, 0) })
 		}
 	],
 	rec: [
@@ -108,7 +108,7 @@ const Walks = query(Network).recursive("Walks", {
 				.match(Follows, { from: person, to })
 				.match(Person, { id: to })
 				.where(r.lt(hops, 4))
-				.find({ person: to, hops: Num.add(hops, Type.literal(pg.integer, 1)) })
+				.find({ person: to, hops: Num.add(hops, Type.literal(int4, 1)) })
 		}
 	]
 })
@@ -202,8 +202,8 @@ export const pushQuery = (column: Column, spelling: Spelling, twice: boolean): u
 				const { hops: h2 } = v(again, "again")
 				const first =
 					spelling === "where"
-						? r.match(walks, { person, hops }).where(r.eq(hops, Type.literal(pg.integer, 2)))
-						: r.match(walks, { person, hops: Type.literal(pg.integer, 2) })
+						? r.match(walks, { person, hops }).where(r.eq(hops, Type.literal(int4, 2)))
+						: r.match(walks, { person, hops: Type.literal(int4, 2) })
 				return twice
 					? first.match(again, { person, hops: h2 }).find({ person })
 					: first.find({ person })
@@ -263,7 +263,7 @@ const Allowed = closed.relation(
 /** Two weights per kind. */
 const Weight = closed.relation(
 	"Weight",
-	{ kind: closedId(Kind), light: pg.integer, heavy: pg.integer },
+	{ kind: closedId(Kind), light: int4, heavy: int4 },
 	["kind"],
 	[
 		{ kind: "a", light: 1, heavy: 2 },
@@ -327,8 +327,8 @@ export const alikeQuery = (part: Part, conjuncts: Conjuncts): unknown =>
 					return [r.eq(Weight.at("light", origin), 1), r.eq(Weight.at("heavy", origin), 1)] as const
 				case "completions":
 					return [
-						r.eq(Bits.subset(Bits.singleton(origin), Allowed.row("north")), true),
-						r.eq(Bits.subset(Bits.singleton(origin), Allowed.row("south")), true)
+						r.eq(Bit.subset(Bit.singleton(origin), Allowed.row("north")), true),
+						r.eq(Bit.subset(Bit.singleton(origin), Allowed.row("south")), true)
 					] as const
 				case "presence":
 					return [Allowed.has("north", origin), Allowed.has("south", origin)] as const

@@ -42,7 +42,7 @@ import { compatible, sameCarrier } from "#compiler/scalar/compute/types.ts"
 import { literalDescFor } from "#compiler/scalar/literal.ts"
 import { describeField, spanType, type SqlTag } from "#compiler/scalar/registry.ts"
 import { spanColumn } from "#compiler/scalar/span.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 import { describeFault } from "#compiler/scalar/values/fault.ts"
 import type { Span } from "#compiler/scalar/values/span.ts"
 import { untypedLiteral } from "#compiler/schema/literal.ts"
@@ -145,7 +145,7 @@ interface LiteralType {
 
 /**
  * The SQL type a JavaScript value's kind gives it when it meets nothing, as the checker types it (check/checker.ts
- * bareLiteralType): a string is text, a number an integer, a bigint a bigint, a Decimal a numeric, a Money money and a
+ * bareLiteralType): a string is text, a number an integer, a bigint a bigint, a Numeric a numeric, a Money money and a
  * boolean a boolean.
  */
 const literalType = (value: HeadValue): LiteralType => {
@@ -153,15 +153,15 @@ const literalType = (value: HeadValue): LiteralType => {
 		return { sql: "text", conversion: { carrier: "text" } }
 	}
 	if (typeof value === "number") {
-		return { sql: "integer", conversion: { carrier: "int4" } }
+		return { sql: "int4", conversion: { carrier: "int4" } }
 	}
 	if (typeof value === "bigint") {
-		return { sql: "bigint", conversion: { carrier: "int8" } }
+		return { sql: "int8", conversion: { carrier: "int8" } }
 	}
 	if (typeof value === "boolean") {
-		return { sql: "boolean", conversion: { carrier: "bool" } }
+		return { sql: "bool", conversion: { carrier: "bool" } }
 	}
-	if (value instanceof Decimal) {
+	if (value instanceof Numeric) {
 		return { sql: "numeric", conversion: { carrier: "numeric" } }
 	}
 	return { sql: "money", conversion: { carrier: "money" } }
@@ -169,7 +169,7 @@ const literalType = (value: HeadValue): LiteralType => {
 
 /**
  * A JavaScript value in a head (schema/record.ts headRecord): a carried term over the value, a string, number, bigint,
- * boolean, Decimal or Money, whose column is the value itself, read by its SQL type's conversion and matched by that
+ * boolean, Numeric or Money, whose column is the value itself, read by its SQL type's conversion and matched by that
  * type's equality (schema/record.ts), and whose type the checker reads from what it meets, as it types a parameter.
  */
 export const literalTerm = <const X extends HeadValue>(
@@ -371,7 +371,7 @@ const spanTerm = (value: unknown, label: string): TermOf => {
 	if (t.typing.kind === "typed" && spanCarrierOf(t.typing.type) === undefined) {
 		throw malformed(
 			label,
-			"a span term: span(pg.integer), span(pg.bigint) or a span over a contract on them"
+			"a range term: range(int4), range(int8) or a range over a contract on them"
 		)
 	}
 	return t
@@ -381,16 +381,16 @@ const spanTerm = (value: unknown, label: string): TermOf => {
 const spanOperand = (value: unknown, anchor: Typing, label: string): OpenExpr => {
 	const other = termOf(value)
 	if (other === undefined) {
-		throw malformed(label, "a span term or a span parameter, r.param(name, span(...))")
+		throw malformed(label, "a range term or a range parameter, r.param(name, range(...))")
 	}
 	if (other.typing.kind === "typed") {
 		if (spanCarrierOf(other.typing.type) === undefined) {
-			throw malformed(label, "a span term")
+			throw malformed(label, "a range term")
 		}
 		if (anchor.kind === "typed" && !compatible(other.typing.type, anchor.type)) {
 			throw malformed(
 				label,
-				"two spans over one endpoint type: a day span and a cents span never meet"
+				"two ranges over one endpoint type: a day range and a cents range never meet"
 			)
 		}
 	}
@@ -418,15 +418,15 @@ export const pointIn = (point: unknown, span: unknown): PredicateValue => {
 	const p = firstTerm(point, "r.pointIn")
 	const s = termOf(span)
 	if (s === undefined) {
-		throw malformed("r.pointIn", "a span term or a span parameter, r.param(name, span(...))")
+		throw malformed("r.pointIn", "a range term or a range parameter, r.param(name, range(...))")
 	}
 	if (s.typing.kind === "typed") {
 		const info = spanOf(s.typing.type)
 		if (info === undefined) {
-			throw malformed("r.pointIn", "a span term")
+			throw malformed("r.pointIn", "a range term")
 		}
 		if (p.typing.kind === "typed" && !compatible(p.typing.type, info.endpoint)) {
-			throw malformed("r.pointIn", "a point of the span's endpoint type")
+			throw malformed("r.pointIn", "a point of the range's endpoint type")
 		}
 	}
 	return predicateValue({ kind: "pointIn", point: p.expr, span: s.expr })
@@ -486,7 +486,7 @@ export const pack = <T, S extends SqlTag>(
 }
 
 /**
- * r.span(start, end): the span from a start to an end, zero or one fact per binding (lower/conservative/producers/ends.ts),
+ * r.range(start, end): the span from a start to an end, zero or one fact per binding (lower/conservative/producers/ends.ts),
  * its spans over the start's type, delivered by the start's column read as a span's endpoints (scalar/span.ts
  * spanColumn). The start is a term of a span endpoint's type, integer, bigint, date or a contract over one, an instant
  * never; the end a term of its type, a typed constant among them (Type.literal), which the checker meets with it.
@@ -495,12 +495,12 @@ export const spanFromEnds = <T, S extends SqlTag>(
 	start: TermCarrier<T, S>,
 	end: unknown
 ): ProducerValue<Span<T>, "range", "span"> => {
-	const s = firstTerm(start, "r.span")
-	carried(start, "r.span")
+	const s = firstTerm(start, "r.range")
+	carried(start, "r.range")
 	const e = termExpr(end)
 	if (e === undefined) {
 		throw malformed(
-			"r.span",
+			"r.range",
 			"an end term of the start's type: a variable, a parameter, a scalar term or a typed constant, Type.literal(E, x)"
 		)
 	}
@@ -508,11 +508,11 @@ export const spanFromEnds = <T, S extends SqlTag>(
 		if (s.typing.kind !== "typed") {
 			return untyped
 		}
-		const spanned = spanType(s.typing.type, undefined, captureLoc("r.span", []))
+		const spanned = spanType(s.typing.type, undefined, captureLoc("r.range", []))
 		if (!spanned.ok || isInstantType(s.typing.type)) {
 			throw malformed(
-				"r.span",
-				`a start of a span endpoint's type, integer, bigint, date or a contract over one, not ${typeLabel(s.typing.type)}`
+				"r.range",
+				`a start of a range endpoint's type, int4, int8, date or a contract over one, not ${typeLabel(s.typing.type)}`
 			)
 		}
 		return typed(spanned.value)
@@ -570,7 +570,7 @@ const aggregateValue = <T, S extends SqlTag, N extends AggregateName>(
  * count is bigint; sum and mean take their result type's plain column off the SUM and AVG tables keyed by their
  * argument's SQL type (scalar/compute/tables.ts); min and max deliver their argument's column, contract included.
  */
-export const count = (extra: ReadonlyArray<unknown>): AggregateValue<bigint, "bigint", "count"> => {
+export const count = (extra: ReadonlyArray<unknown>): AggregateValue<bigint, "int8", "count"> => {
 	if (extra.length > 0) {
 		throw malformed(
 			"r.count",
@@ -578,8 +578,8 @@ export const count = (extra: ReadonlyArray<unknown>): AggregateValue<bigint, "bi
 		)
 	}
 	return aggregateValue("count", aggregateHead("count", undefined), {
-		column: plainColumns.bigint,
-		sql: "bigint"
+		column: plainColumns.int8,
+		sql: "int8"
 	})
 }
 

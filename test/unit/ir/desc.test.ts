@@ -11,7 +11,7 @@
  * - Corruptions: a description broken at one part or one rule is refused, and every other decodes.
  * - Nesting: an in-memory description of any depth decodes without deepening the stack, a cyclic one is refused, and a
  *   shared value is no cycle.
- * - Literals: bigint, Decimal, Money and Vector travel as tagged strings and a leading tilde is escaped; generated
+ * - Literals: bigint, Numeric, Money and Vector travel as tagged strings and a leading tilde is escaped; generated
  *   expressions round-trip JSON to one canonical text; an empty and or or is its builder's constant.
  *
  * Oracles: each rule of the boundary as a checker, the round trip through JSON, and the builders' own constants.
@@ -521,7 +521,7 @@ export const descriptionsDecodesAnInMemoryExpressionNestedToAnyDepthAndRefusesAC
 	)
 
 /**
- * Descriptions carries bigint, Decimal, Money and Vector as tagged strings and escapes a leading tilde.
+ * Descriptions carries bigint, Numeric, Money and Vector as tagged strings and escapes a leading tilde.
  *
  * Budget: 500 runs and 500 steered cases, what its suite stated before it became a property
  * (test/unit/ir/desc.test.ts:1848 at 8cad5bce, its runs and its coverage's cases).
@@ -646,7 +646,7 @@ export const descriptionsDecodesAnEmptyAndOrOrToTheConstantItsBuilderBuildsOfNoP
 				assert.deepEqual<ExprDesc>(unit, {
 					kind: "literal",
 					value: s.kind === "and",
-					type: { kind: "pg", type: "boolean" }
+					type: { kind: "pg", type: "bool" }
 				})
 				const [written, meant] = emptied(s, unit, succeeded(decodeDesc("expr", s.beside)))
 				assert.deepEqual<ExprDesc>(succeeded(decodeDesc("expr", written)), meant)

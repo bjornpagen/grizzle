@@ -22,7 +22,7 @@ import type { ConstraintOwner } from "#compiler/ir/products.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { sameLaw } from "#compiler/public/changeset.ts"
 import { Logic } from "#compiler/public/compute.ts"
-import { closedId, contract, pg, span, variant } from "#compiler/public/fields.ts"
+import { closedId, contract, range, variant, int4, int8 } from "#compiler/public/fields.ts"
 import {
 	type AnyRelation,
 	type AnySchema,
@@ -445,15 +445,15 @@ const nonnegKey = Symbol("Nonneg")
 const posKey = Symbol("Pos")
 /** The contracts of one definition, `>= 0` over a bigint: the counts and the span's endpoint. */
 const counts: Readonly<Record<Count, FieldBase>> = {
-	Pos: contract<typeof posKey>()("Pos", pg.bigint, (c) => Logic.ge(c, 0n)),
-	Nonneg: contract<typeof nonnegKey>()("Nonneg", pg.bigint, (c) => Logic.ge(c, 0n))
+	Pos: contract<typeof posKey>()("Pos", int8, (c) => Logic.ge(c, 0n)),
+	Nonneg: contract<typeof nonnegKey>()("Nonneg", int8, (c) => Logic.ge(c, 0n))
 }
 
 const minuteKey = Symbol("Minute")
-const Minute = contract<typeof minuteKey>()("Minute", pg.bigint, (m) => Logic.ge(m, 0n))
+const Minute = contract<typeof minuteKey>()("Minute", int8, (m) => Logic.ge(m, 0n))
 
 const brandKey = Symbol("Brand")
-const Brand = contract<typeof brandKey>()("Brand", pg.bigint)
+const Brand = contract<typeof brandKey>()("Brand", int8)
 
 /** The arms of every variant a table's field holds: a text of a pattern, or a count. */
 const Arm = closed.unordered("Arm", ["word", "count"])
@@ -468,7 +468,7 @@ const fieldOf = (t: TableCase, name: string, f: FieldCase): FieldBase => {
 		case "textContract":
 			return bareContract(`${t.name}_${name}`, textOf(f.pattern))
 		case "integer":
-			return pg.integer
+			return int4
 		case "count":
 			return counts[f.contract]
 		case "brand":
@@ -498,7 +498,7 @@ const keyOf = (t: TableCase): readonly [string, ...Array<string>] =>
 const tableOf = (t: TableCase): BuiltRelation => {
 	const written: Record<string, FieldBase> = {
 		id: Id,
-		...(t.keyed === "span" ? { w: span(Minute) } : {}),
+		...(t.keyed === "span" ? { w: range(Minute) } : {}),
 		...Rec.fromEntries(Arr.map(t.fields, ([name, f]) => [name, fieldOf(t, name, f)] as const))
 	}
 	return Arr.isReadonlyArrayNonEmpty(t.generated)
@@ -510,7 +510,7 @@ const tableOf = (t: TableCase): BuiltRelation => {
 					Rec.fromEntries(
 						Arr.map(t.generated, ([name, g]) => [
 							name,
-							generatedField(g.kind === "integer" ? pg.integer : textOf(g.pattern), row[g.from], [])
+							generatedField(g.kind === "integer" ? int4 : textOf(g.pattern), row[g.from], [])
 						])
 					),
 				[]
@@ -522,7 +522,7 @@ const Kind = closed.ordered("Kind", ["plain", "lima", "oscar"])
 
 const Kilo = relation("Kilo", { id: Id, kind: closedId(Kind) }, ["id"], [])
 
-const Lima = relation("Lima", { kilo: Id, note: pg.integer }, ["kilo"], [])
+const Lima = relation("Lima", { kilo: Id, note: int4 }, ["kilo"], [])
 
 const Oscar = relation("Oscar", { kilo: Id }, ["kilo"], [])
 
@@ -542,10 +542,10 @@ const kiloArms: ReadonlyArray<Statement> = [
 const Key = closed.ordered("Key", ["one"])
 
 /** A relation of a sealed unit, keyed by the unit's heading alone. */
-const Victor = relation("Victor", { victor: Id, note: pg.integer }, ["victor"], [])
+const Victor = relation("Victor", { victor: Id, note: int4 }, ["victor"], [])
 
 /** A relation of the sealed unit, keyed wider. */
-const Whiskey = relation("Whiskey", { victor: Id, at: pg.integer }, ["victor", "at"], [])
+const Whiskey = relation("Whiskey", { victor: Id, at: int4 }, ["victor", "at"], [])
 
 /** The sealed unit over Victor and Whiskey, whose seal law lawsOf lists last. */
 const victorUnit = sealedBuilder(unitBuilder("Victor", { victor: Id }, []), [])

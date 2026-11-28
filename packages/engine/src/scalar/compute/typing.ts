@@ -172,7 +172,7 @@ import {
 	withoutSpanWidth
 } from "#compiler/scalar/compute/types.ts"
 import { castSpelling } from "#compiler/scalar/contract.ts"
-import { binary64Digits, decimalTextMaxBytes } from "#compiler/scalar/lexical.ts"
+import { binary64Digits, numericTextMaxBytes } from "#compiler/scalar/lexical.ts"
 import { lexicalTargetOf } from "#compiler/scalar/lexical.ts"
 import { binary64Precision } from "#compiler/scalar/lexical.ts"
 import { plainType } from "#compiler/scalar/native.ts"
@@ -194,10 +194,10 @@ import {
 	storedOnly,
 	type TextLookup
 } from "#compiler/scalar/registry.ts"
-import { Decimal, moneyFractionDigits, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
+import { Numeric, moneyFractionDigits, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { numericMaxFractionDigits, numericMaxIntegerDigits } from "#compiler/scalar/values/fault.ts"
 import {
-	bytesMaxLength,
+	byteaMaxLength,
 	textSearchStringMaxBytes,
 	varlenaHeaderBytes
 } from "#compiler/scalar/values/fault.ts"
@@ -459,7 +459,7 @@ const partsUnder = <R extends Refs>(
 
 /**
  * Whether two operands of an equality are refinements of one base carrier that do not meet nominally (types.ts
- * sameCarrier, meets): natural and pg.bigint, two contracts over one base, a contract over a closed id and the closed id.
+ * sameCarrier, meets): natural and int8, two contracts over one base, a contract over a closed id and the closed id.
  * Such an equality is typed at the carrier, each operand restated at its base as Type.base restates it (Typing
  * atCarrier), and compared under the base's equality, as a containment pairs its sides. Where it holds its value is each
  * operand's, so it lies in both operands' contracts: within its scope either side may stand for the other at the
@@ -1141,7 +1141,7 @@ const literalNumber = (
 					return exactOfDouble(0)
 			}
 		case "numeric": {
-			const value = Decimal.fromValue(literal.value)
+			const value = Numeric.fromValue(literal.value)
 			const p = value.parts
 			return p.kind === "finite" ? exactOfDecimal(value) : p.kind
 		}
@@ -1511,15 +1511,15 @@ const numericOf = (bounds: Bounds | undefined): ScalarType =>
 			})
 
 /**
- * The bounds of Text.parseDecimal's value where its operand has at most `bytes` UTF-8 bytes: at most as many digits
+ * The bounds of Text.parseNumeric's value where its operand has at most `bytes` UTF-8 bytes: at most as many digits
  * before its point as the decimal text it parses has bytes and, the point taking one, one fewer after it, finite and
- * never NaN. The parse is defined only within decimalTextMaxBytes (its lexical precondition, which the lowering proves),
+ * never NaN. The parse is defined only within numericTextMaxBytes (its lexical precondition, which the lowering proves),
  * so the text it parses has at most that many bytes whatever the operand's own bound: a value's digits are read from
  * the lesser of the two, and a text bounded only by regexTextMaxBytes, as every regex-matched text is, makes bounds of
- * decimalTextMaxBytes digits, where its 268,435,454 bytes made two exact powers of ten of as many digits.
+ * numericTextMaxBytes digits, where its 268,435,454 bytes made two exact powers of ten of as many digits.
  */
 const decimalBounds = (bytes: number): Bounds => {
-	const parsed = Math.min(bytes, decimalTextMaxBytes)
+	const parsed = Math.min(bytes, numericTextMaxBytes)
 	return ofDigits(parsed, Math.max(parsed - 1, 0), { infinite: false, nan: false })
 }
 
@@ -1574,7 +1574,7 @@ const provedType = (type: ScalarType, bounds: Bounds | undefined): ScalarType =>
  * The type an operation's node is recorded at, with the bounds it made (bounds.ts ownLimited): provedType's, and an
  * exact result's digit bound the made bounds' own, at numeric's own limit where an operand is bounded by nothing but it,
  * so an exact field's own arithmetic, `x + x` over an exactInteger, is of the field's type, its overflow PostgreSQL's
- * 22003 as a pg.numeric's is.
+ * 22003 as a numeric's is.
  */
 const madeType = (type: ScalarType, bounds: Bounds | undefined): ScalarType =>
 	isExactValue(type) && bounds !== undefined
@@ -2647,7 +2647,7 @@ class Typing<R extends Refs> {
 	 * sum of its operands' bytes where both are bounded, a text literal by its own and a term by its type's byte bound,
 	 * since a || b takes a's bytes and b's; any text where either is unbounded, or where the text goes unanalyzed.
 	 * textcat allocates its result, which PostgreSQL refuses past 1 GB, so a query holds it only over operands whose
-	 * types bound that sum within the most bytes one varlena holds (values/fault.ts bytesMaxLength), as it holds
+	 * types bound that sum within the most bytes one varlena holds (values/fault.ts byteaMaxLength), as it holds
 	 * resolveReference, a nested concatenation by the sum its own operands bound; a check, generated field or fold over
 	 * longer texts fails its write, and an equation with a concatenation builds it only within that bound
 	 * (concatEquation), so a query decides one over texts of any length.
@@ -2657,11 +2657,11 @@ class Typing<R extends Refs> {
 		const op = this.overload("concat", [a.actual, b.actual], at)
 		const node = this.native(op, [a, b], wildcardText, undefined, at, spelling.concat)
 		const bytes = concatBytes([a, b])
-		if (bytes === undefined || bytes > bytesMaxLength) {
+		if (bytes === undefined || bytes > byteaMaxLength) {
 			this.refusedAt(
 				"query",
 				at,
-				`concat in a query over texts whose patterns bound the concatenation within ${bytesMaxLength} bytes: it allocates its result, which PostgreSQL refuses past 1 GB, and a read never fails on a value; ${bytes === undefined ? "an operand's pattern bounds no length" : `the operands' patterns bound it at ${bytes} bytes`}, so bound them, compare a text with the concatenation, which a query decides over texts of any length, or concatenate in a contract predicate, row check, generated field or fold`
+				`concat in a query over texts whose patterns bound the concatenation within ${byteaMaxLength} bytes: it allocates its result, which PostgreSQL refuses past 1 GB, and a read never fails on a value; ${bytes === undefined ? "an operand's pattern bounds no length" : `the operands' patterns bound it at ${bytes} bytes`}, so bound them, compare a text with the concatenation, which a query decides over texts of any length, or concatenate in a contract predicate, row check, generated field or fold`
 			)
 		}
 		return this.restate(node, this.textWithinBytes(bytes, at), node.actual, node.facts)
@@ -2675,7 +2675,7 @@ class Typing<R extends Refs> {
 	 * where the base has an authority and an empty path, and removing dot segments never lengthens a path; any text
 	 * where either is unbounded, or where the text goes unanalyzed. Its SQL builds the target by concatenation, which
 	 * PostgreSQL refuses past 1 GB, so a query holds it only over operands whose types bound that sum within the most
-	 * bytes one varlena holds (values/fault.ts bytesMaxLength), and a check or generated field over longer texts fails
+	 * bytes one varlena holds (values/fault.ts byteaMaxLength), and a check or generated field over longer texts fails
 	 * its write, as a concatenation does.
 	 */
 	resolveReference(
@@ -2699,11 +2699,11 @@ class Typing<R extends Refs> {
 			baseBytes === undefined || referenceBytes === undefined
 				? undefined
 				: baseBytes + referenceBytes + mergedSlashBytes
-		if (bytes === undefined || bytes > bytesMaxLength) {
+		if (bytes === undefined || bytes > byteaMaxLength) {
 			this.refusedAt(
 				"query",
 				at,
-				`resolveReference in a query over texts whose patterns bound the target within ${bytesMaxLength} bytes: its target is built by concatenation, which PostgreSQL refuses past 1 GB, and a read never fails on a value; ${bytes === undefined ? "an operand's pattern bounds no length" : `the operands' patterns bound it at ${bytes} bytes`}, so bound them, or resolve in a contract predicate, row check or generated field`
+				`resolveReference in a query over texts whose patterns bound the target within ${byteaMaxLength} bytes: its target is built by concatenation, which PostgreSQL refuses past 1 GB, and a read never fails on a value; ${bytes === undefined ? "an operand's pattern bounds no length" : `the operands' patterns bound it at ${bytes} bytes`}, so bound them, or resolve in a contract predicate, row check or generated field`
 			)
 		}
 		return this.restate(node, this.textWithinBytes(bytes, at), node.actual, node.facts)
@@ -2760,11 +2760,11 @@ class Typing<R extends Refs> {
 				: fromBytes === 0
 					? xBytes
 					: xBytes + Math.floor(xBytes / fromBytes) * Math.max(0, toBytes - fromBytes)
-		if (bytes === undefined || bytes > bytesMaxLength) {
+		if (bytes === undefined || bytes > byteaMaxLength) {
 			this.refusedAt(
 				"query",
 				at,
-				`replace in a query over texts whose patterns bound its result within ${bytesMaxLength} bytes: it allocates its result, which PostgreSQL refuses past 1 GB, and a read never fails on a value; ${bytes === undefined ? "the subject's or the replacement's pattern bounds no length" : `the operands' patterns bound it at ${bytes} bytes`}, so bound them, or replace in a contract predicate, row check or generated field`
+				`replace in a query over texts whose patterns bound its result within ${byteaMaxLength} bytes: it allocates its result, which PostgreSQL refuses past 1 GB, and a read never fails on a value; ${bytes === undefined ? "the subject's or the replacement's pattern bounds no length" : `the operands' patterns bound it at ${bytes} bytes`}, so bound them, or replace in a contract predicate, row check or generated field`
 			)
 		}
 		return this.restate(node, this.textWithinBytes(bytes, at), node.actual, node.facts)
@@ -2787,14 +2787,14 @@ class Typing<R extends Refs> {
 	/**
 	 * An equation of a text with a concatenation, `t = p1 || … || pn` or its negation, its parts read through every nested
 	 * concatenation (concatParts), so n is at least two: `octet_length(t) = Σ octet_length(pi) AND t = CASE WHEN
-	 * Σ octet_length(pi) > bytesMaxLength THEN '' ELSE p1 || … || pn END`, an equality of t with the parts built in order,
+	 * Σ octet_length(pi) > byteaMaxLength THEN '' ELSE p1 || … || pn END`, an equality of t with the parts built in order,
 	 * so a probe that knows the parts reads t by its key, never every t of the rows its other columns find.
 	 *
 	 * It is total: the concatenation is built only where its bytes, Σ octet_length(pi) summed exactly (exact integers,
-	 * bigint), are within the most bytes one varlena holds (values/fault.ts bytesMaxLength), so textcat never allocates
+	 * bigint), are within the most bytes one varlena holds (values/fault.ts byteaMaxLength), so textcat never allocates
 	 * past MaxAllocSize, at any site: a fold's combine over concat (ir/monoid.ts) is such an equation, and so stands in a
 	 * law's violation query and its CHECK, and a query decides an equation over any number of parts. Past it the CASE
-	 * gives the empty text, which decides nothing: t is a value PostgreSQL holds, of at most bytesMaxLength bytes, so its
+	 * gives the empty text, which decides nothing: t is a value PostgreSQL holds, of at most byteaMaxLength bytes, so its
 	 * length is not the parts' and the first conjunct is false there.
 	 *
 	 * It is three-valued exactly as `t = p1 || … || pn` is: every octet_length is NULL where its operand is, so the sum is
@@ -2840,7 +2840,7 @@ class Typing<R extends Refs> {
 				this.overload("octetLength", [x.actual], here),
 				[x],
 				plainType("int4"),
-				ofRange(0n, BigInt(bytesMaxLength), String(bytesMaxLength).length),
+				ofRange(0n, BigInt(byteaMaxLength), String(byteaMaxLength).length),
 				here,
 				"octet_length"
 			)
@@ -2865,7 +2865,7 @@ class Typing<R extends Refs> {
 		)
 		const past = this.comparison(
 			"gt",
-			[bytes, this.literal(bytesMaxLength, plainType("int4"), here)],
+			[bytes, this.literal(byteaMaxLength, plainType("int4"), here)],
 			here
 		)
 		const guarded = this.conditional(past, this.literal("", wildcardText, here), built, here)
@@ -3168,17 +3168,17 @@ class Typing<R extends Refs> {
 	}
 
 	/**
-	 * Text.parseDouble(x): the double x's decimal text names, IEEE 754-2019's conversion from decimal character
+	 * Text.parseFloat8(x): the double x's decimal text names, IEEE 754-2019's conversion from decimal character
 	 * sequences, rounded to the nearest, ties to even, ±Infinity past the greatest finite double and a zero of the
 	 * mantissa's sign below half the least subnormal; `INF`, `-INF` and `NaN` their own. The registry's one overload,
 	 * text to double precision, admits its operand, and it is defined where x is a member of every double's text, XML
 	 * Schema 1.0's xs:double lexical space, its digits and exponent of any length (the lexical
-	 * precondition over `doubleText`, which the lowering proves). Its SQL reads no regex and allocates nothing past x's
+	 * precondition over `float8Text`, which the lowering proves). Its SQL reads no regex and allocates nothing past x's
 	 * own size, so it stands in a query over any text as in a check or a generated field.
 	 */
-	parseDouble(subjectDesc: ExprDesc<Located, R>, at: SourceLoc): Typed {
+	parseFloat8(subjectDesc: ExprDesc<Located, R>, at: SourceLoc): Typed {
 		const x = this.term(subjectDesc, childLoc(at, 0))
-		const op = this.overload("parseDouble", [x.actual], at)
+		const op = this.overload("parseFloat8", [x.actual], at)
 		const type = this.resultType(op, undefined)
 		return this.native(
 			op,
@@ -3186,7 +3186,7 @@ class Typing<R extends Refs> {
 			type,
 			boundsOfType(type),
 			at,
-			`Text.parseDouble(${nodeText(x.node)})`
+			`Text.parseFloat8(${nodeText(x.node)})`
 		)
 	}
 
@@ -3224,18 +3224,18 @@ class Typing<R extends Refs> {
 	}
 
 	/**
-	 * Text.parseDecimal(x): the numeric x's decimal text names, exactly, by xs:decimal's lexical mapping, a computed
+	 * Text.parseNumeric(x): the numeric x's decimal text names, exactly, by xs:decimal's lexical mapping, a computed
 	 * numeric of no typmod. The registry's one overload, text to numeric, admits its operand, and it is defined where x
-	 * is a member of every decimal text within decimalTextMaxBytes, the grammar of XML Schema 1.1's xs:decimal lexical
-	 * space within the bytes whose every value numeric holds (the lexical precondition over `decimalText`, which the
+	 * is a member of every decimal text within numericTextMaxBytes, the grammar of XML Schema 1.1's xs:decimal lexical
+	 * space within the bytes whose every value numeric holds (the lexical precondition over `numericText`, which the
 	 * lowering proves from x's language and its byte bound). Its value has at most as many integer digits as the text it
-	 * parses has bytes, x's bound or decimalTextMaxBytes, whichever is less, and one fewer fraction digits (decimalBounds),
+	 * parses has bytes, x's bound or numericTextMaxBytes, whichever is less, and one fewer fraction digits (decimalBounds),
 	 * so x's byte bound proves the cast of it into a numeric(p, s) that holds them; a literal's, which no type bounds, is
 	 * numeric's own.
 	 */
-	parseDecimal(subjectDesc: ExprDesc<Located, R>, at: SourceLoc): Typed {
+	parseNumeric(subjectDesc: ExprDesc<Located, R>, at: SourceLoc): Typed {
 		const x = this.term(subjectDesc, childLoc(at, 0))
-		const op = this.overload("parseDecimal", [x.actual], at)
+		const op = this.overload("parseNumeric", [x.actual], at)
 		const bytes = textBoundsOf(x.nominal)?.bytes
 		const bounds = bytes === undefined ? undefined : decimalBounds(bytes)
 		return this.native(
@@ -3244,7 +3244,7 @@ class Typing<R extends Refs> {
 			this.resultType(op, bounds),
 			bounds,
 			at,
-			`Text.parseDecimal(${nodeText(x.node)})`
+			`Text.parseNumeric(${nodeText(x.node)})`
 		)
 	}
 
@@ -3260,7 +3260,7 @@ class Typing<R extends Refs> {
 			return stop(
 				"MalformedDescription",
 				at,
-				`a real or double precision term for floatBits, not ${typeLabel(x.nominal)}`
+				`a float4 or float8 term for floatBits, not ${typeLabel(x.nominal)}`
 			)
 		}
 		const type = plainType("int8")
@@ -3319,7 +3319,7 @@ class Typing<R extends Refs> {
 			return stop(
 				"MalformedDescription",
 				at,
-				`a bytes or text term for sha256, not ${typeLabel(x.nominal)}`
+				`a bytea or text term for sha256, not ${typeLabel(x.nominal)}`
 			)
 		}
 		const op = this.overload("sha256", [x.actual], at)
@@ -3342,14 +3342,14 @@ class Typing<R extends Refs> {
 			return stop(
 				"UnsupportedOperation",
 				at,
-				`Time.wall over an instant's microseconds: it reads milliseconds since the Unix epoch, Type.cast(Num.div(Type.base(${nodeText(instant.node)}), 1000n), pg.bigint)`
+				`Time.wall over an instant's microseconds: it reads milliseconds since the Unix epoch, Type.cast(Num.div(Type.base(${nodeText(instant.node)}), 1000n), int8)`
 			)
 		}
 		if (baseOf(instant.actual).carrier !== "int8") {
 			return stop(
 				"MalformedDescription",
 				at,
-				`a bigint term of milliseconds since the Unix epoch for Time.wall, not ${typeLabel(instant.nominal)}`
+				`an int8 term of milliseconds since the Unix epoch for Time.wall, not ${typeLabel(instant.nominal)}`
 			)
 		}
 		const zone = this.term(zoneDesc, childLoc(at, 1))
@@ -3415,7 +3415,7 @@ class Typing<R extends Refs> {
 			return stop(
 				"MalformedDescription",
 				at,
-				`an integer or bigint term of days after 1970-01-01 for Time.dateOfEpochDay, not ${typeLabel(n.nominal)}${carrier === "exactInteger" ? ": cast an exact integer into one, Type.cast(n, pg.bigint)" : ""}`
+				`an int4 or int8 term of days after 1970-01-01 for Time.dateOfEpochDay, not ${typeLabel(n.nominal)}${carrier === "exactInteger" ? ": cast an exact integer into one, Type.cast(n, int8)" : ""}`
 			)
 		}
 		const op = this.overload("dateOfEpochDay", [n.actual], at)
@@ -3909,7 +3909,7 @@ class Typing<R extends Refs> {
 					return stop(
 						"MalformedDescription",
 						at,
-						"a literal that meets no term: an integer, a bigint, a Decimal, a Money, a boolean or a string"
+						"a literal that meets no term: an integer, a bigint, a Numeric, a Money, a boolean or a string"
 					)
 			}
 		})()
@@ -4409,7 +4409,7 @@ class Typing<R extends Refs> {
 	 * cast into a contract or a regex-refined text type, or the binary coercion that drops a typmod or a regex into the
 	 * plain type, so the node delivered is of the type the cast names. A cast that changes nothing records nothing. Each
 	 * step is defined everywhere or proved where it stands (castNode, domainCast); a conversion into a float rounds as
-	 * IEEE 754 does. A cast into a computed numeric's bound narrower than numeric's own (pg.numeric.within) stands only
+	 * IEEE 754 does. A cast into a computed numeric's bound narrower than numeric's own (numeric.within) stands only
 	 * where its operand's bounds prove every value within it, since nothing rounds into it.
 	 */
 	castTo(arg: Typed, to: ScalarType, at: SourceLoc): Typed {
@@ -4464,7 +4464,7 @@ class Typing<R extends Refs> {
 			return stop(
 				"UnsupportedOperation",
 				at,
-				`cast: into ${typeLabel(target)}, a computed numeric's bound, which no conversion rounds into: its operand's bounds prove no value of ${typeLabel(arg.actual)} within it; cast into pg.numeric, or into pg.numeric(p, s) under a guard that proves the value fits`
+				`cast: into ${typeLabel(target)}, a computed numeric's bound, which no conversion rounds into: its operand's bounds prove no value of ${typeLabel(arg.actual)} within it; cast into numeric, or into numeric(p, s) under a guard that proves the value fits`
 			)
 		}
 		if (isRefined(to) && !sameRefinement(arg.actual, to)) {
@@ -4491,7 +4491,7 @@ class Typing<R extends Refs> {
 			return stop(
 				"UnsupportedOperation",
 				at,
-				`cast: ${typeLabel(target)} has no lexical form a text parses into; the forms are an integer type's, an exact integer's, numeric(p, s) with 0 <= s <= p and at most ${regexMaxRepeat} digits on either side of its point, double precision's, boolean's and date's; Text.parseDecimal(x) reads any decimal text into numeric exactly`
+				`cast: ${typeLabel(target)} has no lexical form a text parses into; the forms are an integer type's, an exact integer's, numeric(p, s) with 0 <= s <= p and at most ${regexMaxRepeat} digits on either side of its point, float8's, bool's and date's; Text.parseNumeric(x) reads any decimal text into numeric exactly`
 			)
 		}
 		if (!op.partial) {
@@ -4540,7 +4540,7 @@ class Typing<R extends Refs> {
 		const literal = nodeLiteral(value.node)
 		const coerced =
 			literal?.kind === "numeric"
-				? normalizeNumeric(Decimal.fromValue(literal.value), numericTypmodOf(target))
+				? normalizeNumeric(Numeric.fromValue(literal.value), numericTypmodOf(target))
 				: undefined
 		if (coerced?.ok === true) {
 			return this.literalNode({ kind: "numeric", value: coerced.value }, target, undefined)
@@ -4560,7 +4560,7 @@ class Typing<R extends Refs> {
 			this.refusedAt(
 				"check",
 				here,
-				`${fn} in a contract predicate or row check: a check admits the operations the host evaluates for the ContractLiteral check, which are comparisons, between, in, boolean composition, abs, sign, arithmetic, Logic.cond, Logic.when, casts, charLength, octetLength, utf16Length, span endpoints, greatest and the set algebra`
+				`${fn} in a contract predicate or row check: a check admits the operations the host evaluates for the ContractLiteral check, which are comparisons, between, in, boolean composition, abs, sign, arithmetic, Logic.cond, Logic.when, casts, charLength, octetLength, utf16Length, range endpoints, greatest and the set algebra`
 			)
 		}
 		const expected = computeSpecs[fn].arity
@@ -4839,10 +4839,10 @@ class Typing<R extends Refs> {
 				return this.isXsdPattern(arg(0), here)
 			case "collapse":
 				return this.collapse(arg(0), here)
-			case "parseDouble":
-				return this.parseDouble(arg(0), here)
-			case "parseDecimal":
-				return this.parseDecimal(arg(0), here)
+			case "parseFloat8":
+				return this.parseFloat8(arg(0), here)
+			case "parseNumeric":
+				return this.parseNumeric(arg(0), here)
 			case "sha256":
 				return this.sha256(arg(0), here)
 			case "floatBits":
@@ -4910,7 +4910,7 @@ class Typing<R extends Refs> {
 			? stop(
 					"UnsupportedOperation",
 					at,
-					`Num.numeric: a conversion of a number into numeric, and ${typeLabel(from)} is no number; a text becomes one by Text.parseDecimal(x), or by Type.cast(x, T) into a type with a lexical form, under Logic.when(Text.matches(x, lexicalForm(T)), …)`
+					`Num.numeric: a conversion of a number into numeric, and ${typeLabel(from)} is no number; a text becomes one by Text.parseNumeric(x), or by Type.cast(x, T) into a type with a lexical form, under Logic.when(Text.matches(x, lexicalForm(T)), …)`
 				)
 			: this.castNode(a, anyNumeric, { kind: "registered", op }, at)
 	}
@@ -5178,7 +5178,7 @@ class Typing<R extends Refs> {
 		const s = this.term(desc, at)
 		const info = spanOf(s.nominal)
 		if (info === undefined) {
-			return stop("MalformedDescription", at, `a span term, not ${typeLabel(s.nominal)}`)
+			return stop("MalformedDescription", at, `a range term, not ${typeLabel(s.nominal)}`)
 		}
 		return { typed: s, span: info.endpoint }
 	}
@@ -5485,7 +5485,7 @@ const zeroOf = (carrier: Carrier): LiteralDesc | undefined => {
 		case "exactInteger":
 			return 0n
 		case "numeric":
-			return Decimal.zero
+			return Numeric.zero
 		case "money":
 		case "exactMoney":
 			return Money.zero
@@ -5524,7 +5524,7 @@ const specialsOf = (
 	| { readonly low: LiteralDesc; readonly high: LiteralDesc; readonly nan: LiteralDesc }
 	| undefined =>
 	carrier === "numeric"
-		? { low: Decimal.negativeInfinity, high: Decimal.infinity, nan: Decimal.nan }
+		? { low: Numeric.negativeInfinity, high: Numeric.infinity, nan: Numeric.nan }
 		: carrier === "float4" || carrier === "float8"
 			? { low: { float: "-Infinity" }, high: { float: "Infinity" }, nan: { float: "NaN" } }
 			: undefined

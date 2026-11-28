@@ -610,7 +610,7 @@ class Reader {
 		return { min: countOf(min), max: most.kind === "bounded" ? countOf(most.numeral) : "unbounded" }
 	}
 
-	/** Decimal digits as written, without their leading zeros (a zero is "0"), or none where no digit comes next. */
+	/** Numeric digits as written, without their leading zeros (a zero is "0"), or none where no digit comes next. */
 	#numeral(): string | undefined {
 		const from = this.#pos
 		let first = from

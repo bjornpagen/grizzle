@@ -1,31 +1,27 @@
 import { Effect } from "effect"
 import { type Fixture, fill, settle } from "#bench/query/support/kit.ts"
 import { Logic, Num, Type } from "#compiler/public/compute.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { float8, int4, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, on, relation, schema } from "#compiler/public/schema.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import type { Substrate } from "#test/support/substrate/substrate.ts"
 
-const Student = relation("Student", { id: pg.integer, cohort: pg.integer }, ["id"])
+const Student = relation("Student", { id: int4, cohort: int4 }, ["id"])
 const Sitting = relation(
 	"Sitting",
 	{
-		id: pg.bigint,
-		student: pg.integer,
-		day: pg.integer,
-		score: pg["double precision"],
-		points: pg.integer,
-		room: pg.integer
+		id: int8,
+		student: int4,
+		day: int4,
+		score: float8,
+		points: int4,
+		room: int4
 	},
 	["id"]
 )
 
-const Price = relation(
-	"Price",
-	{ id: pg.bigint, student: pg.integer, day: pg.integer, amount: pg.bigint },
-	["id"]
-)
+const Price = relation("Price", { id: int8, student: int4, day: int4, amount: int8 }, ["id"])
 
 /**
  * The Lab fixture of the catalog and bounded-subset gates (R24, R26-R31, R41, R42), in public-API form: the
@@ -46,7 +42,7 @@ export const Lab = schema(
 	]
 )
 
-const f8 = (x: number) => Type.literal(pg["double precision"], x)
+const f8 = (x: number) => Type.literal(float8, x)
 
 /**
  * R26 and R41: each sitting's ordinal within its student by (day, id), its running total of scores and its running
@@ -65,7 +61,7 @@ export const runningPerStudent = query(Lab).rule((r) => {
 			ordinal: r.count(),
 			total: r.sum(t.score),
 			top: r.max(t.score),
-			above: r.sum(Logic.cond(Logic.gt(t.score, f8(3)), Type.literal(pg.integer, 1), 0))
+			above: r.sum(Logic.cond(Logic.gt(t.score, f8(3)), Type.literal(int4, 1), 0))
 		})
 })
 
@@ -103,7 +99,7 @@ export const conditionalPerStudent = (threshold: number) =>
 		const { id, student, score } = v(Sitting, "sitting")
 		return r.match(Sitting, { id, student, score }).find({
 			student,
-			passed: r.sum(Logic.cond(Logic.gt(score, f8(threshold)), Type.literal(pg.integer, 1), 0)),
+			passed: r.sum(Logic.cond(Logic.gt(score, f8(threshold)), Type.literal(int4, 1), 0)),
 			points: r.sum(Logic.cond(Logic.gt(score, f8(threshold)), score, f8(0)))
 		})
 	})
@@ -151,8 +147,7 @@ export const discretePercentiles = query(Lab).rule((r) => {
 	const { student, n } = v(perStudent, "perStudent")
 	const half = v(scoreOrdinals, "half")
 	const quarter = v(scoreOrdinals, "quarter")
-	const at = (p: number) =>
-		Num.ceil(Num.numeric(Num.mul(f8(p), Type.cast(n, pg["double precision"]))))
+	const at = (p: number) => Num.ceil(Num.numeric(Num.mul(f8(p), Type.cast(n, float8))))
 	return r
 		.match(perStudent, { student, n })
 		.match(scoreOrdinals, { student, score: half.score, ord: half.ord })
@@ -186,7 +181,7 @@ export const roomPercentile = (p: number) =>
 	query(Lab).rule((r) => {
 		const { room, n } = v(perRoom, "perRoom")
 		const o = v(roomOrdinals, "roomOrdinals")
-		const at = Num.ceil(Num.numeric(Num.mul(f8(p), Type.cast(n, pg["double precision"]))))
+		const at = Num.ceil(Num.numeric(Num.mul(f8(p), Type.cast(n, float8))))
 		return r
 			.match(perRoom, { room, n })
 			.match(roomOrdinals, { room, score: o.score, ord: o.ord })
@@ -199,12 +194,12 @@ export const continuousMedian = query(Lab).rule((r) => {
 	const { student, n } = v(perStudent, "perStudent")
 	const a = v(scoreOrdinals, "floor")
 	const b = v(scoreOrdinals, "ceil")
-	const h = Num.mul(f8(0.5), Type.cast(Num.sub(n, 1n), pg["double precision"]))
+	const h = Num.mul(f8(0.5), Type.cast(Num.sub(n, 1n), float8))
 	const position = (fn: "floor" | "ceil") =>
 		fn === "floor"
 			? Num.floor(Num.numeric(Num.add(f8(1), h)))
 			: Num.ceil(Num.numeric(Num.add(f8(1), h)))
-	const frac = Num.sub(h, Type.cast(Num.floor(Num.numeric(h)), pg["double precision"]))
+	const frac = Num.sub(h, Type.cast(Num.floor(Num.numeric(h)), float8))
 	return r
 		.match(perStudent, { student, n })
 		.match(scoreOrdinals, { student, score: a.score, ord: a.ord })
@@ -261,8 +256,8 @@ const nextSitting = query(Lab)
 			})
 			.where(
 				r.or([
-					r.gt(n.day, r.param("d", pg.integer)),
-					r.and([r.eq(n.day, r.param("d", pg.integer)), r.gt(n.id, r.param("i", pg.bigint))])
+					r.gt(n.day, r.param("d", int4)),
+					r.and([r.eq(n.day, r.param("d", int4)), r.gt(n.id, r.param("i", int8))])
 				])
 			)
 			.find({ nid: n.id, nday: n.day, nscore: n.score })
@@ -291,7 +286,7 @@ const latestPrice = query(Lab)
 				day: p.day,
 				amount: p.amount
 			})
-			.where(r.le(p.day, r.param("d", pg.integer)))
+			.where(r.le(p.day, r.param("d", int4)))
 			.find({ pid: p.id, pday: p.day, amount: p.amount })
 	})
 	.orderBy(["pday", "desc"], ["pid", "desc"])
@@ -318,7 +313,7 @@ const earliestPrice = query(Lab)
 				day: p.day,
 				amount: p.amount
 			})
-			.where(r.ge(p.day, r.param("d", pg.integer)))
+			.where(r.ge(p.day, r.param("d", int4)))
 			.find({ pid: p.id, pday: p.day, amount: p.amount })
 	})
 	.orderBy(["pday", "asc"], ["pid", "asc"])
@@ -336,7 +331,7 @@ export const withNextPrice = query(Lab).rule((r) => {
 
 /** R42 for a bound parent set: the sittings of the students a relation parameter names, with their as-of price. */
 export const withPriceFor = query(Lab).rule((r) => {
-	const wanted = r.relation("students", { id: pg.integer })
+	const wanted = r.relation("students", { id: int4 })
 	const { id: student } = v(wanted, "wanted")
 	const { id, day } = v(Sitting, "sitting")
 	const price = latestPrice.bind({ st: student, d: day })

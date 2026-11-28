@@ -13,7 +13,7 @@ import {
 	openFull
 } from "#bench/write/support/writes.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { drawn, natural, pg } from "#compiler/public/fields.ts"
+import { drawn, natural, int8 } from "#compiler/public/fields.ts"
 import {
 	counted,
 	fin,
@@ -31,8 +31,8 @@ import { writeAuditViolations } from "#test/support/write-audit.ts"
 const Doc = relation(
 	"Doc",
 	{
-		id: pg.bigint,
-		note: pg.bigint,
+		id: int8,
+		note: int8,
 		nodes: drawn(natural),
 		lines: drawn(natural),
 		tags: drawn(natural)
@@ -43,23 +43,20 @@ const Doc = relation(
 const Node = relation(
 	"Node",
 	{
-		doc: pg.bigint,
+		doc: int8,
 		parent: drawn(natural),
 		at: drawn(natural),
 		children: drawn(natural),
 		start: drawn(natural),
 		end: drawn(natural),
-		label: pg.bigint
+		label: int8
 	},
 	["doc", "start"]
 )
 
-const Line = relation("Line", { doc: pg.bigint, at: drawn(natural), words: pg.bigint }, [
-	"doc",
-	"at"
-])
+const Line = relation("Line", { doc: int8, at: drawn(natural), words: int8 }, ["doc", "at"])
 
-const Tag = relation("Tag", { doc: pg.bigint, label: pg.bigint }, ["doc", "label"])
+const Tag = relation("Tag", { doc: int8, label: int8 }, ["doc", "label"])
 
 /**
  * The box's schema: a Doc owning its tree of nodes, its lines and its tags, every relation mutable, since a replace
@@ -78,8 +75,8 @@ const build = (name: string) =>
 			mutable(Node),
 			mutable(Line),
 			mutable(Tag),
-			unit("Document", { id: pg.bigint }),
-			unit("Body", { doc: pg.bigint })
+			unit("Document", { id: int8 }),
+			unit("Body", { doc: int8 })
 		]
 	)
 

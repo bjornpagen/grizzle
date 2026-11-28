@@ -2,7 +2,7 @@
 
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Order } from "effect"
-import { closedId, pg } from "#compiler/public/fields.ts"
+import { closedId, bool, int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, derived, relation, schema } from "#compiler/public/schema.ts"
 import { type QueryValue, queryOver, varsOver } from "#compiler/query/build/query.ts"
@@ -21,45 +21,38 @@ const EventKind = closed.unordered("EventKind", ["start", "submit", "abandon", "
 export const Assignment = relation(
 	"Assignment",
 	{
-		child: pg.integer,
-		number: pg.integer,
-		user: pg.integer,
-		test: pg.integer,
-		expiresAt: pg.integer
+		child: int4,
+		number: int4,
+		user: int4,
+		test: int4,
+		expiresAt: int4
 	},
 	["child", "number"]
 )
 const SittingEvent = relation(
 	"SittingEvent",
-	{ child: pg.integer, number: pg.integer, step: pg.integer, kind: closedId(EventKind) },
+	{ child: int4, number: int4, step: int4, kind: closedId(EventKind) },
 	["child", "number", "step"]
 )
-const Invalidation = relation(
-	"Invalidation",
-	{ child: pg.integer, number: pg.integer, change: pg.integer },
-	["child", "number", "change"]
-)
-const Reinstatement = relation(
-	"Reinstatement",
-	{ child: pg.integer, number: pg.integer, change: pg.integer },
-	["child", "number", "change"]
-)
-export const ExpiryHeld = relation(
-	"ExpiryHeld",
-	{ child: pg.integer, number: pg.integer, at: pg.integer },
-	["child", "number"]
-)
-export const Test = relation(
-	"Test",
-	{ test: pg.integer, subject: pg.integer, gradeRank: pg.integer },
-	["test"]
-)
-export const ReadAloudNeed = relation("ReadAloudNeed", { person: pg.integer, on: pg.boolean }, [
-	"person"
+const Invalidation = relation("Invalidation", { child: int4, number: int4, change: int4 }, [
+	"child",
+	"number",
+	"change"
 ])
+const Reinstatement = relation("Reinstatement", { child: int4, number: int4, change: int4 }, [
+	"child",
+	"number",
+	"change"
+])
+export const ExpiryHeld = relation("ExpiryHeld", { child: int4, number: int4, at: int4 }, [
+	"child",
+	"number"
+])
+export const Test = relation("Test", { test: int4, subject: int4, gradeRank: int4 }, ["test"])
+export const ReadAloudNeed = relation("ReadAloudNeed", { person: int4, on: bool }, ["person"])
 export const AssignmentReadAloud = relation(
 	"AssignmentReadAloud",
-	{ child: pg.integer, number: pg.integer, on: pg.boolean },
+	{ child: int4, number: int4, on: bool },
 	["child", "number"]
 )
 
@@ -204,31 +197,28 @@ const dueOf = (b: Built, due: Due): QueryValue => {
 		const expired = r.match(Assignment, {
 			child,
 			number,
-			user: r.param("user", pg.integer),
+			user: r.param("user", int4),
 			expiresAt
 		})
 		switch (due) {
 			case "through the open assignments":
 				return expired
 					.match(openOf(s), { child, number })
-					.where(r.le(expiresAt, r.param("now", pg.integer)))
+					.where(r.le(expiresAt, r.param("now", int4)))
 					.find({ child, number })
 			case "by negations of its own":
 				return expired
 					.where(
 						r.not(SittingEvent, { child, number }),
 						r.not(ExpiryHeld, { child, number }),
-						r.le(expiresAt, r.param("now", pg.integer))
+						r.le(expiresAt, r.param("now", int4))
 					)
 					.find({ child, number })
 			case "through metis's views":
 				return expired
 					.match(b.OpenView, { child, number })
 					.match(b.ValidView, { child, number })
-					.where(
-						r.not(SittingEvent, { child, number }),
-						r.le(expiresAt, r.param("now", pg.integer))
-					)
+					.where(r.not(SittingEvent, { child, number }), r.le(expiresAt, r.param("now", int4)))
 					.find({ child, number })
 		}
 	})
@@ -245,8 +235,8 @@ export const changeOf = (b: Built, due: Due): ChangeSetValue => {
 			AssignmentReadAloud,
 			queryOver(s).rule((r: RuleValue) => {
 				const d = dueOf(b, due).bind({
-					user: r.param("user", pg.integer),
-					now: r.param("now", pg.integer)
+					user: r.param("user", int4),
+					now: r.param("now", int4)
 				})
 				const { child, number } = varsOver(d, "due")
 				const readAloud = readAloudOf(s)
@@ -262,12 +252,12 @@ export const changeOf = (b: Built, due: Due): ChangeSetValue => {
 			})
 		)
 		.bind({
-			target: queryOver(s).rule((r: RuleValue) => r.find({ test: r.param("test", pg.integer) }))
+			target: queryOver(s).rule((r: RuleValue) => r.find({ test: r.param("test", int4) }))
 		})
 }
 
 /** The test the call names, as metis's hold gate binds the assigned test. */
-const targetHeading = { test: pg.integer } as const
+const targetHeading = { test: int4 } as const
 
 /** The call's user and instant. */
 export const user = 1

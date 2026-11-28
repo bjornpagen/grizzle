@@ -1,6 +1,6 @@
 /** The payroll ledger fixture as a SchemaDesc: the Payroll schema, its relations, rosters, contracts and laws. */
 import { type GuardDesc, guardedExpr, type SchemaDesc } from "#compiler/ir/desc.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 import {
 	type AuthoredStatementDesc,
 	betweenExpr,
@@ -48,8 +48,8 @@ const AccountNo = f.regex("^[0-9]{4,17}$", "u")
 const Digest = f.regex("^[0-9a-f]{64}$", "u")
 const Memo = f.wildcard
 
-/** Decimal.of checks the exact string at construction. */
-const dec = (exact: string): Decimal => Decimal.of(exact)
+/** Numeric.of checks the exact string at construction. */
+const dec = (exact: string): Numeric => Numeric.of(exact)
 
 /** The closed rosters. */
 const Basis = closed.ordered("Basis", ["salaried", "hourly"])

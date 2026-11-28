@@ -14,7 +14,7 @@ import {
 import { Array as Arr, Formatter } from "effect"
 import { type DeliveredColumn, textColumn } from "#compiler/lower/delivery.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { bytes, pg } from "#compiler/public/fields.ts"
+import { bytea, int4 } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { fixtureTemplate } from "#test/support/pg/reads/support.ts"
@@ -98,11 +98,9 @@ export const deliveryCases = aimed(cases, [
 	["an answer of no row", map(cases, (d) => ({ ...d, rows: [] }))]
 ])
 
-export const Blob = relation(
-	"Blob",
-	{ id: pg.integer, a: bytes, b: bytes, t: str.regex("^.*$", "su") },
-	["id"]
-)
+export const Blob = relation("Blob", { id: int4, a: bytea, b: bytea, t: str.regex("^.*$", "su") }, [
+	"id"
+])
 export const Blobs = schema("Delivery", [Blob], [])
 
 /** The full world's workload: Blob's rows written with the facts each call gives. */

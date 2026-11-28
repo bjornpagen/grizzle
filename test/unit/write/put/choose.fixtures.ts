@@ -2,7 +2,7 @@
 
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { key, mutable, on, relation, schema, select, unit } from "#compiler/public/schema.ts"
 import { queryOver as query, type QueryValue, varsOver as v } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
@@ -36,17 +36,17 @@ export type ChoiceFeature = `${PutChoice["target"]} (${PutChoice["reason"]})`
 
 export const featureOf = (c: Choice): ChoiceFeature => `${c.target} (${c.reason})`
 
-const R = relation("R", { b: pg.integer, c: pg.integer, d: pg.integer }, ["b", "c"])
+const R = relation("R", { b: int4, c: int4, d: int4 }, ["b", "c"])
 
 /** A closed relation of R's key, which a put of R joins at a parameter key, so the read is a navigation of two steps. */
-const S = relation("S", { b: pg.integer, c: pg.integer, e: pg.integer }, ["b", "c"])
+const S = relation("S", { b: int4, c: int4, e: int4 }, ["b", "c"])
 
 export const schemaOf = (uniques: Uniques) =>
 	schema(
 		"Put",
 		[R, S],
 		[
-			unit("Bs", { b: pg.integer }),
+			unit("Bs", { b: int4 }),
 			mutable(R),
 			...(uniques === "key(c)"
 				? [key(on(R, "c"))]
@@ -79,7 +79,7 @@ const scopedOutside = (s: ReturnType<typeof schemaOf>): QueryValue =>
 		const { b, c, d } = v(R, "stored")
 		return r
 			.match(R, { b, c, d })
-			.where(r.eq(d, r.param("scope", pg.integer)))
+			.where(r.eq(d, r.param("scope", int4)))
 			.where(r.not(r.relation("rows", R), { b, c }))
 			.find({ b, c, d })
 	})
@@ -108,8 +108,8 @@ const atParameterKey = (s: ReturnType<typeof schemaOf>): QueryValue =>
 	query(s).rule((r: RuleValue) => {
 		const { d } = v(R, "stored")
 		const { e } = v(S, "beside")
-		const b = r.param("b", pg.integer)
-		const c = r.param("c", pg.integer)
+		const b = r.param("b", int4)
+		const c = r.param("c", int4)
 		return r.match(R, { b, c, d }).match(S, { b, c, e }).where(r.lt(e, 5)).find({ b, c, d: 1 })
 	})
 
@@ -121,8 +121,8 @@ const filteredToParameterKey = (s: ReturnType<typeof schemaOf>): QueryValue =>
 	query(s).rule((r: RuleValue) => {
 		const { b, c, d } = v(R, "stored")
 		const { e } = v(S, "beside")
-		const atB = r.param("b", pg.integer)
-		const atC = r.param("c", pg.integer)
+		const atB = r.param("b", int4)
+		const atC = r.param("c", int4)
 		return r
 			.match(R, { b, c, d })
 			.match(S, { b, c, e })
@@ -138,7 +138,7 @@ const afterS = (s: ReturnType<typeof schemaOf>): QueryValue =>
 		return r
 			.match(S, { b, c, e })
 			.match(R, { b, c, d })
-			.where(r.eq(b, r.param("b", pg.integer)), r.eq(c, r.param("c", pg.integer)))
+			.where(r.eq(b, r.param("b", int4)), r.eq(c, r.param("c", int4)))
 			.find({ b, c, d: 1 })
 	})
 

@@ -1,6 +1,6 @@
 import type { LawId } from "#compiler/core/ids.ts"
 import { Logic } from "#compiler/public/compute.ts"
-import { closedId, contract, mintOf, pg } from "#compiler/public/fields.ts"
+import { closedId, contract, mintOf, bool, int4, int8 } from "#compiler/public/fields.ts"
 import {
 	check,
 	closed,
@@ -17,12 +17,12 @@ import { installationNamesOf, installationOf } from "#test/support/kernel/naming
 
 const Region = closed.ordered("Region", ["North", "South"])
 const seatsKey = Symbol("Seats")
-const Seats = contract<typeof seatsKey>()("Seats", pg.integer, (x) => Logic.le(x, 500))
+const Seats = contract<typeof seatsKey>()("Seats", int4, (x) => Logic.le(x, 500))
 export const toSeats = mintOf(seatsKey)
 const code = str.regex("^.{1,20}$", "su")
 export const Club = relation(
 	"Club",
-	{ region: closedId(Region), number: pg.bigint, code, seats: Seats },
+	{ region: closedId(Region), number: int8, code, seats: Seats },
 	["region", "number", "code"]
 )
 
@@ -31,10 +31,10 @@ export const Member = relation(
 	{
 		id: Id,
 		region: closedId(Region),
-		number: pg.bigint,
+		number: int8,
 		code,
 		email: str.regex("^.{1,80}$", "su"),
-		captain: pg.boolean
+		captain: bool
 	},
 	["id"]
 )

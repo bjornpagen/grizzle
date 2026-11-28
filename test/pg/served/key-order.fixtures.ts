@@ -6,7 +6,7 @@ import { constant, type Gen, int, oneOf, shuffled } from "@bjornpagen/testing/ge
 import { Array as Arr } from "effect"
 import { isRecord } from "#compiler/core/record.ts"
 import { Fn } from "#compiler/public/compute.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { fn, relation, row, rows, schema } from "#compiler/public/schema.ts"
 import { inOrder, orderOf } from "#test/support/key-order.ts"
@@ -25,15 +25,15 @@ import { fullWorld } from "#test/support/worlds.ts"
  */
 
 const singleFields = {
-	b: pg.integer,
-	base: pg.integer,
-	f: pg.integer,
-	field: pg.integer,
-	m: pg.integer,
-	n: pg.integer,
-	t: pg.integer,
-	u: pg.integer,
-	w: pg.integer
+	b: int4,
+	base: int4,
+	f: int4,
+	field: int4,
+	m: int4,
+	n: int4,
+	t: int4,
+	u: int4,
+	w: int4
 } as const
 const singleNames = ["b", "base", "f", "field", "m", "n", "t", "u", "w"] as const
 type SingleName = (typeof singleNames)[number]
@@ -84,8 +84,8 @@ const declaredIn = (o: KeyOrders) => (name: string) => {
 	})
 	const mix = fn("mix", {
 		calls: [],
-		args: inOrder({ iy: pg.integer, x: pg.integer, y: pg.integer }, o.mixArgs),
-		returns: pg.integer,
+		args: inOrder({ iy: int4, x: int4, y: int4 }, o.mixArgs),
+		returns: int4,
 		volatility: "immutable",
 		nullInput: "called",
 		language: "plpgsql",
@@ -94,19 +94,19 @@ const declaredIn = (o: KeyOrders) => (name: string) => {
 	const Seed = relation(
 		"Seed",
 		{
-			b: pg.integer,
-			base: pg.integer,
-			f: pg.integer,
-			field: pg.integer,
-			id: pg.integer,
-			iy: pg.integer,
-			m: pg.integer,
-			n: pg.integer,
-			t: pg.integer,
-			u: pg.integer,
-			w: pg.integer,
-			x: pg.integer,
-			y: pg.integer
+			b: int4,
+			base: int4,
+			f: int4,
+			field: int4,
+			id: int4,
+			iy: int4,
+			m: int4,
+			n: int4,
+			t: int4,
+			u: int4,
+			w: int4,
+			x: int4,
+			y: int4
 		},
 		["id"]
 	)

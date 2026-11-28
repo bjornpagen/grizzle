@@ -29,7 +29,7 @@ interface InstantsCase {
 const admitted = { kind: "admitted" } as const
 
 const inputRefusal: Refused =
-	"an instant is the database's clock's alone: no parameter, literal, constant, cast, contract or span is of its type"
+	"an instant is the database's clock's alone: no parameter, literal, constant, cast, contract or range is of its type"
 
 const boxCases: ReadonlyArray<InstantsCase> = [
 	{
@@ -76,25 +76,25 @@ const boxCases: ReadonlyArray<InstantsCase> = [
 	{
 		what: "an insert of a query's rows leaving the clock out",
 		statement:
-			'ChangeSet.empty(S).insert(Decision, query(S).rule((r) => r.find({ child: r.param("c", pg.integer), seed: r.param("s", pg.integer) })))',
+			'ChangeSet.empty(S).insert(Decision, query(S).rule((r) => r.find({ child: r.param("c", int4), seed: r.param("s", int4) })))',
 		verdict: admitted
 	},
 	{
 		what: "a reference stated from a stored instant",
 		statement:
-			'ChangeSet.empty(S).insert(Session, query(S).rule((r) => { const { child, at } = v(Decision, "d"); return r.match(Decision, { child, at }).find({ child, item: r.param("i", pg.integer), stage: at }) }))',
+			'ChangeSet.empty(S).insert(Session, query(S).rule((r) => { const { child, at } = v(Decision, "d"); return r.match(Decision, { child, at }).find({ child, item: r.param("i", int4), stage: at }) }))',
 		verdict: admitted
 	},
 	{
 		what: "a reference stated from a natural parameter",
 		statement:
-			'ChangeSet.empty(S).insert(Session, query(S).rule((r) => r.find({ child: r.param("c", pg.integer), item: r.param("i", pg.integer), stage: r.param("x", natural) })))',
+			'ChangeSet.empty(S).insert(Session, query(S).rule((r) => r.find({ child: r.param("c", int4), item: r.param("i", int4), stage: r.param("x", natural) })))',
 		verdict: { kind: "refusal", refusal: "the query's head is not a fact of the relation" }
 	},
 	{
 		what: "a reference stated from a literal",
 		statement:
-			'ChangeSet.empty(S).insert(Session, query(S).rule((r) => r.find({ child: r.param("c", pg.integer), item: r.param("i", pg.integer), stage: 5n })))',
+			'ChangeSet.empty(S).insert(Session, query(S).rule((r) => r.find({ child: r.param("c", int4), item: r.param("i", int4), stage: 5n })))',
 		verdict: { kind: "refusal", refusal: "the query's head is not a fact of the relation" }
 	},
 	{
@@ -116,12 +116,12 @@ const boxCases: ReadonlyArray<InstantsCase> = [
 	{
 		what: "a cast into an instant",
 		statement:
-			'query(S).rule((r) => { const { child, seed } = v(Decision, "d"); return r.match(Decision, { child, seed }).find({ x: Type.cast(Type.cast(seed, pg.bigint), instant) }) })',
+			'query(S).rule((r) => { const { child, seed } = v(Decision, "d"); return r.match(Decision, { child, seed }).find({ x: Type.cast(Type.cast(seed, int8), instant) }) })',
 		verdict: { kind: "refusal", refusal: inputRefusal }
 	},
 	{
 		what: "a contract named instant",
-		statement: 'contract<typeof probeKey>()("instant", pg.bigint)',
+		statement: 'contract<typeof probeKey>()("instant", int8)',
 		verdict: {
 			kind: "refusal",
 			refusal: "a contract's name is apart from natural and instant, grizzle's own types"
@@ -133,8 +133,8 @@ const boxCases: ReadonlyArray<InstantsCase> = [
 		verdict: { kind: "refusal", refusal: inputRefusal }
 	},
 	{
-		what: "a span of instants",
-		statement: "span(instant)",
+		what: "a range of instants",
+		statement: "range(instant)",
 		verdict: { kind: "refusal", refusal: inputRefusal }
 	},
 	{
@@ -261,10 +261,10 @@ const prelude = await Effect.runPromise(preludeAt("test/support/programs/instant
 /** Decision, its at a clock of child `child`, Session, its stage a reference to it, and Seen, its at a stored instant;
  * Decision and Seen open, mutable inside the unit of their child, so their puts and deletes meet the instants' rules. */
 const instantsHeader = `export const probeKey = Symbol("Probe")
-export const Decision = relation("Decision", { child: pg.integer, at: instant, seed: pg.integer }, ["child", "at"])
-export const Session = relation("Session", { child: pg.integer, item: pg.integer, stage: instant }, ["child", "item"])
-export const Seen = relation("Seen", { child: pg.integer, at: instant.stored }, ["child", "at"])
-export const S = schema("S", [Decision, Session, Seen], [contained(on(Session, "child", "stage"), on(Decision, "child", "at")), unit("Child", { child: pg.integer }), mutable(Decision), mutable(Seen)])
+export const Decision = relation("Decision", { child: int4, at: instant, seed: int4 }, ["child", "at"])
+export const Session = relation("Session", { child: int4, item: int4, stage: instant }, ["child", "item"])
+export const Seen = relation("Seen", { child: int4, at: instant.stored }, ["child", "at"])
+export const S = schema("S", [Decision, Session, Seen], [contained(on(Session, "child", "stage"), on(Decision, "child", "at")), unit("Child", { child: int4 }), mutable(Decision), mutable(Seen)])
 export const decisions = query(S).rule((r) => { const { child, at } = v(Decision, "d"); return r.match(Decision, { child, at }).find({ child, at }) })
 export const latest = query(S).rule((r) => { const { child, at } = v(Decision, "d"); return r.match(Decision, { child, at }).find({ child, m: r.max(at) }) })
 export declare const decoder: FactsDecoder<typeof S>

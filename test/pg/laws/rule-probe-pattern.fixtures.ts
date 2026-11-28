@@ -3,7 +3,7 @@
 import { defined } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Data, Formatter } from "effect"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, derived, mutable, on, relation, schema, unit } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -17,7 +17,7 @@ const Allowed = relation("Allowed", { tag: Tag }, ["tag"])
 
 const Closed = relation("Closed", { tag: Tag }, ["tag"])
 
-const Item = relation("Item", { id: pg.integer, tag: Tag }, ["id"])
+const Item = relation("Item", { id: int4, tag: Tag }, ["id"])
 
 /** How Item stands: immutable, the schema's default, whose immutability guard refuses an UPDATE that changes a fixed
  * field of its row (physical/ddl/immutable.ts), or declared mutable, whose update of a tag the rule's probe reads. */
@@ -30,7 +30,7 @@ const ruleProbePattern = (standing: Standing) => {
 	const Base = schema(
 		"RuleProbePattern",
 		[Allowed, Closed, Item],
-		standing === "mutable" ? [mutable(Item), unit("Tagged", { id: pg.integer })] : []
+		standing === "mutable" ? [mutable(Item), unit("Tagged", { id: int4 })] : []
 	)
 	const Open = derived(
 		"Open",

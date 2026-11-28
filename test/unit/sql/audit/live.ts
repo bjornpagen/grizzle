@@ -25,7 +25,7 @@ import { executableQuery } from "#compiler/lower/template.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { float8, int4 } from "#compiler/public/fields.ts"
 import { check, relation, schema } from "#compiler/public/schema.ts"
 import { installationsOf } from "#compiler/schema/own.ts"
 import { ownLogin, rostersOf } from "#compiler/schema/own.ts"
@@ -373,7 +373,7 @@ const loweredLive = ({ c, twin, context }: Extract<LiveSketch, { kind: "lowered"
  * A gauge whose reading is a real number: its row check compares a double with NaN and both infinities, so the
  * installed DDL holds the float literals the persisted forms once lost, which no other fixture states.
  */
-const Gauge = relation("Gauge", { id: pg.integer, reading: pg["double precision"] }, ["id"])
+const Gauge = relation("Gauge", { id: int4, reading: float8 }, ["id"])
 const gauges = schema(
 	"Gauges",
 	[Gauge],

@@ -2,7 +2,7 @@
 
 import { defined } from "@bjornpagen/testing/assert"
 import { Array as Arr } from "effect"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import {
@@ -14,13 +14,9 @@ import { containersOf, freshContainers } from "#test/support/containers.ts"
 import { descOf } from "#test/support/unit/write/changeset/fixtures.ts"
 
 /** The lower level's visits and what its members write of them; the app's stages, a level above. */
-const Visit = relation("Visit", { child: pg.integer, stage: pg.integer }, ["child", "stage"])
-const Out = relation("Out", { child: pg.integer, stage: pg.integer, n: pg.integer }, [
-	"child",
-	"stage",
-	"n"
-])
-const Stage = relation("Stage", { child: pg.integer, key: pg.integer }, ["child", "key"])
+const Visit = relation("Visit", { child: int4, stage: int4 }, ["child", "stage"])
+const Out = relation("Out", { child: int4, stage: int4, n: int4 }, ["child", "stage", "n"])
+const Stage = relation("Stage", { child: int4, key: int4 }, ["child", "key"])
 const Lower = schema("CompositionLower", [Visit, Out], [])
 const Upper = schema.extend([Lower], "CompositionUpper", [Stage], [])
 
@@ -31,7 +27,7 @@ const guard = query(Upper).rule((r) => {
 	const { child, key: stage } = v(Stage, "own")
 	return r
 		.match(Stage, { child, key: stage })
-		.where(r.eq(child, r.param("child", pg.integer)))
+		.where(r.eq(child, r.param("child", int4)))
 		.find({ child, stage })
 })
 
@@ -70,7 +66,7 @@ export const partOf = (i: number, depth: number, conditions: number): ChangeSetV
 			query(Lower).rule((r) => {
 				const held = chain.bind({ sittings: r.relation("sittings", sittingHeading) })
 				const { child, stage } = v(held, "visit")
-				const n = r.param(`n${i}`, pg.integer)
+				const n = r.param(`n${i}`, int4)
 				return Arr.reduce(
 					Array.from({ length: conditions }, (_, c) => c),
 					r.match(held, { child, stage }),

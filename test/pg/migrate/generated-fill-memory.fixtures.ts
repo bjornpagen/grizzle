@@ -10,7 +10,7 @@ import {
 	drawn as drawnField,
 	generated,
 	natural,
-	pg
+	int4
 } from "#compiler/public/fields.ts"
 import { counted, fin, fold, Monoid, on, relation, schema } from "#compiler/public/schema.ts"
 import { migrated } from "#test/support/installed.ts"
@@ -40,27 +40,24 @@ export const smallest = 1000
 const member = () =>
 	relation.generated(
 		"Member",
-		{ member: pg.integer, g: pg.integer, x: pg.integer, cheap: pg.integer },
+		{ member: int4, g: int4, x: int4, cheap: int4 },
 		["member"],
 		(r) => ({
 			...Rec.fromEntries(
-				Array.from(
-					{ length: generatedFields },
-					(_, i) => [`g${i}`, generated(pg.integer, r.x)] as const
-				)
+				Array.from({ length: generatedFields }, (_, i) => [`g${i}`, generated(int4, r.x)] as const)
 			),
-			byCheap: generated(pg.integer, r.cheap)
+			byCheap: generated(int4, r.cheap)
 		})
 	)
 
 /** The first version: Owner and its members, no family. */
 const plain = (name: string) =>
-	schema(name, [relation("Owner", { id: pg.integer }, ["id"]), member()], [])
+	schema(name, [relation("Owner", { id: int4 }, ["id"]), member()], [])
 
 /** The second version: Member counted under Owner by g, which the backfill draws, each member's index among them, a
  * column a generated one reads (its predecessor). */
 const counting = (name: string) => {
-	const Owner = relation("Owner", { id: pg.integer, n: drawnField(natural) }, ["id"])
+	const Owner = relation("Owner", { id: int4, n: drawnField(natural) }, ["id"])
 	const Member = member()
 	return schema(name, [Owner, Member], [counted(on(Member, "g"), fin(Owner, "n"))])
 }
@@ -68,11 +65,9 @@ const counting = (name: string) => {
 /** The third version: the counted family folded by sum of x, the fold's hidden accumulators on Member the columns its
  * backfill writes, as C18's fill wrote qti.attribute's, which no generated column reads. */
 const folding = (name: string) => {
-	const Owner = relation(
-		"Owner",
-		{ id: pg.integer, n: drawnField(natural), end: accumulated(pg.integer, 0) },
-		["id"]
-	)
+	const Owner = relation("Owner", { id: int4, n: drawnField(natural), end: accumulated(int4, 0) }, [
+		"id"
+	])
 	const Member = member()
 	const family = counted(on(Member, "g"), fin(Owner, "n"))
 	return schema(

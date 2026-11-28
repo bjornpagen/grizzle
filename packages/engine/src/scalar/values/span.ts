@@ -8,7 +8,7 @@ import { type CalendarDate, dayNumber, toCalendarDate } from "#compiler/ir/date.
  * The Span carrier of span(endpoint).
  *
  * A span is a nonempty bounded half-open interval [start, end) of integers or of days: start < end, both finite.
- * Endpoints are pg.integer (int4range, a JavaScript integer number), pg.bigint (int8range, a bigint), or a contract
+ * Endpoints are int4 (int4range, a JavaScript integer number), int8 (int8range, a bigint), or a contract
  * over one of them, whose brand the type parameter carries, or date (daterange, a CalendarDate, the days of its text
  * order, which is the calendar's). There are no unbounded, empty or closed-bound spans, so the host
  * value is exactly the two endpoints, and the half-open text '[start,end)' is PostgreSQL's canonical range output.

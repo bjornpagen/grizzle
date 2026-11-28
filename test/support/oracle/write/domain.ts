@@ -3,7 +3,7 @@ import { nameFaultText, parseDeclaredName } from "#compiler/core/identity.ts"
 import { floatLiteral, isIntegerTypmod } from "#compiler/ir/carriers.ts"
 import { type RosterCodec, rosterCodec } from "#compiler/ir/codes.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
-import { closedId, Decimal, pg } from "#compiler/public/fields.ts"
+import { closedId, Numeric, bool, float8, int4, int8, numeric } from "#compiler/public/fields.ts"
 import type { AnyRoster } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import {
@@ -30,7 +30,7 @@ export type NumericKind = "numeric(5, 2)" | "numeric(12, 4)" | "numeric(3, 0)"
  * counts must get right. Every value is held in the one host form the codecs read and decode,
  * so the oracle and the database compare it by native equality: the canonical text (scalar/values/identity.ts
  * canonicalText) is equal exactly when PostgreSQL's equality is, which makes 0 and -0 one value of double precision,
- * 1.5 and 1.50 one Decimal, and NaN equal to NaN.
+ * 1.5 and 1.50 one Numeric, and NaN equal to NaN.
  *
  * The palette:
  * - integer and bigint;
@@ -43,7 +43,7 @@ export type NumericKind = "numeric(5, 2)" | "numeric(12, 4)" | "numeric(3, 0)"
  *   here, so that the B-tree arbiter and the payload comparison meet them only as payload).
  *
  * A ChangeSet input states a numeric value exactly at its column's typmod: one of more fractional digits is refused by
- * the parse before any SQL (scalar/values/identity.ts parseValue), and another display scale is the same Decimal. The
+ * the parse before any SQL (scalar/values/identity.ts parseValue), and another display scale is the same Numeric. The
  * three typmods' values round onto each other's (1.4951 and 1.5000 are both 1.50 at scale 2, and 2 at scale 0), so a
  * described member that reads one typmod into another collapses distinct values into one by PostgreSQL's cast, which
  * castValue models: the value a fact of the member holds is the cast's, at its field's typmod.
@@ -82,7 +82,7 @@ const rosterCodes: RosterCodec = (() => {
 const uuidOf = (n: number): IdValue =>
 	toId(`00000000-0000-4000-8000-${pipe((0x7700 + n).toString(16), Str.padStart(12, "0"))}`)
 
-const decimal = (text: string): Decimal => Decimal.of(text)
+const decimal = (text: string): Numeric => Numeric.of(text)
 
 const numericTypmods: Readonly<Record<NumericKind, NumericTypmod>> = {
 	"numeric(5, 2)": { precision: 5, scale: 2 },
@@ -96,10 +96,10 @@ const numericKinds: ReadonlySet<TypeKind> = new Set(Rec.keys(numericTypmods))
 export const isNumericKind = (kind: TypeKind): kind is NumericKind => numericKinds.has(kind)
 
 /**
- * A numeric kind's host value of a Decimal its numeric(p, s) holds: the Decimal itself, but numeric(3, 0)'s bigint, an
+ * A numeric kind's host value of a Numeric its numeric(p, s) holds: the Numeric itself, but numeric(3, 0)'s bigint, an
  * integer type's host value (ir/carriers.ts isIntegerTypmod, codec/scalar.ts carrierSpecOf).
  */
-const numericHost = (kind: NumericKind, value: Decimal): Decimal | bigint => {
+const numericHost = (kind: NumericKind, value: Numeric): Numeric | bigint => {
 	if (!isIntegerTypmod(numericTypmods[kind])) {
 		return value
 	}
@@ -110,15 +110,15 @@ const numericHost = (kind: NumericKind, value: Decimal): Decimal | bigint => {
 	return integer
 }
 
-/** A numeric kind's host value as the Decimal it is (`numericHost`'s inverse): numeric(3, 0)'s bigint as its Decimal. */
-export const numericDecimal = (value: unknown): Decimal => {
-	if (value instanceof Decimal) {
+/** A numeric kind's host value as the Numeric it is (`numericHost`'s inverse): numeric(3, 0)'s bigint as its Numeric. */
+export const numericDecimal = (value: unknown): Numeric => {
+	if (value instanceof Numeric) {
 		return value
 	}
 	if (typeof value !== "bigint") {
-		throw new TypeError(`a numeric value that is no Decimal or bigint: ${String(value)}`)
+		throw new TypeError(`a numeric value that is no Numeric or bigint: ${String(value)}`)
 	}
-	const made = Decimal.fromBigInt(value)
+	const made = Numeric.fromBigInt(value)
 	if (!made.ok) {
 		throw new RangeError(`an integer numeric past numeric's format: ${value}`)
 	}
@@ -126,12 +126,12 @@ export const numericDecimal = (value: unknown): Decimal => {
 }
 
 /**
- * The value Type.cast gives a Decimal read into a numeric kind, as the kind's field holds it (`numericHost`):
+ * The value Type.cast gives a Numeric read into a numeric kind, as the kind's field holds it (`numericHost`):
  * PostgreSQL's coercion to the kind's numeric(p, s), rounded half away from zero to its scale (scalar/values/decimal.ts
  * normalizeNumeric). A cast reads only values within the kind's range (typmodRange), so a value the coercion refuses is
  * a defect of its caller.
  */
-export const castValue = (kind: NumericKind, value: Decimal): Decimal | bigint => {
+export const castValue = (kind: NumericKind, value: Numeric): Numeric | bigint => {
 	const cast = normalizeNumeric(value, numericTypmods[kind])
 	if (!cast.ok) {
 		throw new RangeError(`a ${kind} cast of ${value.toString()} past its range (${cast.error})`)
@@ -144,7 +144,7 @@ export const castValue = (kind: NumericKind, value: Decimal): Decimal | bigint =
  * digits a nine, negated and not. A Num.within over them proves a cast into the kind fits (changeset.ts HeadTerm
  * cast).
  */
-export const typmodRange = (kind: NumericKind): readonly [Decimal, Decimal] => {
+export const typmodRange = (kind: NumericKind): readonly [Numeric, Numeric] => {
 	const { precision, scale } = numericTypmods[kind]
 	const integer = Str.repeat(precision - scale)("9")
 	const fraction = Str.repeat(scale)("9")
@@ -307,9 +307,9 @@ export const typeKinds: ReadonlyArray<TypeKind> = [
 export const fieldOf = (kind: TypeKind, roster: AnyRoster): FieldBase => {
 	switch (kind) {
 		case "int4":
-			return pg.integer
+			return int4
 		case "int8":
-			return pg.bigint
+			return int8
 		case "text":
 			return str.regex("^.{0,3}$", "su")
 		case "text6":
@@ -317,17 +317,17 @@ export const fieldOf = (kind: TypeKind, roster: AnyRoster): FieldBase => {
 		case "uuid":
 			return Id
 		case "bool":
-			return pg.boolean
+			return bool
 		case "code":
 			return closedId(roster)
 		case "numeric(5, 2)":
-			return pg.numeric(5, 2)
+			return numeric(5, 2)
 		case "numeric(12, 4)":
-			return pg.numeric(12, 4)
+			return numeric(12, 4)
 		case "numeric(3, 0)":
-			return pg.numeric(3, 0)
+			return numeric(3, 0)
 		case "float8":
-			return pg["double precision"]
+			return float8
 		case "memo":
 			return str.regex("^.*$", "su")
 	}
@@ -354,7 +354,7 @@ export const valueIdentity = (kind: TypeKind, value: unknown): string => {
 			/**
 			 * Fact identity is decided after coercion to the column's numeric(p, s): 1.495 and 1.5 are the stored
 			 * 1.50 of a numeric(5, 2) column, so a fact holding either is the fact holding 1.50; numeric(3, 0)'s bigint
-			 * is its integer's Decimal (`numericDecimal`).
+			 * is its integer's Numeric (`numericDecimal`).
 			 */
 			const normalized = normalizeNumeric(numericDecimal(value), numericTypmods[kind])
 			if (!normalized.ok) {
@@ -401,7 +401,7 @@ export const literalOfKind = (kind: TypeKind, value: unknown): TypedLiteral => {
 		case "numeric(5, 2)":
 		case "numeric(12, 4)":
 		case "numeric(3, 0)":
-			return value instanceof Decimal || typeof value === "bigint"
+			return value instanceof Numeric || typeof value === "bigint"
 				? { kind: "numeric", value: numericDecimal(value) }
 				: wrong()
 		case "float8":
@@ -452,8 +452,8 @@ export const printValue = (value: unknown): string => {
 	if (typeof value === "number") {
 		return Object.is(value, -0) ? "-0" : String(value)
 	}
-	if (value instanceof Decimal) {
-		return `Decimal(${value.toString()})`
+	if (value instanceof Numeric) {
+		return `Numeric(${value.toString()})`
 	}
 	if (typeof value === "string" && value.length > 64) {
 		return `${Formatter.format(Str.slice(0, 12)(value))}...${Formatter.format(Str.slice(-12)(value))} (${value.length} code units)`

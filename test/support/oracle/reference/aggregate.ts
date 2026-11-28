@@ -3,7 +3,7 @@ import { Array as Arr } from "effect"
 import type { AggregateFn } from "#compiler/ir/rel.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import * as N from "#compiler/scalar/compute/numeric.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 import { decimalToBinary32 } from "#compiler/scalar/values/float.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { elementAt } from "#test/support/oracle/pick.ts"
@@ -17,23 +17,23 @@ import {
 	type Value
 } from "#test/support/oracle/reference/values.ts"
 
-const numeric = (r: N.NumericResult): Decimal => {
+const numeric = (r: N.NumericResult): Numeric => {
 	if (!r.ok) {
 		referenceUnsupported(`a numeric aggregate that fails with ${r.error}`)
 	}
 	return r.value
 }
 
-/** A Decimal of parts the reference holds, each within numeric's format: a double's exact value, a count. */
-const made = <E>(r: Engine.Result<Decimal, E>): Decimal => {
+/** A Numeric of parts the reference holds, each within numeric's format: a double's exact value, a count. */
+const made = <E>(r: Engine.Result<Numeric, E>): Numeric => {
 	if (!r.ok) {
-		throw new Error(`the reference made no Decimal: ${String(r.error)}`)
+		throw new Error(`the reference made no Numeric: ${String(r.error)}`)
 	}
 	return r.value
 }
 
 /** The exact sum of Decimals, in any order: numeric addition is exact, so the order is unobservable. */
-const exactSum = (values: Arr.NonEmptyReadonlyArray<Decimal>): Decimal =>
+const exactSum = (values: Arr.NonEmptyReadonlyArray<Numeric>): Numeric =>
 	Arr.reduce(Arr.tailNonEmpty(values), Arr.headNonEmpty(values), (total, x) =>
 		numeric(N.add(total, x))
 	)
@@ -41,17 +41,17 @@ const exactSum = (values: Arr.NonEmptyReadonlyArray<Decimal>): Decimal =>
 /**
  * The exact value of a double, independently of the SQL that computes it (sql/build.ts exactNumericOfDouble): its IEEE
  * 754 bits read through a DataView, a sign, an exponent e and a significand M with the implicit bit when e > 0, and the
- * value M · 2^P, P = max(e, 1) - 1075, as a Decimal in its one form. NaN and the infinities are numeric's own.
+ * value M · 2^P, P = max(e, 1) - 1075, as a Numeric in its one form. NaN and the infinities are numeric's own.
  */
-export const exactDouble = (x: number): Decimal => {
+export const exactDouble = (x: number): Numeric => {
 	if (Number.isNaN(x)) {
-		return Decimal.nan
+		return Numeric.nan
 	}
 	if (x === Number.POSITIVE_INFINITY) {
-		return Decimal.infinity
+		return Numeric.infinity
 	}
 	if (x === Number.NEGATIVE_INFINITY) {
-		return Decimal.negativeInfinity
+		return Numeric.negativeInfinity
 	}
 	const view = new DataView(new ArrayBuffer(8))
 	view.setFloat64(0, x)
@@ -63,8 +63,8 @@ export const exactDouble = (x: number): Decimal => {
 	const p = Math.max(e, 1) - 1075
 	return made(
 		p >= 0
-			? Decimal.fromParts(negative, m << BigInt(p), 0)
-			: Decimal.fromParts(negative, m * 5n ** BigInt(-p), -p)
+			? Numeric.fromParts(negative, m << BigInt(p), 0)
+			: Numeric.fromParts(negative, m * 5n ** BigInt(-p), -p)
 	)
 }
 
@@ -79,13 +79,13 @@ const signedTotal = (total: number, values: Arr.NonEmptyReadonlyArray<Value>): n
  * The IEEE 754 rounding of an exact total into a double: the double nearest it, ties to even, as Number reads a
  * decimal text, and an infinity where it lies past the double range. NaN and the infinities are their own.
  */
-const roundedDouble = (total: Decimal): number => Number(total.text)
+const roundedDouble = (total: Numeric): number => Number(total.text)
 
 /**
  * The IEEE 754 rounding of an exact total into a real: the real nearest it, ties to even (values/float.ts
  * decimalToBinary32), and an infinity where it lies past the real range.
  */
-const roundedReal = (total: Decimal): number => {
+const roundedReal = (total: Numeric): number => {
 	const p = total.parts
 	switch (p.kind) {
 		case "nan":
@@ -104,22 +104,22 @@ const roundedReal = (total: Decimal): number => {
 /** The arguments of a float aggregate, each its exact value. */
 const exactDoubles = (
 	values: Arr.NonEmptyReadonlyArray<Value>
-): Arr.NonEmptyReadonlyArray<Decimal> => Arr.map(values, (v) => exactDouble(asNumber(v)))
+): Arr.NonEmptyReadonlyArray<Numeric> => Arr.map(values, (v) => exactDouble(asNumber(v)))
 
 /** The arguments of an exact aggregate as Decimals: a numeric as it is, an integer as its value. */
 const decimals = (
 	values: Arr.NonEmptyReadonlyArray<Value>,
 	carrier: "int8" | "numeric" | "int2" | "int4" | "exactInteger"
-): Arr.NonEmptyReadonlyArray<Decimal> =>
+): Arr.NonEmptyReadonlyArray<Numeric> =>
 	Arr.map(values, (v) =>
-		carrier === "numeric" ? asDecimal(v) : made(Decimal.fromBigInt(asBigint(v)))
+		carrier === "numeric" ? asDecimal(v) : made(Numeric.fromBigInt(asBigint(v)))
 	)
 
 /**
  * The weight (in NBASE digits) and leading NBASE digit of a finite value, |v| = first * 10000^weight + rest; zero's
  * are 0 and 0, as select_div_scale reads a value of no digits.
  */
-const weightAndFirst = (d: Decimal): { readonly weight: number; readonly first: bigint } => {
+const weightAndFirst = (d: Numeric): { readonly weight: number; readonly first: bigint } => {
 	const p = d.parts
 	if (p.kind !== "finite" || p.coefficient === 0n) {
 		return { weight: 0, first: 0n }
@@ -138,7 +138,7 @@ const weightAndFirst = (d: Decimal): { readonly weight: number; readonly first: 
  * keeps the largest dscale), rounded half away from zero. Written here from numeric.c, apart from the engine's
  * division, because the dividend's display scale is not its value's.
  */
-const numericMean = (args: Arr.NonEmptyReadonlyArray<Decimal>): Decimal => {
+const numericMean = (args: Arr.NonEmptyReadonlyArray<Numeric>): Numeric => {
 	const total = exactSum(args)
 	const count = BigInt(args.length)
 	const p = total.parts
@@ -147,7 +147,7 @@ const numericMean = (args: Arr.NonEmptyReadonlyArray<Decimal>): Decimal => {
 	}
 	const scale = Arr.reduce(args, 0, (s, d) => (d.isFinite() ? Math.max(s, d.parts.minScale) : s))
 	const x = weightAndFirst(total)
-	const y = weightAndFirst(made(Decimal.fromBigInt(count)))
+	const y = weightAndFirst(made(Numeric.fromBigInt(count)))
 	const qweight = x.weight - y.weight - (x.first <= y.first ? 1 : 0)
 	const rscale = Math.min(Math.max(16 - qweight * 4, scale, 0), 1000)
 	const num = p.coefficient * 10n ** BigInt(rscale)
@@ -208,7 +208,7 @@ const avg = (values: Arr.NonEmptyReadonlyArray<Value>, type: ScalarType): Value 
 		case "float8": {
 			const total = exactSum(exactDoubles(values))
 			return signedTotal(
-				roundedDouble(numeric(N.div(total, made(Decimal.fromBigInt(BigInt(values.length)))))),
+				roundedDouble(numeric(N.div(total, made(Numeric.fromBigInt(BigInt(values.length)))))),
 				values
 			)
 		}

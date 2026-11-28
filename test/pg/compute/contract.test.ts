@@ -16,7 +16,7 @@ import { property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { predicateTree } from "#compiler/ir/expr.ts"
-import { compareDecimal, Decimal } from "#compiler/scalar/values/decimal.ts"
+import { compareDecimal, Numeric } from "#compiler/scalar/values/decimal.ts"
 import {
 	contractEvaluator,
 	domainRuns,
@@ -85,13 +85,13 @@ export const contractPredicatesRoundALiteralToTheContractsScaleBeforeItsPredicat
 					)
 					const disagreements = Arr.flatMap(literals, (l, i) => {
 						const answer = parseAnswer(String(rows[i]?.[0]))
-						const written = Decimal.of(l)
+						const written = Numeric.of(l)
 						const stored = admittedStored(written, Rate.scalar)
 						const compared = adoptedLiteral(written, Rate.scalar)
 						const pgAdmits = answer.kind !== "error"
 						/** The cast admitted the literal as it is written: its value is the literal's own, not a rounding. */
 						const unrounded =
-							answer.kind === "value" && compareDecimal(Decimal.of(answer.text), written) === 0
+							answer.kind === "value" && compareDecimal(Numeric.of(answer.text), written) === 0
 						return stored.ok === pgAdmits &&
 							(pgAdmits || ["23514", "22003"].includes(answer.sqlstate)) &&
 							compared.ok === unrounded

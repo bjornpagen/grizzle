@@ -25,7 +25,7 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
-import { bits } from "#compiler/public/fields.ts"
+import { bit } from "#compiler/public/fields.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import type { NativeFn } from "#compiler/scalar/compute/registry.ts"
 import { closed } from "#compiler/schema/api.ts"
@@ -79,8 +79,8 @@ export const theHostsSetAlgebraRefusesEveryOperationOverTwoSetsOfTwoRostersWhich
 		check: (_, c: Case<NativeFn>) => (op) =>
 			Effect.sync(() => {
 				const core = defined(twoOperandCores[op.fn], `the catalogue member of ${op.fn}`)
-				const left = bits(closed.ordered("Left", ["a", "b"]))
-				const right = bits(closed.ordered("Right", ["a", "b"]))
+				const left = bit(closed.ordered("Left", ["a", "b"]))
+				const right = bit(closed.ordered("Right", ["a", "b"]))
 				const x = computeCore.literal(left, new Set(["a"]))
 				const y = computeCore.literal(right, new Set(["a"]))
 				throwsRefused(() => core(x, y), "MalformedDescription")

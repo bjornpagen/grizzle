@@ -1,6 +1,6 @@
 import { type Equivalence, equivalence } from "@bjornpagen/testing/oracle"
 import { Array as Arr, Equal, Formatter, Record as Rec } from "effect"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 
 /** Whether an object is a plain record: of Object's prototype or none. */
 const isPlainRecord = (value: object): value is Readonly<Record<string, unknown>> => {
@@ -9,8 +9,8 @@ const isPlainRecord = (value: object): value is Readonly<Record<string, unknown>
 }
 
 /**
- * Two values one, `numbers` comparing two doubles: a Decimal by numeric equality (1.0 is 1.00, whatever the display
- * scale), arrays and plain records element by element so a Decimal or a double anywhere inside is compared so too, and
+ * Two values one, `numbers` comparing two doubles: a Numeric by numeric equality (1.0 is 1.00, whatever the display
+ * scale), arrays and plain records element by element so a Numeric or a double anywhere inside is compared so too, and
  * every other value by Effect's structural equality.
  */
 const sameValueBy = (numbers: (left: number, right: number) => boolean) => {
@@ -18,8 +18,8 @@ const sameValueBy = (numbers: (left: number, right: number) => boolean) => {
 		if (typeof left === "number" && typeof right === "number") {
 			return numbers(left, right)
 		}
-		if (left instanceof Decimal || right instanceof Decimal) {
-			return left instanceof Decimal && right instanceof Decimal && left.equals(right)
+		if (left instanceof Numeric || right instanceof Numeric) {
+			return left instanceof Numeric && right instanceof Numeric && left.equals(right)
 		}
 		if (Arr.isArray(left) && Arr.isArray(right)) {
 			return left.length === right.length && Arr.every(left, (l, i) => same(l, right[i]))
@@ -44,7 +44,7 @@ const sameValueBy = (numbers: (left: number, right: number) => boolean) => {
 }
 
 /**
- * The testing library's exact for the values grizzle delivers: structural equality, but a Decimal compared as
+ * The testing library's exact for the values grizzle delivers: structural equality, but a Numeric compared as
  * PostgreSQL's numeric equality compares it, which no structural comparison of its fields can.
  */
 export const exactValue: Equivalence<unknown> = equivalence(

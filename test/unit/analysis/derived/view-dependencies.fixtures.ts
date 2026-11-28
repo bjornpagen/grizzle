@@ -6,7 +6,7 @@ import { viewContainments } from "#compiler/analysis/derived/drawn.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { ContainedDependency } from "#compiler/ir/keys.ts"
 import { conservativeMeta } from "#compiler/ir/rel.ts"
-import { natural, pg } from "#compiler/public/fields.ts"
+import { natural, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, derived, key, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -22,7 +22,7 @@ const Learner = str.bytes(69, str.regex("^.+$", "su"))
  * events, contained in its assignment; and loose marks of a learner's number at a step, which no containment holds and
  * no key of a number alone keys.
  */
-const Assignment = relation("Assignment", { child: Learner, number: natural, test: pg.bigint }, [
+const Assignment = relation("Assignment", { child: Learner, number: natural, test: int8 }, [
 	"child",
 	"number"
 ])

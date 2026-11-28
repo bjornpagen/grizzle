@@ -1,4 +1,4 @@
-import { closedId, pg } from "#compiler/public/fields.ts"
+import { closedId, int4 } from "#compiler/public/fields.ts"
 import { closed, relation, role, schema, wholeEntriesOf } from "#compiler/public/schema.ts"
 import { Id } from "#test/support/ids.ts"
 
@@ -9,6 +9,6 @@ import { Id } from "#test/support/ids.ts"
  */
 const Kind = closed.ordered("Kind", ["Leaf", "Inner"])
 export const Edge = relation("Edge", { from: Id, to: Id }, ["from", "to"])
-export const Node = relation("Node", { id: Id, rank: pg.integer, kind: closedId(Kind) }, ["id"])
+export const Node = relation("Node", { id: Id, rank: int4, kind: closedId(Kind) }, ["id"])
 export const Graph = schema("Graph", [Kind, Edge, Node], [])
 export const Reader = role(Graph, "reader", wholeEntriesOf(Graph))

@@ -3,7 +3,7 @@
 import { boolean, element, type Gen } from "@bjornpagen/testing/gen"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Crypto, Fn } from "#compiler/public/compute.ts"
-import { generated, pg, sha256 } from "#compiler/public/fields.ts"
+import { generated, sha256, int4 } from "#compiler/public/fields.ts"
 import { query } from "#compiler/public/query.ts"
 import { fn, login, relation, role, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -33,8 +33,8 @@ export const drawnGen: Gen<Drawn> = (source) => ({
 /** A declared function of the schema: one installed under its function owner (physical/ddl/functions.ts). */
 const doubled = fn("doubled", {
 	calls: [],
-	args: { x: pg.integer },
-	returns: pg.integer,
+	args: { x: int4 },
+	returns: int4,
 	volatility: "immutable",
 	nullInput: "called",
 	language: "sql",
@@ -50,7 +50,7 @@ const doubled = fn("doubled", {
 export const digestLoginOf = ({ primary, declared }: Drawn) => {
 	const R = relation.generated(
 		"R",
-		{ b: pg.integer, p: Path, d: pg.integer },
+		{ b: int4, p: Path, d: int4 },
 		primary === "(b, h)"
 			? ["b", "h"]
 			: primary === "(h, b)"
@@ -65,7 +65,7 @@ export const digestLoginOf = ({ primary, declared }: Drawn) => {
 	const add = ChangeSet.empty(writer).insert(
 		writer.relations.R,
 		query(writer).rule((r) => {
-			const b = r.param("b", pg.integer)
+			const b = r.param("b", int4)
 			return r.find({ b, p: r.param("p", Path), d: declared ? Fn.call(doubled, { x: b }) : b })
 		})
 	)

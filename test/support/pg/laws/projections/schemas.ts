@@ -1,5 +1,5 @@
 import { Array as Arr, Record as Rec } from "effect"
-import { closedId, pg } from "#compiler/public/fields.ts"
+import { closedId, bool, int4 } from "#compiler/public/fields.ts"
 import {
 	type AnyRelation,
 	closed,
@@ -41,17 +41,13 @@ const mutables = <V extends AnyRelation, U>(
 	declared ? [...Arr.map(Rec.values(relations), (r) => mutable(r)), ...units] : []
 
 /** The unit of the relations keyed by an integer id first. */
-const byId = unit("Row", { id: pg.integer })
+const byId = unit("Row", { id: int4 })
 
-const Worker = relation("Worker", { id: pg.integer, name: anyText }, ["id"])
-const Assignment = relation(
-	"Assignment",
-	{ id: pg.integer, worker: pg.integer, active: pg.boolean },
-	["id"]
-)
+const Worker = relation("Worker", { id: int4, name: anyText }, ["id"])
+const Assignment = relation("Assignment", { id: int4, worker: int4, active: bool }, ["id"])
 /** A desk is all key, so a badge's foreign key into it is immediate: no put replaces a desk in passing. */
-const Desk = relation("Desk", { id: pg.integer }, ["id"])
-const Badge = relation("Badge", { id: pg.integer, desk: pg.integer, issued: pg.boolean }, ["id"])
+const Desk = relation("Desk", { id: int4 }, ["id"])
+const Badge = relation("Badge", { id: int4, desk: int4, issued: bool }, ["id"])
 const staffingRelations = Object.freeze({ Worker, Assignment, Desk, Badge })
 
 interface StaffingParams {
@@ -101,10 +97,7 @@ const Week = str.regex("^[ -~]{1,40}$", "u")
 const statuses = ["pending", "approved"] as const
 type ShiftStatus = (typeof statuses)[number]
 const Status = closed.ordered("Status", statuses)
-const Sheet = relation("Sheet", { employee: Id, week: Week, ceiling: pg.integer }, [
-	"employee",
-	"week"
-])
+const Sheet = relation("Sheet", { employee: Id, week: Week, ceiling: int4 }, ["employee", "week"])
 const Shift = relation("Shift", { id: Id, employee: Id, week: Week, status: closedId(Status) }, [
 	"id"
 ])
@@ -152,7 +145,7 @@ const rotaOf = (p: RotaParams) => (name: string) =>
 export const rota = (options: { readonly mutable: boolean }) =>
 	rotaOf({ mutable: options.mutable, status: "approved", keyed: false })("Rota")
 
-const Node = relation("Node", { id: pg.integer, parent: pg.integer, live: pg.boolean }, ["id"])
+const Node = relation("Node", { id: int4, parent: int4, live: bool }, ["id"])
 
 interface TreeParams {
 	readonly mutable: boolean
@@ -176,8 +169,8 @@ const treeOf = (p: TreeParams) => (name: string) =>
 export const tree = (options: { readonly mutable: boolean }) =>
 	treeOf({ mutable: options.mutable, live: true })("Tree")
 
-const Line = relation("Line", { id: pg.integer, offCycle: pg.boolean, note: anyText }, ["id"])
-const Reason = relation("Reason", { id: pg.integer, line: pg.integer, text: anyText }, ["id"])
+const Line = relation("Line", { id: int4, offCycle: bool, note: anyText }, ["id"])
+const Reason = relation("Reason", { id: int4, line: int4, text: anyText }, ["id"])
 const reasonsRelations = Object.freeze({ Line, Reason })
 
 interface ReasonsParams {
@@ -211,15 +204,8 @@ export const reasons = (options: { readonly mutable: boolean }) =>
  * heading order, a candidate key of Note out of Note's own heading order: both pairs are integers, so only the
  * projection's order pairs Note.batch with Batch.id and Note.account with Batch.tenant.
  */
-const Batch = relation("Batch", { tenant: pg.integer, id: pg.integer, urgent: pg.boolean }, [
-	"tenant",
-	"id"
-])
-const Note = relation(
-	"Note",
-	{ id: pg.integer, account: pg.integer, batch: pg.integer, text: anyText },
-	["id"]
-)
+const Batch = relation("Batch", { tenant: int4, id: int4, urgent: bool }, ["tenant", "id"])
+const Note = relation("Note", { id: int4, account: int4, batch: int4, text: anyText }, ["id"])
 const batchesRelations = Object.freeze({ Batch, Note })
 
 interface BatchesParams {
@@ -242,7 +228,7 @@ const batchesOf = (p: BatchesParams) => (name: string) =>
 	schema(name, Rec.values(batchesRelations), [
 		noteKey,
 		mirrors(urgentBatches(p.selector), noteBatch),
-		...mutables(p.mutable, batchesRelations, [unit("Tenant", { tenant: pg.integer }), byId])
+		...mutables(p.mutable, batchesRelations, [unit("Tenant", { tenant: int4 }), byId])
 	])
 
 export const batches = () => batchesOf({ mutable: false, selector: true })("Batches")
@@ -251,7 +237,7 @@ const priorities = ["low", "high"] as const
 const Priority = closed.ordered("Priority", priorities)
 const Ticket = relation(
 	"Ticket",
-	{ id: Id, level: pg.integer, lang: str.regex("^[a-z]{2}$", "u"), priority: closedId(Priority) },
+	{ id: Id, level: int4, lang: str.regex("^[a-z]{2}$", "u"), priority: closedId(Priority) },
 	["id"]
 )
 /** A ticket's follow-ups, each keyed by its ticket: three are all key, and a translation carries its text. */

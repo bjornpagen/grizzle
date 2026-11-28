@@ -4,7 +4,7 @@ import { assert } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { theoryViolations } from "#compiler/laws/model/violations.ts"
 import { Fn, Type } from "#compiler/public/compute.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4, money } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { check, derived, fn, mutable, relation, schema, unit } from "#compiler/public/schema.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
@@ -32,17 +32,17 @@ export const caseGen: Gen<Case> = (s) => ({
 
 export type Feature = Case["value"] | `in the ${Case["site"]}` | `judged by ${Case["judged"]}`
 
-const A = relation("A", { id: pg.integer, n: pg.integer, x: pg.integer }, ["id", "n"])
+const A = relation("A", { id: int4, n: int4, x: int4 }, ["id", "n"])
 
 /** An id D reads A's rows at, keyed by its own field. */
-const W = relation("W", { wid: pg.integer }, ["wid"])
+const W = relation("W", { wid: int4 }, ["wid"])
 
 /** The declared function of the case's volatility, `x` doubled. */
 const doubled = (volatility: "immutable" | "stable") =>
 	fn("doubled", {
 		calls: [],
-		args: { x: pg.integer },
-		returns: pg.integer,
+		args: { x: int4 },
+		returns: int4,
 		volatility,
 		nullInput: "called",
 		language: "sql",
@@ -59,7 +59,7 @@ const baseOf = (c: Case) => {
 			"Stable",
 			[A, W, called],
 			c.judged === "probes"
-				? [unit("As", { id: pg.integer }), unit("Ws", { wid: pg.integer }), mutable(A), mutable(W)]
+				? [unit("As", { id: int4 }), unit("Ws", { wid: int4 }), mutable(A), mutable(W)]
 				: []
 		)
 	}
@@ -109,7 +109,7 @@ const schemas = {
 				return r
 					.match(A, { id, n, x })
 					.match(W, { wid: id })
-					.find({ id, w: Type.cast(x, pg.money), u: Type.cast(n, pg.money) })
+					.find({ id, w: Type.cast(x, money), u: Type.cast(n, money) })
 			})
 		)
 		return schema.extend([Base], "Stable_1", [D], [check("Bounded", D, (t) => t.le(t.w, t.u))])
@@ -123,7 +123,7 @@ const schemas = {
 				return r
 					.match(A, { id, n, x })
 					.match(W, { wid: id })
-					.where(r.le(Type.cast(x, pg.money), Type.cast(n, pg.money)))
+					.where(r.le(Type.cast(x, money), Type.cast(n, money)))
 					.find({ id, w: x, u: n })
 			})
 		)

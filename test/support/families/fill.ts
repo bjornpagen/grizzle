@@ -40,7 +40,7 @@ import { keep, type Swarm, swarm, swarmChoice } from "@bjornpagen/testing/swarm"
 import { Array as Arr, Option, Order, pipe, Record as Rec, String as Str } from "effect"
 import type { ChangedColumn, DerivedReader, FamilyName } from "#compiler/core/causes.ts"
 import type { MemberShape } from "#compiler/ir/family.ts"
-import { accumulated, drawn, natural, pg } from "#compiler/public/fields.ts"
+import { accumulated, drawn, natural, int8 } from "#compiler/public/fields.ts"
 import { type AnyFamily, type RowScalars, schema, type Statement } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
@@ -980,12 +980,12 @@ export const rootText = str.bytes(16, str.regex(rootTextPattern.source, rootText
 
 /** The fields of relation `r` of a specification, in declared order. */
 const fieldsOf = (spec: FillSpec, r: number): Record<string, FieldBase> => {
-	const fields: Record<string, FieldBase> = { id: Id, v: pg.bigint }
+	const fields: Record<string, FieldBase> = { id: Id, v: int8 }
 	for (const [f, family] of spec.families.entries()) {
 		if (family.owner === r) {
 			fields[countName(f)] = drawn(natural)
 			if (family.fold === "sum") {
-				fields[foldName(f)] = accumulated(pg.bigint, 0n)
+				fields[foldName(f)] = accumulated(int8, 0n)
 			}
 			if (family.fold === "count") {
 				fields[foldName(f)] = accumulated(natural, 0n)
@@ -1016,7 +1016,7 @@ const fieldsOf = (spec: FillSpec, r: number): Record<string, FieldBase> => {
 		if (holderOf(spec, copy) === r) {
 			fields[copyName(j)] = naturalSource(spec, copy.source, new Set([j]))
 				? accumulated(natural, 0n)
-				: accumulated(pg.bigint, 0n)
+				: accumulated(int8, 0n)
 		}
 	}
 	return fields
@@ -1042,7 +1042,7 @@ export const generationRelation = (
 				name,
 				fields,
 				keyOfRelation(spec, r),
-				(row) => ({ g: generatedField(pg.bigint, row["v"], []) }),
+				(row) => ({ g: generatedField(int8, row["v"], []) }),
 				[]
 			)
 		case "row": {
@@ -1054,7 +1054,7 @@ export const generationRelation = (
 				keyOfRelation(spec, r),
 				(row) => ({
 					g: generatedField(
-						pg.bigint,
+						int8,
 						computeCore.greatest(row["v"], natural ? computeCore.base(row[field]) : row[field]),
 						[]
 					)

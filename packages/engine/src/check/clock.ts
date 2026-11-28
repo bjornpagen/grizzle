@@ -56,7 +56,7 @@ export const clockParams = (
 		return Result.err(
 			ruleRefused(
 				SourceLoc(label, ["clock", unbound]),
-				"clocked binds only parameters of the program whose values are bigints: bigint, natural, or one consumer's contract over either, under its key"
+				"clocked binds only parameters of the program whose values are bigints: int8, natural, or one consumer's contract over either, under its key"
 			)
 		)
 	}

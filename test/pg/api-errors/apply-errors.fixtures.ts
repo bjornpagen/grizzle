@@ -22,7 +22,7 @@ import type { ValueFault } from "#compiler/core/errors.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import type { ParamMap } from "#compiler/plan/common.ts"
 import { changeSetOver } from "#compiler/write/changeset/value.ts"
-import { pg, query, relation, schema, span, str, v } from "#index.ts"
+import { query, relation, schema, range, str, v, bool, int4, int8 } from "#index.ts"
 import { Id } from "#test/support/ids.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import { fixtureTemplate } from "#test/support/pg/reads/support.ts"
@@ -34,11 +34,11 @@ export const Typed = relation(
 	"Typed",
 	{
 		id: Id,
-		n: pg.integer,
-		b: pg.bigint,
-		flag: pg.boolean,
+		n: int4,
+		b: int8,
+		flag: bool,
 		label: str.regex(labelPattern),
-		during: span(pg.bigint)
+		during: range(int8)
 	},
 	["id"]
 )

@@ -249,7 +249,7 @@ const describedField = (value: unknown, loc: SourceLoc): DescribedField => {
 		case "none":
 			return malformed(
 				loc,
-				"a field descriptor: pg.*, uuid, str.regex, contract, span, closedId or pg.vector"
+				"a field descriptor: int2, int4, int8, numeric, float4, float8, money, bool, inet, cidr, uuid, str.regex, contract, range, closedId or vector"
 			)
 	}
 }
@@ -1263,15 +1263,15 @@ const spanPart =
 	(s: unknown, endpoint: unknown, extra: ReadonlyArray<unknown>): PlainChecked => {
 		const call = new Call(spelling[fn])
 		if (extra.length > 0) {
-			return malformed(call.loc, `${fn}(span, endpoint)`)
+			return malformed(call.loc, `${fn}(range, endpoint)`)
 		}
-		const x = call.term(s, `${fn}'s span`)
+		const x = call.term(s, `${fn}'s range`)
 		const field = call.field(endpoint, `${fn}'s endpoint`)
 		const span = spanOf(x.type)
 		if (span !== undefined && !compatible(span.endpoint, field.scalar)) {
 			return malformed(
 				call.loc,
-				`the span's own endpoint descriptor: ${typeLabel(field.scalar)} is no endpoint of ${typeLabel(x.type)}`
+				`the range's own endpoint descriptor: ${typeLabel(field.scalar)} is no endpoint of ${typeLabel(x.type)}`
 			)
 		}
 		return call.finishPlain(
@@ -1335,8 +1335,8 @@ const checks = Object.freeze({
 	cutFrom: binary("cutFrom", "literal"),
 	replace: ternary("replace", "literal"),
 	isXsdPattern: unary("isXsdPattern"),
-	parseDouble: unary("parseDouble"),
-	parseDecimal: unary("parseDecimal"),
+	parseFloat8: unary("parseFloat8"),
+	parseNumeric: unary("parseNumeric"),
 	sha256: unary("sha256"),
 	floatBits: unary("floatBits"),
 	cosineDistance: binary("cosineDistance", "literal"),
@@ -1563,8 +1563,8 @@ export const compute = Object.freeze({
 		rest: ReadonlyArray<unknown>
 	): ScalarTerm<T, S> => carried(checks.greatest([first, ...rest]), first),
 	widthBucket: (x: unknown, low: unknown, high: unknown, count: unknown) =>
-		plain(checks.widthBucket(x, low, high, count), "integer"),
-	minScale: (a: unknown) => plain(checks.minScale(a, []), "integer"),
+		plain(checks.widthBucket(x, low, high, count), "int4"),
+	minScale: (a: unknown) => plain(checks.minScale(a, []), "int4"),
 	numeric: (a: unknown) => plain(checks.numeric(a, []), "numeric"),
 	cond: <T, S extends SqlTag>(
 		p: unknown,
@@ -1589,13 +1589,13 @@ export const compute = Object.freeze({
 		carried(checks.upper(s, endpoint, []), endpoint),
 	width: <S extends EndpointSql>(s: unknown, endpoint: OfSql<S>) =>
 		plain(checks.width(s, endpoint, []), spanWidthSql[endpoint.sql]),
-	charLength: (s: unknown) => plain(checks.charLength(s, []), "integer"),
-	octetLength: (s: unknown) => plain(checks.octetLength(s, []), "integer"),
-	utf16Length: (s: unknown) => plain(checks.utf16Length(s, []), "integer"),
+	charLength: (s: unknown) => plain(checks.charLength(s, []), "int4"),
+	octetLength: (s: unknown) => plain(checks.octetLength(s, []), "int4"),
+	utf16Length: (s: unknown) => plain(checks.utf16Length(s, []), "int4"),
 	concat: (a: unknown, b: unknown) => plain(checks.concat(a, b), "text"),
-	startsWith: (a: unknown, b: unknown) => plain(checks.startsWith(a, b), "boolean"),
-	endsWith: (a: unknown, b: unknown) => plain(checks.endsWith(a, b), "boolean"),
-	contains: (a: unknown, b: unknown) => plain(checks.contains(a, b), "boolean"),
+	startsWith: (a: unknown, b: unknown) => plain(checks.startsWith(a, b), "bool"),
+	endsWith: (a: unknown, b: unknown) => plain(checks.endsWith(a, b), "bool"),
+	contains: (a: unknown, b: unknown) => plain(checks.contains(a, b), "bool"),
 	translate: (x: unknown, from: unknown, to: unknown) =>
 		plain(checks.translate(x, from, to, []), "text"),
 	lowerAscii: (x: unknown) => plain(checks.lowerAscii(x, []), "text"),
@@ -1605,46 +1605,45 @@ export const compute = Object.freeze({
 	cutBefore: (a: unknown, b: unknown) => plain(checks.cutBefore(a, b), "text"),
 	cutFrom: (a: unknown, b: unknown) => plain(checks.cutFrom(a, b), "text"),
 	replace: (x: unknown, from: unknown, to: unknown) => plain(checks.replace(x, from, to), "text"),
-	isXsdPattern: (x: unknown) => plain(checks.isXsdPattern(x, []), "boolean"),
-	parseDouble: (x: unknown) => plain(checks.parseDouble(x, []), "double precision"),
-	parseDecimal: (x: unknown) => plain(checks.parseDecimal(x, []), "numeric"),
+	isXsdPattern: (x: unknown) => plain(checks.isXsdPattern(x, []), "bool"),
+	parseFloat8: (x: unknown) => plain(checks.parseFloat8(x, []), "float8"),
+	parseNumeric: (x: unknown) => plain(checks.parseNumeric(x, []), "numeric"),
 	sha256: (x: unknown) => plain(checks.sha256(x, []), "sha256"),
-	floatBits: <S extends FloatSql>(x: OfSql<S>) => plain(checks.floatBits(x, []), "bigint"),
+	floatBits: <S extends FloatSql>(x: OfSql<S>) => plain(checks.floatBits(x, []), "int8"),
 	pattern: admittedPattern,
 	xsdPattern: xsdAdmittedPattern,
 	matches: <T, S extends SqlTag>(subject: TermCarrier<T, S>, pattern: unknown) =>
 		guardValue(checks.matches(subject, pattern), subject),
-	cosineDistance: (a: unknown, b: unknown) =>
-		plain(checks.cosineDistance(a, b), "double precision"),
+	cosineDistance: (a: unknown, b: unknown) => plain(checks.cosineDistance(a, b), "float8"),
 	websearchQuery: (text: unknown): TextQuery => checks.websearchQuery(text, []),
 	plainQuery: (text: unknown): TextQuery => checks.plainQuery(text, []),
 	textMatches: (document: unknown, query: unknown): PredicateValue =>
 		checks.textMatches(document, query, []),
 	textRank: (document: unknown, query: unknown) =>
-		plain(checks.textRank(document, query, []), "real"),
+		plain(checks.textRank(document, query, []), "float4"),
 	textRankCd: (document: unknown, query: unknown) =>
-		plain(checks.textRankCd(document, query, []), "real"),
+		plain(checks.textRankCd(document, query, []), "float4"),
 	union: <T, S extends SqlTag>(a: TermCarrier<T, S>, b: unknown): ScalarTerm<T, S> =>
 		carried(checks.union(a, b, []), a),
 	intersection: <T, S extends SqlTag>(a: TermCarrier<T, S>, b: unknown): ScalarTerm<T, S> =>
 		carried(checks.intersection(a, b, []), a),
 	difference: <T, S extends SqlTag>(a: TermCarrier<T, S>, b: unknown): ScalarTerm<T, S> =>
 		carried(checks.difference(a, b, []), a),
-	cardinality: (a: unknown) => plain(checks.cardinality(a, []), "bigint"),
-	subset: (a: unknown, b: unknown) => plain(checks.subset(a, b), "boolean"),
-	disjoint: (a: unknown, b: unknown) => plain(checks.disjoint(a, b), "boolean"),
+	cardinality: (a: unknown) => plain(checks.cardinality(a, []), "int8"),
+	subset: (a: unknown, b: unknown) => plain(checks.subset(a, b), "bool"),
+	disjoint: (a: unknown, b: unknown) => plain(checks.disjoint(a, b), "bool"),
 	netWithin: (a: unknown, b: unknown): PredicateValue => checks.netWithin(a, b, []),
 	netStrictlyWithin: (a: unknown, b: unknown): PredicateValue => checks.netStrictlyWithin(a, b, []),
 	netOverlaps: (a: unknown, b: unknown): PredicateValue => checks.netOverlaps(a, b, []),
-	wall: (t: unknown, zone: unknown) => plain(checks.wall(t, zone, []), "bigint"),
-	epochDay: (x: unknown) => plain(checks.epochDay(x, []), "integer"),
+	wall: (t: unknown, zone: unknown) => plain(checks.wall(t, zone, []), "int8"),
+	epochDay: (x: unknown) => plain(checks.epochDay(x, []), "int4"),
 	dateOfEpochDay: (n: unknown) => plain(checks.dateOfEpochDay(n, []), "date"),
 	/** The set's host type T is the public signature's, which its column, a set's over the roster, delivers. */
-	singleton: <T>(id: unknown): ScalarTerm<T, "bits"> => {
+	singleton: <T>(id: unknown): ScalarTerm<T, "bit"> => {
 		const checked = checks.singleton(id, [])
 		return scalarTerm(checked.expr, checked.type, {
 			column: bitsColumn<T>(checked.roster),
-			sql: "bits"
+			sql: "bit"
 		})
 	}
 })
@@ -1766,10 +1765,10 @@ export const computeCore = Object.freeze({
 	replace: (x: unknown, from: unknown, to: unknown) => plainBy(checks.replace(x, from, to)),
 	isXsdPattern: (x: unknown, ...extra: ReadonlyArray<unknown>) =>
 		plainBy(checks.isXsdPattern(x, extra)),
-	parseDouble: (x: unknown, ...extra: ReadonlyArray<unknown>) =>
-		plainBy(checks.parseDouble(x, extra)),
-	parseDecimal: (x: unknown, ...extra: ReadonlyArray<unknown>) =>
-		plainBy(checks.parseDecimal(x, extra)),
+	parseFloat8: (x: unknown, ...extra: ReadonlyArray<unknown>) =>
+		plainBy(checks.parseFloat8(x, extra)),
+	parseNumeric: (x: unknown, ...extra: ReadonlyArray<unknown>) =>
+		plainBy(checks.parseNumeric(x, extra)),
 	sha256: (x: unknown, ...extra: ReadonlyArray<unknown>) => plainBy(checks.sha256(x, extra)),
 	floatBits: (x: unknown, ...extra: ReadonlyArray<unknown>) => plainBy(checks.floatBits(x, extra)),
 	pattern: (source: unknown): Pattern =>
@@ -1823,7 +1822,7 @@ export const computeCore = Object.freeze({
 		const checked = checks.singleton(id, extra)
 		return scalarTerm(checked.expr, checked.type, {
 			column: bitsColumn(checked.roster),
-			sql: "bits"
+			sql: "bit"
 		})
 	}
 })

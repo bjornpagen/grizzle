@@ -18,7 +18,7 @@ import { countColumn } from "#compiler/physical/ddl/deltas.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { installOptions } from "#compiler/physical/install/compile.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int8 } from "#compiler/public/fields.ts"
 import { check, contained, mutable, on, schema, unit } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
@@ -75,16 +75,11 @@ export const lawRelations = (
 
 /** The shape's schema: the base of P and its children, and X with the check above it. */
 const schemaOf = (s: LawShape) => {
-	const P = relationBuilder(
-		parentName,
-		{ doc: pg.bigint, p: pg.bigint, pv: pg.bigint },
-		["doc", "p"],
-		[]
-	)
+	const P = relationBuilder(parentName, { doc: int8, p: int8, pv: int8 }, ["doc", "p"], [])
 	const children = Arr.map(s.children, (_, at) =>
 		relationBuilder(
 			childName(at),
-			{ doc: pg.bigint, p: pg.bigint, [`c${at}`]: pg.bigint, [`cv${at}`]: pg.bigint },
+			{ doc: int8, p: int8, [`c${at}`]: int8, [`cv${at}`]: int8 },
 			["doc", "p", `c${at}`],
 			[]
 		)
@@ -94,7 +89,7 @@ const schemaOf = (s: LawShape) => {
 		"Judged",
 		[P, ...children],
 		[
-			unit("Doc", { doc: pg.bigint }),
+			unit("Doc", { doc: int8 }),
 			...(s.parent.mutable ? [mutable(P)] : []),
 			...Arr.flatMap(s.children, (c, at) => [
 				...(c.mutable ? [mutable(child(at))] : []),

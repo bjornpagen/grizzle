@@ -5,7 +5,7 @@ import { array, type Gen, int, map, oneOf } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { Term } from "#compiler/public/compute.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, type Rule, type SelfSource, v } from "#compiler/public/query.ts"
 import { contained, schema as declareSchema, on, relation } from "#compiler/public/schema.ts"
 import { publicCase } from "#test/pg/recursion/graph/support.ts"
@@ -30,13 +30,13 @@ import type { GenContainment } from "#test/support/oracle/gen/schema.ts"
  * reference evaluator).
  */
 
-const V = relation("V", { id: pg.integer }, ["id"])
+const V = relation("V", { id: int4 }, ["id"])
 
-const E = relation("E", { from: pg.integer, to: pg.integer }, ["from", "to"])
+const E = relation("E", { from: int4, to: int4 }, ["from", "to"])
 
-const Root = relation("Root", { id: pg.integer }, ["id"])
+const Root = relation("Root", { id: int4 }, ["id"])
 
-const Pair = relation("Pair", { a: pg.integer, b: pg.integer }, ["a", "b"])
+const Pair = relation("Pair", { a: int4, b: int4 }, ["a", "b"])
 
 const Net = declareSchema(
 	"Net",
@@ -77,7 +77,7 @@ export const forestGen: Gen<Forest> = (source) => ({
 	)
 })
 
-const int4 = (n: number): TypedLiteral => ({ kind: "int", value: BigInt(n) })
+const int4Literal = (n: number): TypedLiteral => ({ kind: "int", value: BigInt(n) })
 
 /** Each root's id and its chain's depth, the page's roots first. */
 const chainsOf = (f: Forest): ReadonlyArray<readonly [root: number, depth: number]> =>
@@ -87,9 +87,11 @@ const chainsOf = (f: Forest): ReadonlyArray<readonly [root: number, depth: numbe
 const factsOf = (f: Forest, from: number, to: number) => {
 	const chains = chainsOf(f).slice(from - 1, to)
 	return {
-		V: Arr.flatMap(chains, ([r, d]) => Arr.map(indices(d + 1), (k) => [int4(r + k)])),
-		E: Arr.flatMap(chains, ([r, d]) => Arr.map(indices(d), (k) => [int4(r + k), int4(r + k + 1)])),
-		Root: Arr.map(chains, ([r]) => [int4(r)]),
+		V: Arr.flatMap(chains, ([r, d]) => Arr.map(indices(d + 1), (k) => [int4Literal(r + k)])),
+		E: Arr.flatMap(chains, ([r, d]) =>
+			Arr.map(indices(d), (k) => [int4Literal(r + k), int4Literal(r + k + 1)])
+		),
+		Root: Arr.map(chains, ([r]) => [int4Literal(r)]),
 		Pair: []
 	}
 }
@@ -128,7 +130,7 @@ export type ForestFeature =
 /** The transition arm the definition uses: a rule over Net, and the feedback of a state of one vertex. */
 type NetRule = Rule<typeof Net>
 
-type NodeSelf = SelfSource<{ readonly node: typeof pg.integer }>
+type NodeSelf = SelfSource<{ readonly node: typeof int4 }>
 
 const forward = (r: NetRule, self: NodeSelf) => {
 	const { node } = v(self, "self")
@@ -150,9 +152,9 @@ const page = (n: number) =>
  * The vertices one or more steps below the parent: the base reads the parent's column `from`, its id unless an
  * attachment names another.
  */
-const below = (from: Term<number, unknown, unknown, "integer">) =>
+const below = (from: Term<number, unknown, unknown, "int4">) =>
 	query(Net).recursive("Below", {
-		row: { node: pg.integer },
+		row: { node: int4 },
 		base: [
 			(r) => {
 				const { to } = v(E, "e")

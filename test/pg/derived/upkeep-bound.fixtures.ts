@@ -5,7 +5,7 @@ import { element, type Gen } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { compileInstallation } from "#compiler/program/install.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, derived, on, relation, schema, select, unit } from "#compiler/public/schema.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
@@ -25,22 +25,14 @@ import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 
 /** A learner enrolled, the learner's unit's root. */
-const Enrolled = relation("Enrolled", { child: pg.integer }, ["child"])
+const Enrolled = relation("Enrolled", { child: int4 }, ["child"])
 /** A learner's sessions, keyed by the learner first, as every relation of a learner's unit is. */
-const Session = relation("Session", { child: pg.integer, s: pg.integer }, ["child", "s"])
+const Session = relation("Session", { child: int4, s: int4 }, ["child", "s"])
 /** The answers a learner gave in a session, in the learner's unit. */
-const Answer = relation("Answer", { child: pg.integer, s: pg.integer, n: pg.integer }, [
-	"child",
-	"s",
-	"n"
-])
+const Answer = relation("Answer", { child: int4, s: int4, n: int4 }, ["child", "s", "n"])
 
 /** The three relations, closed, each in the learner's unit: a write inserts, and the judge probes its rules key by key. */
-const Base = schema(
-	"UpkeepBound",
-	[Enrolled, Session, Answer],
-	[unit("Learner", { child: pg.integer })]
-)
+const Base = schema("UpkeepBound", [Enrolled, Session, Answer], [unit("Learner", { child: int4 })])
 
 /**
  * Each session's answers counted: stored (analysis/derived/storage.ts), its definition unit-local in the learner's unit
@@ -272,20 +264,12 @@ export const runUpkeep = (
 	})
 
 /** An item a learner's session showed, at its instant, in the learner's unit. */
-const Shown = relation("Shown", { child: pg.integer, s: pg.integer, at: pg.integer }, [
-	"child",
-	"s",
-	"at"
-])
+const Shown = relation("Shown", { child: int4, s: int4, at: int4 }, ["child", "s", "at"])
 /** A moment a learner's session recorded, an instant at which its items stopped interacting, in the learner's unit. */
-const Moment = relation("Moment", { child: pg.integer, s: pg.integer, at: pg.integer }, [
-	"child",
-	"s",
-	"at"
-])
+const Moment = relation("Moment", { child: int4, s: int4, at: int4 }, ["child", "s", "at"])
 
 /** The two relations, closed, each in the learner's unit. */
-const SpanBase = schema("SpanBound", [Shown, Moment], [unit("Learner", { child: pg.integer })])
+const SpanBase = schema("SpanBound", [Shown, Moment], [unit("Learner", { child: int4 })])
 
 /** Whether a span's rule matches the item shown first, as ledger's presentedSpans does, or the moment. */
 export type SpanOrder = "shown first" | "moment first"

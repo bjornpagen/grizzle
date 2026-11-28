@@ -5,7 +5,7 @@ import { Array as Arr, Formatter, Option, String as Str } from "effect"
 import { ParamId } from "#compiler/core/ids.ts"
 import { describeOp, type ScalarExpr } from "#compiler/ir/expr.ts"
 import { firstOperand, nativeOps } from "#compiler/scalar/compute/registry.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { type CatalogResult, evaluate } from "#test/support/oracle/evaluate/catalog.ts"
 import { patternMember } from "#test/support/oracle/reference/evaluate.ts"
@@ -76,8 +76,8 @@ const numericPowerId = numericPower.id
 
 /** A power's operands, and whether the case is a planted decline. */
 interface PowerCase {
-	readonly base: Decimal
-	readonly exponent: Decimal
+	readonly base: Numeric
+	readonly exponent: Numeric
 	readonly planted: boolean
 }
 
@@ -96,8 +96,8 @@ const plantedDeclineGen: Gen<PowerCase> = (source) => {
 	const k = source.draw(int(1, 9))
 	const e = source.draw(int(2, 9))
 	return {
-		base: succeeded(Decimal.fromString(`0.${Str.repeat(4 * k)("0")}9999999999999998`)),
-		exponent: succeeded(Decimal.fromBigInt(BigInt(e))),
+		base: succeeded(Numeric.fromString(`0.${Str.repeat(4 * k)("0")}9999999999999998`)),
+		exponent: succeeded(Numeric.fromBigInt(BigInt(e))),
 		planted: true
 	}
 }
@@ -158,7 +158,7 @@ export const isDeclined = (r: CatalogResult): boolean =>
  */
 export const outcome = (r: CatalogResult): string => {
 	if (r._tag === "Success") {
-		return r.success instanceof Decimal
+		return r.success instanceof Numeric
 			? `value ${r.success.toString()}`
 			: `value ${Formatter.format(r.success)}`
 	}

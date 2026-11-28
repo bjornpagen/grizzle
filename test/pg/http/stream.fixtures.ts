@@ -11,7 +11,7 @@ import type { Json } from "#compiler/core/canonical.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { mutable, relation, schema, unit } from "#compiler/public/schema.ts"
 import { answered, paged } from "#compiler/public/workload.ts"
@@ -19,9 +19,9 @@ import { listFrame, type SlotEncoders, writeFrame } from "#http/events.ts"
 import type { SseEvent } from "#http/sse.ts"
 import type { StreamEvent } from "#test/support/event-stream.ts"
 
-const Item = relation("Item", { id: pg.integer, score: pg.integer }, ["id"])
+const Item = relation("Item", { id: int4, score: int4 }, ["id"])
 
-export const Items = schema("Items", [Item], [mutable(Item), unit("Ranked", { id: pg.integer })])
+export const Items = schema("Items", [Item], [mutable(Item), unit("Ranked", { id: int4 })])
 
 /** An item as stored and as a call states it. */
 type ItemFact = Readonly<{ id: number; score: number }>
@@ -32,7 +32,7 @@ const programs = Object.freeze({
 		const { id, score } = v(Item, "item")
 		return r
 			.match(Item, { id, score })
-			.where(r.ge(score, r.param("floor", pg.integer)))
+			.where(r.ge(score, r.param("floor", int4)))
 			.find({ id, score })
 	}),
 	ranked: paged(

@@ -11,7 +11,7 @@ import { int8Max, int8Min } from "#compiler/ir/carriers.ts"
 import { decodeDesc, type FieldDesc } from "#compiler/ir/desc.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import { samePatterns } from "#compiler/ir/scalar.ts"
-import { pg, span } from "#compiler/public/fields.ts"
+import { range, int8 } from "#compiler/public/fields.ts"
 import { type Rule, type SelfSource, v } from "#compiler/public/query.ts"
 import { schema, relation as table } from "#compiler/public/schema.ts"
 import { queryOver as untypedQuery } from "#compiler/query/build/query.ts"
@@ -127,9 +127,9 @@ export const recursive = (
 	rec: Arr.NonEmptyReadonlyArray<RuleDesc>
 ): QueryDesc => ({ stage: { kind: "recursive", recursive: { name, row, base, rec } } })
 
-export const integer: FieldDesc = { kind: "pg", type: "integer" }
+export const integer: FieldDesc = { kind: "pg", type: "int4" }
 
-export const bigint: FieldDesc = { kind: "pg", type: "bigint" }
+export const bigint: FieldDesc = { kind: "pg", type: "int8" }
 
 /** natural, a count's type: the hop count a feedback's state holds, seeded at 0 or by a count. */
 export const naturalField: FieldDesc = f.natural
@@ -229,8 +229,8 @@ const respelled = (d: Typed, a: Typed): boolean =>
 	!samePatterns(d.field.patterns, a.field.patterns)
 
 export const declared: Arr.NonEmptyReadonlyArray<Typed> = [
-	{ label: "integer", field: integer, identity: "int4", within: "none" },
-	{ label: "bigint", field: bigint, identity: "int8", within: "none" },
+	{ label: "int4", field: integer, identity: "int4", within: "none" },
+	{ label: "int8", field: bigint, identity: "int8", within: "none" },
 	{
 		label: "numeric(1000,0)",
 		field: { kind: "numeric", precision: 1000, scale: 0 },
@@ -585,12 +585,12 @@ export type ShapeFeature =
 	| "several rules refuse"
 
 /** r.pack needs a span state, which Graph has none of: the rule is planted over a schema of spanned links. */
-const Link = table("Link", { from: Id, to: Id, during: span(pg.bigint) }, ["from", "to", "during"])
+const Link = table("Link", { from: Id, to: Id, during: range(int8) }, ["from", "to", "during"])
 
 export const Spans = schema("Spans", [Link], [])
 
 /** The recursion's row: a node and the span it is reached during. */
-const row = Object.freeze({ node: Id, during: span(pg.bigint) })
+const row = Object.freeze({ node: Id, during: range(int8) })
 
 /**
  * The step's head term is chosen at run time, a producer or a term, which the typed recursive cannot state as the
@@ -632,7 +632,7 @@ export const unboundedHops: Extract<RecursionRefusal, { readonly kind: "unbounde
  * A walk's hop counter: its carrier, how its step bounds it, and how it advances. The numeric carrier is
  * numeric(1000,0), whose every value is an integer, and still no integer carrier a counter counts in.
  */
-export type CounterCarrier = "integer" | "numeric"
+export type CounterCarrier = "int4" | "numeric"
 
 export type Bound = "current below" | "current above" | "either of two" | "next below"
 
@@ -661,12 +661,12 @@ const vertexRule = (where: ReadonlyArray<ExprDesc>, y: ExprDesc): QueryDesc =>
 
 export const Inc = vertexRule(
 	[eq(ref("Vertex", "id"), param("at", idDesc))],
-	narrowed(compute("add", typedLit(1, integer), param("x", integer)), "integer")
+	narrowed(compute("add", typedLit(1, integer), param("x", integer)), "int4")
 )
 
 export const Echo = vertexRule(
 	[],
-	narrowed(compute("add", typedLit(0, integer), param("x", integer)), "integer")
+	narrowed(compute("add", typedLit(0, integer), param("x", integer)), "int4")
 )
 
 /** What the step binds an import's x to, and Inc's at. */

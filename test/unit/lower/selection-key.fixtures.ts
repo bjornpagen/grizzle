@@ -4,7 +4,7 @@ import { assert, defined } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { Type } from "#compiler/public/compute.ts"
-import { Bits, bits } from "#compiler/public/fields.ts"
+import { Bit, bit } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, key, on, relation, schema, select } from "#compiler/public/schema.ts"
 import { selectColumns, type SqlStatement } from "#compiler/sql/ast.ts"
@@ -19,12 +19,12 @@ type Guard = "held" | "absent" | "other"
 
 const Tier = closed.ordered("Tier", ["bronze", "silver", "gold"])
 
-const Badge = relation("Badge", { id: Id, holder: Id, tiers: bits(Tier) }, ["id"])
+const Badge = relation("Badge", { id: Id, holder: Id, tiers: bit(Tier) }, ["id"])
 
 /** The badge tiers a guard and a read combine: {bronze}, as a term of the field's type, and {silver}. */
-const bronze = () => Type.literal(Badge.fields.tiers, Bits.of(Tier, ["bronze"]))
+const bronze = () => Type.literal(Badge.fields.tiers, Bit.of(Tier, ["bronze"]))
 
-const silver = Bits.of(Tier, ["silver"])
+const silver = Bit.of(Tier, ["silver"])
 
 /** At most one badge of bronze and silver alone per holder: a selection key whose guard computes its value. */
 const Badges = schema(
@@ -33,7 +33,7 @@ const Badges = schema(
 	[
 		key(
 			on(
-				select(Badge, (x) => x.eq(x.tiers, Bits.union(bronze(), silver))),
+				select(Badge, (x) => x.eq(x.tiers, Bit.union(bronze(), silver))),
 				"holder"
 			)
 		)
@@ -62,10 +62,10 @@ export const queryOf = (c: Case) => {
 			const fixed = c.term ? { holder: r.param("holder", Badge.fields.holder) } : {}
 			switch (c.guard) {
 				case "held":
-					return r.match(Badge, { id, ...fixed, tiers: Bits.union(bronze(), silver) }).find({ id })
+					return r.match(Badge, { id, ...fixed, tiers: Bit.union(bronze(), silver) }).find({ id })
 				case "other":
 					return r
-						.match(Badge, { id, ...fixed, tiers: Bits.intersection(bronze(), silver) })
+						.match(Badge, { id, ...fixed, tiers: Bit.intersection(bronze(), silver) })
 						.find({ id })
 				case "absent":
 					return r.match(Badge, { id, ...fixed }).find({ id })

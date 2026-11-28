@@ -10,7 +10,7 @@ import type { LogicalQuery } from "#compiler/ir/products.ts"
 import type { NodeOf } from "#compiler/ir/rel.ts"
 import type { OptimizedProgram } from "#compiler/lower/optimize/pipeline.ts"
 import { Num, Type } from "#compiler/public/compute.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int2, int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, on, relation, schema } from "#compiler/public/schema.ts"
 import { queryValueDesc } from "#compiler/query/build/query.ts"
@@ -31,7 +31,7 @@ import { localVectorSchema, productionNames } from "#test/support/kernel/naming.
 import { checking, checkOptions } from "#test/support/policy.ts"
 import { present } from "#test/support/unit/lower/support.ts"
 
-const Vertex = relation("Vertex", { id: Id, rank: pg.smallint }, ["id"])
+const Vertex = relation("Vertex", { id: Id, rank: int2 }, ["id"])
 
 const Edge = relation("Edge", { from: Id, to: Id }, ["from", "to"])
 
@@ -144,14 +144,14 @@ export const recursiveCtes = (s: Select): ReadonlyArray<Cte> =>
 /** The walk from a parameter root, one hop at a time from hops 0 while hops is below `below`. */
 export const walkBelow = (below: number) =>
 	query(Graph).recursive("Walks", {
-		row: { node: Id, hops: pg.integer },
+		row: { node: Id, hops: int4 },
 		base: [
 			(r) => {
 				const { id } = v(Vertex, "vertex")
 				return r
 					.match(Vertex, { id })
 					.where(r.eq(id, r.param("start", Id)))
-					.find({ node: id, hops: Type.literal(pg.integer, 0) })
+					.find({ node: id, hops: Type.literal(int4, 0) })
 			}
 		],
 		rec: [
@@ -162,7 +162,7 @@ export const walkBelow = (below: number) =>
 					.match(self, { node, hops })
 					.match(Edge, { from: node, to })
 					.where(r.lt(hops, below))
-					.find({ node: to, hops: Num.add(hops, Type.literal(pg.integer, 1)) })
+					.find({ node: to, hops: Num.add(hops, Type.literal(int4, 1)) })
 			}
 		]
 	})

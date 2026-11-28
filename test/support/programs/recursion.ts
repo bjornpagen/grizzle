@@ -3,7 +3,7 @@
  * (test/support/prelude.ts): the program imports these alone, each through this module.
  */
 export type { Brand } from "effect"
-export { pg, uuid } from "#compiler/public/fields.ts"
+export { int4, uuid } from "#compiler/public/fields.ts"
 export type { Marked, Uuid } from "#compiler/public/fields.ts"
 export { query, v } from "#compiler/public/query.ts"
 export type {

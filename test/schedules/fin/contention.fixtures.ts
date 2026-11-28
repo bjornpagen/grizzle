@@ -4,7 +4,7 @@ import { openServed } from "#adapter/db/served.ts"
 import { type TransientTag } from "#compiler/core/errors.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { drawn, natural, pg } from "#compiler/public/fields.ts"
+import { drawn, natural, int4 } from "#compiler/public/fields.ts"
 import {
 	counted,
 	fin,
@@ -41,8 +41,8 @@ import { rigIn, rigTemplate } from "#test/support/schedules/rig.ts"
 import { beginSerializableAction } from "#test/support/schedules/types.ts"
 import { Substrate, type SubstrateCase } from "#test/support/substrate/substrate.ts"
 
-const Owner = relation("Owner", { id: pg.integer, n: drawn(natural) }, ["id"])
-const Member = relation("Member", { member: pg.integer, g: pg.integer }, ["member"])
+const Owner = relation("Owner", { id: int4, n: drawn(natural) }, ["id"])
+const Member = relation("Member", { member: int4, g: int4 }, ["member"])
 
 /**
  * The family under a schema name, with a role `app` the grizzle writer opens, whose login's workload holds the empty
@@ -52,7 +52,7 @@ const Member = relation("Member", { member: pg.integer, g: pg.integer }, ["membe
 const contended = (name: string) => {
 	const relations = { Owner, Member }
 	const base = schema(name, Rec.values(relations), [
-		unit("Owner", { id: pg.integer }),
+		unit("Owner", { id: int4 }),
 		mutable(Owner),
 		counted(on(Member, "g"), fin(Owner, "n"))
 	])

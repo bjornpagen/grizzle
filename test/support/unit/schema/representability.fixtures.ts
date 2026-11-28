@@ -1447,11 +1447,11 @@ const scalarKeyFields: Arr.NonEmptyReadonlyArray<FieldBase> = [
 interface VectorKeySketch {
 	/** Picks into scalarKeyFields: the key's other fields, k0..k2. */
 	readonly scalars: ReadonlyArray<FieldBase>
-	/** The key also holds during: span(pg.bigint). */
+	/** The key also holds during: span(int8). */
 	readonly span: boolean
 	/** The vector's dimension. */
 	readonly dimensions: number
-	/** The vector under bareContract("Embedding", pg.vector(d)). */
+	/** The vector under bareContract("Embedding", vector(d)). */
 	readonly contract: boolean
 	/** In the primary key, or in a candidate key(on(R, ...)). */
 	readonly primary: boolean

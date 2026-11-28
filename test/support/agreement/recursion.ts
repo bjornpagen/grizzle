@@ -13,7 +13,7 @@ import { jsonText } from "#compiler/core/trusted.ts"
 import { type KeyClasses, type KeyProof, keyFactors } from "#compiler/ir/keys.ts"
 import { queryOver, type QueryValue, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
-import { pgDescriptors } from "#compiler/scalar/pg.ts"
+import { int4 } from "#compiler/scalar/pg.ts"
 import { groupFields, paramsType, recordType } from "#test/support/agreement/heading.ts"
 import { Edge, Graph, Node } from "#test/support/agreement/recursion-schema.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
@@ -388,7 +388,7 @@ const armSource = (arm: Arm, recursive: boolean): string => {
 
 /** The row, in the program: a descriptor per field. */
 const rowSource = (spec: RecursionSpec): string =>
-	spec.ranked ? "{ from: Id, to: Id, rank: pg.integer }" : "{ from: Id, to: Id }"
+	spec.ranked ? "{ from: Id, to: Id, rank: int4 }" : "{ from: Id, to: Id }"
 
 /** A recursion's lines in the program, each with the site it is the line of. */
 const linesOf = (
@@ -448,7 +448,7 @@ const builtArm = (arm: Arm, r: RuleValue, self: unknown): unknown => {
 const rowValue = (spec: RecursionSpec): Readonly<Record<string, unknown>> => ({
 	from: Id,
 	to: Id,
-	...(spec.ranked ? { rank: pgDescriptors.integer } : {})
+	...(spec.ranked ? { rank: int4 } : {})
 })
 
 const builtRecursion = (spec: RecursionSpec): QueryValue =>

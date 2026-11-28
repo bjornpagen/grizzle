@@ -505,7 +505,7 @@ export const selectsMembers = (conjuncts: ReadonlyArray<Comparison>): boolean =>
 	)
 
 /** The type of an owner's key fields and its members' group fields. */
-type KeyType = "uuid" | "bigint"
+type KeyType = "uuid" | "int8"
 
 /** A fold over a family: none, or a sum of F's x into O's total, its accumulators named on the step side or hidden. */
 type FoldCase = "no fold" | "named accumulators" | "hidden accumulators"
@@ -532,7 +532,7 @@ export const familyCaseGen: Gen<FamilyCase> = (source) => {
 		kind: "family",
 		order,
 		width: source.draw(int(1, 3)),
-		keyType: source.draw(boolean) ? "bigint" : "uuid",
+		keyType: source.draw(boolean) ? "int8" : "uuid",
 		fold: fold === 0 ? "no fold" : fold === 1 ? "hidden accumulators" : "named accumulators"
 	}
 }
@@ -745,7 +745,7 @@ export const refusals: Arr.NonEmptyReadonlyArray<Corruption<FamilyCase, Refused,
 	refusal(
 		"a carrier the monoid does not admit",
 		(c) =>
-			c.kind === "family" && c.fold !== "no fold" ? familyParts(c, f.pg("real"), 0) : undefined,
+			c.kind === "family" && c.fold !== "no fold" ? familyParts(c, f.pg("float4"), 0) : undefined,
 		atStatement
 	),
 	refusal(
@@ -922,7 +922,7 @@ export const refusals: Arr.NonEmptyReadonlyArray<Corruption<FamilyCase, Refused,
 	refusal(
 		"a group key no caller writes",
 		(c) =>
-			c.kind === "family" && c.keyType === "bigint"
+			c.kind === "family" && c.keyType === "int8"
 				? withFields(partsOf(c), "F", {
 						gz: f.bigint,
 						ga: f.generated(f.bigint, { kind: "field", field: "gz" })
@@ -934,7 +934,7 @@ export const refusals: Arr.NonEmptyReadonlyArray<Corruption<FamilyCase, Refused,
 		"a group key of another identity than its owner's key",
 		(c) =>
 			c.kind === "family"
-				? withFields(partsOf(c), "F", { ga: keyField(c.keyType === "uuid" ? "bigint" : "uuid") })
+				? withFields(partsOf(c), "F", { ga: keyField(c.keyType === "uuid" ? "int8" : "uuid") })
 				: undefined,
 		atStatement
 	)

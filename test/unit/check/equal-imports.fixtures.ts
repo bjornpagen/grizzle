@@ -13,7 +13,7 @@ import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import type { RelNode } from "#compiler/ir/rel.ts"
 import { queryInput } from "#compiler/program/input.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -28,26 +28,20 @@ import { noFunctions } from "#test/support/oracle/reference/functions.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
 
 /** Each child's item sessions, at a stage; each session's attempts; each attempt's values; and pairs of children. */
-const Session = relation("Session", { child: pg.integer, item: pg.integer, stage: pg.integer }, [
-	"child",
-	"item"
-])
-const Attempt = relation("Attempt", { child: pg.integer, item: pg.integer, at: pg.integer }, [
+const Session = relation("Session", { child: int4, item: int4, stage: int4 }, ["child", "item"])
+const Attempt = relation("Attempt", { child: int4, item: int4, at: int4 }, ["child", "item", "at"])
+const Value = relation("Value", { child: int4, item: int4, at: int4, v: int4 }, [
 	"child",
 	"item",
-	"at"
+	"at",
+	"v"
 ])
-const Value = relation(
-	"Value",
-	{ child: pg.integer, item: pg.integer, at: pg.integer, v: pg.integer },
-	["child", "item", "at", "v"]
-)
-const Pair = relation("Pair", { a: pg.integer, b: pg.integer }, ["a", "b"])
+const Pair = relation("Pair", { a: int4, b: int4 }, ["a", "b"])
 
 const Ledger = schema("EqualImports", [Session, Attempt, Value, Pair], [])
 
 /** The sittings a chain reads: a child at a stage, the relation parameter every level is bound to. */
-const sittingHeading = { child: pg.integer, stage: pg.integer } as const
+const sittingHeading = { child: int4, stage: int4 } as const
 
 /**
  * How a program builds the queries it imports: one object for every import of it; a factory that builds it anew at
@@ -173,7 +167,7 @@ const aboveOf = (floor: number, below: ReturnType<typeof bottomOf>) =>
 const stagesOf = (floor: number) =>
 	query(Ledger).rule((r) => {
 		const { item, stage } = v(Session, "staged")
-		const child = r.param("child", pg.integer)
+		const child = r.param("child", int4)
 		return r.match(Session, { child, item, stage }).where(r.ge(stage, floor)).find({ child, stage })
 	})
 
@@ -201,8 +195,8 @@ const programOf = (shape: Shape, copies: Copies) => {
 		})
 	return query(Ledger).rule((r) => {
 		const { a, b } = v(Pair, "pair")
-		const p = r.param("p", pg.integer)
-		const q = r.param("q", pg.integer)
+		const p = r.param("p", int4)
+		const q = r.param("q", int4)
 		const childOf = (j: number) => {
 			const second = j % 2 === 1
 			switch (shape.binding) {

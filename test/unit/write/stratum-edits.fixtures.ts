@@ -6,7 +6,7 @@ import { type Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { transactionClock } from "#compiler/ir/clock.ts"
 import { strataAt, type StratumAt } from "#compiler/ir/stratum.ts"
-import { drawn as drawnField, natural, pg } from "#compiler/public/fields.ts"
+import { drawn as drawnField, natural, int4, int8 } from "#compiler/public/fields.ts"
 import {
 	counted,
 	fin,
@@ -31,15 +31,15 @@ import { Id } from "#test/support/ids.ts"
 import { checking } from "#test/support/policy.ts"
 import { descOf } from "#test/support/unit/write/changeset/fixtures.ts"
 
-const Club = relation("Club", { id: pg.integer, n: drawnField(natural) }, ["id"])
+const Club = relation("Club", { id: int4, n: drawnField(natural) }, ["id"])
 
-const Member = relation("Member", { m: pg.integer, club: pg.integer }, ["m"])
+const Member = relation("Member", { m: int4, club: int4 }, ["m"])
 
 const Doc = relation("Doc", { id: Id, lines: drawnField(natural) }, ["id"])
 
-const Line = relation("Line", { id: Id, doc: Id, at: drawnField(natural), qty: pg.bigint }, ["id"])
+const Line = relation("Line", { id: Id, doc: Id, at: drawnField(natural), qty: int8 }, ["id"])
 
-const Tag = relation("Tag", { id: pg.integer, label: pg.integer }, ["id"])
+const Tag = relation("Tag", { id: int4, label: int4 }, ["id"])
 
 const Edits = schema(
 	"StratumEdits",
@@ -47,8 +47,8 @@ const Edits = schema(
 	[
 		counted(on(Member, "club"), fin(Club, "n")),
 		ordered(on(Line, "doc", "at"), fin(Doc, "lines")),
-		unit("Clubs", { id: pg.integer }),
-		unit("Members", { m: pg.integer }),
+		unit("Clubs", { id: int4 }),
+		unit("Members", { m: int4 }),
 		unit("Docs", { id: Id }),
 		mutable(Club),
 		mutable(Member),

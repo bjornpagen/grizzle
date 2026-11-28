@@ -122,7 +122,7 @@ import type {
 import type { Refused } from "#compiler/core/refusals.ts"
 import type { OpenExpr } from "#compiler/ir/open.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
-import type { Decimal } from "#compiler/scalar/values/decimal.ts"
+import type { Numeric } from "#compiler/scalar/values/decimal.ts"
 import type { VariantValue } from "#compiler/scalar/values/identity.ts"
 import type { Money } from "#compiler/scalar/values/money.ts"
 import type { Span } from "#compiler/scalar/values/span.ts"
@@ -328,15 +328,14 @@ type IsExactly<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : fals
  * Type.base.
  */
 type ExactFamily<T, Sql extends SqlTag> = [Sql] extends ["exact integer"]
-	? | InputTerm<number, never, unknown, "smallint" | "integer">
-		| InputTerm<bigint, never, unknown, "bigint">
+	? InputTerm<number, never, unknown, "int2" | "int4"> | InputTerm<bigint, never, unknown, "int8">
 	: [Sql] extends ["exact money"]
 		? InputTerm<Money, never, unknown, "money">
-		: [Sql] extends ["smallint" | "integer"]
+		: [Sql] extends ["int2" | "int4"]
 			? IsExactly<T, number> extends true
 				? InputTerm<bigint, never, unknown, "exact integer">
 				: never
-			: [Sql] extends ["bigint"]
+			: [Sql] extends ["int8"]
 				? IsExactly<T, bigint> extends true
 					? InputTerm<bigint, never, unknown, "exact integer">
 					: never
@@ -1028,7 +1027,7 @@ export type ParamValue =
 	| number
 	| bigint
 	| boolean
-	| Decimal
+	| Numeric
 	| Money
 	| Vector
 	| Uint8Array

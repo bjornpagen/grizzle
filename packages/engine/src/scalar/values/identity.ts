@@ -27,7 +27,7 @@ import {
 	isAdmittedBytes
 } from "#compiler/scalar/values/bytes.ts"
 import {
-	Decimal,
+	Numeric,
 	integerNumeric,
 	integerOfDecimal,
 	type NumericBound,
@@ -115,7 +115,7 @@ export interface VariantValue {
  * 0) holds integers alone, so its spec is the exact integer's, of its typmod, and its host value a bigint
  * (codec/scalar.ts carrierSpecOf), where an exact integer's own, a value grizzle computes, has no typmod. numeric's
  * typmod is then one of another scale, or none, numeric of no typmod's, whose values lie within its bound (ir/scalar.ts
- * NumericBound): a computed numeric's, or numeric's own limits, pg.numeric's.
+ * NumericBound): a computed numeric's, or numeric's own limits, numeric's.
  */
 export type CarrierSpec =
 	| { readonly carrier: PlainCarrier }
@@ -146,7 +146,7 @@ export interface CarrierHost {
 	readonly int2: number
 	readonly int4: number
 	readonly int8: bigint
-	readonly numeric: Decimal
+	readonly numeric: Numeric
 	readonly float4: number
 	readonly float8: number
 	readonly money: Money
@@ -292,14 +292,14 @@ export type OrderSpec = { readonly [C in Carrier]: OrderSpecOf<C> }[Carrier]
 /**
  * A numeric value at its spec: at its typmod by `atTypmod`, parsed exactly (decimal.ts parseNumeric) or coerced as
  * PostgreSQL coerces a value it computes (normalizeNumeric); without one, within its bound (decimal.ts withinBound), a
- * computed numeric's, which a stored field of it (pg.numeric.within) and a window anchor's key value of an aggregate
- * column hold, or numeric's own limits, which every Decimal is within. A value of the bound is never rounded into it:
+ * computed numeric's, which a stored field of it (numeric.within) and a window anchor's key value of an aggregate
+ * column hold, or numeric's own limits, which every Numeric is within. A value of the bound is never rounded into it:
  * PostgreSQL's numeric of no typmod stores a value as it is, so one past the bound is refused (numericBound).
  */
 const decimalAt =
-	(atTypmod: (d: Decimal, typmod: NumericTypmod) => Result.Result<Decimal, ValueFault>) =>
-	(value: unknown, spec: SpecExtras["numeric"]): Result.Result<Decimal, ValueFault> =>
-		value instanceof Decimal
+	(atTypmod: (d: Numeric, typmod: NumericTypmod) => Result.Result<Numeric, ValueFault>) =>
+	(value: unknown, spec: SpecExtras["numeric"]): Result.Result<Numeric, ValueFault> =>
+		value instanceof Numeric
 			? spec.typmod === undefined
 				? withinBound(value, spec.bound)
 				: atTypmod(value, spec.typmod)
@@ -562,7 +562,7 @@ const hostChecks: { readonly [C in Carrier]: (value: unknown) => value is Carrie
 	int2: isNumber,
 	int4: isNumber,
 	int8: isBigint,
-	numeric: (value) => value instanceof Decimal,
+	numeric: (value) => value instanceof Numeric,
 	float4: isNumber,
 	float8: isNumber,
 	money: (value) => value instanceof Money,
@@ -673,8 +673,8 @@ const variantText = (value: VariantValue, spec: SpecExtras["variant"]): string =
  *   its own, distinct from +0 (values/float.ts), as PostgreSQL stores it. `storedValue` is
  *   PostgreSQL's own coercion of a value grizzle computes on the host, which rounds as PostgreSQL rounds.
  * - `canonicalText` gives every admitted value its one text, equal exactly when the values are one value, because every
- *   host value is in its one form (a Decimal has no display scale, a vector component one zero): numeric 1.0 = 1.00
- *   are one Decimal written 1, NaN one text, text by exact scalar sequence; a float's -0 and +0 are two values, equal
+ *   host value is in its one form (a Numeric has no display scale, a vector component one zero): numeric 1.0 = 1.00
+ *   are one Numeric written 1, NaN one text, text by exact scalar sequence; a float's -0 and +0 are two values, equal
  *   under PostgreSQL's equality and `compareValues` but each its own fact identity, as a key holds them. It is
  *   the parameter text, the array element and the fact identity's part alike (codec/scalar.ts text); a bytes value's is
  *   its SHA-256 digest (values/bytes.ts BytesDigest), the fact identity's part and no parameter text: every bytes value
@@ -869,12 +869,12 @@ export const hostOf = <C extends Carrier>(carrier: C, value: unknown): CarrierHo
 	return value
 }
 
-/** An integer numeric's bigint as the Decimal numeric.c computes with. */
-const decimalOfInteger = (x: bigint): Decimal => {
-	const d = Decimal.fromBigInt(x)
+/** An integer numeric's bigint as the Numeric numeric.c computes with. */
+const decimalOfInteger = (x: bigint): Numeric => {
+	const d = Numeric.fromBigInt(x)
 	if (!d.ok) {
 		defect(
-			"an integer numeric's value is a Decimal: its typmod bounds it far inside numeric's format"
+			"an integer numeric's value is a Numeric: its typmod bounds it far inside numeric's format"
 		)
 	}
 	return d.value
@@ -883,7 +883,7 @@ const decimalOfInteger = (x: bigint): Decimal => {
 /**
  * A field's host value of type `t` as the evaluator computes with it (scalar/compute/evaluate.ts), its type carrier's
  * host value: the value itself, but an integer numeric's bigint (integerTypmodOf), which the evaluator reads as the
- * Decimal numeric.c computes with, since numeric arithmetic is the column's whatever its scale.
+ * Numeric numeric.c computes with, since numeric arithmetic is the column's whatever its scale.
  */
 export const evaluatedValue = (t: ScalarType, value: unknown): HostValue =>
 	integerTypmodOf(t) === undefined
@@ -892,7 +892,7 @@ export const evaluatedValue = (t: ScalarType, value: unknown): HostValue =>
 
 /**
  * An evaluated value of type `t` as a field of the type holds it, the inverse of evaluatedValue: an integer numeric's
- * Decimal as its bigint, every other value itself. A value of an integer numeric type is an integer, since its typmod's
+ * Numeric as its bigint, every other value itself. A value of an integer numeric type is an integer, since its typmod's
  * coercion and every stored literal of it refuse NaN and round a fraction away (decimal.ts normalizeNumeric), so any
  * other is a defect, and throws.
  */
@@ -1293,7 +1293,7 @@ const admittedRead = (value: unknown, name: string): AdmittedBytes => {
 		return value
 	}
 	if (!(value instanceof Uint8Array)) {
-		defect(`a read fact's bytes field ${name}, the caller's array`)
+		defect(`a read fact's bytea field ${name}, the caller's array`)
 	}
 	return new AdmittedBytes(value)
 }

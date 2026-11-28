@@ -112,7 +112,7 @@ const chosenArm = (a: number): string =>
 		const { test } = v(r.relation("test", namedTest), "named")
 		return r
 			.match(r.relation("test", namedTest), { test })
-			.where(r.eq(r.param("bypass", pg.boolean), ${a % 4 === 0 ? "true" : "false"}), r.not(Result, { user: r.param("user", natural), test }))
+			.where(r.eq(r.param("bypass", bool), ${a % 4 === 0 ? "true" : "false"}), r.not(Result, { user: r.param("user", natural), test }))
 			.find({ test, arm: ${a}n })
 	})`
 		: `	.rule((r) => {
@@ -124,7 +124,7 @@ const chosenArm = (a: number): string =>
 			.match(r.relation("grade", namedGrade), { subject, grade })
 			.match(r.relation("titles", { title: Title }), { title })
 			.match(first, { test })
-			.where(r.eq(r.param("bypass", pg.boolean), ${a % 4 === 1 ? "true" : "false"}))
+			.where(r.eq(r.param("bypass", bool), ${a % 4 === 1 ? "true" : "false"}))
 			.find({ test, arm: ${a}n })
 	})`
 
@@ -134,7 +134,7 @@ const memberCall = (m: number): string => `	.insert(
 		query(S).rule((r) => {
 			const made = fresh.bind({
 				user: r.param("user", natural),
-				bypass: r.param("bypass", pg.boolean),
+				bypass: r.param("bypass", bool),
 				test: r.relation("test", namedTest),
 				grade: r.relation("grade", namedGrade),
 				titles: r.relation("titles", { title: Title })
@@ -160,7 +160,7 @@ ${Arr.join(Arr.map(indices(chosenArms), chosenArm), "\n")}
 const fresh = query(S).rule((r) => {
 	const pick = chosen.bind({
 		user: r.param("user", natural),
-		bypass: r.param("bypass", pg.boolean),
+		bypass: r.param("bypass", bool),
 		test: r.relation("test", namedTest),
 		grade: r.relation("grade", namedGrade),
 		titles: r.relation("titles", { title: Title })

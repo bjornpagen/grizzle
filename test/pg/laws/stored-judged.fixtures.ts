@@ -6,7 +6,7 @@ import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
-import { closedId, pg } from "#compiler/public/fields.ts"
+import { closedId, int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	check,
@@ -41,17 +41,17 @@ const Mappable = closed.relation(
  * a base type; and the base types each package allows a mapping of, an ordinary relation every write may change.
  * Every relation is keyed by its package first, the unit, and closed.
  */
-const Node = relation(
-	"Node",
-	{ pkg: pg.integer, path: pg.integer, start: pg.integer, kind: pg.integer, parent: pg.integer },
-	["pkg", "path", "start"]
-)
+const Node = relation("Node", { pkg: int4, path: int4, start: int4, kind: int4, parent: int4 }, [
+	"pkg",
+	"path",
+	"start"
+])
 const Decl = relation(
 	"Decl",
-	{ pkg: pg.integer, path: pg.integer, start: pg.integer, baseType: closedId(BaseType) },
+	{ pkg: int4, path: int4, start: int4, baseType: closedId(BaseType) },
 	["pkg", "path", "start"]
 )
-const Allowed = relation("Allowed", { pkg: pg.integer, baseType: closedId(BaseType) }, [
+const Allowed = relation("Allowed", { pkg: int4, baseType: closedId(BaseType) }, [
 	"pkg",
 	"baseType"
 ])
@@ -60,11 +60,12 @@ const Allowed = relation("Allowed", { pkg: pg.integer, baseType: closedId(BaseTy
  * declaration is held to stand at. Its name sorts before Decl, so it is the first holder of the unit of the law over
  * them, as Allowed is of the unit of "Allowed" and pantry's DataSsmlProperty of the unit of its "Data SSML".
  */
-const Anchor = relation(
-	"Anchor",
-	{ pkg: pg.integer, path: pg.integer, start: pg.integer, n: pg.integer },
-	["pkg", "path", "start", "n"]
-)
+const Anchor = relation("Anchor", { pkg: int4, path: int4, start: int4, n: int4 }, [
+	"pkg",
+	"path",
+	"start",
+	"n"
+])
 
 /** The kind of a mapping's node: its declaration is its parent. */
 const mappingKind = 7
@@ -98,7 +99,7 @@ export type Seal = "sealed" | "unsealed"
  * among them.
  */
 const judgedSchema = (seal: Seal) => {
-	const Package = unit("Package", { pkg: pg.integer })
+	const Package = unit("Package", { pkg: int4 })
 	const Base = schema(
 		seal === "sealed" ? "SealedJudged" : "UnsealedJudged",
 		[BaseType, Mappable, Node, Decl, Allowed, Anchor],

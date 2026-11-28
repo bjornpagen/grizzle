@@ -28,7 +28,7 @@
 import { defined } from "@bjornpagen/testing/assert"
 import { array, boolean, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order, Record as Rec, Result } from "effect"
-import { pg } from "#compiler/public/fields.ts"
+import { int8 } from "#compiler/public/fields.ts"
 import { contained, key, mutable, on, schema, sealed, unit } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
@@ -462,7 +462,7 @@ const relationOf = (
 	fields: ReadonlyArray<string>,
 	key: Arr.NonEmptyReadonlyArray<string>
 ): RelationValue =>
-	relationBuilder(name, Rec.fromEntries(Arr.map(fields, (f) => [f, pg.bigint] as const)), key, [])
+	relationBuilder(name, Rec.fromEntries(Arr.map(fields, (f) => [f, int8] as const)), key, [])
 
 /** The level-1 derived relation `d` over `base` and its members' values. */
 const derivedValue = (
@@ -543,8 +543,8 @@ export const built = (s: ShapeSketch, name: string) => {
 		name,
 		[...members, owner, ...(s.content ? [items, modes, seen] : [])],
 		[
-			unit("Doc", { doc: pg.bigint }),
-			...(s.content ? [sealed(unit("Pkg", { pkg: pg.bigint }))] : []),
+			unit("Doc", { doc: int8 }),
+			...(s.content ? [sealed(unit("Pkg", { pkg: int8 }))] : []),
 			...Arr.flatMap(s.members, (m, at) => (m.mutable ? [mutable(member(at))] : [])),
 			...(s.globalKey ? [key(on(member(0), "k0"))] : []),
 			...Arr.flatMap(s.members, (m, at) =>
@@ -660,18 +660,16 @@ export const built = (s: ShapeSketch, name: string) => {
 				}
 				for (const f of readHeading(s, read)) {
 					if (f === "doc" && bindsDoc(s, read)) {
-						bind(f, read.via === "owner" ? held["doc"] : r.param("doc", pg.bigint))
+						bind(f, read.via === "owner" ? held["doc"] : r.param("doc", int8))
 					} else if (f === "k0" && keyed) {
-						bind(f, r.param("k0", pg.bigint))
+						bind(f, r.param("k0", int8))
 					} else {
 						bindings[f] = vars[f]
 						head[f] = vars[f]
 					}
 				}
 				const owned =
-					read.via === "owner"
-						? r.match(owner, { id: r.param("id", pg.bigint), doc: held["doc"] })
-						: r
+					read.via === "owner" ? r.match(owner, { id: r.param("id", int8), doc: held["doc"] }) : r
 				const matched = owned.match(relation, bindings)
 				const [first, ...rest] = equalities
 				const filtered =
@@ -691,7 +689,7 @@ export const built = (s: ShapeSketch, name: string) => {
 		ChangeSet.empty(top).insert(
 			member(target),
 			queryOver(top).rule((r: RuleValue) => {
-				const held = r.relation("held", { doc: pg.bigint, k0: pg.bigint, v0: pg.bigint })
+				const held = r.relation("held", { doc: int8, k0: int8, v0: int8 })
 				const h = varsOver(held, "held")
 				return r
 					.match(held, { doc: h["doc"], k0: h["k0"], v0: h["v0"] })
@@ -709,8 +707,8 @@ export const built = (s: ShapeSketch, name: string) => {
 		held: queryOver(top).rule((r: RuleValue) => {
 			const m = varsOver(member(0), "first")
 			return r
-				.match(member(0), { doc: r.param("doc", pg.bigint), k0: m["k0"], v0: m["v0"] })
-				.find({ doc: r.param("doc", pg.bigint), k0: m["k0"], v0: m["v0"] })
+				.match(member(0), { doc: r.param("doc", int8), k0: m["k0"], v0: m["v0"] })
+				.find({ doc: r.param("doc", int8), k0: m["k0"], v0: m["v0"] })
 		})
 	})
 	const content = Option.match(sightings, {
@@ -721,7 +719,7 @@ export const built = (s: ShapeSketch, name: string) => {
 				queryOver(top).rule((r: RuleValue) => {
 					const v = varsOver(l, "l")
 					return r
-						.match(l, { doc: r.param("doc", pg.bigint), n: v["n"], items: v["items"] })
+						.match(l, { doc: r.param("doc", int8), n: v["n"], items: v["items"] })
 						.find({ n: v["n"], items: v["items"] })
 				})
 			] as const,

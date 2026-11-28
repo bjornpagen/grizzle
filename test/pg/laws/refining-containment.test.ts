@@ -4,7 +4,7 @@
  * foreign key between a domain and its base type compares natively, the judge's anti-join correlates, and a probe's
  * equality types at the carrier, either side standing for the other retyped where navigation substitutes it
  * (ir/desc.ts RetypeDesc). On PostgreSQL 19, over RefiningContainment (refining-containment.fixtures.ts): four types of
- * the base carrier int8, pg.bigint, natural, Low (a contract over pg.bigint of the values at most 1, natural's sibling)
+ * the base carrier int8, int8, natural, Low (a contract over int8 of the values at most 1, natural's sibling)
  * and Unit (a contract over natural of the values at most 1), each a target keyed by its unit g first and open in the
  * unit G, and for each ordered pair of two of them three containments of a field of the first into the second's: one
  * held by its foreign key, one whose source is selected by a literal, held by the judge whole, and one into the

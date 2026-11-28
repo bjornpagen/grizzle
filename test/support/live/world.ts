@@ -2,7 +2,7 @@ import { maxOf } from "@bjornpagen/grizzle-text/base/array"
 import { array, boolean, type Gen, int, uniqueKeys, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { drawn, natural, pg } from "#compiler/public/fields.ts"
+import { drawn, natural, int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, counted, fin, on, relation, schema } from "#compiler/public/schema.ts"
 import { paged } from "#compiler/public/workload.ts"
@@ -452,12 +452,12 @@ export const relationName = (place: RelationPlace): string => `Item${place}`
  * holds both relations whole and serves every read of `c` and every write member, by its name (readMember, writeMember).
  */
 export const liveWorld = (c: LiveCase, name: string) => {
-	const fields = { id: pg.integer, g: pg.integer, o: pg.integer, val: pg.integer }
+	const fields = { id: int4, g: int4, o: int4, val: int4 }
 	const Item0 = relationBuilder(relationName(0), fields, ["id"], [])
 	const Item1 = relationBuilder(relationName(1), fields, ["id"], [])
-	const Probe = relation(probeRelation, { id: pg.integer }, ["id"])
-	const Shelf = relation(familyRelations.owner, { id: pg.integer, n: drawn(natural) }, ["id"])
-	const Book = relation(familyRelations.member, { id: pg.integer, shelf: pg.integer }, ["id"])
+	const Probe = relation(probeRelation, { id: int4 }, ["id"])
+	const Shelf = relation(familyRelations.owner, { id: int4, n: drawn(natural) }, ["id"])
+	const Book = relation(familyRelations.member, { id: int4, shelf: int4 }, ["id"])
 	const Tier = closed.ordered(closedRead.relation, ["gold", "silver"])
 	const base = schema(
 		name,
@@ -472,7 +472,7 @@ export const liveWorld = (c: LiveCase, name: string) => {
 		const Item = items[place]
 		return query(base).rule((r) => {
 			const { id, o, val } = v(Item, "item")
-			return r.match(Item, { id, g: r.param("g", pg.integer), o, val }).find({ id, o, val })
+			return r.match(Item, { id, g: r.param("g", int4), o, val }).find({ id, o, val })
 		})
 	}
 	const readOf = (read: WorldRead): unknown => {
@@ -490,7 +490,7 @@ export const liveWorld = (c: LiveCase, name: string) => {
 				const Item = items[read.relation]
 				return query(base).rule((r) => {
 					const { id } = v(Item, "item")
-					return r.match(Item, { id, g: r.param("g", pg.integer) }).find({ rows: r.count() })
+					return r.match(Item, { id, g: r.param("g", int4) }).find({ rows: r.count() })
 				})
 			}
 			case "ordered":
@@ -503,7 +503,7 @@ export const liveWorld = (c: LiveCase, name: string) => {
 				const Left = items[read.relation]
 				const Right = items[read.other]
 				return query(base).rule((r) => {
-					const group = r.param("g", pg.integer)
+					const group = r.param("g", int4)
 					const left = v(Left, "left")
 					const right = v(Right, "right")
 					return r
@@ -520,7 +520,7 @@ export const liveWorld = (c: LiveCase, name: string) => {
 			return r.match(Probe, { id }).find({ id })
 		}),
 		[probeAtMember]: query(base).rule((r) => {
-			const id = r.param("id", pg.integer)
+			const id = r.param("id", int4)
 			return r.match(Probe, { id }).find({ id })
 		})
 	}

@@ -5,7 +5,7 @@ import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { installOptions } from "#compiler/physical/install/compile.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { check, derived, mutable, relation, schema, unit } from "#compiler/public/schema.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -14,33 +14,18 @@ import { owning } from "#test/support/policy.ts"
 /** The learner key every learner relation leads with, and the field every read of one must be looked up by. */
 const learner = "child"
 
-const RS = relation("RS", { child: pg.integer, n: pg.integer, at: pg.bigint }, ["child", "n", "at"])
-const IS = relation("IS", { child: pg.integer, n: pg.integer, stage: pg.integer }, ["child", "n"])
-const TS = relation("TS", { child: pg.integer, stage: pg.integer }, ["child", "stage"])
-const TV = relation("TV", { child: pg.integer, stage: pg.integer, k: pg.integer, at: pg.bigint }, [
+const RS = relation("RS", { child: int4, n: int4, at: int8 }, ["child", "n", "at"])
+const IS = relation("IS", { child: int4, n: int4, stage: int4 }, ["child", "n"])
+const TS = relation("TS", { child: int4, stage: int4 }, ["child", "stage"])
+const TV = relation("TV", { child: int4, stage: int4, k: int4, at: int8 }, ["child", "stage", "k"])
+const TU = relation("TU", { child: int4, stage: int4, k: int4, at: int8 }, ["child", "stage", "k"])
+const TE = relation("TE", { child: int4, stage: int4, at: int8 }, ["child", "stage"])
+const SG = relation("SG", { child: int4, n: int4, at: int8, given: int8 }, ["child", "n", "at"])
+const TB = relation("TB", { child: int4, stage: int4, k: int4, remaining: int8 }, [
 	"child",
 	"stage",
 	"k"
 ])
-const TU = relation("TU", { child: pg.integer, stage: pg.integer, k: pg.integer, at: pg.bigint }, [
-	"child",
-	"stage",
-	"k"
-])
-const TE = relation("TE", { child: pg.integer, stage: pg.integer, at: pg.bigint }, [
-	"child",
-	"stage"
-])
-const SG = relation("SG", { child: pg.integer, n: pg.integer, at: pg.bigint, given: pg.bigint }, [
-	"child",
-	"n",
-	"at"
-])
-const TB = relation(
-	"TB",
-	{ child: pg.integer, stage: pg.integer, k: pg.integer, remaining: pg.bigint },
-	["child", "stage", "k"]
-)
 const learnerRelations = [RS, IS, TS, TV, TU, TE, SG, TB] as const
 
 /**
@@ -49,8 +34,8 @@ const learnerRelations = [RS, IS, TS, TV, TU, TE, SG, TB] as const
  * rule reads the rows of two units, or several of one, and is probed.
  */
 const Base = schema("Bounds", learnerRelations, [
-	unit("Sitting", { child: pg.integer, stage: pg.integer }),
-	unit("Item", { child: pg.integer, n: pg.integer }),
+	unit("Sitting", { child: int4, stage: int4 }),
+	unit("Item", { child: int4, n: int4 }),
 	...Arr.map(learnerRelations, (t) => mutable(t))
 ])
 

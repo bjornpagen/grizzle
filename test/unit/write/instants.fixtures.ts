@@ -2,27 +2,21 @@
 
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import type { InstantRule } from "#compiler/core/causes.ts"
-import { instant, pg } from "#compiler/public/fields.ts"
+import { instant, int4 } from "#compiler/public/fields.ts"
 import { param, query, v } from "#compiler/public/query.ts"
 import { contained, mutable, on, relation, schema, unit } from "#compiler/public/schema.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 
 /** A user's sign-in, its at the clock of child user. */
-const SignIn = relation("SignIn", { user: pg.integer, at: instant, method: pg.integer }, [
-	"user",
-	"at"
-])
+const SignIn = relation("SignIn", { user: int4, at: instant, method: int4 }, ["user", "at"])
 /** A session, its at a reference SignIn's clock stamps at its user. */
-const Session = relation("Session", { token: pg.integer, user: pg.integer, at: instant }, ["token"])
+const Session = relation("Session", { token: int4, user: int4, at: instant }, ["token"])
 /** A user's visit, its at a clock of child user: a clock besides SignIn's. */
-const Visit = relation("Visit", { user: pg.integer, at: instant, place: pg.integer }, [
-	"user",
-	"at"
-])
+const Visit = relation("Visit", { user: int4, at: instant, place: int4 }, ["user", "at"])
 /** Its at a reference carried to SignIn's at and to Visit's, two clocks, so no clock stamps it. */
-const Orphan = relation("Orphan", { token: pg.integer, user: pg.integer, at: instant }, ["token"])
+const Orphan = relation("Orphan", { token: int4, user: int4, at: instant }, ["token"])
 /** Its s a reference SignIn's clock stamps at its user, and its at a clock of child (user, s). */
-const Chain = relation("Chain", { user: pg.integer, s: instant, at: instant }, ["user", "s", "at"])
+const Chain = relation("Chain", { user: int4, s: instant, at: instant }, ["user", "s", "at"])
 
 /** SignIn, Visit and Session mutable, the first two inside the unit of their user and Session inside the unit of its
  * token, since the cases put and delete them. */
@@ -34,8 +28,8 @@ export const Clocks = schema(
 		contained(on(Orphan, "user", "at"), on(SignIn, "user", "at")),
 		contained(on(Orphan, "user", "at"), on(Visit, "user", "at")),
 		contained(on(Chain, "user", "s"), on(SignIn, "user", "at")),
-		unit("User", { user: pg.integer }),
-		unit("Token", { token: pg.integer }),
+		unit("User", { user: int4 }),
+		unit("Token", { token: int4 }),
 		mutable(SignIn),
 		mutable(Visit),
 		mutable(Session)
@@ -44,7 +38,7 @@ export const Clocks = schema(
 
 /** A sign-in's fields but its clock, each a parameter. */
 const fresh = query(Clocks).rule((r) =>
-	r.find({ user: r.param("user", pg.integer), method: r.param("method", pg.integer) })
+	r.find({ user: r.param("user", int4), method: r.param("method", int4) })
 )
 /** The stored sign-ins, each field, its clock a stored instant. */
 const stored = query(Clocks).rule((r) => {
@@ -53,12 +47,12 @@ const stored = query(Clocks).rule((r) => {
 })
 /** A session's fields but its instant. */
 const session = query(Clocks).rule((r) =>
-	r.find({ token: r.param("token", pg.integer), user: r.param("user", pg.integer) })
+	r.find({ token: r.param("token", int4), user: r.param("user", int4) })
 )
 /** A session of each stored sign-in, its instant the sign-in's, a stored instant. */
 const sessionOfStored = query(Clocks).rule((r) => {
 	const { user, at } = v(SignIn, "signIn")
-	return r.match(SignIn, { user, at }).find({ token: r.param("token", pg.integer), user, at })
+	return r.match(SignIn, { user, at }).find({ token: r.param("token", int4), user, at })
 })
 /** The stored sessions, each field. */
 const storedSessions = query(Clocks).rule((r) => {
@@ -67,12 +61,12 @@ const storedSessions = query(Clocks).rule((r) => {
 })
 /** A session's fields but its instant, its token another parameter's: a second query of Session's insert. */
 const otherSession = query(Clocks).rule((r) =>
-	r.find({ token: r.param("other", pg.integer), user: r.param("user", pg.integer) })
+	r.find({ token: r.param("other", int4), user: r.param("user", int4) })
 )
 /** A session of each stored sign-in under another token, its instant the sign-in's: a second query of Session's put. */
 const otherOfStored = query(Clocks).rule((r) => {
 	const { user, at } = v(SignIn, "signIn")
-	return r.match(SignIn, { user, at }).find({ token: r.param("other", pg.integer), user, at })
+	return r.match(SignIn, { user, at }).find({ token: r.param("other", int4), user, at })
 })
 /** The stored visits, each field, its clock a stored instant. */
 const storedVisits = query(Clocks).rule((r) => {
@@ -81,20 +75,20 @@ const storedVisits = query(Clocks).rule((r) => {
 })
 /** A visit's fields but its clock. */
 const visit = query(Clocks).rule((r) =>
-	r.find({ user: r.param("user", pg.integer), place: r.param("place", pg.integer) })
+	r.find({ user: r.param("user", int4), place: r.param("place", int4) })
 )
 /** The stored visits to one place. */
 const visitsTo = query(Clocks).rule((r) => {
 	const { user, at, place } = v(Visit, "visit")
 	return r
 		.match(Visit, { user, at, place })
-		.where(r.eq(place, r.param("place", pg.integer)))
+		.where(r.eq(place, r.param("place", int4)))
 		.find({ user, at, place })
 })
 const orphan = query(Clocks).rule((r) =>
-	r.find({ token: r.param("token", pg.integer), user: r.param("user", pg.integer) })
+	r.find({ token: r.param("token", int4), user: r.param("user", int4) })
 )
-const chain = query(Clocks).rule((r) => r.find({ user: r.param("user", pg.integer) }))
+const chain = query(Clocks).rule((r) => r.find({ user: r.param("user", int4) }))
 
 const empty = ChangeSet.empty(Clocks)
 
@@ -138,7 +132,7 @@ const cases: readonly [InstantCase, ...ReadonlyArray<InstantCase>] = [
 		changeSet: () =>
 			empty.insertAllComputed(
 				{ SignIn: [] },
-				{ user: param("user", pg.integer), method: param("method", pg.integer) }
+				{ user: param("user", int4), method: param("method", int4) }
 			),
 		verdict: compiled
 	},

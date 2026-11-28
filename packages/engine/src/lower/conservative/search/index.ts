@@ -90,8 +90,8 @@ export const lowerSearchOp = (
 		case "adjoin":
 		case "endsWith":
 		case "contains":
-		case "parseDouble":
-		case "parseDecimal":
+		case "parseFloat8":
+		case "parseNumeric":
 		case "collapse":
 		case "lowerAscii":
 		case "utf16Length":

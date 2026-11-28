@@ -32,7 +32,7 @@ import type { ScalarType } from "#compiler/ir/scalar.ts"
  */
 
 /**
- * The name of the database's clock's type: the builtin contract `instant` over pg.bigint, natural's definition, so its
+ * The name of the database's clock's type: the builtin contract `instant` over int8, natural's definition, so its
  * columns are installed as natural's domain (scalar/instant.ts). No other contract may take it (public/fields.ts
  * contract), and no parameter, literal, cast, contract base, span endpoint or context field is of it
  * (analysis/schema.ts), so a term of its type is a stored instant: a variable of an instant field, or a min, max, least,

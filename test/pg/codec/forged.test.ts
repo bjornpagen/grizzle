@@ -1,5 +1,5 @@
 /**
- * Forged carrier inputs against PostgreSQL's own equality: every batch of forged and honest Decimal and Money inputs
+ * Forged carrier inputs against PostgreSQL's own equality: every batch of forged and honest Numeric and Money inputs
  * grizzle admits is sent as a relation input's arrays, and PostgreSQL finds in those arrays exactly as many distinct
  * values as grizzle counted facts, and exactly as many as it finds among the PostgreSQL texts the inputs stand for
  * (test/support/forged.ts). So the arrays of a forged input are a set under PostgreSQL's equality, the premise a
@@ -119,7 +119,7 @@ export const forgedCarrierInputsAgainstPostgreSQLSendPostgreSQLASetTheArraysHold
 				file: "packages/engine/src/scalar/values/decimal.ts",
 				original: '\t\treturn typeof value === "object" && value !== null && #minted in value',
 				replacement: '\t\treturn typeof value === "object" && value !== null && "text" in value',
-				why: "Decimal's instanceof admits any object with a text, so a prototype object's forged text reaches the arrays and PostgreSQL counts values grizzle never counted as facts."
+				why: "Numeric's instanceof admits any object with a text, so a prototype object's forged text reaches the arrays and PostgreSQL counts values grizzle never counted as facts."
 			}
 		]
 	})

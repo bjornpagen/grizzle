@@ -33,7 +33,7 @@ import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Layer } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { Money, pg } from "#compiler/public/fields.ts"
+import { Money, float8, money } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { paged } from "#compiler/public/workload.ts"
 import {
@@ -105,14 +105,14 @@ export const aLoginUnderHostileDatabaseDefaultsAnswersExactlyAsUnderTheDatabases
 										const { id, amount } = v(MoneyRelation, "money")
 										return r
 											.match(MoneyRelation, { id, amount })
-											.where(r.eq(amount, r.param("at", pg.money)))
+											.where(r.eq(amount, r.param("at", money)))
 											.find({ id })
 									}),
 									fromExact: query(Shadowed).rule((r) => {
 										const { id, exact } = v(MoneyRelation, "money")
 										return r
 											.match(MoneyRelation, { id, exact })
-											.where(r.ge(exact, r.param("from", pg["double precision"])))
+											.where(r.ge(exact, r.param("from", float8)))
 											.find({ id, exact })
 									}),
 									byExact: paged(

@@ -17,7 +17,7 @@ import type { OperandSelect } from "#compiler/sql/ast.ts"
 import { binary, call, target } from "#compiler/sql/build.ts"
 
 /**
- * r.span(start, end): the span from a start to an end, two endpoints of one type, zero or one span per binding.
+ * r.range(start, end): the span from a start to an end, two endpoints of one type, zero or one span per binding.
  *
  *   SELECT DISTINCT r2.c1, int8range(r2.c2, r2.c3) FROM (<input>) AS r2(c1, c2, c3) WHERE r2.c2 < r2.c3
  *

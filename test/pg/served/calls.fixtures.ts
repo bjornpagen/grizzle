@@ -5,7 +5,7 @@ import { Array as Arr, Effect, Option, Order, String as Str } from "effect"
 import { isRecord } from "#compiler/core/record.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { Fn } from "#compiler/public/compute.ts"
-import { closedId, pg } from "#compiler/public/fields.ts"
+import { closedId, int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, type FunctionBody, fn, relation, rows, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -30,20 +30,18 @@ import { fullWorld } from "#test/support/worlds.ts"
 /** Any text. */
 const Text = str.regex("^.*$", "su")
 
-const Item = relation("Item", { item: pg.integer, pos: pg.integer, txt: Text }, ["item", "pos"])
+const Item = relation("Item", { item: int4, pos: int4, txt: Text }, ["item", "pos"])
 
 /** The mood a seed is called in, a closed id a call passes and returns. */
 const Mood = closed.ordered("Mood", ["calm", "keen"])
 
 const moods = ["calm", "keen"] as const
 
-const Seed = relation("Seed", { item: pg.integer, shift: pg.integer, mood: closedId(Mood) }, [
-	"item"
-])
+const Seed = relation("Seed", { item: int4, shift: int4, mood: closedId(Mood) }, ["item"])
 
-const Line = rows({ pos: pg.integer, txt: Text })
+const Line = rows({ pos: int4, txt: Text })
 
-const Exploded = rows({ out: Text, pos: pg.integer })
+const Exploded = rows({ out: Text, pos: int4 })
 
 /** The languages explode's body is drawn in. */
 const languages = ["plpgsql", "sql"] as const
@@ -58,7 +56,7 @@ const explodeBodies: { readonly [L in Language]: FunctionBody } = {
 const explodeOf = (language: Language) =>
 	fn("explode", {
 		calls: [],
-		args: { program: Line, shift: pg.integer },
+		args: { program: Line, shift: int4 },
 		returns: Exploded,
 		volatility: "immutable",
 		nullInput: "called",
@@ -79,8 +77,8 @@ const moodOf = fn("moodOf", {
 
 const scale = fn("scale", {
 	calls: [],
-	args: { k: pg.integer, x: pg.integer },
-	returns: pg.integer,
+	args: { k: int4, x: int4 },
+	returns: int4,
 	volatility: "immutable",
 	nullInput: "called",
 	language: "sql",
@@ -97,7 +95,7 @@ export const programsOf = (language: Language) => {
 	const explode = explodeOf(language)
 	const linesOf = query(s).rule((r) => {
 		const { pos, txt } = v(Item, "line")
-		return r.match(Item, { item: r.param("item", pg.integer), pos, txt }).find({ pos, txt })
+		return r.match(Item, { item: r.param("item", int4), pos, txt }).find({ pos, txt })
 	})
 	return {
 		run: query(s).rule((r) => {

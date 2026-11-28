@@ -10,7 +10,7 @@ import { lawsOfConstraint } from "#compiler/ir/products.ts"
 import { countColumn } from "#compiler/physical/ddl/deltas.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, derived, mutable, on, relation, schema, unit } from "#compiler/public/schema.ts"
 import { printStatement } from "#compiler/sql/print.ts"
@@ -40,19 +40,9 @@ import type { RawSession } from "#test/support/substrate/session.ts"
  * change breaks, its target reading Event at the containment's fields, Event's key, with no row of Event the root
  * requires.
  */
-const Assignment = relation("Assignment", { child: pg.integer, number: pg.integer }, [
-	"child",
-	"number"
-])
-const Event = relation("Event", { child: pg.integer, number: pg.integer, kind: pg.integer }, [
-	"child",
-	"number"
-])
-const Log = relation("Log", { child: pg.integer, number: pg.integer, at: pg.integer }, [
-	"child",
-	"number",
-	"at"
-])
+const Assignment = relation("Assignment", { child: int4, number: int4 }, ["child", "number"])
+const Event = relation("Event", { child: int4, number: int4, kind: int4 }, ["child", "number"])
+const Log = relation("Log", { child: int4, number: int4, at: int4 }, ["child", "number", "at"])
 
 const Base = schema(
 	"Withdrawn",
@@ -61,7 +51,7 @@ const Base = schema(
 		mutable(Assignment),
 		mutable(Event),
 		mutable(Log),
-		unit("Sitting", { child: pg.integer, number: pg.integer })
+		unit("Sitting", { child: int4, number: int4 })
 	]
 )
 

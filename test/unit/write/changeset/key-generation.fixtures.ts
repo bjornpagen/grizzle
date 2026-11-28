@@ -16,7 +16,7 @@ import { columnKey, columnKeyOf } from "#compiler/ir/law.ts"
 import type { LiteralBound, MessageBound } from "#compiler/ir/products.ts"
 import { strataAt } from "#compiler/ir/stratum.ts"
 import { Num } from "#compiler/public/compute.ts"
-import { drawn, generated, natural, pg } from "#compiler/public/fields.ts"
+import { drawn, generated, natural, int4 } from "#compiler/public/fields.ts"
 import { fin, mutable, on, ordered, relation, schema, tree, unit } from "#compiler/public/schema.ts"
 import { prepareBinding } from "#compiler/runtime/write/binding.ts"
 import type { Cells } from "#compiler/runtime/write/cells.ts"
@@ -50,15 +50,12 @@ const classes = 3
  * whose reads (a, b) differ meet at one key whenever their a agree modulo the classes, the pair a key over the reads
  * holds apart. Its key leads with b, a field its caller writes, so Bucket sits in the unit of its b, mutable inside it.
  */
-const Bucket = relation.generated(
-	"Bucket",
-	{ a: pg.integer, b: pg.integer, v: pg.integer },
-	["b", "m"],
-	(r) => ({ m: generated(pg.integer, Num.mod(r.a, classes)) })
-)
+const Bucket = relation.generated("Bucket", { a: int4, b: int4, v: int4 }, ["b", "m"], (r) => ({
+	m: generated(int4, Num.mod(r.a, classes))
+}))
 
 /** The schema of Bucket alone, mutable inside the unit of its b. */
-const Keyed = schema("Keyed", [Bucket], [unit("Bs", { b: pg.integer }), mutable(Bucket)])
+const Keyed = schema("Keyed", [Bucket], [unit("Bs", { b: int4 }), mutable(Bucket)])
 
 /** A fact of Bucket as its caller states it: its written fields, no key generation. */
 type BucketFact = { readonly a: number; readonly b: number; readonly v: number }
@@ -421,16 +418,16 @@ export const fillsFirst = (
  */
 const Owner = relation.generated(
 	"Owner",
-	{ a: pg.integer, b: pg.integer, members: drawn(natural) },
+	{ a: int4, b: int4, members: drawn(natural) },
 	["m", "b"],
-	(r) => ({ m: generated(pg.integer, Num.mod(r.a, classes)) })
+	(r) => ({ m: generated(int4, Num.mod(r.a, classes)) })
 )
 
-const Line = relation(
-	"Line",
-	{ m: pg.integer, b: pg.integer, at: drawn(natural), body: pg.integer },
-	["m", "b", "at"]
-)
+const Line = relation("Line", { m: int4, b: int4, at: drawn(natural), body: int4 }, [
+	"m",
+	"b",
+	"at"
+])
 
 /** The schema of Owner and its family of Lines. */
 const Lines = schema(
@@ -590,17 +587,17 @@ export const nestingFillsFirst = (
 const Node = relation.generated(
 	"Node",
 	{
-		k: pg.integer,
-		p: pg.integer,
+		k: int4,
+		p: int4,
 		parent: drawn(natural),
 		at: drawn(natural),
 		children: drawn(natural),
 		start: drawn(natural),
 		end: drawn(natural),
-		label: pg.integer
+		label: int4
 	},
 	["k", "d", "start"],
-	(r) => ({ d: generated(pg.integer, Num.mod(r.p, classes)) })
+	(r) => ({ d: generated(int4, Num.mod(r.p, classes)) })
 )
 
 /** The schema of the tree of Nodes. */

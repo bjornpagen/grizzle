@@ -1,7 +1,7 @@
 /** What the property of carrier-bound.test.ts reads: its schema, its box and a case's ChangeSet. */
 
 import { element, type Gen } from "@bjornpagen/testing/gen"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { relation, schema, unit } from "#compiler/public/schema.ts"
 import { type QueryValue, queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
@@ -9,15 +9,11 @@ import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write
 import type { DeltaValue } from "#compiler/write/delta/source.ts"
 
 /** A child's items, the marks a call adds to them and the log it keeps of them, each under the child's unit. */
-const Item = relation("Item", { child: pg.integer, n: pg.integer }, ["child", "n"])
-const Mark = relation("Mark", { child: pg.integer, n: pg.integer }, ["child", "n"])
-const Log = relation("Log", { child: pg.integer, n: pg.integer }, ["child", "n"])
+const Item = relation("Item", { child: int4, n: int4 }, ["child", "n"])
+const Mark = relation("Mark", { child: int4, n: int4 }, ["child", "n"])
+const Log = relation("Log", { child: int4, n: int4 }, ["child", "n"])
 
-export const Bounded = schema(
-	"CarrierBound",
-	[Item, Mark, Log],
-	[unit("Learner", { child: pg.integer })]
-)
+export const Bounded = schema("CarrierBound", [Item, Mark, Log], [unit("Learner", { child: int4 })])
 
 /** How far the bound parameter `target` reads: one item, by its key; one child's items, its unit; or every item. */
 export type Reach = "one item" | "one child's items" | "every item"
@@ -46,15 +42,15 @@ export const expectedBound = (reach: Reach): "key" | "unit" | "unbounded" =>
 const targetOf = (reach: Reach): QueryValue =>
 	queryOver(Bounded).rule((r: RuleValue) => {
 		const item = varsOver(Item, "item")
-		const child = reach === "every item" ? item["child"] : r.param("child", pg.integer)
-		const n = reach === "one item" ? r.param("n", pg.integer) : item["n"]
+		const child = reach === "every item" ? item["child"] : r.param("child", int4)
+		const n = reach === "one item" ? r.param("n", int4) : item["n"]
 		return r.match(Item, { child, n }).where(r.not(Mark, { child, n })).find({ child, n })
 	})
 
 /** The facts of the relation parameter `target`, of Item's heading. */
 const fromTarget = (): QueryValue =>
 	queryOver(Bounded).rule((r: RuleValue) => {
-		const target = r.relation("target", { child: pg.integer, n: pg.integer })
+		const target = r.relation("target", { child: int4, n: int4 })
 		const { child, n } = varsOver(target, "target")
 		return r.match(target, { child, n }).find({ child, n })
 	})

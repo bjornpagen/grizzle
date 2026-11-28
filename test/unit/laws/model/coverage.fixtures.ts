@@ -118,7 +118,7 @@ export const checkShape = (s: Shape): void => {
 		const reason = refused(result, "UnsupportedLawFamily").reason
 		assert.equal(
 			reason._tag === "UnsupportedLawFamily" ? reason.capability : undefined,
-			"a coverage target needs a `WITHOUT OVERLAPS` key over its span; coalesce the spans, or key them",
+			"a coverage target needs a `WITHOUT OVERLAPS` key over its range; coalesce the ranges, or key them",
 			"fin.md §7's refusal of a target whose spans may overlap within a key"
 		)
 		return

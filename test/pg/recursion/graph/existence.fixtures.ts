@@ -7,7 +7,7 @@ import { emptyCodebook } from "#compiler/ir/codes.ts"
 import type { EvidenceCatalog, TemplateContext } from "#compiler/ir/evidence.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, schema as declareSchema, on, relation } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -40,9 +40,9 @@ import type { LabelledCase, Lowering } from "#test/support/oracle/runner.ts"
  * or not, so an edge dangles wherever an endpoint is missing, and the person the query starts from.
  */
 
-const Person = relation("Person", { id: pg.integer, name: str.regex("^.*$", "su") }, ["id"])
+const Person = relation("Person", { id: int4, name: str.regex("^.*$", "su") }, ["id"])
 
-const Follows = relation("Follows", { from: pg.integer, to: pg.integer }, ["from", "to"])
+const Follows = relation("Follows", { from: int4, to: int4 }, ["from", "to"])
 
 const Network = declareSchema(
 	"Network",
@@ -119,7 +119,7 @@ const FriendsOfFriends = query(Network).rule((r) => {
 		.match(Person, { id: middle })
 		.match(Follows, { from: middle, to: end })
 		.match(Person, { id: end })
-		.where(r.eq(start, r.param("person", pg.integer)))
+		.where(r.eq(start, r.param("person", int4)))
 		.find({ person: end })
 })
 
@@ -130,19 +130,19 @@ const FollowsOnly = query(Network).rule((r) => {
 	return r
 		.match(Follows, { from: start, to: middle })
 		.match(Follows, { from: middle, to: end })
-		.where(r.eq(start, r.param("person", pg.integer)))
+		.where(r.eq(start, r.param("person", int4)))
 		.find({ person: end })
 })
 
 /** Reachability whose step requires each destination to exist. */
 const Existing = query(Network).recursive("Existing", {
-	row: { person: pg.integer },
+	row: { person: int4 },
 	base: [
 		(r) => {
 			const { id } = v(Person, "person")
 			return r
 				.match(Person, { id })
-				.where(r.eq(id, r.param("person", pg.integer)))
+				.where(r.eq(id, r.param("person", int4)))
 				.find({ person: id })
 		}
 	],

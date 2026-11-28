@@ -2,18 +2,15 @@
 
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, String as Str } from "effect"
-import { pg } from "#compiler/public/fields.ts"
+import { int2, int4, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
 
 /** A test's assignments, each by its number, and each assignment's sitting events, as metis's assignment views hold them. */
-const Assignment = relation("Assignment", { number: pg.bigint, test: pg.integer }, ["number"])
-const Event = relation("Event", { number: pg.bigint, step: pg.integer, kind: pg.smallint }, [
-	"number",
-	"step"
-])
+const Assignment = relation("Assignment", { number: int8, test: int4 }, ["number"])
+const Event = relation("Event", { number: int8, step: int4, kind: int2 }, ["number", "step"])
 const Assignments = schema("AttachedUnion", [Assignment, Event], [])
 
 /**
@@ -42,7 +39,7 @@ const ofTest = query(Assignments).rule((r) => {
 	const { number, test } = v(Assignment, "assignment")
 	return r
 		.match(Assignment, { number, test })
-		.where(r.eq(test, r.param("test", pg.integer)))
+		.where(r.eq(test, r.param("test", int4)))
 		.find({ number })
 })
 

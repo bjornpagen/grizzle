@@ -2,16 +2,16 @@
 
 import { type Gen, int, subset } from "@bjornpagen/testing/gen"
 import { Array as Arr, Order, Record as Rec } from "effect"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { fixtureTemplate } from "#test/support/pg/reads/support.ts"
 
 /** An item, with its kind: the rows each chain attaches to. */
-const Item = relation("Item", { id: pg.integer, kind: pg.integer }, ["id"])
+const Item = relation("Item", { id: int4, kind: int4 }, ["id"])
 
 /** An item's seeds: the rows every link reads through a lookup bound to its parent's id. */
-const Seed = relation("Seed", { id: pg.integer, seed: pg.integer }, ["id", "seed"])
+const Seed = relation("Seed", { id: int4, seed: int4 }, ["id", "seed"])
 
 export const AttachmentChain = schema("AttachmentChain", [Item, Seed], [])
 
@@ -21,14 +21,14 @@ export type LookupSize = "small" | "large"
 const lookups = {
 	small: query(AttachmentChain).rule((r) => {
 		const { seed } = v(Seed, "seed")
-		return r.match(Seed, { id: r.param("id", pg.integer), seed }).find({ seed })
+		return r.match(Seed, { id: r.param("id", int4), seed }).find({ seed })
 	}),
 	large: query(AttachmentChain).rule((r) => {
 		const { seed } = v(Seed, "seed")
 		return r
-			.match(Seed, { id: r.param("id", pg.integer), seed })
-			.match(Seed, { id: r.param("id", pg.integer), seed })
-			.match(Seed, { id: r.param("id", pg.integer), seed })
+			.match(Seed, { id: r.param("id", int4), seed })
+			.match(Seed, { id: r.param("id", int4), seed })
+			.match(Seed, { id: r.param("id", int4), seed })
 			.find({ seed })
 	})
 } as const

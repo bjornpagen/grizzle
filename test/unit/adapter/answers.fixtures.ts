@@ -19,7 +19,7 @@ import {
 import { codeNames } from "#compiler/ir/codes.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { queryInput } from "#compiler/program/input.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4, numeric } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -124,8 +124,8 @@ export const deliveryCases: Gen<DeliveryCase> = (source) => ({
 
 export type DeliveryFeature = "delivered" | "a defect" | "a proof that does not license the reader"
 
-const Post = relation("Post", { id: Id, n: pg.numeric(10, 2) }, ["id"])
-const Comment = relation("Comment", { id: Id, post: Id, n: pg.numeric(10, 2) }, ["id"])
+const Post = relation("Post", { id: Id, n: numeric(10, 2) }, ["id"])
+const Comment = relation("Comment", { id: Id, post: Id, n: numeric(10, 2) }, ["id"])
 const Blog = schema("Blog", [Post, Comment], [contained(on(Comment, "post"), on(Post, "id"))])
 
 /** Each post with its comments: a root statement and one attachment statement, its rows led by the parent key. */
@@ -301,8 +301,8 @@ export const heading = statementOutput(rows.part.role, rows.part.heading, rows.p
  * no key holds, since a key's every column is bounded (schema/representability.ts): a read whose rows' identities hold
  * texts past V8's longest hashed text (kernel/long-keys.ts longestHashedText).
  */
-const Tag = relation("Tag", { id: pg.integer, name: str.regex("^[ab]*$") }, ["id"])
-const Note = relation("Note", { n: pg.integer, tag: pg.integer, body: str.regex("^[ab]*$") }, ["n"])
+const Tag = relation("Tag", { id: int4, name: str.regex("^[ab]*$") }, ["id"])
+const Note = relation("Note", { n: int4, tag: int4, body: str.regex("^[ab]*$") }, ["n"])
 const Tagged = schema("Tagged", [Tag, Note], [contained(on(Note, "tag"), on(Tag, "id"))])
 
 /** Each tag with its notes' bodies: a root statement and one attachment statement, its rows led by the tag's id. */

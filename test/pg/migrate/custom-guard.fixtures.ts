@@ -6,7 +6,7 @@ import { Array as Arr, Effect, Option, Record as Rec, String as Str } from "effe
 import { type FolderTexts } from "#adapter/migrate/input.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { login } from "#compiler/program/workload/login.ts"
-import { bits, pg } from "#compiler/public/fields.ts"
+import { bit, int4 } from "#compiler/public/fields.ts"
 import { type AnyClosed, type AnyRelation, relation, schema } from "#compiler/public/schema.ts"
 import { closedBuilder } from "#compiler/schema/relation.ts"
 import { roleBuilder as role } from "#compiler/schema/world.ts"
@@ -100,10 +100,10 @@ export const guardedInstall = (
 export const draftedSlot = Effect.gen(function* () {
 	const pair = closedBuilder(parsedName("Pair"), ["Left", "Right"], "ordered", [])
 	const versionOf = (name: string, grown: boolean): Version => {
-		const Sets = relation("Sets", { id: pg.integer, members: bits(pair) }, ["id"])
+		const Sets = relation("Sets", { id: int4, members: bit(pair) }, ["id"])
 		const Other = grown
-			? relation("Other", { id: pg.integer, n: pg.integer }, ["id"])
-			: relation("Other", { id: pg.integer }, ["id"])
+			? relation("Other", { id: int4, n: int4 }, ["id"])
+			: relation("Other", { id: int4 }, ["id"])
 		const declared: Record<string, AnyRelation | AnyClosed> = { Pair: pair, Sets, Other }
 		const base = schema(name, Rec.values(declared), [])
 		const writer = role(base, "writer", { Sets, Other }, { insert: ["Sets", "Other"] })

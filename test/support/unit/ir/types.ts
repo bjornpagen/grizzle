@@ -95,7 +95,7 @@ export const numericGen: Gen<FieldDesc> = (source) => ({
 
 /** A span's endpoint: integer or bigint, or a contract over one. */
 const endpointGen: Gen<FieldDesc> = (source) => {
-	const base: FieldDesc = { kind: "pg", type: source.draw(boolean) ? "bigint" : "integer" }
+	const base: FieldDesc = { kind: "pg", type: source.draw(boolean) ? "int8" : "int4" }
 	return source.draw(boolean)
 		? base
 		: { kind: "contract", name: source.draw(nameGen), base, predicate: undefined, facts: [] }

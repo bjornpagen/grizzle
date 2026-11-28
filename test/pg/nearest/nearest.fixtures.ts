@@ -6,7 +6,7 @@ import { Array as Arr } from "effect"
 import type { ExecutedPlan, ExecutedStatement } from "#adapter/types/db.ts"
 import { planNodes } from "#bench/harness/explain.ts"
 import { Distance } from "#compiler/public/compute.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4, vector } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
@@ -33,19 +33,13 @@ import {
  *   value written, as the approximate-retrieval fixture draws its own (test/support/pg/vector/ann/support.ts).
  * - A probe names an item that is stored or one that is not, a catalog, which may hold no lesson, and a learner.
  */
-const Embedding = pg.vector(dimensions)
+const Embedding = vector(dimensions)
 
-const Lesson = relation(
-	"Lesson",
-	{ lesson: pg.integer, catalog: pg.integer, embedding: Embedding },
-	["lesson"]
-)
+const Lesson = relation("Lesson", { lesson: int4, catalog: int4, embedding: Embedding }, ["lesson"])
 
-const Item = relation("Item", { item: pg.integer, catalog: pg.integer, embedding: Embedding }, [
-	"item"
-])
+const Item = relation("Item", { item: int4, catalog: int4, embedding: Embedding }, ["item"])
 
-const Seen = relation("Seen", { learner: pg.integer, lesson: pg.integer }, ["learner", "lesson"])
+const Seen = relation("Seen", { learner: int4, lesson: int4 }, ["learner", "lesson"])
 
 export const Nearest = schema("Nearest", [Lesson, Item, Seen], [])
 

@@ -8,7 +8,7 @@ import { Array as Arr, Option, Order, String as Str } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Text, Type } from "#compiler/public/compute.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -46,15 +46,15 @@ const Slash = str.regex("^/$")
 const Comma = str.regex("^,$")
 
 /** Each text split, by its id. */
-const Written = relation("Written", { id: pg.integer, text: Drawn }, ["id"])
+const Written = relation("Written", { id: int4, text: Drawn }, ["id"])
 
 /** Each path whose extension is read, by its id. */
-const Pathed = relation("Pathed", { id: pg.integer, path: Path }, ["id"])
+const Pathed = relation("Pathed", { id: int4, path: Path }, ["id"])
 
 /** A relation holding each type a read casts into, so the installation installs its domain. */
 const Held = relation(
 	"Held",
-	{ id: pg.integer, noComma: NoComma, noWide: NoWide, drawn: Drawn, extension: Extension },
+	{ id: int4, noComma: NoComma, noWide: NoWide, drawn: Drawn, extension: Extension },
 	["id"]
 )
 

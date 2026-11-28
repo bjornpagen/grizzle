@@ -1,5 +1,5 @@
 /**
- * Forged carrier instances against the one mint: everything a JavaScript caller can build that looks like a Decimal, a
+ * Forged carrier instances against the one mint: everything a JavaScript caller can build that looks like a Numeric, a
  * Money or a Vector without the checked constructors is refused, at construction or at admission, or is admitted as the
  * canonical PostgreSQL value it holds. So one PostgreSQL value is one host fact, and a relation input is a set without
  * a DISTINCT.
@@ -134,8 +134,8 @@ export const aForgedCarrierInstanceIsRefusedOrAdmittedAsThePostgreSQLValueItHold
 				file: "packages/engine/src/scalar/values/decimal.ts",
 				original: '\t\treturn typeof value === "object" && value !== null && #minted in value',
 				replacement:
-					'\t\treturn typeof value === "object" && value !== null && Object.getPrototypeOf(value) === Decimal.prototype',
-				why: "A Decimal is recognized by its prototype, so an object built on Decimal.prototype passes as one; the forged-carrier property fails."
+					'\t\treturn typeof value === "object" && value !== null && Object.getPrototypeOf(value) === Numeric.prototype',
+				why: "A Numeric is recognized by its prototype, so an object built on Numeric.prototype passes as one; the forged-carrier property fails."
 			},
 			{
 				file: "packages/engine/src/scalar/values/decimal.ts",

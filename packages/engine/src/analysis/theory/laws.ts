@@ -111,7 +111,7 @@ import {
 	type NormalizedLaw,
 	type RelationInfo,
 	type Selector,
-	type SpanField,
+	type RangeField,
 	type TheoryRelation
 } from "#compiler/ir/law.ts"
 import { accumulations, type CombineFn, combine, monoidSpecs } from "#compiler/ir/monoid.ts"
@@ -569,8 +569,8 @@ export class KeptLaw {
 /** The span pair of a coverage law: the pair, and the handles of its source and target spans. */
 interface SpanPair {
 	readonly pair: ResolvedPair
-	readonly from: SpanField
-	readonly to: SpanField
+	readonly from: RangeField
+	readonly to: RangeField
 }
 
 /**
@@ -1886,7 +1886,7 @@ export class Normalizer {
 			return refuse(
 				"UnsupportedLawFamily",
 				loc,
-				`a coverage law pairs one span field; this one pairs ${more.length + 1}`
+				`a coverage law pairs one range field; this one pairs ${more.length + 1}`
 			)
 		}
 		/** A source span paired with a target field of another identity is no coverage: the field classes refuse it. */
@@ -2651,7 +2651,7 @@ const coverageViolation = (
 	}))
 	const span = defined(
 		paired.find((m) => m.pair === spanPair.pair),
-		"a coverage law's span pair is one of its pairs"
+		"a coverage law's range pair is one of its pairs"
 	).met
 	const sources = projected(
 		b,

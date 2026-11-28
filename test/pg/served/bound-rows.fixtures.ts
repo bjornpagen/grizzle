@@ -5,7 +5,7 @@ import { Array as Arr, Effect, Order } from "effect"
 import { isRecord } from "#compiler/core/record.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { context, login, relation, role, schema } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
@@ -32,29 +32,26 @@ import type { SubstrateTemplate } from "#test/support/substrate/substrate.ts"
  */
 
 /** A child, a stage, a visit's ordinal, an item's ordinal, a person and a score: small integers. */
-const visitFields = { child: pg.integer, stage: pg.integer, k: pg.integer } as const
+const visitFields = { child: int4, stage: int4, k: int4 } as const
 
 const TestVisit = relation("TestVisit", visitFields, ["child", "stage", "k"])
 const TestSuspension = relation("TestSuspension", visitFields, ["child", "stage", "k"])
-const TestEnd = relation("TestEnd", { child: pg.integer, stage: pg.integer }, ["child", "stage"])
-const TestMoment = relation("TestMoment", { child: pg.integer, stage: pg.integer }, [
+const TestEnd = relation("TestEnd", { child: int4, stage: int4 }, ["child", "stage"])
+const TestMoment = relation("TestMoment", { child: int4, stage: int4 }, ["child", "stage"])
+const Awaiting = relation("Awaiting", { child: int4, n: int4 }, ["child", "n"])
+const Scored = relation("Scored", { child: int4, n: int4, scorer: int4, score: int4 }, [
 	"child",
-	"stage"
+	"n",
+	"scorer"
 ])
-const Awaiting = relation("Awaiting", { child: pg.integer, n: pg.integer }, ["child", "n"])
-const Scored = relation(
-	"Scored",
-	{ child: pg.integer, n: pg.integer, scorer: pg.integer, score: pg.integer },
-	["child", "n", "scorer"]
-)
-const Graded = relation("Graded", { child: pg.integer, n: pg.integer }, ["child", "n"])
+const Graded = relation("Graded", { child: int4, n: int4 }, ["child", "n"])
 
 /** The app's own relations: each child's stages, and the admins. */
-const Stage = relation("Stage", { child: pg.integer, key: pg.integer }, ["child", "key"])
-const Admin = relation("Admin", { user: pg.integer }, ["user"])
+const Stage = relation("Stage", { child: int4, key: int4 }, ["child", "key"])
+const Admin = relation("Admin", { user: int4 }, ["user"])
 
 /** The operator a token names. */
-const OperatorToken = context("OperatorToken", { sub: pg.integer })
+const OperatorToken = context("OperatorToken", { sub: int4 })
 
 /** Delivery, and Installed over it, of a case under `name`. */
 const levelsOf = (name: string) => {
@@ -108,8 +105,8 @@ const ledgerOf = (delivery: ReturnType<typeof levelsOf>["delivery"]) => {
 			return r
 				.match(scorers, { scorer })
 				.match(Awaiting, { child, n })
-				.where(r.eq(child, r.param("child", pg.integer)))
-				.find({ child, n, scorer, score: r.param("score", pg.integer) })
+				.where(r.eq(child, r.param("child", int4)))
+				.find({ child, n, scorer, score: r.param("score", int4) })
 		})
 	)
 	const settled = ChangeSet.empty(delivery).insert(
@@ -118,7 +115,7 @@ const ledgerOf = (delivery: ReturnType<typeof levelsOf>["delivery"]) => {
 			const { child, n } = v(Scored, "scored")
 			return r
 				.match(Scored, { child, n })
-				.where(r.eq(child, r.param("child", pg.integer)))
+				.where(r.eq(child, r.param("child", int4)))
 				.find({ child, n })
 		})
 	)
@@ -139,7 +136,7 @@ const appOf = (installed: ReturnType<typeof levelsOf>["installed"]) => {
 		const { child, key } = v(Stage, "own")
 		return r
 			.match(Stage, { child, key })
-			.where(r.eq(child, r.param("child", pg.integer)))
+			.where(r.eq(child, r.param("child", int4)))
 			.find({ child, stage: key })
 	})
 	const admittedScorer = query(installed).rule((r) => {
@@ -163,7 +160,7 @@ const programsOf = (name: string) => {
 				TestMoment,
 				query(installed).rule((r) => {
 					const open = ledger.openVisit.bind({
-						sittings: app.appSittings.bind({ child: r.param("child", pg.integer) })
+						sittings: app.appSittings.bind({ child: r.param("child", int4) })
 					})
 					const { child, stage } = v(open, "suspending")
 					return r.match(open, { child, stage }).find({ child, stage })
@@ -173,7 +170,7 @@ const programsOf = (name: string) => {
 				TestSuspension,
 				query(installed).rule((r) => {
 					const open = ledger.openVisit.bind({
-						sittings: app.appSittings.bind({ child: r.param("child", pg.integer) })
+						sittings: app.appSittings.bind({ child: r.param("child", int4) })
 					})
 					const { child, stage, k } = v(open, "suspended")
 					return r.match(open, { child, stage, k }).find({ child, stage, k })
@@ -184,7 +181,7 @@ const programsOf = (name: string) => {
 		/** The open visits of the child's own sittings, read through the import's bind. */
 		openBound: query(installed).rule((r) => {
 			const open = ledger.openVisit.bind({
-				sittings: app.appSittings.bind({ child: r.param("child", pg.integer) })
+				sittings: app.appSittings.bind({ child: r.param("child", int4) })
 			})
 			const { child, stage, k } = v(open, "open")
 			return r.match(open, { child, stage, k }).find({ child, stage, k })
@@ -201,7 +198,7 @@ const programsOf = (name: string) => {
 			ChangeSet.empty(installed).insert(
 				Stage,
 				query(installed).rule((r) =>
-					r.find({ child: r.param("child", pg.integer), key: r.param("decided", pg.integer) })
+					r.find({ child: r.param("child", int4), key: r.param("decided", int4) })
 				)
 			),
 			ledger.takeTest.bind({ taken: app.appSittings })

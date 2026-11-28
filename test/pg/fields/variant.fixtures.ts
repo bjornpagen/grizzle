@@ -12,10 +12,14 @@ import {
 	instant,
 	mintOf,
 	natural,
-	pg,
 	sha256 as digest,
 	variant,
-	type VariantValueOf
+	type VariantValueOf,
+	bool,
+	float8,
+	int4,
+	int8,
+	numeric
 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
@@ -40,10 +44,10 @@ const Value = variant(
 	"Value",
 	Kind,
 	{
-		flag: { value: pg.boolean },
-		count: { value: pg.bigint },
-		ratio: { value: pg["double precision"] },
-		point: { x: pg.integer, y: pg.integer },
+		flag: { value: bool },
+		count: { value: int8 },
+		ratio: { value: float8 },
+		point: { x: int4, y: int4 },
 		name: { text: Name },
 		absent: {},
 		none: {}
@@ -58,7 +62,7 @@ type Held = VariantValueOf<typeof Value.arms>
  * One cell per id, the variant's value as a plain field, and its tag as an ordinary field PostgreSQL generates from it
  * (Value.tag), which a key, a reference and a law name like any field.
  */
-const Cell = relation.generated("Cell", { id: pg.integer, value: Value }, ["id"], (r) => ({
+const Cell = relation.generated("Cell", { id: int4, value: Value }, ["id"], (r) => ({
 	kind: generated(closedId(Kind), Value.tag(r.value))
 }))
 
@@ -71,14 +75,14 @@ const Cell = relation.generated("Cell", { id: pg.integer, value: Value }, ["id"]
 const Some = variant("Some", Kind, {
 	none: {},
 	name: { text: Name },
-	count: { value: pg.bigint }
+	count: { value: int8 }
 })
 
 /** A value of the subset's variant: its tagged union over its three arms alone. */
 export type SomeHeld = VariantValueOf<typeof Some.arms>
 
 /** One value of the subset's variant per id, its tag generated as a closed id of the subset. */
-const Somes = relation.generated("Somes", { id: pg.integer, value: Some }, ["id"], (r) => ({
+const Somes = relation.generated("Somes", { id: int4, value: Some }, ["id"], (r) => ({
 	kind: generated(closedId(Kind, { only: ["none", "count", "name"] }), Some.tag(r.value))
 }))
 
@@ -92,24 +96,24 @@ const Picked = variant("Picked", Kind, {
 })
 
 /** A relation holding Picked, so the installation holds its composite and its domain. */
-const Picks = relation("Picks", { id: pg.integer, picked: Picked }, ["id"])
+const Picks = relation("Picks", { id: int4, picked: Picked }, ["id"])
 
 /** One handle, an exact integer's arm, which two variants over integers of two precisions share. */
 const Exact = closed.unordered("Exact", ["n"])
 
 /** An exact integer of 825 digits, QTI's integer, and one of 30: one value, one image (Value.digest), whatever its precision. */
-const Wide = variant("Wide", Exact, { n: { value: pg.numeric(825, 0) } })
-const Narrow = variant("Narrow", Exact, { n: { value: pg.numeric(30, 0) } })
+const Wide = variant("Wide", Exact, { n: { value: numeric(825, 0) } })
+const Narrow = variant("Narrow", Exact, { n: { value: numeric(30, 0) } })
 
 /** A relation holding both, so the installation holds their composites and domains. */
-const Exacts = relation("Exacts", { id: pg.integer, wide: Wide, narrow: Narrow }, ["id"])
+const Exacts = relation("Exacts", { id: int4, wide: Wide, narrow: Narrow }, ["id"])
 
 /** A reply's arms: a score, a span, a word and its tally, and silence. */
 const ReplyKind = closed.unordered("ReplyKind", ["replied", "span", "word", "silent"])
 
 const replyScoreKey = Symbol("ReplyScore")
 /** A score: finite and at least zero, every NaN and either infinity outside it, -0 within it as PostgreSQL holds it 0. */
-const ReplyScore = contract<typeof replyScoreKey>()("ReplyScore", pg["double precision"], (s) =>
+const ReplyScore = contract<typeof replyScoreKey>()("ReplyScore", float8, (s) =>
 	Logic.and([Logic.ge(s, 0), Logic.lt(s, Number.POSITIVE_INFINITY)])
 )
 const toReplyScore = mintOf(replyScoreKey)
@@ -119,7 +123,7 @@ const Word = str.regex("^[a-z]{1,8}$")
 
 const tallyKey = Symbol("Tally")
 /** A tally: an integer at least zero. */
-const Tally = contract<typeof tallyKey>()("Tally", pg.integer, (n) => Logic.ge(n, 0))
+const Tally = contract<typeof tallyKey>()("Tally", int4, (n) => Logic.ge(n, 0))
 const toTally = mintOf(tallyKey)
 
 /**
@@ -131,7 +135,7 @@ const Reply = variant(
 	ReplyKind,
 	{
 		replied: { score: ReplyScore },
-		span: { least: pg.integer, greatest: pg.integer },
+		span: { least: int4, greatest: int4 },
 		word: { text: Word, tally: Tally },
 		silent: {}
 	},
@@ -142,10 +146,10 @@ const Reply = variant(
 type ReplyValue = VariantValueOf<typeof Reply.arms>
 
 /** One reply per id. */
-export const Replies = relation("Replies", { id: pg.integer, reply: Reply }, ["id"])
+export const Replies = relation("Replies", { id: int4, reply: Reply }, ["id"])
 
 /** A bag of distinct values per owner: a key over the variant, its equality the sum's. */
-const Bag = relation("Bag", { owner: pg.integer, member: Value }, ["owner", "member"])
+const Bag = relation("Bag", { owner: int4, member: Value }, ["owner", "member"])
 
 /**
  * A bag of values per owner and instant keyed by each value's identity image, a key generation (Value.digest) the write
@@ -155,7 +159,7 @@ const Bag = relation("Bag", { owner: pg.integer, member: Value }, ["owner", "mem
  */
 const Imaged = relation.generated(
 	"Imaged",
-	{ owner: pg.integer, at: instant, value: Value },
+	{ owner: int4, at: instant, value: Value },
 	["owner", "at", "image"],
 	(r) => ({ image: generated(digest, Value.digest(r.value)) })
 )
@@ -190,11 +194,11 @@ const programs = Object.freeze({
 		return r.match(Cell, { id, value }).find({
 			id,
 			size: Value.cases(value, {
-				flag: (a) => Logic.cond(a.value, Num.add(Type.literal(pg.integer, 1), 0), 0n),
+				flag: (a) => Logic.cond(a.value, Num.add(Type.literal(int4, 1), 0), 0n),
 				count: () => 2n,
 				ratio: () => 3n,
 				point: (a) => Num.add(a.x, a.y),
-				name: (a) => Logic.cond(Logic.eq(a.text, ""), Num.add(Type.literal(pg.integer, 0), 0), 5n),
+				name: (a) => Logic.cond(Logic.eq(a.text, ""), Num.add(Type.literal(int4, 0), 0), 5n),
 				absent: () => 0n,
 				none: () => 0n
 			})
@@ -210,7 +214,7 @@ const programs = Object.freeze({
 	}),
 	/** A point made of a parameter and a literal (Value.make). */
 	made: query(Variants).rule((r) =>
-		r.find({ value: Value.make("point", { x: r.param("x", pg.integer), y: 70 }) })
+		r.find({ value: Value.make("point", { x: r.param("x", int4), y: 70 }) })
 	),
 	/** Each name cell's text, its arm's field read as a column (Value.arm): no row of a cell of another arm. */
 	named: query(Variants).rule((r) => {
@@ -277,11 +281,11 @@ const programs = Object.freeze({
 	}),
 	/** The image of a wide integer made of a parameter (Wide.digest), as PostgreSQL computes it. */
 	wideImage: query(Variants).rule((r) =>
-		r.find({ image: Wide.digest(Wide.make("n", { value: r.param("x", pg.numeric(825, 0)) })) })
+		r.find({ image: Wide.digest(Wide.make("n", { value: r.param("x", numeric(825, 0)) })) })
 	),
 	/** The image of a narrow integer made of a parameter (Narrow.digest), as PostgreSQL computes it. */
 	narrowImage: query(Variants).rule((r) =>
-		r.find({ image: Narrow.digest(Narrow.make("n", { value: r.param("x", pg.numeric(30, 0)) })) })
+		r.find({ image: Narrow.digest(Narrow.make("n", { value: r.param("x", numeric(30, 0)) })) })
 	),
 	/**
 	 * No literal: qti-pie's noWalkLiterals (packages/ledger/src/grade.ts at 3ab19845), an empty relation of two texts, a
@@ -304,9 +308,7 @@ const programs = Object.freeze({
 	),
 	/** No value of Wide, whose one arm holds an integer of 825 digits. */
 	noWides: query(Variants).rule((r) =>
-		r
-			.where(r.or([]))
-			.find({ value: Wide.make("n", { value: Type.literal(pg.numeric(825, 0), 0n) }) })
+		r.where(r.or([])).find({ value: Wide.make("n", { value: Type.literal(numeric(825, 0), 0n) }) })
 	),
 	/** No value of Reply, whose first arm, replied, holds a contract over a double, so its record holds its zero sign. */
 	noReplies: query(Variants).rule((r) =>
@@ -326,7 +328,7 @@ const programs = Object.freeze({
 		),
 	/** The images of a ratio made of a parameter and of its negation: one exactly where the two are one value. */
 	negations: query(Variants).rule((r) => {
-		const x = r.param("x", pg["double precision"])
+		const x = r.param("x", float8)
 		return r.find({
 			plain: Value.digest(Value.make("ratio", { value: x })),
 			negated: Value.digest(Value.make("ratio", { value: Num.neg(x) }))

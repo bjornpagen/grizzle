@@ -24,10 +24,10 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import { workloadExtension } from "#compiler/physical/access/extension.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { Logic, Num, Text, Type } from "#compiler/public/compute.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { bool, float8, int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, relation, schema } from "#compiler/public/schema.ts"
-import { decimalText, doubleText, lexicalForm, str } from "#compiler/public/text.ts"
+import { numericText, float8Text, lexicalForm, str } from "#compiler/public/text.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
@@ -46,7 +46,7 @@ import { upTo } from "#test/support/up-to.ts"
  * A guard over a transformed text proves what its language allows: `computeCore.when(computeCore.matches(T(t), P), (x) =>
  * Op(x), otherwise)` in a generated field, t any text, T a text-to-text operation (collapse, a translation by a drawn
  * map, lowerAscii, replaceWhitespace, a cast into the text's own type), P a drawn pattern, and Op a partial operation
- * over a text: parseDouble, parseDecimal under a guard of its bytes, a cast into an integer, and a cast into a refined
+ * over a text: parseFloat8, parseNumeric under a guard of its bytes, a cast into an integer, and a cast into a refined
  * text. Inside the branch x is T(t) restated at T's language and narrowed again by the guards it stands under, so the
  * schema compiles exactly when T's image of every text and P together lie inside Op's form.
  *
@@ -78,8 +78,8 @@ type Transform =
 
 /** A partial operation over a text, and its form: the language its operand must lie in. */
 type Operation =
-	| { readonly kind: "parseDouble" }
-	| { readonly kind: "parseDecimal" }
+	| { readonly kind: "parseFloat8" }
+	| { readonly kind: "parseNumeric" }
 	| { readonly kind: "integer" }
 	| { readonly kind: "refined"; readonly target: string }
 
@@ -119,14 +119,14 @@ const targets: Arr.NonEmptyReadonlyArray<string> = [
 ]
 
 const operationGen: Gen<Operation> = weighted<Operation>([
-	[2, () => ({ kind: "parseDouble" })],
-	[2, () => ({ kind: "parseDecimal" })],
+	[2, () => ({ kind: "parseFloat8" })],
+	[2, () => ({ kind: "parseNumeric" })],
 	[1, () => ({ kind: "integer" })],
 	[1, map(element(targets), (target): Operation => ({ kind: "refined", target }))]
 ])
 
-/** The integer form a cast into pg.integer reads. */
-const integerForm = lexicalForm(pg.integer).source
+/** The integer form a cast into int4 reads. */
+const integerForm = lexicalForm(int4).source
 
 /**
  * A guard's pattern: a drawn one over the alphabet, a form with white space either side of it, a run of digits padded
@@ -137,12 +137,12 @@ const guardGen: Gen<string> = weighted([
 	[
 		2,
 		map(
-			element([doubleText.source, decimalText.source, integerForm]),
+			element([float8Text.source, numericText.source, integerForm]),
 			(form) => `^[ \\t\\n]*(?:${Str.slice(1, -1)(form)})[ \\t\\n]*$`
 		)
 	],
 	[2, element(["^ ?[0-9]+ ?$", "^[0-9]+$", "^-?[0-9]{1,4}(?:\\.[0-9]{1,3})?$", "^[0-9a-z ]*$"])],
-	[1, element([doubleText.source, decimalText.source, integerForm])]
+	[1, element([float8Text.source, numericText.source, integerForm])]
 ])
 
 interface Case {
@@ -199,10 +199,10 @@ export const imageOf = (t: Transform): { readonly source: string; readonly flags
 /** Op's form: the pattern its operand must lie in. */
 export const formOf = (op: Operation): string => {
 	switch (op.kind) {
-		case "parseDouble":
-			return doubleText.source
-		case "parseDecimal":
-			return decimalText.source
+		case "parseFloat8":
+			return float8Text.source
+		case "parseNumeric":
+			return numericText.source
 		case "integer":
 			return integerForm
 		case "refined":
@@ -246,24 +246,20 @@ export const relationOf = (c: Case) =>
 				[]
 			)
 		switch (c.operation.kind) {
-			case "parseDouble":
+			case "parseFloat8":
 				return {
-					n: guarded(
-						pg["double precision"],
-						(x) => computeCore.parseDouble(x),
-						computeCore.literal(pg["double precision"], 0)
-					)
+					n: guarded(float8, (x) => computeCore.parseFloat8(x), computeCore.literal(float8, 0))
 				}
-			case "parseDecimal": {
-				const yes = computeCore.literal(pg.boolean, true)
-				const no = computeCore.literal(pg.boolean, false)
+			case "parseNumeric": {
+				const yes = computeCore.literal(bool, true)
+				const no = computeCore.literal(bool, false)
 				return {
 					n: guarded(
-						pg.boolean,
+						bool,
 						(x) =>
 							computeCore.when(
 								computeCore.within(computeCore.octetLength(x), 0, 16384),
-								() => computeCore.cond(computeCore.ge(computeCore.parseDecimal(x), 0n), yes, no),
+								() => computeCore.cond(computeCore.ge(computeCore.parseNumeric(x), 0n), yes, no),
 								no
 							),
 						no
@@ -272,11 +268,7 @@ export const relationOf = (c: Case) =>
 			}
 			case "integer":
 				return {
-					n: guarded(
-						pg.integer,
-						(x) => computeCore.cast(x, pg.integer),
-						computeCore.literal(pg.integer, 0)
-					)
+					n: guarded(int4, (x) => computeCore.cast(x, int4), computeCore.literal(int4, 0))
 				}
 			case "refined": {
 				const Target = regexField<string>(c.operation.target, [])

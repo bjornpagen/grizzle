@@ -310,7 +310,14 @@ const floatsDecoded = Arr.map(["1.5", "-0", "3.4028235e+38", "1e-45", "1e+00"], 
  * states exhaustively; here a compile that is refused fails the probe.
  */
 const { Logic, Type } = await import("#compiler/public/compute.ts")
-const { contract, pg, uuid }: Readonly<typeof import("#compiler/public/fields.ts")> =
+const {
+	bool,
+	contract,
+	int4,
+	int8,
+	numeric,
+	uuid
+}: Readonly<typeof import("#compiler/public/fields.ts")> =
 	await import("#compiler/public/fields.ts")
 const { query, v }: Readonly<typeof import("#compiler/public/query.ts")> =
 	await import("#compiler/public/query.ts")
@@ -320,7 +327,7 @@ const { compileTemplate, testCompile } = await import("#test/support/compile.ts"
 const flagIdKey = Symbol("FlagId")
 const Flagged = relation(
 	"Flagged",
-	{ id: contract<typeof flagIdKey>()("FlagId", uuid), flag: pg.boolean },
+	{ id: contract<typeof flagIdKey>()("FlagId", uuid), flag: bool },
 	["id"]
 )
 const Flags = schema("Flags", [Flagged], [])
@@ -337,35 +344,31 @@ for (const q of [
 		const { id, flag } = v(Flagged, "flagged")
 		return r
 			.match(Flagged, { id, flag })
-			.find({ n: r.sum(Logic.cond(flag, Type.literal(pg.integer, 1), 0)) })
+			.find({ n: r.sum(Logic.cond(flag, Type.literal(int4, 1), 0)) })
 	}),
 	flags.rule((r) => {
 		const { id, flag } = v(Flagged, "flagged")
 		return r
 			.match(Flagged, { id, flag })
-			.find({ n: r.sum(Logic.cond(flag, Type.literal(pg.bigint, 1n), 0n)) })
+			.find({ n: r.sum(Logic.cond(flag, Type.literal(int8, 1n), 0n)) })
 	}),
 	flags.rule((r) => {
 		const { id, flag } = v(Flagged, "flagged")
 		return r.match(Flagged, { id, flag }).find({
-			n: r.sum(
-				Logic.cond(flag, Type.literal(pg.numeric(1, 0), 1n), Type.literal(pg.numeric(1, 0), 0n))
-			)
+			n: r.sum(Logic.cond(flag, Type.literal(numeric(1, 0), 1n), Type.literal(numeric(1, 0), 0n)))
+		})
+	}),
+	flags.rule((r) => {
+		const { id, flag } = v(Flagged, "flagged")
+		return r.match(Flagged, { id, flag }).find({
+			n: r.sum(Logic.cond(flag, Type.literal(numeric(1, 0), 1n), Type.literal(numeric(1, 0), 0n)))
 		})
 	}),
 	flags.rule((r) => {
 		const { id, flag } = v(Flagged, "flagged")
 		return r.match(Flagged, { id, flag }).find({
 			n: r.sum(
-				Logic.cond(flag, Type.literal(pg.numeric(1, 0), 1n), Type.literal(pg.numeric(1, 0), 0n))
-			)
-		})
-	}),
-	flags.rule((r) => {
-		const { id, flag } = v(Flagged, "flagged")
-		return r.match(Flagged, { id, flag }).find({
-			n: r.sum(
-				Logic.cond(flag, Type.literal(pg.numeric(5, 1), "1.0"), Type.literal(pg.numeric(5, 1), "0"))
+				Logic.cond(flag, Type.literal(numeric(5, 1), "1.0"), Type.literal(numeric(5, 1), "0"))
 			)
 		})
 	})

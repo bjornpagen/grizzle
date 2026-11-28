@@ -6,7 +6,7 @@ import { Array as Arr, Option, Order as Ord, Record as Rec } from "effect"
 import { noClock, transactionClock } from "#compiler/ir/clock.ts"
 import { writeWorldOf } from "#compiler/program/write-world.ts"
 import { Num } from "#compiler/public/compute.ts"
-import { Money, pg } from "#compiler/public/fields.ts"
+import { Money, int8 } from "#compiler/public/fields.ts"
 import { param } from "#compiler/public/query.ts"
 import { queryOver, type QueryValue, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
@@ -472,7 +472,7 @@ const selectionOf = (key: Key, fault: Fault | undefined): Readonly<Record<string
 		case "a variable for a parameter":
 			return { ...fields, [first]: varsOver(relationOf(key.name), "x")[first] }
 		case "a scalar term for a parameter":
-			return { ...fields, [first]: Num.add(param("q", pg.bigint), 1n) }
+			return { ...fields, [first]: Num.add(param("q", int8), 1n) }
 		case "a selection that is no record":
 			return new Proxy({}, { getPrototypeOf: () => Date.prototype })
 	}

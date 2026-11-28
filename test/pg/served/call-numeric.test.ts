@@ -1,17 +1,17 @@
 /**
- * A declared function of PostgreSQL's numeric of no typmod, `pg.numeric`, passes its value as it is through a query's
- * read and a write, as a stored `pg.numeric` field does, and arithmetic over one is held to numeric's own limit by
+ * A declared function of PostgreSQL's numeric of no typmod, `numeric`, passes its value as it is through a query's
+ * read and a write, as a stored `numeric` field does, and arithmetic over one is held to numeric's own limit by
  * PostgreSQL alone.
  *
  * - **Property:** a case draws decimals, among them 0.17 (QTI's round-to of 7/40, which a typmod of scale 0 reads as
  *   0), values past 1e300 and below 1e-300, numeric's widest integer and finest fraction, NaN and the infinities, each
- *   a Source row's text. The served ChangeSet `hold` writes each as a Decimal into Held's `pg.numeric`, and `record`
+ *   a Source row's text. The served ChangeSet `hold` writes each as a Numeric into Held's `numeric`, and `record`
  *   writes each Source's `decimalOf(text)`, a call returning numeric, into Written's. Then `fromText` reads each
  *   decimalOf, `held` each Held value and its `negated`, a call of a numeric argument and result, and `written`
  *   Written's rows: each is the drawn value exactly, its negation numeric_uminus's. `doubled` reads each Held value
  *   added to itself, compiled with no guard: numeric_add's sum where every sum lies within numeric's format, and
  *   otherwise its statement refused by PostgreSQL with SQLSTATE 22003, numeric_value_out_of_range.
- * - **Oracle:** the host Decimal model: the host's parse of each text (scalar/values/decimal.ts Decimal.fromString),
+ * - **Oracle:** the host Numeric model: the host's parse of each text (scalar/values/decimal.ts Numeric.fromString),
  *   numeric.c's numeric_uminus and numeric_add (scalar/compute/numeric.ts), none past numeric's format.
  * - **Features:** each kind of drawn decimal, and a sum past numeric's format refused.
  */
@@ -23,7 +23,7 @@ import { Array as Arr, Effect, Formatter, Option, Result } from "effect"
 import { memberExplains, memberCalls } from "#adapter/db/handles.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
-import { Decimal } from "#compiler/public/fields.ts"
+import { Numeric } from "#compiler/public/fields.ts"
 import {
 	caseGen,
 	doubledModel,
@@ -57,20 +57,20 @@ const features = [
 	"every sum answered"
 ] as const satisfies ReadonlyArray<Reached<Feature>>
 
-/** A row's column `key` as the model's Decimal reads it, by its one text, or how it is no Decimal. */
+/** A row's column `key` as the model's Numeric reads it, by its one text, or how it is no Numeric. */
 const decimalAt = (row: unknown, key: string): string => {
 	if (!isRecord(row)) {
 		return "not a row"
 	}
 	const value = row[key]
-	return value instanceof Decimal ? value.text : `not a Decimal: ${typeof value}`
+	return value instanceof Numeric ? value.text : `not a Numeric: ${typeof value}`
 }
 
 /** A row's id. */
 const idOf = (row: unknown): number =>
 	isRecord(row) && typeof row["id"] === "number" ? row["id"] : -1
 
-/** The rows of a read by id, each column `key`'s Decimal text. */
+/** The rows of a read by id, each column `key`'s Numeric text. */
 const byId = (
 	rows: ReadonlyArray<unknown>,
 	key: string
@@ -84,7 +84,7 @@ const byId = (
 /** The model's rows by id: each drawn value's image under `f`, as its one text. */
 const modelById = (
 	c: NumericCase,
-	f: (d: Decimal) => Decimal
+	f: (d: Numeric) => Numeric
 ): ReadonlyArray<readonly [number, string]> =>
 	Arr.map(c.drawn, (d, id) => [id, f(modelOf(d.text)).text] as const)
 
@@ -124,7 +124,7 @@ export const aCallOfANumericOfNoTypmodPassesItsValueAsItIsThroughReadsAndWrites 
 										)
 										assert.ok(
 											Result.isSuccess(held),
-											`hold writes each Decimal: ${Formatter.format(held)}`
+											`hold writes each Numeric: ${Formatter.format(held)}`
 										)
 										const recorded = yield* Effect.result(writeOnce(call("record"))(none))
 										assert.ok(
@@ -137,7 +137,7 @@ export const aCallOfANumericOfNoTypmodPassesItsValueAsItIsThroughReadsAndWrites 
 													? answered.success
 													: assert.fail(`${name} answers: ${Formatter.format(answered.failure)}`)
 											)
-										const identity = (d: Decimal) => d
+										const identity = (d: Numeric) => d
 										const fromText = yield* read("fromText")
 										assert.deepEqual(
 											byId(fromText, "of"),
@@ -148,7 +148,7 @@ export const aCallOfANumericOfNoTypmodPassesItsValueAsItIsThroughReadsAndWrites 
 										assert.deepEqual(
 											byId(heldRows, "value"),
 											modelById(c, identity),
-											"a pg.numeric field holds each written Decimal exactly"
+											"a numeric field holds each written Numeric exactly"
 										)
 										assert.deepEqual(
 											byId(heldRows, "negated"),
@@ -210,7 +210,7 @@ export const aCallOfANumericOfNoTypmodPassesItsValueAsItIsThroughReadsAndWrites 
 			),
 		oracle: {
 			kind: "specification",
-			name: "the host Decimal model: each text's parse, numeric_uminus and numeric_add"
+			name: "the host Numeric model: each text's parse, numeric_uminus and numeric_add"
 		},
 		kept: [],
 		kills: [
@@ -225,7 +225,7 @@ export const aCallOfANumericOfNoTypmodPassesItsValueAsItIsThroughReadsAndWrites 
 				original:
 					"\tneeded > numericMaxIntegerDigits && operands.some((digits) => digits >= numericMaxIntegerDigits)\n",
 				replacement: "\tfalse\n",
-				why: "A sum over a pg.numeric is ResourceBound, its operand's bound numeric's own limit: the schema's doubled refuses to compile, where PostgreSQL holds the sum to that limit itself."
+				why: "A sum over a numeric is ResourceBound, its operand's bound numeric's own limit: the schema's doubled refuses to compile, where PostgreSQL holds the sum to that limit itself."
 			}
 		]
 	}

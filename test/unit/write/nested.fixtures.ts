@@ -7,7 +7,7 @@ import { identity } from "#compiler/core/identity.ts"
 import { noClock, transactionClock } from "#compiler/ir/clock.ts"
 import { installOptions } from "#compiler/physical/install/compile.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
-import { accumulated, drawn, natural, pg } from "#compiler/public/fields.ts"
+import { accumulated, drawn, natural, int8 } from "#compiler/public/fields.ts"
 import {
 	fin,
 	fold,
@@ -32,13 +32,11 @@ import { descOf, uuidOf } from "#test/support/unit/write/changeset/fixtures.ts"
 /** Doc(id, lines drawn, total accumulated): the owner of the ordered family of Line. */
 export const Doc = relation(
 	"Doc",
-	{ id: Id, lines: drawn(natural), total: accumulated(pg.bigint, 0n) },
+	{ id: Id, lines: drawn(natural), total: accumulated(int8, 0n) },
 	["id"]
 )
 
-export const Line = relation("Line", { id: Id, doc: Id, at: drawn(natural), qty: pg.bigint }, [
-	"id"
-])
+export const Line = relation("Line", { id: Id, doc: Id, at: drawn(natural), qty: int8 }, ["id"])
 
 export const Node = relation(
 	"Node",
@@ -49,7 +47,7 @@ export const Node = relation(
 		children: drawn(natural),
 		start: drawn(natural),
 		end: drawn(natural),
-		label: pg.bigint
+		label: int8
 	},
 	["root", "start"]
 )

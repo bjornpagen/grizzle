@@ -1787,7 +1787,7 @@ export const identity = Object.freeze({
 					? nameSegments(check.contract)
 					: [check.kind === "shape" ? "span" : "width"])
 			],
-			`span ${check.kind === "endpoint" ? `endpoint ${check.contract}` : check.kind} check of ${relation}.${field}`,
+			`range ${check.kind === "endpoint" ? `endpoint ${check.contract}` : check.kind} check of ${relation}.${field}`,
 			hashed
 		),
 	normCheck: (relation: string, field: string): Identity<"normCheck"> =>
@@ -1825,7 +1825,7 @@ export const identity = Object.freeze({
 			`exact value check of ${relation}.${field}`,
 			hashed
 		),
-	/** A computed numeric column's bound CHECK, pg.numeric.within's: the values within its bound. */
+	/** A computed numeric column's bound CHECK, numeric.within's: the values within its bound. */
 	boundCheck: (relation: string, field: string): Identity<"boundCheck"> =>
 		mint(
 			"boundCheck",

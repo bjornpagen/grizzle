@@ -22,7 +22,7 @@
  *
  * - Stored kinds: over drawn search documents of every configuration, computed numeric bounds, numeric's own limits and
  *   stored instants, a stored field of each is its caller's, and its descriptor and its type each give back the other,
- *   so a records relation's field is of its column's type exactly; numeric's own limits are pg.numeric's one descriptor,
+ *   so a records relation's field is of its column's type exactly; numeric's own limits are numeric's one descriptor,
  *   and the database's instant is the database's clock's. Oracle: both round trips. Features: each kind.
  *
  * That each inferred type is PostgreSQL's own result type, for every aggregate overload, refinement, roster and
@@ -35,7 +35,7 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Record } from "effect"
-import { instant, pg, variant } from "#compiler/public/fields.ts"
+import { instant, variant, int4, int8, numeric, tsvector } from "#compiler/public/fields.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
@@ -80,13 +80,13 @@ export const derivedFieldInferenceGivesBackTheDescriptorOfEveryDeclarableFieldTy
 		needs: {},
 		budget: { runs: 100, steered: 200 },
 		situations: [
-			"pg smallint",
-			"pg integer",
-			"pg bigint",
-			"pg real",
-			"pg double precision",
+			"pg int2",
+			"pg int4",
+			"pg int8",
+			"pg float4",
+			"pg float8",
 			"pg money",
-			"pg boolean",
+			"pg bool",
 			"kind numeric",
 			"kind uuid",
 			"kind text",
@@ -146,8 +146,8 @@ export const derivedFieldInferenceGivesBackTheDescriptorOfEveryDeclarableFieldTy
 		kills: [
 			{
 				file: "packages/engine/src/schema/field-desc.ts",
-				original: '\t\t\treturn Result.ok({ kind: "pg", type: "smallint" })',
-				replacement: '\t\t\treturn Result.ok({ kind: "pg", type: "integer" })',
+				original: '\t\t\treturn Result.ok({ kind: "pg", type: "int2" })',
+				replacement: '\t\t\treturn Result.ok({ kind: "pg", type: "int4" })',
 				why: "declaredDescOf gives an int2 column integer's descriptor; the declared kinds' round trip fails."
 			}
 		]
@@ -177,9 +177,7 @@ export const aContractADerivedFieldIsCastToIsTheSchemasWhetherARelationOrTheCast
 		check: (_, c: Case<ContractFeature>) => (k) =>
 			Effect.sync(() => {
 				const contracts = Arr.map(k.contracts, (checked, i) =>
-					checked
-						? rawContract(`Cents${i}`, pg.bigint, nonNegative)
-						: bareContract(`Cents${i}`, pg.bigint)
+					checked ? rawContract(`Cents${i}`, int8, nonNegative) : bareContract(`Cents${i}`, int8)
 				)
 				const target = defined(contracts[k.target], "the target contract")
 				/** The key the target's module holds, which a cast into a consumer's contract takes (scalar/contract.ts
@@ -197,7 +195,7 @@ export const aContractADerivedFieldIsCastToIsTheSchemasWhetherARelationOrTheCast
 							: []
 					)
 				)
-				const Line = relation("Line", { id: Id, amount: pg.bigint }, ["id"])
+				const Line = relation("Line", { id: Id, amount: int8 }, ["id"])
 				const L = schema("L", [...Record.values(holders), Line], [])
 				/** The line's amount cast to the target contract under its key where it is no negative, else the contract's
 				 * zero. */
@@ -300,8 +298,8 @@ export const aVariantColumnADerivedHeadingHoldsIsTheSchemasDeclarationOfTheVaria
 				const Side = closed.unordered("Side", ["least", "most"])
 				const [leastChecked, mostChecked] = k.checks
 				const arms = {
-					least: { low: pg.integer, high: pg.integer },
-					most: { from: pg.integer, to: pg.integer }
+					least: { low: int4, high: int4 },
+					most: { from: int4, to: int4 }
 				}
 				/** Each arm's check, which orders its two fields. */
 				const orders = {
@@ -389,11 +387,11 @@ type StoredFeature =
 const storedField = (k: StoredKind): FieldBase => {
 	switch (k.kind) {
 		case "search":
-			return pg.tsvector(k.configuration)
+			return tsvector(k.configuration)
 		case "bound":
-			return pg.numeric.within(k.digits, k.scale)
+			return numeric.within(k.digits, k.scale)
 		case "own limits":
-			return pg.numeric
+			return numeric
 		case "stored instant":
 			return instant.stored
 	}
@@ -402,7 +400,7 @@ const storedField = (k: StoredKind): FieldBase => {
 /**
  * A stored field of each kind a records relation keeps of a read's column is of the column's type again: its caller's,
  * and its declared descriptor fieldDescOf's of the type it states, whose type is that type, so a column a read delivers
- * and the field that stores it are of one type and one descriptor; numeric's own limits are pg.numeric's one
+ * and the field that stores it are of one type and one descriptor; numeric's own limits are numeric's one
  * descriptor, and the database's instant, `instant`, is no caller's.
  *
  * Budget: 60 runs and 40 steered cases, every kind reached at its floor (written with the kinds, lane FIELDS-B).
@@ -449,7 +447,7 @@ export const aStoredFieldOfEachKindARecordsRelationKeepsIsOfItsColumnsTypeAgainI
 				original: '\t\t? { kind: "pg", type: "numeric" }\n\t\t: { kind: "computedNumeric", bound }',
 				replacement:
 					'\t\t? { kind: "computedNumeric", bound }\n\t\t: { kind: "computedNumeric", bound }',
-				why: "numeric's own limits have two descriptors, pg.numeric's and a computed numeric's: a column of pg.numeric is described as no field of it is."
+				why: "numeric's own limits have two descriptors, numeric's and a computed numeric's: a column of numeric is described as no field of it is."
 			},
 			{
 				file: "packages/engine/src/scalar/registry.ts",

@@ -12,7 +12,7 @@ import { compileInstallation } from "#compiler/program/install.ts"
 import { login } from "#compiler/program/workload/login.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { key, on, relation, schema, select, type Statement } from "#compiler/public/schema.ts"
 import { relationBuilder } from "#compiler/schema/relation.ts"
 import { roleBuilder as role } from "#compiler/schema/world.ts"
@@ -53,7 +53,7 @@ type Counts = Readonly<Record<keyof typeof sites, number>>
 
 /** The schema of k guarded keys, its writer role, and the login whose workload inserts into U and T. */
 const loginOf = (k: number) => {
-	const T = relation("T", { id: Id, kind: pg.integer, a: Id }, ["id"])
+	const T = relation("T", { id: Id, kind: int4, a: Id }, ["id"])
 	const U = relation("U", { id: Id }, ["id"])
 	const keys: ReadonlyArray<Statement> = upTo(k, (j) =>
 		key(
@@ -146,9 +146,7 @@ export const heapBound = (pushes: number): number => {
 /** The heap's pushes and comparisons ordering the installation of r relations, each keyed by its id, no law between. */
 export const orderedAt = (r: number) =>
 	Effect.gen(function* () {
-		const relations = upTo(r, (i) =>
-			relationBuilder(`R${i}`, { id: Id, a: pg.integer }, ["id"], [])
-		)
+		const relations = upTo(r, (i) => relationBuilder(`R${i}`, { id: Id, a: int4 }, ["id"], []))
 		const owned = succeeded(
 			ownedInput(
 				schema(

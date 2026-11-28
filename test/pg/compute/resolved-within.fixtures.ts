@@ -8,7 +8,7 @@ import { array, element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Order } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -25,7 +25,7 @@ import {
 const Uri = str.bytes(512, regexField<string>("^.*$", ["su"]))
 
 /** Each reference and the base it resolves against, by its id. */
-const Pair = relation("Pair", { id: pg.integer, base: Uri, reference: Uri }, ["id"])
+const Pair = relation("Pair", { id: int4, base: Uri, reference: Uri }, ["id"])
 
 export const Resolutions = schema("Resolutions", [Pair], [])
 

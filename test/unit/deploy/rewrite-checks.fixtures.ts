@@ -6,7 +6,16 @@ import { Array as Arr, Option, String as Str } from "effect"
 import { planFiles } from "#compiler/deploy/phases/files.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { Text } from "#compiler/public/compute.ts"
-import { accumulated, closedId, drawn, generated, natural, pg } from "#compiler/public/fields.ts"
+import {
+	accumulated,
+	closedId,
+	drawn,
+	generated,
+	natural,
+	bool,
+	int4,
+	int8
+} from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	check,
@@ -98,7 +107,7 @@ const schemaOf = (change: Change, version: "first" | "second") => {
 	const changed = (c: Change): boolean => version === "second" && change === c
 	const Cap = closed.relation(
 		"Cap",
-		{ tier: closedId(Tier), cap: pg.integer },
+		{ tier: closedId(Tier), cap: int4 },
 		["tier"],
 		[
 			{ tier: "low", cap: 10 },
@@ -107,27 +116,21 @@ const schemaOf = (change: Change, version: "first" | "second") => {
 	)
 	const T1 = relation.generated(
 		"T1",
-		{ doc: pg.integer, tier: closedId(Tier), x: pg.integer },
+		{ doc: int4, tier: closedId(Tier), x: int4 },
 		["doc"],
-		(r) => ({ g: generated(pg.integer, Cap.at("cap", r.tier)) })
+		(r) => ({ g: generated(int4, Cap.at("cap", r.tier)) })
 	)
-	const T2 = relation.generated("T2", { doc: pg.integer, s: Signed }, ["doc"], (r) => ({
-		h: generated(pg.boolean, Text.startsWith(r.s, changed("generation") ? "+" : "-"))
+	const T2 = relation.generated("T2", { doc: int4, s: Signed }, ["doc"], (r) => ({
+		h: generated(bool, Text.startsWith(r.s, changed("generation") ? "+" : "-"))
 	}))
-	const O = relation(
-		"O",
-		{ id: pg.integer, n: drawn(natural), total: accumulated(pg.bigint, 0n) },
-		["id"]
-	)
-	const M = relation("M", { member: pg.integer, o: pg.integer, x: pg.bigint, y: pg.bigint }, [
-		"member"
-	])
+	const O = relation("O", { id: int4, n: drawn(natural), total: accumulated(int8, 0n) }, ["id"])
+	const M = relation("M", { member: int4, o: int4, x: int8, y: int8 }, ["member"])
 	const members = counted(on(M, "o"), fin(O, "n"))
 	const Base = schema(
 		"rewrite_checks",
 		[T1, T2, O, M, Tier, Cap],
 		[
-			unit("Document", { doc: pg.integer }),
+			unit("Document", { doc: int4 }),
 			members,
 			fold(members, Monoid.sum, on(M, "o", changed("fold") ? "y" : "x"), on(O, "id", "total"))
 		]

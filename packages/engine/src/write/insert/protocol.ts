@@ -256,7 +256,7 @@ const arbitrationOf = (
 	switch (shape.variant) {
 		case "spanKey":
 			defect(
-				`an insert of complete facts into ${relation.name}, whose primary key holds a span, that arbitrates no object but every one: write/schedule/plan.ts readCommittedLack refuses it at READ COMMITTED`
+				`an insert of complete facts into ${relation.name}, whose primary key holds a range, that arbitrates no object but every one: write/schedule/plan.ts readCommittedLack refuses it at READ COMMITTED`
 			)
 		case "pureSet":
 			return { kind: "returned", payload: [] }

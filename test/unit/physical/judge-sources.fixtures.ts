@@ -5,7 +5,7 @@ import { boolean, element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, String as Str } from "effect"
 import { type Installation, installOptions } from "#compiler/physical/install/compile.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	check,
@@ -68,24 +68,17 @@ export type Reached =
  * does, its `b` at least 0, or its `b` once per document.
  */
 const schemaOf = (shape: Shape) => {
-	const T = relation(
-		"T",
-		{ doc: pg.integer, at: pg.integer, a: pg.integer, b: pg.integer, pay: pg.integer },
-		["doc", "at"]
-	)
-	const S = relation("S", { doc: pg.integer, at: pg.integer, ref: pg.integer, note: pg.integer }, [
-		"doc",
-		"at"
-	])
-	const W = relation("W", { wdoc: pg.integer }, ["wdoc"])
+	const T = relation("T", { doc: int4, at: int4, a: int4, b: int4, pay: int4 }, ["doc", "at"])
+	const S = relation("S", { doc: int4, at: int4, ref: int4, note: int4 }, ["doc", "at"])
+	const W = relation("W", { wdoc: int4 }, ["wdoc"])
 	const probed = shape.judge === "probed"
 	const Base = schema(
 		"judge_sources",
 		[T, S, W],
 		probed
 			? [
-					unit("Document", { doc: pg.integer }),
-					unit("Ws", { wdoc: pg.integer }),
+					unit("Document", { doc: int4 }),
+					unit("Ws", { wdoc: int4 }),
 					mutable(T),
 					mutable(S),
 					mutable(W)

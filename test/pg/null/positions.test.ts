@@ -5,7 +5,7 @@
  * Each case draws a world of closed relations over two rosters, some keys held by no row (language.ts World), rows of
  * every open relation, and an expression for each position, drawn by construction over every operator family
  * (comparisons, BETWEEN, IN, AND, OR and NOT, exact and IEEE 754 arithmetic, greatest and least, casts, text, sets,
- * span endpoints, conditionals, guards and a closed relation's presence, C.has, false at a key no row holds) over
+ * range endpoints, conditionals, guards and a closed relation's presence, C.has, false at a key no row holds) over
  * every sort (integers, numerics, texts, closed ids, sets, booleans and
  * both floats, NaN and the infinities among them) and every NULL source (a closed read at an absent key, at a NULL
  * key, nested). Float arithmetic stands in a query alone, as grizzle admits it nowhere else. A span is never NULL, since

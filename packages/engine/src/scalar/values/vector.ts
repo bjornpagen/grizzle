@@ -23,7 +23,7 @@ import { encodingFailure, faultError } from "#compiler/scalar/values/fault.ts"
 type VectorBuffer<N extends number = number> = Float32Array & { readonly [phantom]?: N | undefined }
 
 /**
- * The Vector carrier of pg.vector(n).
+ * The Vector carrier of vector(n).
  *
  * A Vector<N> is a Float32Array: an Effect brand (by nominal, unchecked) plus the dimension tag N, with no wrapper
  * class. `Vector.make(buffer, n)` checks the buffer's length against the dimension count and returns the same

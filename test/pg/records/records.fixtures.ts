@@ -6,7 +6,7 @@
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { recordsBuilder } from "#compiler/program/records.ts"
-import { Bits, Decimal, Money, Vector } from "#compiler/public/fields.ts"
+import { Bit, Numeric, Money, Vector } from "#compiler/public/fields.ts"
 import { natural } from "#compiler/public/fields.ts"
 import { recordsQuery, schema } from "#compiler/public/schema.ts"
 import type { QueryValue } from "#compiler/query/build/query.ts"
@@ -98,9 +98,9 @@ export const itemFacts: ReadonlyArray<Readonly<Record<string, unknown>>> = [
 		small: -32768,
 		int: 2147483647,
 		big: -9223372036854775808n,
-		dec: Decimal.of("-12345678.90"),
+		dec: Numeric.of("-12345678.90"),
 		whole: 123456789012n,
-		num: Decimal.of("NaN"),
+		num: Numeric.of("NaN"),
 		real: 1.5,
 		dbl: 1e300,
 		cash: Money.of(-1234n),
@@ -112,7 +112,7 @@ export const itemFacts: ReadonlyArray<Readonly<Record<string, unknown>>> = [
 		name: "bc",
 		tier: "High",
 		lowMid: "Mid",
-		tiers: Bits.of(Tier, ["Low", "High"]),
+		tiers: Bit.of(Tier, ["Low", "High"]),
 		during: { start: 1, end: 5 },
 		window: { start: -5n, end: 10n },
 		days: { start: "2024-01-01", end: "2024-03-01" },
@@ -126,9 +126,9 @@ export const itemFacts: ReadonlyArray<Readonly<Record<string, unknown>>> = [
 		small: 0,
 		int: 0,
 		big: 0n,
-		dec: Decimal.of("0"),
+		dec: Numeric.of("0"),
 		whole: 0n,
-		num: Decimal.of("Infinity"),
+		num: Numeric.of("Infinity"),
 		real: 0,
 		dbl: 5e-324,
 		cash: Money.of(0n),
@@ -140,7 +140,7 @@ export const itemFacts: ReadonlyArray<Readonly<Record<string, unknown>>> = [
 		name: "",
 		tier: "Low",
 		lowMid: "Low",
-		tiers: Bits.of(Tier, []),
+		tiers: Bit.of(Tier, []),
 		during: { start: -2147483648, end: 2147483647 },
 		window: { start: 0n, end: 1n },
 		days: { start: "9999-12-30", end: "9999-12-31" },

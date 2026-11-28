@@ -7,7 +7,7 @@ import { regex } from "arkregex"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { descentsOf, planNodes } from "#bench/harness/explain.ts"
 import type { BenchSession } from "#bench/harness/session.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import {
@@ -25,7 +25,7 @@ import { fullWorldTemplate } from "#test/support/installed.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import type { PgConnection } from "#test/support/pg.ts"
 
-const i = pg.integer
+const i = int4
 
 /**
  * A sitting's served documents and their content, as metis's sitting reads qti-pie's: each document a sitting serves,

@@ -3,7 +3,7 @@
 import { type Gen, element } from "@bjornpagen/testing/gen"
 import { Array as Arr, Order, Record as Rec } from "effect"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { float8, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { fixtureTemplate } from "#test/support/pg/reads/support.ts"
@@ -18,15 +18,15 @@ import { type PlanShape, planShapeNames } from "#test/support/plan-shapes.ts"
  *   recursion whose state holds F's rows and G's at F's keys, each a merge, which delivers +0 for either zero;
  * - F's min, max, sum and mean of x, IEEE 754-2019's: -0 below +0, a sum of zeros -0 exactly when each is.
  */
-const F = relation("F", { k: pg.bigint, g: pg.bigint, x: pg["double precision"] }, ["k"])
+const F = relation("F", { k: int8, g: int8, x: float8 }, ["k"])
 
-const G = relation("G", { k: pg.bigint, x: pg["double precision"] }, ["k"])
+const G = relation("G", { k: int8, x: float8 }, ["k"])
 
 export const Merges = schema("Merges", [F, G], [])
 
 /** F's rows and G's at F's keys, the recursion's state, which its recursive UNION merges across its iterations. */
 const reach = query(Merges).recursive("Reach", {
-	row: { k: pg.bigint, x: pg["double precision"] },
+	row: { k: int8, x: float8 },
 	base: [
 		(r) => {
 			const { k, g, x } = v(F, "f")

@@ -11,7 +11,7 @@ import {
 import { noSpellings } from "#compiler/ir/pattern.ts"
 import { Roster, type RosterOrder } from "#compiler/ir/scalar.ts"
 import { Logic, Type } from "#compiler/public/compute.ts"
-import { bits, closedId, contract, generated, pg } from "#compiler/public/fields.ts"
+import { bit, closedId, contract, generated, int4 } from "#compiler/public/fields.ts"
 import { check, type RowScalars, type Statement } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
@@ -155,14 +155,10 @@ export const lawsOf = (s: ProgramSchema, built: BuiltSchema, level: LawLevel): L
 	)
 	const kindName = fresh("LawKind", taken)
 	const Kind = closedBuilder(kindName, live, level.order, [])
-	const Count = contract<typeof countKey>()("LawCount", pg.integer, (x) =>
-		Logic.ge(x, level.least[0])
-	)
-	const Tally = contract<typeof tallyKey>()("LawTally", pg.integer, (x) =>
-		Logic.ge(x, level.least[1])
-	)
+	const Count = contract<typeof countKey>()("LawCount", int4, (x) => Logic.ge(x, level.least[0]))
+	const Tally = contract<typeof tallyKey>()("LawTally", int4, (x) => Logic.ge(x, level.least[1]))
 	const holderName = fresh("LawHolder", taken)
-	const holderFields = { id: Id, code: closedId(Kind), marks: bits(Kind), count: Count }
+	const holderFields = { id: Id, code: closedId(Kind), marks: bit(Kind), count: Count }
 	const Holder =
 		level.key === "id"
 			? relationBuilder(holderName, holderFields, ["id"], [])
@@ -170,14 +166,14 @@ export const lawsOf = (s: ProgramSchema, built: BuiltSchema, level: LawLevel): L
 				? relationBuilder(holderName, holderFields, ["code"], [])
 				: relationBuilder(holderName, holderFields, ["id", "code"], [])
 	const counterName = fresh("LawCounter", taken)
-	const counterFields = { id: Id, tally: Tally, base: pg.integer }
+	const counterFields = { id: Id, tally: Tally, base: int4 }
 	const Counter = level.generated
 		? generatedRelation(
 				counterName,
 				counterFields,
 				["id"],
 				(r: RowScalars<Relation<string, typeof counterFields, readonly ["id"]>>) => ({
-					spare: generated(pg.integer, Type.base(r.tally))
+					spare: generated(int4, Type.base(r.tally))
 				}),
 				[]
 			)

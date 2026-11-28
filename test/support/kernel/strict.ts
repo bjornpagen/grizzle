@@ -19,7 +19,7 @@ import {
 	type ScalarType
 } from "#compiler/ir/scalar.ts"
 import { AdmittedBytes } from "#compiler/scalar/values/bytes.ts"
-import { moneyFractionDigits, Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
+import { moneyFractionDigits, Numeric, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { decimalToBinary32 } from "#compiler/scalar/values/float.ts"
 import type {
 	CarrierHost,
@@ -154,12 +154,12 @@ const isNumericOutput = (
  */
 const readNumeric =
 	(spec: SpecOf<"numeric">) =>
-	(text: string): Result.Result<Decimal, StrictFault> => {
+	(text: string): Result.Result<Numeric, StrictFault> => {
 		const fraction = spec.typmod === undefined ? "any" : Math.max(spec.typmod.scale, 0)
 		if (!isNumericOutput(text, "any", "special")) {
 			return Result.fail("numericSyntax")
 		}
-		const parsed = Decimal.fromString(text)
+		const parsed = Numeric.fromString(text)
 		if (!parsed.ok) {
 			return Result.fail("numericSyntax")
 		}
@@ -186,7 +186,7 @@ const readMoney = (text: string): Result.Result<Money, StrictFault> => {
 	if (!isNumericOutput(text, moneyFractionDigits, "finite")) {
 		return Result.fail("moneyShape")
 	}
-	const parsed = Decimal.fromString(text)
+	const parsed = Numeric.fromString(text)
 	if (!parsed.ok || !parsed.value.isFinite() || parsed.value.parts.minScale > moneyFractionDigits) {
 		return Result.fail("moneyShape")
 	}
@@ -225,7 +225,7 @@ const readExactMoney = (text: string): Result.Result<Money, StrictFault> => {
 	if (!isNumericOutput(text, "any", "finite")) {
 		return Result.fail("numericSyntax")
 	}
-	const parsed = Decimal.fromString(text)
+	const parsed = Numeric.fromString(text)
 	if (!parsed.ok || !parsed.value.isFinite() || parsed.value.parts.minScale > moneyFractionDigits) {
 		return Result.fail("moneyShape")
 	}
@@ -603,7 +603,7 @@ const readerOf = <C extends Carrier>(
  * | Carrier | Admitted text |
  * | --- | --- |
  * | int2, int4, int8 | an optional minus sign and one to nineteen digits without a leading zero, no -0, in range |
- * | numeric | numeric_out text (Decimal.fromString's value writes it back), at the declared typmod, or a computed numeric's value within the integer and fraction digits its type proves (numericBound) |
+ * | numeric | numeric_out text (Numeric.fromString's value writes it back), at the declared typmod, or a computed numeric's value within the integer and fraction digits its type proves (numericBound) |
  * | float4, float8 | a shortest round-trip decimal, NaN, Infinity or -Infinity; a real read exactly as binary32 |
  * | money | money::numeric text: a finite amount with at most two fractional digits, within int64 |
  * | bool | t, f, true, false |
@@ -626,7 +626,7 @@ export const strictReader = (
 		? read
 		: (text) =>
 				Result.flatMap(read(text), (value) =>
-					value instanceof Decimal && !withinBound(value, bound)
+					value instanceof Numeric && !withinBound(value, bound)
 						? Result.fail("numericBound")
 						: Result.succeed(value)
 				)
@@ -656,7 +656,7 @@ const leastScale = (coefficient: bigint, minScale: number): number => {
  * bounds.ts tenTo reads it: a value is below 10^d exactly when its coefficient's digits less its scale are at most d,
  * so 0.00042 is below 10^-3, and 500 is a multiple of 10^2.
  */
-const withinBound = (value: Decimal, bound: NumericBound): boolean => {
+const withinBound = (value: Numeric, bound: NumericBound): boolean => {
 	const p = value.parts
 	if (p.kind !== "finite" || p.coefficient === 0n) {
 		return true

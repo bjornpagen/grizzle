@@ -6,7 +6,7 @@ import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { baselineRuleChecks, lawChecks } from "#compiler/deploy/snapshot/violation.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	check,
@@ -37,24 +37,16 @@ const shapes = ["one unit", "two units"] as const
 
 export type Shape = (typeof shapes)[number]
 
-const Presence = relation("Presence", { child: pg.integer, slot: pg.integer, score: pg.integer }, [
-	"child",
+const Presence = relation("Presence", { child: int4, slot: int4, score: int4 }, ["child", "slot"])
+
+const Seat = relation("Seat", { child: int4, slot: int4, cap: int4, open: int4 }, ["child", "slot"])
+
+const Bench = relation("Bench", { pupil: int4, slot: int4, cap: int4, open: int4 }, [
+	"pupil",
 	"slot"
 ])
 
-const Seat = relation(
-	"Seat",
-	{ child: pg.integer, slot: pg.integer, cap: pg.integer, open: pg.integer },
-	["child", "slot"]
-)
-
-const Bench = relation(
-	"Bench",
-	{ pupil: pg.integer, slot: pg.integer, cap: pg.integer, open: pg.integer },
-	["pupil", "slot"]
-)
-
-const learner = unit("Learner", { child: pg.integer })
+const learner = unit("Learner", { child: int4 })
 
 /**
  * The laws of each shape, over Presence and its seat, the seat a Seat of the presence's child or a Bench of the pupil
@@ -117,7 +109,7 @@ const schemaOf = (shape: Shape) => {
 				[Presence, Bench],
 				[
 					learner,
-					unit("Pupil", { pupil: pg.integer }),
+					unit("Pupil", { pupil: int4 }),
 					mutable(Presence),
 					mutable(Bench),
 					contained(on(Presence, "child", "slot"), on(Bench, "pupil", "slot")),

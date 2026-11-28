@@ -9,7 +9,7 @@
 import { defined } from "@bjornpagen/testing/assert"
 import { element, finite, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Order, Record as Rec } from "effect"
-import { contract, pg, span, variant } from "#compiler/public/fields.ts"
+import { contract, range, variant, bool, int4, int8 } from "#compiler/public/fields.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { levelOf } from "#compiler/schema/level.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
@@ -42,15 +42,15 @@ const scoreKey = Symbol("Score")
 const tickKey = Symbol("Tick")
 /** A program of the place, built fresh: its schema values, root first. */
 const programOf = (place: ContractPlace): Arr.NonEmptyReadonlyArray<AnySchema> => {
-	const Score = contract<typeof scoreKey>()("Score", pg.integer, undefined, undefined)
-	const Tick = contract<typeof tickKey>()("Tick", pg.bigint, undefined, undefined)
+	const Score = contract<typeof scoreKey>()("Score", int4, undefined, undefined)
+	const Tick = contract<typeof tickKey>()("Tick", int8, undefined, undefined)
 	const Outer = contract<typeof outerKey>()("Outer", Score, undefined, undefined)
 	const Side = closed.unordered("Side", ["least", "most"])
 	/** A variant of an arm's check, qti-pie's QtiValue's shape: a level's content holds it with its check. */
 	const Mark = variant(
 		"Mark",
 		Side,
-		{ least: { low: pg.integer, high: pg.integer }, most: { flag: pg.boolean } },
+		{ least: { low: int4, high: int4 }, most: { flag: bool } },
 		{ least: (a) => a.le(a.low, a.high) }
 	)
 	/** A variant whose arm's field is a contract, which a level's content holds beside the variant. */
@@ -60,29 +60,29 @@ const programOf = (place: ContractPlace): Arr.NonEmptyReadonlyArray<AnySchema> =
 			return [
 				schema(
 					"ContractRoot",
-					[Side, relation("Unit", { id: pg.integer, score: Score, mark: Mark }, ["id"])],
+					[Side, relation("Unit", { id: int4, score: Score, mark: Mark }, ["id"])],
 					[]
 				)
 			]
 		case "a base's relation's field, under an extension": {
 			const Base = schema(
 				"ContractBase",
-				[Side, relation("Unit", { id: pg.integer, score: Score, mark: Mark }, ["id"])],
+				[Side, relation("Unit", { id: int4, score: Score, mark: Mark }, ["id"])],
 				[]
 			)
 			return [
 				Base,
-				schema.extend([Base], "ContractTop", [relation("Extra", { id: pg.integer }, ["id"])], [])
+				schema.extend([Base], "ContractTop", [relation("Extra", { id: int4 }, ["id"])], [])
 			]
 		}
 		case "an extension's relation's field": {
-			const Base = schema("ContractBase", [Side, relation("Unit", { id: pg.integer }, ["id"])], [])
+			const Base = schema("ContractBase", [Side, relation("Unit", { id: int4 }, ["id"])], [])
 			return [
 				Base,
 				schema.extend(
 					[Base],
 					"ContractTop",
-					[relation("Extra", { id: pg.integer, score: Score, mark: Mark }, ["id"])],
+					[relation("Extra", { id: int4, score: Score, mark: Mark }, ["id"])],
 					[]
 				)
 			]
@@ -90,7 +90,7 @@ const programOf = (place: ContractPlace): Arr.NonEmptyReadonlyArray<AnySchema> =
 		case "both levels' fields alike": {
 			const Base = schema(
 				"ContractBase",
-				[Side, relation("Unit", { id: pg.integer, score: Score, mark: Mark }, ["id"])],
+				[Side, relation("Unit", { id: int4, score: Score, mark: Mark }, ["id"])],
 				[]
 			)
 			return [
@@ -98,20 +98,18 @@ const programOf = (place: ContractPlace): Arr.NonEmptyReadonlyArray<AnySchema> =
 				schema.extend(
 					[Base],
 					"ContractTop",
-					[relation("Extra", { id: pg.integer, score: Score, mark: Mark }, ["id"])],
+					[relation("Extra", { id: int4, score: Score, mark: Mark }, ["id"])],
 					[]
 				)
 			]
 		}
 		case "another contract's base":
-			return [
-				schema("ContractNested", [relation("Unit", { id: pg.integer, outer: Outer }, ["id"])], [])
-			]
+			return [schema("ContractNested", [relation("Unit", { id: int4, outer: Outer }, ["id"])], [])]
 		case "a span's endpoint":
 			return [
 				schema(
 					"ContractSpan",
-					[relation("Unit", { id: pg.integer, during: span(Tick, undefined) }, ["id"])],
+					[relation("Unit", { id: int4, during: range(Tick, undefined) }, ["id"])],
 					[]
 				)
 			]
@@ -119,7 +117,7 @@ const programOf = (place: ContractPlace): Arr.NonEmptyReadonlyArray<AnySchema> =
 			return [
 				schema(
 					"ContractVariant",
-					[Side, relation("Unit", { id: pg.integer, scored: Scored }, ["id"])],
+					[Side, relation("Unit", { id: int4, scored: Scored }, ["id"])],
 					[]
 				)
 			]

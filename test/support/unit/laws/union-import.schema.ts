@@ -6,34 +6,27 @@
 
 import { type Gen, int, subset } from "@bjornpagen/testing/gen"
 import { Array as Arr, String as Str } from "effect"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, type Rule, v } from "#compiler/public/query.ts"
 import { contained, derived, on, relation, schema } from "#compiler/public/schema.ts"
 
-const Snap = relation("Snap", { child: pg.integer, n: pg.integer, at: pg.integer }, [
+const Snap = relation("Snap", { child: int4, n: int4, at: int4 }, ["child", "n", "at"])
+
+const Item = relation("Item", { child: int4, n: int4, stage: int4 }, ["child", "n"])
+
+const Sess = relation("Sess", { child: int4, stage: int4 }, ["child", "stage"])
+
+const Visit = relation("Visit", { child: int4, stage: int4, k: int4, at: int4 }, [
 	"child",
-	"n",
-	"at"
+	"stage",
+	"k"
 ])
 
-const Item = relation("Item", { child: pg.integer, n: pg.integer, stage: pg.integer }, [
+const Susp = relation("Susp", { child: int4, stage: int4, k: int4, at: int4 }, [
 	"child",
-	"n"
+	"stage",
+	"k"
 ])
-
-const Sess = relation("Sess", { child: pg.integer, stage: pg.integer }, ["child", "stage"])
-
-const Visit = relation(
-	"Visit",
-	{ child: pg.integer, stage: pg.integer, k: pg.integer, at: pg.integer },
-	["child", "stage", "k"]
-)
-
-const Susp = relation(
-	"Susp",
-	{ child: pg.integer, stage: pg.integer, k: pg.integer, at: pg.integer },
-	["child", "stage", "k"]
-)
 
 /** Every relation immutable and keyed by its child first, so the containment is unit-local, judged whole by child. */
 const Base = schema("union_import", [Snap, Item, Sess, Visit, Susp], [])
@@ -156,7 +149,7 @@ export const unionSchemaOf = (shape: Shape) => {
 	)
 	return shape.level === "own"
 		? own
-		: schema.extend([own], "union_import_2", [relation("Above", { id: pg.integer }, ["id"])], [])
+		: schema.extend([own], "union_import_2", [relation("Above", { id: int4 }, ["id"])], [])
 }
 
 const children = [1, 2] as const

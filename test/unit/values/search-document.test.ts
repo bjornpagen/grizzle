@@ -1,6 +1,6 @@
 /**
  * A stored search document's host boundary (scalar/values/tsvector.ts parseSearchDocument, through the codec's door,
- * values/identity.ts parseValue): pg.tsvector's values are the text tsvectorout prints, admitted exactly as they are.
+ * values/identity.ts parseValue): tsvector's values are the text tsvectorout prints, admitted exactly as they are.
  *
  * - Its one form: over drawn documents, raw ones of repeated and disordered lexemes, repeated, disordered and too great
  *   positions and labels of either case, and ones already in their one form, a document's text is admitted exactly

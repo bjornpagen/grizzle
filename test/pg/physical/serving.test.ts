@@ -29,7 +29,7 @@
  *   one row in ten) and a closed id of a drawn roster of four to eight handles (Rota, on shade, worker and during, shade
  *   its first handle on nine rows in ten), a selected side's unique (at most one remainder deposit per line) beside a
  *   foreign key on its column, and the engine is handed drawn requests on it: workload B-tree requests of every use, law
- *   probes, and GiST span predicates on during with any of Booking's scalars. Its kept cases plant the requests an
+ *   probes, and GiST range predicates on during with any of Booking's scalars. Its kept cases plant the requests an
  *   engine is tempted to serve wrongly: an equality pair beside a range over the same two columns in the other order,
  *   which one index serves; and, on Shift and on Rota of five and of eight shades, whose GiST indexes place their
  *   entries by worker, their first column of many values, ranges, lookups and law probes on worker or on the column of
@@ -91,7 +91,7 @@ export const everyRequestAGeneratedWorkloadPlansIsServedAndEveryIndexItCreatesIs
 					"test/pg/physical/serving.test.ts#everyRequestAGeneratedWorkloadPlansIsServedAndEveryIndexItCreatesIsNeeded:-:1.0.0.0.0.0.0.2.0.0.2.2.2.1.0.0.1.1.0.0.0.0.0.0.0.3.0.2.2.2.2.2.0.0.1.0.1.0.0.0.0.1.0.0.2.0.0.0.0.0.0.1.0.0.1.0.1.2.1.1.0.0.0.0.0.0.1.0.1.1.0.0.2.2.2.2.2.0.0.3.2.3.2.0.0.0.0.1.0.0"
 				),
 				reason:
-					"an equality lookup on A's boolean key column, which answers half its rows through the primary key, beside a span predicate on Task binding its closed id but not the numeric of many values after it in the GiST index another span predicate creates",
+					"an equality lookup on A's boolean key column, which answers half its rows through the primary key, beside a range predicate on Task binding its closed id but not the numeric of many values after it in the GiST index another range predicate creates",
 				since: "2026-10-29"
 			},
 			{
@@ -99,7 +99,7 @@ export const everyRequestAGeneratedWorkloadPlansIsServedAndEveryIndexItCreatesIs
 					"test/pg/physical/serving.test.ts#everyRequestAGeneratedWorkloadPlansIsServedAndEveryIndexItCreatesIsNeeded:-:2.0.0.0.2.2.1.1.1.1.0.1.2.2.2.1.1.0.1.1.1.0.0.2.2.2.1.0.0.1.1.0.2.1.1.0.3.0.0.0.2.0.2.0.2.1.1.0.1.1.1.0.2.1.2.0.2.0.2.2.3.3.2.0.1.0.1.0.1.1.0.0.1.2.1.3.2.1.1.0.1.1.0.2.0.0.1.1.3.1.0.1.1.1"
 				),
 				reason:
-					"a range on Overlaps' JsonbPretty, a closed handle, by equality and its fixed0, a numeric of many values, by a range, beside span predicates whose GiST index holds both: GiST places its entries by fixed0, so its scan would read the range across every handle, and the range is planned on a B-tree of its own. Planned generically at the load's 20,000 rows, the B-tree (5.41) ties the GiST index (5.40): each is priced at one page of the 50 rows the default range selectivity estimates, and gistcostestimate charges its descent ceil(ln N) comparisons against btcostestimate's ceil(log2 N), 0.0125 less, so PostgreSQL takes the GiST index, which read 75 of its 149 pages, its whole size the most such a read touches. Filled at its derived 51,613 rows, past one page of the GiST index (129.0 rows a page at the load), PostgreSQL takes the B-tree (measured 2026-11-23)",
+					"a range on Overlaps' JsonbPretty, a closed handle, by equality and its fixed0, a numeric of many values, by a range, beside range predicates whose GiST index holds both: GiST places its entries by fixed0, so its scan would read the range across every handle, and the range is planned on a B-tree of its own. Planned generically at the load's 20,000 rows, the B-tree (5.41) ties the GiST index (5.40): each is priced at one page of the 50 rows the default range selectivity estimates, and gistcostestimate charges its descent ceil(ln N) comparisons against btcostestimate's ceil(log2 N), 0.0125 less, so PostgreSQL takes the GiST index, which read 75 of its 149 pages, its whole size the most such a read touches. Filled at its derived 51,613 rows, past one page of the GiST index (129.0 rows a page at the load), PostgreSQL takes the B-tree (measured 2026-11-23)",
 				since: "2026-11-10"
 			},
 			{
@@ -107,7 +107,7 @@ export const everyRequestAGeneratedWorkloadPlansIsServedAndEveryIndexItCreatesIs
 					"test/pg/physical/serving.test.ts#everyRequestAGeneratedWorkloadPlansIsServedAndEveryIndexItCreatesIsNeeded:-:3.1.0.1.0.1.0.0.0.3.3.1.0.1.3.1.1.2.0.0.1.2.1.1.1.3.3.0.3.2.1.3.3.3.1.2.1.1"
 				),
 				reason:
-					"a range on DateSubtract's (fixed0, tick0, B1), planned on a B-tree led by fixed0, beside span predicates whose GiST index leads with Bool for one on (LineVertical, Bool) and holds fixed0 and tick0 but not B1: PostgreSQL sweeps that GiST index for the range, which no order of it serves beside the requests its order answers to, though it lacks one of the range's fields (serving.ts keyOrdersConflict)",
+					"a range on DateSubtract's (fixed0, tick0, B1), planned on a B-tree led by fixed0, beside range predicates whose GiST index leads with Bool for one on (LineVertical, Bool) and holds fixed0 and tick0 but not B1: PostgreSQL sweeps that GiST index for the range, which no order of it serves beside the requests its order answers to, though it lacks one of the range's fields (serving.ts keyOrdersConflict)",
 				since: "2026-11-14"
 			},
 			{
@@ -115,7 +115,7 @@ export const everyRequestAGeneratedWorkloadPlansIsServedAndEveryIndexItCreatesIs
 					"test/pg/physical/serving.test.ts#everyRequestAGeneratedWorkloadPlansIsServedAndEveryIndexItCreatesIsNeeded:-:4.1.0.1.1.0.1.0.0.1.1.0.1.1.0.1.0.0.0.1.1.1.0.1.1.1.1.1.0.1.0.1.1.1.1.1.0.0.1.1.1.0.1.0.0.0.1.2.0.1.0.1.1.1.1.0.1.1.1.0.1.2.1.1.1.1.1.0.1.1.1.1.0.0.1.1.1.0.0.0.1.0.0.1.0.1.1.1.0.0.1.1.0.0.0.1.1.0.1.0.1.1.0.1.0.1.1.0.0.0.0.0.1.1.1.1.1.1.0.0.1.1.0.0.0.0.0.0.1.0.0.1.0.1.1.0.0.0.1.0.1.0.1.1.0.0.0.0"
 				),
 				reason:
-					"lookups and a join key on DistPs's (fixed0, tick0), (Nameicregexeq, tick0) and four of its fields beside span predicates on five of its fields, on (Nameicregexeq, tick0, Bool), on (tick0, Bool) and on Bool alone: the widest predicate's GiST index answers every one of the predicates, each column that may lead it kept until the one on Bool narrows them (physical/indexes/engine.ts leadDraft), so it leads with Bool, and PostgreSQL sweeps it for the lookups, which no order of it serves beside them",
+					"lookups and a join key on DistPs's (fixed0, tick0), (Nameicregexeq, tick0) and four of its fields beside range predicates on five of its fields, on (Nameicregexeq, tick0, Bool), on (tick0, Bool) and on Bool alone: the widest predicate's GiST index answers every one of the predicates, each column that may lead it kept until the one on Bool narrows them (physical/indexes/engine.ts leadDraft), so it leads with Bool, and PostgreSQL sweeps it for the lookups, which no order of it serves beside them",
 				since: "2026-11-14"
 			},
 			{
@@ -123,7 +123,7 @@ export const everyRequestAGeneratedWorkloadPlansIsServedAndEveryIndexItCreatesIs
 					"test/pg/physical/serving.test.ts#everyRequestAGeneratedWorkloadPlansIsServedAndEveryIndexItCreatesIsNeeded:-:5.0.0.1.0.0.1.0.0.0.0.1.1.0.1.1.0.0.0.1.1.0.1.0.0.0.0.1.0.0.2.1.1.0.1.0.0.0.0.1.0.0.0.0.0.0.1.0.1.0.1.1.0.0.0.0.0.0.0.0.1.0.1.0.0.0.1.1.0.0.1.1.0.0.0.1.1.0.0.0.1.1.0.1.0.0.1.0.1.0.0.0.0.1.0.0.1.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.1.0.0.0.0.0.0.1.1.0.1.0.0.0.0.0.1.0.1.0.0.1.0.0.0.0.0.0.2.2.0.0.1.1.0.0.1.1.1.0.0.0.1.1.2.1.1.1.0.1.1"
 				),
 				reason:
-					"an equality lookup on SpgTextLeafConsistent's Name, planned on its primary key, beside a span predicate on (Name, tick0, Bool) whose GiST index leads with tick0 for a span predicate on (tick0, Bool) that another GiST index serves, one its order answers to (PlannedIndex answers): PostgreSQL sweeps it for the lookup, which no order of it serves beside them",
+					"an equality lookup on SpgTextLeafConsistent's Name, planned on its primary key, beside a range predicate on (Name, tick0, Bool) whose GiST index leads with tick0 for a range predicate on (tick0, Bool) that another GiST index serves, one its order answers to (PlannedIndex answers): PostgreSQL sweeps it for the lookup, which no order of it serves beside them",
 				since: "2026-11-14"
 			},
 			{
@@ -179,7 +179,7 @@ export const everyDrawnRequestIsServedAndEveryIndexTheEngineCreatesForThemIsNeed
 			"served by a key or enforcement index",
 			"a GiST index serving a B-tree request",
 			"a created index needed",
-			"a span predicate on during alone"
+			"a range predicate on during alone"
 		] satisfies ReadonlyArray<Reached<RequestFeature>>,
 		check:
 			({ substrate }, c: Case<RequestFeature>) =>

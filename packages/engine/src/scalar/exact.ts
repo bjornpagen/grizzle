@@ -10,7 +10,7 @@ import { moneyFractionDigits } from "#compiler/scalar/values/decimal.ts"
  * type is bigint, unbranded: its column is the exact integer carrier's conversion, BigInt reading numeric_out's digits
  * (values/convert.ts). It is stored as PostgreSQL's numeric of no typmod, its column CHECKed to the integers a bigint
  * spells, scale 0, never NaN or an infinity (physical/numeric/storage.ts exactNumeric), and no key holds one, since its
- * widest value outgrows every index entry: a key's integer is a pg.numeric(p, 0) or a pg.bigint.
+ * widest value outgrows every index entry: a key's integer is a numeric(p, 0) or a int8.
  */
 export const exactIntegerDescriptor = defineField(
 	{},
@@ -28,7 +28,7 @@ export const exactIntegerDescriptor = defineField(
  * Money.fromOutput reading the amount at money's own scale. It is stored as PostgreSQL's numeric of no typmod, its
  * column CHECKed to amounts at exactly moneyFractionDigits fraction digits, the scale money::numeric writes and the Money
  * carrier reads and writes, never NaN or an infinity (physical/numeric/storage.ts exactNumeric), and no key holds one: a
- * key's amount is a pg.money or a pg.numeric(p, 2).
+ * key's amount is a money or a numeric(p, 2).
  */
 export const exactMoneyDescriptor = defineField(
 	{},

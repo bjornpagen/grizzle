@@ -14,8 +14,8 @@ export const unnamedIdRefusal =
 	'say whose id this is: contract<typeof key>()("ClerkUserId", uuid)' as const
 
 /**
- * What pg.smallserial, pg.serial, pg.bigserial and pg.uuidv7 are: no field descriptor but the refusal of one, a value
- * of the shape types/core/phantom.ts Refusal spells, which the pg namespace's type states spelt out (never under an
+ * What smallserial, serial, bigserial and uuidv7 are: no field descriptor but the refusal of one, a value
+ * of the shape types/core/phantom.ts Refusal spells, which each one's public type states spelt out (never under an
  * alias, so a diagnostic prints the message), so a declaration that names one is a type error that names the model,
  * and from JavaScript describeField refuses it by the same message (scalar/registry.ts refusedField).
  */

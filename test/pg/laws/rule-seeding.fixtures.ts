@@ -8,7 +8,7 @@ import { baselineRuleChecks, lawChecks } from "#compiler/deploy/snapshot/violati
 import { lawsOfConstraint } from "#compiler/ir/products.ts"
 import { countColumn } from "#compiler/physical/ddl/deltas.ts"
 import { type Installation } from "#compiler/physical/install/compile.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { check, contained, derived, key, on, relation, schema } from "#compiler/public/schema.ts"
 import { printStatement } from "#compiler/sql/print.ts"
@@ -34,11 +34,11 @@ import { firstRefusalOf, refusalOf } from "#test/support/substrate.ts"
 import { type RawSession } from "#test/support/substrate/session.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
-const L1 = relation("L1", { id: pg.integer, up: pg.integer, v: pg.integer }, ["id"])
-const L2 = relation("L2", { id: pg.integer, up: pg.integer, v: pg.integer }, ["id"])
-const L3 = relation("L3", { id: pg.integer, up: pg.integer, v: pg.integer }, ["id"])
-const M = relation("M", { id: pg.integer, up: pg.integer }, ["id"])
-const N = relation("N", { id: pg.integer }, ["id"])
+const L1 = relation("L1", { id: int4, up: int4, v: int4 }, ["id"])
+const L2 = relation("L2", { id: int4, up: int4, v: int4 }, ["id"])
+const L3 = relation("L3", { id: int4, up: int4, v: int4 }, ["id"])
+const M = relation("M", { id: int4, up: int4 }, ["id"])
+const N = relation("N", { id: int4 }, ["id"])
 
 const RELATIONS = ["L1", "L2", "L3", "M", "N"] as const
 type Table = (typeof RELATIONS)[number]

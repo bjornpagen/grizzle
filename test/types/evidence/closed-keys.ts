@@ -4,7 +4,7 @@ import { Array as Arr, Effect, Record as Rec, String as Str } from "effect"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import type { Card } from "#compiler/ir/rel.ts"
-import { closedId, pg } from "#compiler/public/fields.ts"
+import { closedId, int4 } from "#compiler/public/fields.ts"
 import { closed, schema } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
@@ -60,7 +60,7 @@ const Kind = closed.ordered("Kind", ["x", "y"])
 const Flag = closed.ordered("Flag", ["p", "q"])
 const Allowed = closed.relation(
 	"Allowed",
-	{ kind: closedId(Kind), flag: closedId(Flag), w: pg.integer },
+	{ kind: closedId(Kind), flag: closedId(Flag), w: int4 },
 	["kind", "flag"],
 	[
 		{ kind: "x", flag: "p", w: 1 },
@@ -116,7 +116,7 @@ const closedKeysHeader = `export const Kind = closed.ordered("Kind", ["x", "y"])
 export const Flag = closed.ordered("Flag", ["p", "q"])
 export const Allowed = closed.relation(
 	"Allowed",
-	{ kind: closedId(Kind), flag: closedId(Flag), w: pg.integer },
+	{ kind: closedId(Kind), flag: closedId(Flag), w: int4 },
 	["kind", "flag"],
 	${rowsText}
 )

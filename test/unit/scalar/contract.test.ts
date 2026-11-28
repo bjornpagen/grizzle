@@ -36,7 +36,8 @@ import { capsOf, numericTypmodOf, sameScalarType } from "#compiler/ir/scalar.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import type { ScalarTerm } from "#compiler/scalar/compute/term.ts"
 import { mintedRefusal } from "#compiler/scalar/minted.ts"
-import { pgDescriptors } from "#compiler/scalar/pg.ts"
+import { minted } from "#compiler/scalar/minted.ts"
+import { int8 } from "#compiler/scalar/pg.ts"
 import { describeField } from "#compiler/scalar/registry.ts"
 import { succeeded, throwsRefused } from "#test/support/assert.ts"
 import {
@@ -122,13 +123,13 @@ export const contractIdentityIsADomainOverItsBaseAndItsOwnBrandOneIdentityPerEqu
 							const refusals = [
 								throwsRefused(
 									() =>
-										contractDescriptor(name, pgDescriptors.serial, (v: ScalarTerm) => {
+										contractDescriptor(name, minted, (v: ScalarTerm) => {
 											ran = true
 											return computeCore.ge(v, 0)
 										}),
 									"Refused"
 								),
-								throwsRefused(() => contractDescriptor(name, pgDescriptors.uuidv7), "Refused")
+								throwsRefused(() => contractDescriptor(name, minted), "Refused")
 							] as const
 							assert.equal(ran, false)
 							const mintedRule: Refused = mintedRefusal
@@ -143,17 +144,14 @@ export const contractIdentityIsADomainOverItsBaseAndItsOwnBrandOneIdentityPerEqu
 						if (kind === "no predicate") {
 							c.note("no predicate built")
 							throwsRefused(
-								() => contractDescriptor(name, pgDescriptors.bigint, () => true),
+								() => contractDescriptor(name, int8, () => true),
 								"MalformedDescription"
 							)
 							throwsRefused(
-								() => contractDescriptor(name, pgDescriptors.bigint, (v: ScalarTerm) => v),
+								() => contractDescriptor(name, int8, (v: ScalarTerm) => v),
 								"MalformedDescription"
 							)
-							throwsRefused(
-								() => admitContract(name, pgDescriptors.bigint, [5]),
-								"MalformedDescription"
-							)
+							throwsRefused(() => admitContract(name, int8, [5]), "MalformedDescription")
 							return
 						}
 						const base = baseOfName(baseName, precision)
@@ -401,7 +399,7 @@ export const aMintTakesOnlyItsModulesOwnKeyAndReturnsEveryValueAsItIs = property
 
 /** The rule a clock bound to a contract over another consumer's contract is refused by. */
 const clockRule: Refused =
-	"clocked binds only parameters of the program whose values are bigints: bigint, natural, or one consumer's contract over either, under its key"
+	"clocked binds only parameters of the program whose values are bigints: int8, natural, or one consumer's contract over either, under its key"
 
 /** The rule a registered key is refused by, at mintOf and at every database-side mint. */
 const hostKeyRule: Refused =

@@ -15,7 +15,7 @@ import { defined } from "@bjornpagen/testing/assert"
 import { array, boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Order, Record as Rec } from "effect"
 import type { Installation } from "#compiler/physical/install/compile.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int8 } from "#compiler/public/fields.ts"
 import { mutable, schema, unit } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
@@ -71,12 +71,7 @@ const headingOf = (d: Definition): Arr.NonEmptyReadonlyArray<string> => {
 	}
 }
 
-const M0 = relationBuilder(
-	"M0",
-	{ doc: pg.bigint, k0: pg.bigint, v0: pg.bigint, v1: pg.bigint },
-	["doc", "k0"],
-	[]
-)
+const M0 = relationBuilder("M0", { doc: int8, k0: int8, v0: int8, v1: int8 }, ["doc", "k0"], [])
 
 /** The definition's query over `base`. */
 const definitionOf = (base: ReturnType<typeof schema>, d: Definition) => {
@@ -128,7 +123,7 @@ const installed = (
 	const base = schema(
 		"Aliased",
 		[M0],
-		[unit("Doc", { doc: pg.bigint }), ...(s.mutable ? [mutable(M0)] : [])]
+		[unit("Doc", { doc: int8 }), ...(s.mutable ? [mutable(M0)] : [])]
 	)
 	const derived = Array.from({ length: aliases }, (_, at) =>
 		derivedBuilder(`D${at}`, definitionOf(base, s.definition), [])
@@ -150,7 +145,7 @@ const installed = (
 				queryOver(top).rule((r: RuleValue) => {
 					const vars = varsOver(d, `r${at}`)
 					const bindings = Rec.fromEntries(
-						Arr.map(heading, (f) => [f, bound.has(f) ? r.param(f, pg.bigint) : vars[f]] as const)
+						Arr.map(heading, (f) => [f, bound.has(f) ? r.param(f, int8) : vars[f]] as const)
 					)
 					const head = Rec.fromEntries(
 						Arr.flatMap(heading, (f) => (bound.has(f) ? [] : [[f, vars[f]] as const]))

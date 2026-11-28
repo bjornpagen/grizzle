@@ -16,7 +16,7 @@ import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 import { powerWork } from "#test/support/oracle/evaluate/power.ts"
 import { costliest, edges, powerBatch, powerWorkLimit } from "#test/support/power-pairs.ts"
 import { admitted, type WorkFeature } from "#test/unit/compute/power-work.fixtures.ts"
@@ -45,7 +45,7 @@ export const numericPowersEvaluationDoesNoMoreDigitWorkThanNumericCDoesWithinThe
 						continue
 					}
 					const [a, b] = pair
-					const { work } = powerWork(Decimal.of(a), Decimal.of(b))
+					const { work } = powerWork(Numeric.of(a), Numeric.of(b))
 					assert.ok(
 						work <= powerWorkLimit,
 						`power(${a}, ${b}) does ${work} digit operations, past ${powerWorkLimit}`

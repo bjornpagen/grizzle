@@ -17,7 +17,7 @@ import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr } from "effect"
 import { type Installation, installOptions } from "#compiler/physical/install/compile.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
-import { natural, pg } from "#compiler/public/fields.ts"
+import { natural, bool, int4 } from "#compiler/public/fields.ts"
 import {
 	contained,
 	key,
@@ -49,15 +49,9 @@ import { Id } from "#test/support/ids.ts"
 import { installationNamesOf, type Names } from "#test/support/kernel/naming.ts"
 import { owning } from "#test/support/policy.ts"
 
-const Owner = relation("Owner", { id: Id, rank: pg.integer, live: pg.boolean, slots: natural }, [
-	"id"
-])
+const Owner = relation("Owner", { id: Id, rank: int4, live: bool, slots: natural }, ["id"])
 
-const Item = relation(
-	"Item",
-	{ id: Id, owner: Id, code: pg.integer, live: pg.boolean, at: natural },
-	["id"]
-)
+const Item = relation("Item", { id: Id, owner: Id, code: int4, live: bool, at: natural }, ["id"])
 
 const Note = relation("Note", { id: Id, owner: Id }, ["id"])
 

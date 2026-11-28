@@ -28,7 +28,7 @@ import { carrierSpecOf } from "#compiler/codec/scalar.ts"
 import { maxStringLength } from "#compiler/core/canonical.ts"
 import type { CodecFault } from "#compiler/core/errors.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 import { admitValue } from "#compiler/scalar/values/identity.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
@@ -57,7 +57,7 @@ const reading: RelationSpec = {
 /** A scaled fact: a key and a numeric whose display scale varies. */
 interface Scaled {
 	readonly k: number
-	readonly n: Decimal
+	readonly n: Numeric
 }
 
 export const fieldsOfReading = ["id", "value", "raw"] as const
@@ -65,7 +65,7 @@ export const fieldsOfReading = ["id", "value", "raw"] as const
 /** A reading as a caller states it. */
 interface Reading {
 	readonly id: string
-	readonly value: Decimal
+	readonly value: Numeric
 	readonly raw: number
 }
 
@@ -79,7 +79,7 @@ const anyDouble = weighted([
  * A value of numeric(5,2), a reading's value: a count of hundredths, which the type holds as it is. A value PostgreSQL's
  * coercion would round is no value of the type: the input boundary refuses it (numericScale).
  */
-const hundredths: Gen<Decimal> = map(int(-99999, 99999), (n) => Decimal.of(`${n}e-2`))
+const hundredths: Gen<Numeric> = map(int(-99999, 99999), (n) => Numeric.of(`${n}e-2`))
 
 /** The reading of an id: its value and its raw double drawn. */
 const readingOf =
@@ -180,7 +180,7 @@ export const plantedMembers: Gen<PlantedMember> = (source) => ({
 /** A valid reading, which each field of a planted member holds unless its plant says otherwise. */
 const validReading: Reading = {
 	id: "00000000-0000-4000-8000-000000000001",
-	value: Decimal.of("1.25"),
+	value: Numeric.of("1.25"),
 	raw: 0.5
 }
 
@@ -528,7 +528,7 @@ const factOf =
 	(k: number): Gen<Scaled> =>
 	(source) => ({
 		k,
-		n: Decimal.of(source.draw(element(spellings)))
+		n: Numeric.of(source.draw(element(spellings)))
 	})
 /**
  * One payload per k, spelled at random, so the distinct facts are exactly the drawn ones and most cases hold equal
@@ -549,12 +549,12 @@ const caseGen: Gen<{
 				const spelled = again.draw(
 					element(
 						nonEmpty(
-							Arr.filter(spellings, (s) => Decimal.of(s).equals(picked.n)),
+							Arr.filter(spellings, (s) => Numeric.of(s).equals(picked.n)),
 							"a spelling of the picked value"
 						)
 					)
 				)
-				return { k: picked.k, n: Decimal.of(spelled) }
+				return { k: picked.k, n: Numeric.of(spelled) }
 			},
 			{ min: 0, max: 8 }
 		)
@@ -608,7 +608,7 @@ export const everyType: ReadonlyArray<{
 	{
 		name: "numeric",
 		type: codecTypes.numeric,
-		value: map(int(-99999, 99999), (n) => Decimal.of(`${n}e-3`))
+		value: map(int(-99999, 99999), (n) => Numeric.of(`${n}e-3`))
 	},
 	{
 		name: "scaled",

@@ -7,7 +7,7 @@ import { withoutSourceLocs } from "#compiler/core/canonical.ts"
 import { functionDigest } from "#compiler/core/fingerprint.ts"
 import { type FunctionVolatility, functionVolatilities } from "#compiler/core/function.ts"
 import { conservativeMeta, type RelNode } from "#compiler/ir/rel.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4, int8 } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { queryOver, type QueryValue, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
@@ -138,13 +138,9 @@ export const repeated = (subject: Repeated, reads: number) => {
  * Attachments of one parent over five fields each, so none is fused, each its jobs unfiltered, those past a least `a`,
  * or those below a most `b`: two attachments of one filter compute one sub-query, under one parameter.
  */
-const Account = relation("Account", { id: pg.bigint, region: pg.integer }, ["id"])
+const Account = relation("Account", { id: int8, region: int4 }, ["id"])
 
-const Job = relation(
-	"Job",
-	{ id: pg.bigint, account: pg.bigint, a: pg.integer, b: pg.integer, c: pg.integer, d: pg.integer },
-	["id"]
-)
+const Job = relation("Job", { id: int8, account: int8, a: int4, b: int4, c: int4, d: int4 }, ["id"])
 
 export const Jobs = schema("Jobs", [Account, Job], [])
 
@@ -153,7 +149,7 @@ const accounts = queryOver(Jobs).rule((r: RuleValue) => {
 	const { id, region } = varsOver(Account, "account")
 	return r
 		.match(Account, { id, region })
-		.where(r.eq(region, r.param("region", pg.integer)))
+		.where(r.eq(region, r.param("region", int4)))
 		.find({ id })
 })
 
@@ -169,8 +165,8 @@ export const attachedJobs = (filters: ReadonlyArray<number>): QueryValue =>
 					return filter === 0
 						? jobs.find({ id, a, b, c, d })
 						: filter === 1
-							? jobs.where(r.gt(a, r.param("least", pg.integer))).find({ id, a, b, c, d })
-							: jobs.where(r.lt(b, r.param("most", pg.integer))).find({ id, a, b, c, d })
+							? jobs.where(r.gt(a, r.param("least", int4))).find({ id, a, b, c, d })
+							: jobs.where(r.lt(b, r.param("most", int4))).find({ id, a, b, c, d })
 				}),
 			"array"
 		)

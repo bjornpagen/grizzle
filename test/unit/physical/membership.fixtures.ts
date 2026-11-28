@@ -10,7 +10,7 @@ import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { libraryIdentity } from "#compiler/physical/ddl/library.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
 import { Logic } from "#compiler/public/compute.ts"
-import { Bits, bits, closedId, natural, pg, slot } from "#compiler/public/fields.ts"
+import { Bit, bit, closedId, natural, slot, int4 } from "#compiler/public/fields.ts"
 import { check, closed, fin, relation, schema } from "#compiler/public/schema.ts"
 import { own, rostersOf } from "#compiler/schema/own.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
@@ -86,11 +86,11 @@ const Slotted = closed.relation(
 const T = relation(
 	"T",
 	{
-		k: pg.integer,
+		k: int4,
 		kind: closedId(Kind),
 		flag: closedId(Flag),
 		at: closedId(Position),
-		flags: bits(Flag)
+		flags: bit(Flag)
 	},
 	["k"]
 )
@@ -99,17 +99,17 @@ const T = relation(
 const checkOf = (asked: Asked) =>
 	check("asked", T, (r) => {
 		if (asked.kind === "subset") {
-			return r.eq(Bits.subset(Allowed.row(r.kind), r.flags), true)
+			return r.eq(Bit.subset(Allowed.row(r.kind), r.flags), true)
 		}
 		if (asked.set === "slotted row") {
 			const row = Slotted.row(r.kind)
 			switch (asked.code) {
 				case "own":
-					return r.eq(Bits.subset(Bits.singleton(r.at), row), true)
+					return r.eq(Bit.subset(Bit.singleton(r.at), row), true)
 				case "picked":
 					return r.eq(
-						Bits.subset(
-							Bits.singleton(
+						Bit.subset(
+							Bit.singleton(
 								Logic.cond(r.eq(r.flag, Flag.handle("a")), r.at, Position.handle("p2"))
 							),
 							row
@@ -117,24 +117,24 @@ const checkOf = (asked: Asked) =>
 						true
 					)
 				case "handle":
-					return r.eq(Bits.subset(Bits.singleton(Position.handle("p1")), row), true)
+					return r.eq(Bit.subset(Bit.singleton(Position.handle("p1")), row), true)
 			}
 		}
 		const singleton =
 			asked.code === "own"
-				? Bits.singleton(r.flag)
+				? Bit.singleton(r.flag)
 				: asked.code === "picked"
-					? Bits.singleton(Pick.at("flag", r.kind))
-					: Bits.singleton(Flag.handle("c"))
+					? Bit.singleton(Pick.at("flag", r.kind))
+					: Bit.singleton(Flag.handle("c"))
 		switch (asked.set) {
 			case "stored":
-				return r.eq(Bits.subset(singleton, r.flags), true)
+				return r.eq(Bit.subset(singleton, r.flags), true)
 			case "row":
-				return r.eq(Bits.subset(singleton, Allowed.row(r.kind)), true)
+				return r.eq(Bit.subset(singleton, Allowed.row(r.kind)), true)
 			case "value":
-				return r.eq(Bits.subset(singleton, Bits.of(Flag, ["a", "c"])), true)
+				return r.eq(Bit.subset(singleton, Bit.of(Flag, ["a", "c"])), true)
 			case "union":
-				return r.eq(Bits.subset(singleton, Bits.union(r.flags, Allowed.row(r.kind))), true)
+				return r.eq(Bit.subset(singleton, Bit.union(r.flags, Allowed.row(r.kind))), true)
 		}
 	})
 

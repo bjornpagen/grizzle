@@ -39,7 +39,7 @@ import {
 	settle
 } from "#bench/query/support/kit.ts"
 import { indexAccessOn, outline, planOf, rowsReadFrom } from "#bench/query/support/plans.ts"
-import { pg, span } from "#compiler/public/fields.ts"
+import { range, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { key, on, relation, schema } from "#compiler/public/schema.ts"
 import { has, shapeOf } from "#test/support/kernel/shape.ts"
@@ -62,8 +62,8 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * - a lookup per fact of a joined relation, every visit's day, keeps the GiST form, one probe per visit.
  * All forms agree on instants at a span's start, just before its end, and outside every span.
  */
-const Day = relation("Day", { day: pg.bigint, span: span(pg.bigint), week: pg.bigint }, ["day"])
-const Visit = relation("Visit", { id: pg.bigint, at: pg.bigint }, ["id"])
+const Day = relation("Day", { day: int8, span: range(int8), week: int8 }, ["day"])
+const Visit = relation("Visit", { id: int8, at: int8 }, ["id"])
 const Spans = schema("Spans", [Day, Visit], [key(on(Day, "span"))])
 
 /**
@@ -71,7 +71,7 @@ const Spans = schema("Spans", [Day, Visit], [key(on(Day, "span"))])
  * not one in the public types (types/query/rule.ts pointIn), so the instants arrive as an outer relation.
  */
 const dayOf = query(Spans).rule((r) => {
-	const instants = r.relation("instants", { at: pg.bigint })
+	const instants = r.relation("instants", { at: int8 })
 	const { at } = v(instants, "instants")
 	const { day, span: s, week } = v(Day, "day")
 	return r
@@ -88,7 +88,7 @@ const visitDays = query(Spans).rule((r) => {
 	return r
 		.match(Visit, { id, at })
 		.match(Day, { day, span: s })
-		.where(r.pointIn(at, s), r.lt(id, r.param("below", pg.bigint)))
+		.where(r.pointIn(at, s), r.lt(id, r.param("below", int8)))
 		.find({ id, day })
 })
 

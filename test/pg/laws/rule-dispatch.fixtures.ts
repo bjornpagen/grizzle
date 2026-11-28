@@ -7,7 +7,7 @@ import { Array as Arr, Effect, Formatter, Order, String as Str } from "effect"
 import { temporarySchema } from "#compiler/core/temporary.ts"
 import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	contained,
@@ -36,30 +36,22 @@ import type { PgConnection } from "#test/support/pg.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 
 /** A content package's documents, keyed by their package first, as every relation of a package's unit is. */
-const Doc = relation("Doc", { package: pg.integer, doc: pg.integer }, ["package", "doc"])
+const Doc = relation("Doc", { package: int4, doc: int4 }, ["package", "doc"])
 /** A document's parts, in its package's unit. */
-const Part = relation("Part", { package: pg.integer, doc: pg.integer, part: pg.integer }, [
-	"package",
-	"doc",
-	"part"
-])
+const Part = relation("Part", { package: int4, doc: int4, part: int4 }, ["package", "doc", "part"])
 /** A document's sheets, in its package's unit. */
-const Sheet = relation("Sheet", { package: pg.integer, doc: pg.integer, sheet: pg.integer }, [
+const Sheet = relation("Sheet", { package: int4, doc: int4, sheet: int4 }, [
 	"package",
 	"doc",
 	"sheet"
 ])
 /** A learner's visits, keyed by the learner first, as every relation of a learner's unit is. */
-const Visit = relation("Visit", { child: pg.integer, at: pg.integer }, ["child", "at"])
+const Visit = relation("Visit", { child: int4, at: int4 }, ["child", "at"])
 /** The answers a learner gave in a visit, in the learner's unit. */
-const Answer = relation("Answer", { child: pg.integer, at: pg.integer, n: pg.integer }, [
-	"child",
-	"at",
-	"n"
-])
+const Answer = relation("Answer", { child: int4, at: int4, n: int4 }, ["child", "at", "n"])
 /** A learner's note on a document: mutable in the learner's unit, read beside documents keyed by their package, so the
  * rule over it joins no one unit and is probed, never judged whole. */
-const Note = relation("Note", { child: pg.integer, package: pg.integer, doc: pg.integer }, [
+const Note = relation("Note", { child: int4, package: int4, doc: int4 }, [
 	"child",
 	"package",
 	"doc"
@@ -107,8 +99,8 @@ const Base = schema(
 			),
 			on(Visit, "child", "at")
 		),
-		unit("Learner", { child: pg.integer }),
-		unit("Package", { package: pg.integer })
+		unit("Learner", { child: int4 }),
+		unit("Package", { package: int4 })
 	]
 )
 

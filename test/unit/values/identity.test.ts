@@ -29,7 +29,7 @@ import { passed } from "@bjornpagen/testing/lsw"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, String as Str } from "effect"
 import type { CodecFault } from "#compiler/core/errors.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 import { isValueFault } from "#compiler/scalar/values/fault.ts"
 import { binary32Max } from "#compiler/scalar/values/float.ts"
 import {
@@ -163,7 +163,7 @@ export const factIdentityGivesTwoSpellingsOfOneFactOneIdentityAndAChangedFactAno
 							c.note(`changed: ${change}`)
 							const changedFact =
 								change === "another amount"
-									? { ...fact, amount: Decimal.of(`${drawnFact.cents + 1n}e-2`) }
+									? { ...fact, amount: Numeric.of(`${drawnFact.cents + 1n}e-2`) }
 									: change === "another span"
 										? { ...fact, during: { start: fact.during.start, end: fact.during.end + 1n } }
 										: { ...fact, ratio: fact.ratio === 0 ? 1 : -fact.ratio }
@@ -257,7 +257,7 @@ export const factIdentityRefusesFactsThatAreNotExactlyTheHeadingNamingTheFieldWh
 																	heading,
 																	{
 																		...fact,
-																		amount: Decimal.of(`${drawnFact.cents}${fraction}e-3`)
+																		amount: Numeric.of(`${drawnFact.cents}${fraction}e-3`)
 																	},
 																	{ fault: "numericScale", field: "amount" }
 																]
@@ -266,7 +266,7 @@ export const factIdentityRefusesFactsThatAreNotExactlyTheHeadingNamingTheFieldWh
 																		heading,
 																		{
 																			...fact,
-																			amount: Decimal.of(
+																			amount: Numeric.of(
 																				`1e${amountType.precision - amountType.scale + digits}`
 																			)
 																		},

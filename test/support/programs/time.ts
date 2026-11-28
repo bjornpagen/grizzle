@@ -3,7 +3,7 @@
  * imports these alone, each through this module.
  */
 export { Time, Type } from "#compiler/public/compute.ts"
-export { closedId, date, instant, pg } from "#compiler/public/fields.ts"
+export { closedId, date, instant, int4, int8 } from "#compiler/public/fields.ts"
 export type { CalendarDate } from "#compiler/public/fields.ts"
 export { query, v } from "#compiler/public/query.ts"
 export type { HeadOf } from "#compiler/public/query.ts"

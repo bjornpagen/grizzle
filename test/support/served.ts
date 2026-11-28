@@ -89,7 +89,7 @@ const differenceAt = (
  * primitive; a vector, a Float32Array of the same components bit for bit; a range overload, the one instance the
  * registry knows it by (ir/expr.ts rangeOp), as that very instance; arrays of equal length, element by element; Maps of
  * the same entries in the same order and Sets of the same members in the same order; canonical values (a Roster, a
- * Decimal, a Money, an IR literal's text) of one class with one canonical payload; records with the same members that
+ * Numeric, a Money, an IR literal's text) of one class with one canonical payload; records with the same members that
  * are not undefined, whatever their prototypes, which the runtime reads none of, a member left undefined being one left
  * out.
  */

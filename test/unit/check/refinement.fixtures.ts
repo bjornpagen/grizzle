@@ -11,7 +11,7 @@ import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import { sameScalarType, type ScalarType, textOf } from "#compiler/ir/scalar.ts"
 import { Logic, Text } from "#compiler/public/compute.ts"
-import { closedId, contract, mintOf, pg } from "#compiler/public/fields.ts"
+import { closedId, contract, mintOf, int8, numeric } from "#compiler/public/fields.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { wildcardText } from "#compiler/scalar/compute/types.ts"
@@ -53,11 +53,11 @@ const Code = str.regex("^[A-Z]+$")
 const Prose = str.regex("^.*$", "su")
 
 const centsKey = Symbol("Cents")
-const Cents = contract<typeof centsKey>()("Cents", pg.bigint, (x) => Logic.ge(x, 0n))
+const Cents = contract<typeof centsKey>()("Cents", int8, (x) => Logic.ge(x, 0n))
 const toCents = mintOf(centsKey)
 
 const brandKey = Symbol("Brand")
-const Brand = contract<typeof brandKey>()("Brand", pg.bigint)
+const Brand = contract<typeof brandKey>()("Brand", int8)
 const toBrand = mintOf(brandKey)
 
 const handleKey = Symbol("Handle")
@@ -106,13 +106,13 @@ const Article = relation(
 
 const Draft = relation(
 	"Draft",
-	{ id: Id, slug: SlugAgain, state: State, code: Code, title: Prose, amount: pg.numeric(10, 2) },
+	{ id: Id, slug: SlugAgain, state: State, code: Code, title: Prose, amount: numeric(10, 2) },
 	["id"]
 )
 
-const Sheet = relation("Sheet", { id: Id, amount: pg.numeric(12, 2), count: pg.bigint }, ["id"])
+const Sheet = relation("Sheet", { id: Id, amount: numeric(12, 2), count: int8 }, ["id"])
 
-const Ledger = relation("Ledger", { id: Id, amount: pg.numeric(12, 4) }, ["id"])
+const Ledger = relation("Ledger", { id: Id, amount: numeric(12, 4) }, ["id"])
 
 const Content = schema("Content", [Tier, TierPlan, Article, Draft, Sheet, Ledger], [])
 

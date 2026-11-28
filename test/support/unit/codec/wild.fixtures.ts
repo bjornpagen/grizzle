@@ -34,7 +34,7 @@ import type { ParamText } from "#compiler/core/wire.ts"
 import { int4Min, int8Max, int8Min } from "#compiler/ir/carriers.ts"
 import { decodeScalarType } from "#compiler/ir/scalar-shape.ts"
 import { type Carrier, capabilitySet, Roster, type ScalarType } from "#compiler/ir/scalar.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 import { isValueFault } from "#compiler/scalar/values/fault.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -88,7 +88,7 @@ const numericUnder = (precision: number, scale: number): Written => {
 	return {
 		label: `numeric(${precision},${scale})`,
 		type: { carrier: "numeric", typmod: { precision, scale }, caps },
-		live: map(bigint(1n - units, units - 1n), (count) => Decimal.of(`${count}e${-scale}`))
+		live: map(bigint(1n - units, units - 1n), (count) => Numeric.of(`${count}e${-scale}`))
 	}
 }
 

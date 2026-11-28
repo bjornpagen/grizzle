@@ -94,7 +94,7 @@ const spanCarrierOf = (e: ScalarExpr, at: string): SpanCarrier => {
 		return refuse(
 			"MalformedDescription",
 			at,
-			`a span argument of the producer, not a value of ${carrier}`
+			`a range argument of the producer, not a value of ${carrier}`
 		)
 	}
 	return carrier
@@ -122,7 +122,7 @@ export const spanArguments = (
 	const [a, b] = node.args
 	const carrier = spanCarrierOf(a, at)
 	if (spanCarrierOf(b, at) !== carrier) {
-		return refuse("MalformedDescription", at, `spans of one range type for ${node.producer}`)
+		return refuse("MalformedDescription", at, `ranges of one range type for ${node.producer}`)
 	}
 	const left = lowerExpr(cx, a, scope)
 	const right = lowerExpr(cx, b, scope)
@@ -155,7 +155,7 @@ export const endpointArguments = (
 		return refuse(
 			"MalformedDescription",
 			at,
-			`a span endpoint of the producer, not a value of ${carrier}`
+			`a range endpoint of the producer, not a value of ${carrier}`
 		)
 	}
 	if (baseOf(b.type).carrier !== carrier) {

@@ -8,26 +8,19 @@
 
 import { type Gen, map, subset } from "@bjornpagen/testing/gen"
 import { Array as Arr, Order } from "effect"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, login, relation, role, schema, unit } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { workload } from "#compiler/public/workload.ts"
 
-const Doc = relation("Doc", { doc: pg.integer, at: pg.integer, v: pg.integer }, ["doc", "at"])
-const Note = relation("Note", { doc: pg.integer, at: pg.integer, body: str.regex("^.*$", "su") }, [
-	"doc",
-	"at"
-])
-const Link = relation(
-	"Link",
-	{ doc: pg.integer, at: pg.integer, toDoc: pg.integer, toAt: pg.integer },
-	["doc", "at"]
-)
+const Doc = relation("Doc", { doc: int4, at: int4, v: int4 }, ["doc", "at"])
+const Note = relation("Note", { doc: int4, at: int4, body: str.regex("^.*$", "su") }, ["doc", "at"])
+const Link = relation("Link", { doc: int4, at: int4, toDoc: int4, toAt: int4 }, ["doc", "at"])
 
 /** The schema under `name`, its roles and its login: the full role's workload reads the live relation. */
 export const builtOf = (name: string) => {
-	const base = schema(name, [Doc, Note, Link], [unit("Document", { doc: pg.integer })])
+	const base = schema(name, [Doc, Note, Link], [unit("Document", { doc: int4 })])
 	/** A place of a document with a note: a join within one document, a query of its unit alone. */
 	const noted = query(base).rule((r) => {
 		const { doc, at, v: x } = v(Doc, "place")

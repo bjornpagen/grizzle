@@ -6,7 +6,7 @@ import { type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, Order } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
-import { generated, pg } from "#compiler/public/fields.ts"
+import { generated, int4 } from "#compiler/public/fields.ts"
 import { check, relation, schema } from "#compiler/public/schema.ts"
 import { migrated } from "#test/support/installed.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
@@ -26,14 +26,9 @@ const secondBound = 20
  * in place, by SET EXPRESSION, under Bounded defined otherwise.
  */
 const versionOf = (version: "first" | "second") => (name: string) => {
-	const O = relation.generated(
-		"O",
-		{ id: pg.integer, a: pg.integer, b: pg.integer },
-		["id"],
-		(r) => ({
-			g: generated(pg.integer, version === "first" ? r.a : r.b)
-		})
-	)
+	const O = relation.generated("O", { id: int4, a: int4, b: int4 }, ["id"], (r) => ({
+		g: generated(int4, version === "first" ? r.a : r.b)
+	}))
 	const bound = version === "first" ? firstBound : secondBound
 	return schema(name, [O], [check("Bounded", O, (o) => o.le(o.g, bound))])
 }

@@ -33,7 +33,7 @@ import {
 } from "#compiler/ir/expr.ts"
 import { admitSpelling } from "#compiler/ir/pattern.ts"
 import { baseOf, type Carrier, capsOf, rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
-import { compareDecimal, Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
+import { compareDecimal, Numeric, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { cosineNormMax, cosineNormMin, numericMaxPrecision } from "#compiler/scalar/values/fault.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { f } from "#test/support/fixtures/ir/desc.ts"
@@ -45,7 +45,7 @@ import { scalarTypes } from "#test/support/unit/ir/fixture.ts"
 export const floatMax = 3.4028234663852886e38
 
 /** A decimal's numeric_out text from its units and scale. */
-const decimalText = (units: bigint, scale: number): string => {
+const numericText = (units: bigint, scale: number): string => {
 	const sign = units < 0n ? "-" : ""
 	const abs = pipe((units < 0n ? -units : units).toString(), Str.padStart(scale + 1, "0"))
 	return scale === 0
@@ -203,7 +203,7 @@ function numericMembersOf(t: ScalarType): ReadonlyArray<unknown> {
 
 /** The numeric literal of the value `text` spells, display scale or not, at `type`. */
 export const at = (text: string, type: ScalarType) =>
-	check({ kind: "numeric", value: Decimal.of(text) }, type)
+	check({ kind: "numeric", value: Numeric.of(text) }, type)
 
 /** The problem a literal has at a type, if any (expr.ts literalProblem). */
 export const check = (literal: TypedLiteral, type: ScalarType) => literalProblem(literal, type)
@@ -293,8 +293,8 @@ export const literalArms: { readonly [K in DrawnKind]: Gen<TypedLiteral> } = {
 	})),
 	numeric: (source): TypedLiteral => ({
 		kind: "numeric",
-		value: Decimal.of(
-			decimalText(source.draw(bigint(-(10n ** 12n), 10n ** 12n)), source.draw(int(0, 4)))
+		value: Numeric.of(
+			numericText(source.draw(bigint(-(10n ** 12n), 10n ** 12n)), source.draw(int(0, 4)))
 		)
 	}),
 	money: map(bigint(-(2n ** 63n), 2n ** 63n - 1n), (v): TypedLiteral => ({
@@ -440,7 +440,7 @@ const within = (carrier: ScalarType["carrier"], v: bigint) => {
  * kind meets its own carriers only; an integer lies in its carrier's range; a float4 is exactly a float32; NaN and
  * the infinities are floats; a numeric literal is one numeric(p, s) stores unchanged; text is well-formed UTF-16
  * without NUL; a uuid is lowercase 8-4-4-4-12 hex; a handle is one of its code's roster's; a set's handles are its
- * roster's, each once, in their declared order, none the empty set; a span has start < end
+ * roster's, each once, in their declared order, none the empty set; a range has start < end
  * within its endpoint carrier; a vector has the type's dimensions and a norm, summed in double, in the cosine domain
  * [cosineNormMin, cosineNormMax].
  */
@@ -462,7 +462,7 @@ export const admits = (literal: TypedLiteral, outer: ScalarType): boolean => {
 			if (typmod === undefined) {
 				return true
 			}
-			const d = Decimal.of(literal.value[canonicalTag]().payload)
+			const d = Numeric.of(literal.value[canonicalTag]().payload)
 			const stored = normalizeNumeric(d, typmod)
 			return stored.ok && compareDecimal(stored.value, d) === 0
 		}
@@ -713,7 +713,7 @@ export type PredicateCase =
 
 /** A decimal's numeric_out text: up to 10^12 units, at a display scale of 0 to 8. */
 export const decimal = (source: Source) =>
-	decimalText(source.draw(bigint(-(10n ** 12n), 10n ** 12n)), source.draw(int(0, 8)))
+	numericText(source.draw(bigint(-(10n ** 12n), 10n ** 12n)), source.draw(int(0, 8)))
 
 /** A value and a typmod numeric(p, s), each of p 1 to 14 and s -4 to 16. */
 export type TypmodCase = readonly [string, number, number]
@@ -727,7 +727,7 @@ export const typmodBoundary: Gen<TypmodCase> = (source) => {
 	const scale = source.draw(int(-4, 16))
 	const units = 10n ** BigInt(scale >= 0 ? precision : precision - scale)
 	return [
-		decimalText(source.draw(boolean) ? -units : units, Math.max(scale, 0)),
+		numericText(source.draw(boolean) ? -units : units, Math.max(scale, 0)),
 		precision,
 		scale
 	] as const
@@ -743,9 +743,9 @@ export const special = element(["NaN", "Infinity", "-Infinity"])
  */
 export const texts = oneOf([
 	(source: Source) =>
-		decimalText(source.draw(bigint(-(10n ** 20n), 10n ** 20n)), source.draw(int(0, 6))),
+		numericText(source.draw(bigint(-(10n ** 20n), 10n ** 20n)), source.draw(int(0, 6))),
 	(source: Source) =>
-		decimalText(source.draw(bigint(-(10n ** 19n), 10n ** 19n)) * 10n, source.draw(int(1, 6))),
+		numericText(source.draw(bigint(-(10n ** 19n), 10n ** 19n)) * 10n, source.draw(int(1, 6))),
 	element([
 		"NaN",
 		"Infinity",

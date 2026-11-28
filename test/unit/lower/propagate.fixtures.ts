@@ -9,7 +9,7 @@ import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option } from "effect"
 import type { WriteParamSlot } from "#compiler/lower/conservative/types.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema, unit } from "#compiler/public/schema.ts"
 import type {
@@ -32,19 +32,20 @@ import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.
 import { checking } from "#test/support/policy.ts"
 
 /** A child's unit; each relation keyed by its child first sits in it, a stage's plan outside every unit. */
-const Learner = unit("Learner", { child: pg.integer })
-const Session = relation("Session", { child: pg.integer, stage: pg.integer }, ["child", "stage"])
-const Plan = relation("Plan", { stage: pg.integer, path: pg.integer }, ["stage", "path"])
-const Visit = relation("Visit", { child: pg.integer, stage: pg.integer, path: pg.integer }, [
+const Learner = unit("Learner", { child: int4 })
+const Session = relation("Session", { child: int4, stage: int4 }, ["child", "stage"])
+const Plan = relation("Plan", { stage: int4, path: int4 }, ["stage", "path"])
+const Visit = relation("Visit", { child: int4, stage: int4, path: int4 }, [
 	"child",
 	"stage",
 	"path"
 ])
-const Mark = relation(
-	"Mark",
-	{ child: pg.integer, stage: pg.integer, path: pg.integer, n: pg.integer },
-	["child", "stage", "path", "n"]
-)
+const Mark = relation("Mark", { child: int4, stage: int4, path: int4, n: int4 }, [
+	"child",
+	"stage",
+	"path",
+	"n"
+])
 const Ledger = schema("PropagateLedger", [Session, Plan, Visit, Mark], [Learner])
 const l = { Session, Plan, Visit, Mark } as const
 
@@ -85,7 +86,7 @@ export const programGen: Gen<Program> = element<Program>([
 
 /** The child's stages' paths, the parameter projected as the child. */
 const due = query(Ledger).rule((r) => {
-	const child = r.param("child", pg.integer)
+	const child = r.param("child", int4)
 	const { stage } = v(l.Session, "s")
 	const { path } = v(l.Plan, "p")
 	return r
@@ -97,12 +98,12 @@ const due = query(Ledger).rule((r) => {
 /** The rows of `due` and of the child's sessions' first paths, each arm projecting the parameter as the child. */
 const either = query(Ledger)
 	.rule((r) => {
-		const d = due.bind({ child: r.param("child", pg.integer) })
+		const d = due.bind({ child: r.param("child", int4) })
 		const { child, stage, path } = v(d, "d")
 		return r.match(d, { child, stage, path }).find({ child, stage, path })
 	})
 	.rule((r) => {
-		const child = r.param("child", pg.integer)
+		const child = r.param("child", int4)
 		const { stage } = v(l.Session, "s")
 		return r.match(l.Session, { child, stage }).find({ child, stage, path: stage })
 	})
@@ -110,8 +111,8 @@ const either = query(Ledger)
 /** A child's last visit at a stage: the take of one of its visits there, the last path first. */
 const lastVisit = query(Ledger)
 	.rule((r) => {
-		const child = r.param("child", pg.integer)
-		const stage = r.param("stage", pg.integer)
+		const child = r.param("child", int4)
+		const stage = r.param("stage", int4)
 		const { path } = v(l.Visit, "x")
 		return r.match(l.Visit, { child, stage, path }).find({ child, stage, path })
 	})
@@ -125,7 +126,7 @@ const changeOf = (program: Program) => {
 				.insert(l.Visit, due)
 				.read("again", () =>
 					query(Ledger).rule((r) => {
-						const d = due.bind({ child: r.param("child", pg.integer) })
+						const d = due.bind({ child: r.param("child", int4) })
 						const { child, stage, path } = v(d, "d")
 						return r
 							.match(d, { child, stage, path })
@@ -141,15 +142,15 @@ const changeOf = (program: Program) => {
 					return r
 						.match(l.Session, { child, stage })
 						.match(l.Visit, { child, stage, path })
-						.where(r.eq(child, r.param("child", pg.integer)))
-						.find({ child, stage, path, n: r.param("n", pg.integer) })
+						.where(r.eq(child, r.param("child", int4)))
+						.find({ child, stage, path, n: r.param("n", int4) })
 				})
 			)
 		case "negated":
 			return ChangeSet.empty(Ledger).insert(
 				l.Visit,
 				query(Ledger).rule((r) => {
-					const d = due.bind({ child: r.param("child", pg.integer) })
+					const d = due.bind({ child: r.param("child", int4) })
 					const { child, stage, path } = v(d, "d")
 					return r
 						.match(d, { child, stage, path })
@@ -173,7 +174,7 @@ const changeOf = (program: Program) => {
 							const { child, stage, path } = v(visits, "w")
 							return r
 								.match(visits, { child, stage, path })
-								.where(r.eq(child, r.param("child", pg.integer)))
+								.where(r.eq(child, r.param("child", int4)))
 								.find({ child, stage, path })
 						})
 						.rule((r) => {
@@ -182,7 +183,7 @@ const changeOf = (program: Program) => {
 							return r
 								.match(l.Session, { child, stage })
 								.match(visits, { child, stage, path })
-								.where(r.eq(child, r.param("child", pg.integer)))
+								.where(r.eq(child, r.param("child", int4)))
 								.find({ child, stage, path: stage })
 						})
 				)
@@ -192,7 +193,7 @@ const changeOf = (program: Program) => {
 				.insert(l.Visit, due)
 				.read("again", () =>
 					query(Ledger).rule((r) => {
-						const e = either.bind({ child: r.param("child", pg.integer) })
+						const e = either.bind({ child: r.param("child", int4) })
 						const { child, stage, path } = v(e, "e")
 						return r
 							.match(e, { child, stage, path })
@@ -219,7 +220,7 @@ const changeOf = (program: Program) => {
 				.insert(l.Visit, due)
 				.read("again", () =>
 					query(Ledger).rule((r) => {
-						const d = due.bind({ child: r.param("child", pg.integer) })
+						const d = due.bind({ child: r.param("child", int4) })
 						const { child, stage, path } = v(d, "d")
 						const last = lastVisit.bind({ child, stage })
 						const { path: latest } = v(last, "last")

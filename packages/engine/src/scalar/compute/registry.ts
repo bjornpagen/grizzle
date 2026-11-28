@@ -180,8 +180,8 @@ type SqlForm =
 				| "adjoin"
 				| "endsWith"
 				| "contains"
-				| "parseDouble"
-				| "parseDecimal"
+				| "parseFloat8"
+				| "parseNumeric"
 				| "collapse"
 				| "lowerAscii"
 				| "utf16Length"
@@ -290,8 +290,8 @@ export type NativeFn =
 	| "isXsdPattern"
 	| "replace"
 	| "btrim"
-	| "parseDouble"
-	| "parseDecimal"
+	| "parseFloat8"
+	| "parseNumeric"
 	| "sha256"
 	| "floatBits"
 	| "cosineDistance"
@@ -388,8 +388,8 @@ export const nullRules: { readonly [F in NativeFn]: NullRule } = Object.freeze({
 	isXsdPattern: "strict",
 	replace: "strict",
 	btrim: "strict",
-	parseDouble: "strict",
-	parseDecimal: "strict",
+	parseFloat8: "strict",
+	parseNumeric: "strict",
 	sha256: "strict",
 	floatBits: "strict",
 	cosineDistance: "strict",
@@ -489,8 +489,8 @@ export const computeSpecs: { readonly [F in ComputeFn]: ComputeSpec } = deepFree
 	cutFrom: { arity: 2, check: true, nodes: ["cutFrom"] },
 	replace: { arity: 3, check: true, nodes: ["replace"] },
 	isXsdPattern: { arity: 1, check: true, nodes: ["isXsdPattern"] },
-	parseDouble: { arity: 1, check: true, nodes: ["parseDouble"] },
-	parseDecimal: { arity: 1, check: true, nodes: ["parseDecimal"] },
+	parseFloat8: { arity: 1, check: true, nodes: ["parseFloat8"] },
+	parseNumeric: { arity: 1, check: true, nodes: ["parseNumeric"] },
 	sha256: { arity: 1, check: true, nodes: ["sha256"] },
 	floatBits: { arity: 1, check: true, nodes: ["floatBits"] },
 	cosineDistance: { arity: 2, check: false, nodes: ["cosineDistance"] },
@@ -1185,7 +1185,7 @@ const textUtf16Length: FixedOverload = frozen({
 
 /**
  * A double's parse from its decimal text (scalar/lexical.ts doubleOfText), IEEE 754-2019's conversion from decimal
- * character sequences, defined where the text is one ("lexical" over `doubleText`), which the lowering proves by
+ * character sequences, defined where the text is one ("lexical" over `float8Text`), which the lowering proves by
  * language inclusion: its digits and exponent read by ltrim, rtrim, split_part, replace, left, char_length and
  * starts_with, the numeric they name with its significant digits cut to a sticky last one and its exponent clamped
  * where neither changes its double, rounded once (lower/conservative/expr/parse-double.ts). Every function it reads is
@@ -1193,32 +1193,32 @@ const textUtf16Length: FixedOverload = frozen({
  * operation, so it uses no entry here.
  */
 const textParseDouble: FixedOverload = frozen({
-	fn: "parseDouble",
+	fn: "parseFloat8",
 	operands: positional(["text"]),
 	result: "float8",
-	sql: { kind: "parseDouble" },
+	sql: { kind: "parseFloat8" },
 	catalog: { kind: "construct", uses: [] },
 	volatility: "immutable",
-	totality: requires([lexical("doubleText")]),
+	totality: requires([lexical("float8Text")]),
 	reads: "value"
 })
 
 /**
  * A decimal's parse from its text (scalar/lexical.ts decimalOfText), xs:decimal's lexical mapping into numeric of no
- * typmod, exactly, defined where the text is one within decimalTextMaxBytes ("lexical" over `decimalText`), which the
+ * typmod, exactly, defined where the text is one within numericTextMaxBytes ("lexical" over `numericText`), which the
  * lowering proves by language inclusion and the operand's byte bound: `x::numeric`, numeric_in over textout's text, an
  * I/O conversion (CoerceViaIO) as Type.cast's parse is, IMMUTABLE, so it is one value wherever it stands, a
  * generated column among them. Every member names a value numeric holds, its digits past the point at most
  * NUMERIC_DSCALE_MAX, so numeric_in neither rounds nor raises.
  */
 const textParseDecimal: FixedOverload = frozen({
-	fn: "parseDecimal",
+	fn: "parseNumeric",
 	operands: positional(["text"]),
 	result: "numeric",
-	sql: { kind: "parseDecimal" },
+	sql: { kind: "parseNumeric" },
 	catalog: { kind: "input", target: catalogTypeName.numeric },
 	volatility: "immutable",
-	totality: requires([lexical("decimalText")]),
+	totality: requires([lexical("numericText")]),
 	reads: "value"
 })
 
@@ -1507,7 +1507,7 @@ const endpoint = (
  * - numeric arithmetic, rounding, ceiling, floor, trunc, gcd and lcm are total: a numeric(p, s) field declares its
  *   precision and every computed numeric carries the bound its making proved, a making past numericMaxIntegerDigits
  *   being ResourceBound where the value is made, so none reaches numeric's limit; but over an operand bounded by
- *   nothing but that limit, pg.numeric's, whose result PostgreSQL holds to it, refusing one past it with 22003
+ *   nothing but that limit, numeric's, whose result PostgreSQL holds to it, refusing one past it with 22003
  *   (scalar/values/fault.ts resultDigits);
  * - a divisor (/, %, div, mod over numeric, the exact integers, the integers' %, money / money) is `nonzero`; numeric
  *   sqrt's radicand `nonnegative`; min_scale's operand `finite`; power its base's sign, `powerDomain`, then its
@@ -1525,7 +1525,7 @@ const endpoint = (
  *   (textregexeq), whose pattern operand's every value was admitted inside PostgreSQL's regex compile space where the
  *   node was typed (compute/typing.ts), everywhere. textcat allocates its result, which past PostgreSQL's MaxAllocSize
  *   raises "invalid memory alloc request size": a query holds it only over operands whose patterns bound its bytes
- *   within bytesMaxLength (compute/typing.ts concat), an equation with a concatenation lowering it under its bytes'
+ *   within byteaMaxLength (compute/typing.ts concat), an equation with a concatenation lowering it under its bytes'
  *   guard over any operands (compute/typing.ts concatEquation), and a check or generated column holding it fails a
  *   write whose texts would pass 1 GB;
  * - translate(text, text, text), whose map lowering admits of from and to literals of one length, each character of
@@ -1536,7 +1536,7 @@ const endpoint = (
  *   operand's own length;
  * - a double's parse from its decimal text, `lexical` over every double's text, everywhere: no function it reads
  *   allocates past its operand's own size;
- * - a decimal's parse from its text, `lexical` over every decimal text within decimalTextMaxBytes, everywhere: numeric_in
+ * - a decimal's parse from its text, `lexical` over every decimal text within numericTextMaxBytes, everywhere: numeric_in
  *   reads a member of at most that many bytes into a value numeric holds;
  * - a bytes value's SHA-256 digest as lowercase hex, total, everywhere: it allocates 64 characters whatever its
  *   operand's length;
@@ -1707,8 +1707,8 @@ const catalogOverloads = {
 	"cutBefore:text": textCutBefore,
 	"cutFrom:text": textCutFrom,
 	"isXsdPattern:text": textIsXsdPattern,
-	"parseDouble:text": textParseDouble,
-	"parseDecimal:text": textParseDecimal,
+	"parseFloat8:text": textParseDouble,
+	"parseNumeric:text": textParseDecimal,
 	"sha256(bytea)": bytesDigest,
 	"floatBits:float8": floatBitsOf("float8"),
 	"floatBits:float4": floatBitsOf("float4"),

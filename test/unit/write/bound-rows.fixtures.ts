@@ -2,14 +2,14 @@
 
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 
 /** The lower level's visits, and what its members write of them, one relation each. */
-const Visit = relation("Visit", { child: pg.integer, stage: pg.integer }, ["child", "stage"])
-const fields = { child: pg.integer, stage: pg.integer } as const
+const Visit = relation("Visit", { child: int4, stage: int4 }, ["child", "stage"])
+const fields = { child: int4, stage: int4 } as const
 const key = ["child", "stage"] as const
 const outs = [
 	relation("Out0", fields, key),
@@ -19,7 +19,7 @@ const outs = [
 ] as const
 
 /** The app's own stages, a level above. */
-const Stage = relation("Stage", { child: pg.integer, key: pg.integer }, ["child", "key"])
+const Stage = relation("Stage", { child: int4, key: int4 }, ["child", "key"])
 
 const Lower = schema("BoundLower", [Visit, ...outs], [])
 export const Upper = schema.extend([Lower], "BoundUpper", [Stage], [])
@@ -38,7 +38,7 @@ const appSittings = query(Upper).rule((r) => {
 	const { child, key: stage } = v(Stage, "own")
 	return r
 		.match(Stage, { child, key: stage })
-		.where(r.eq(child, r.param("child", pg.integer)))
+		.where(r.eq(child, r.param("child", int4)))
 		.find({ child, stage })
 })
 
@@ -76,7 +76,7 @@ export const writeOf = (members: Readers, binding: Binding): unknown => {
 			out,
 			query(Upper).rule((r) => {
 				const open = openVisit.bind({
-					sittings: appSittings.bind({ child: r.param("child", pg.integer) })
+					sittings: appSittings.bind({ child: r.param("child", int4) })
 				})
 				const { child, stage } = v(open, "open")
 				return r.match(open, { child, stage }).find({ child, stage })

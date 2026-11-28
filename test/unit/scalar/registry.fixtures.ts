@@ -56,7 +56,7 @@ import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import type { ScalarTerm } from "#compiler/scalar/compute/term.ts"
 import { contractPredicateTable } from "#compiler/scalar/compute/total.ts"
 import { naturalDescriptor } from "#compiler/scalar/natural.ts"
-import { pgDescriptors } from "#compiler/scalar/pg.ts"
+import { bool, float4, float8, int2, int4, int8, money, numeric } from "#compiler/scalar/pg.ts"
 import {
 	bareEnv,
 	capabilitiesOf,
@@ -66,10 +66,11 @@ import {
 	scalarTypeOf
 } from "#compiler/scalar/registry.ts"
 import { uuidDescriptor } from "#compiler/scalar/uuid.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 import { numericMaxFractionDigits, numericMaxIntegerDigits } from "#compiler/scalar/values/fault.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
+import { vector } from "#compiler/scalar/vector.ts"
 import { closed } from "#compiler/schema/api.ts"
 import { declaredDescOf } from "#compiler/schema/field-desc.ts"
 import {
@@ -217,18 +218,17 @@ export const contentFeatures: Arr.NonEmptyReadonlyArray<ContentFeature> = [
 
 /** A contract predicate over a bigint VALUE. */
 const nonNegative: ExprDesc = defined(
-	contractDescriptor("Cents", pgDescriptors.bigint, (v: ScalarTerm) => computeCore.ge(v, 0n))
-		.predicate,
+	contractDescriptor("Cents", int8, (v: ScalarTerm) => computeCore.ge(v, 0n)).predicate,
 	"a contract's predicate"
 )
 
 const pgGen = map(
-	element(["smallint" as const, "integer" as const, "bigint" as const, "boolean" as const]),
+	element(["int2" as const, "int4" as const, "int8" as const, "bool" as const]),
 	(type) => ({ kind: "pg", type }) as const
 )
 
 const endpointGen = map(
-	element(["integer" as const, "bigint" as const]),
+	element(["int4" as const, "int8" as const]),
 	(type) => ({ kind: "pg", type }) as const
 )
 
@@ -285,7 +285,7 @@ const readingDescGen: Gen<FieldDesc> = weighted([
 		(source) => ({
 			kind: "contract" as const,
 			name: source.draw(element(["Cents", "Euros"])),
-			base: source.draw(constant<FieldDesc>({ kind: "pg", type: "bigint" })),
+			base: source.draw(constant<FieldDesc>({ kind: "pg", type: "int8" })),
 			predicate: nonNegative,
 			facts: []
 		})
@@ -366,17 +366,17 @@ const carriedText = (patterns: Patterns, language: TextLanguage): TextInfo =>
 
 /** What each pg type is: a plain carrier, or numeric of no typmod at numeric's own limits, PostgreSQL's published ones. */
 const pgCarrier = {
-	smallint: { kind: "plain", carrier: "int2" },
-	integer: { kind: "plain", carrier: "int4" },
-	bigint: { kind: "plain", carrier: "int8" },
+	int2: { kind: "plain", carrier: "int2" },
+	int4: { kind: "plain", carrier: "int4" },
+	int8: { kind: "plain", carrier: "int8" },
 	numeric: {
 		kind: "numericValue",
 		bound: { digits: numericMaxIntegerDigits, scale: numericMaxFractionDigits }
 	},
-	real: { kind: "plain", carrier: "float4" },
-	"double precision": { kind: "plain", carrier: "float8" },
+	float4: { kind: "plain", carrier: "float4" },
+	float8: { kind: "plain", carrier: "float8" },
 	money: { kind: "plain", carrier: "money" },
-	boolean: { kind: "plain", carrier: "bool" },
+	bool: { kind: "plain", carrier: "bool" },
 	date: { kind: "plain", carrier: "date" },
 	inet: { kind: "plain", carrier: "inet" },
 	cidr: { kind: "plain", carrier: "cidr" }
@@ -509,7 +509,7 @@ interface PlainContent {
 	readonly carrier: Carrier
 }
 
-/** numeric of no typmod's content: its bound, numeric's own limits for pg.numeric. */
+/** numeric of no typmod's content: its bound, numeric's own limits for numeric. */
 interface NumericValueContent {
 	readonly kind: "numericValue"
 	readonly bound: { readonly digits: number; readonly scale: number }
@@ -649,23 +649,23 @@ const bigintJudge = (value: unknown): Verdict =>
 	isBigInt(value) ? literalOf(value) : faultOf("integerType")
 
 /**
- * numeric: never a JavaScript number; a Decimal as it is, a bigint as its Decimal, and a string parsed as an exact
- * decimal literal is (values/decimal.ts Decimal.parse).
+ * numeric: never a JavaScript number; a Numeric as it is, a bigint as its Numeric, and a string parsed as an exact
+ * decimal literal is (values/decimal.ts Numeric.parse).
  */
 const numericJudge = (value: unknown): Verdict => {
 	if (typeof value === "number") {
 		return faultOf("decimalNumber")
 	}
-	if (value instanceof Decimal) {
+	if (value instanceof Numeric) {
 		return literalOf(value)
 	}
 	if (isBigInt(value)) {
-		return literalOf(Decimal.of(value))
+		return literalOf(Numeric.of(value))
 	}
 	if (typeof value !== "string") {
 		return someFault
 	}
-	const parsed = Decimal.parse(value)
+	const parsed = Numeric.parse(value)
 	return parsed.ok ? literalOf(parsed.value) : faultOf(parsed.error)
 }
 
@@ -717,7 +717,7 @@ const int8Values = bigint(-(2n ** 63n), 2n ** 63n - 1n)
 
 const vectorCase: LiteralCase = {
 	carrier: "vector(2)",
-	type: scalarOf(pgDescriptors.vector(2)),
+	type: scalarOf(vector(2)),
 	live: weighted<unknown>([
 		[
 			1,
@@ -746,7 +746,7 @@ const vectorCase: LiteralCase = {
 export const literalCases: Arr.NonEmptyReadonlyArray<LiteralCase> = [
 	{
 		carrier: "int2",
-		type: scalarOf(pgDescriptors.smallint),
+		type: scalarOf(int2),
 		live: weighted<unknown>([
 			[1, int(-32768, 32767)],
 			[1, element<unknown>([-0, 0.5, 1e300, 1n])]
@@ -755,7 +755,7 @@ export const literalCases: Arr.NonEmptyReadonlyArray<LiteralCase> = [
 	},
 	{
 		carrier: "int4",
-		type: scalarOf(pgDescriptors.integer),
+		type: scalarOf(int4),
 		live: weighted<unknown>([
 			[1, int(-(2 ** 31), 2 ** 31 - 1)],
 			[1, element<unknown>([-0, 1.5, 2 ** 53, Number.NaN, Number.POSITIVE_INFINITY, 1n])]
@@ -764,7 +764,7 @@ export const literalCases: Arr.NonEmptyReadonlyArray<LiteralCase> = [
 	},
 	{
 		carrier: "int8",
-		type: scalarOf(pgDescriptors.bigint),
+		type: scalarOf(int8),
 		live: weighted<unknown>([
 			[1, int8Values],
 			[1, constant(1)]
@@ -773,16 +773,16 @@ export const literalCases: Arr.NonEmptyReadonlyArray<LiteralCase> = [
 	},
 	{
 		carrier: "numeric",
-		type: scalarOf(pgDescriptors.numeric(9, 2)),
+		type: scalarOf(numeric(9, 2)),
 		live: weighted<unknown>([
 			[1, numericText],
-			[1, element<unknown>(["1.50", "1e", "0x10", " 1", "NaN", Decimal.of("0.062"), 2n, 1])]
+			[1, element<unknown>(["1.50", "1e", "0x10", " 1", "NaN", Numeric.of("0.062"), 2n, 1])]
 		]),
 		judge: numericJudge
 	},
 	{
 		carrier: "float4",
-		type: scalarOf(pgDescriptors.real),
+		type: scalarOf(float4),
 		live: weighted<unknown>([
 			[1, double(-Number.MAX_VALUE, Number.MAX_VALUE)],
 			[
@@ -794,7 +794,7 @@ export const literalCases: Arr.NonEmptyReadonlyArray<LiteralCase> = [
 	},
 	{
 		carrier: "float8",
-		type: scalarOf(pgDescriptors["double precision"]),
+		type: scalarOf(float8),
 		live: weighted<unknown>([
 			[1, double(-Number.MAX_VALUE, Number.MAX_VALUE)],
 			[
@@ -806,7 +806,7 @@ export const literalCases: Arr.NonEmptyReadonlyArray<LiteralCase> = [
 	},
 	{
 		carrier: "money",
-		type: scalarOf(pgDescriptors.money),
+		type: scalarOf(money),
 		live: weighted<unknown>([
 			[1, map(int8Values, (n) => Money.of(n))],
 			[1, constant(5n)]
@@ -815,7 +815,7 @@ export const literalCases: Arr.NonEmptyReadonlyArray<LiteralCase> = [
 	},
 	{
 		carrier: "bool",
-		type: scalarOf(pgDescriptors.boolean),
+		type: scalarOf(bool),
 		live: weighted<unknown>([
 			[1, boolean],
 			[1, constant(0)]
@@ -863,7 +863,7 @@ export const literalCases: Arr.NonEmptyReadonlyArray<LiteralCase> = [
 	},
 	{
 		carrier: "span over int4",
-		type: scalarOf(spanDescriptor(pgDescriptors.integer)),
+		type: scalarOf(spanDescriptor(int4)),
 		live: weighted<unknown>([
 			[
 				1,
@@ -886,7 +886,7 @@ export const literalCases: Arr.NonEmptyReadonlyArray<LiteralCase> = [
 	},
 	{
 		carrier: "span over int8",
-		type: scalarOf(spanDescriptor(pgDescriptors.bigint)),
+		type: scalarOf(spanDescriptor(int8)),
 		live: weighted<unknown>([
 			[1, (source) => ({ start: source.draw(int8Values), end: source.draw(int8Values) })],
 			[
@@ -902,7 +902,7 @@ export const literalCases: Arr.NonEmptyReadonlyArray<LiteralCase> = [
 	vectorCase,
 	{
 		carrier: "contract Cents",
-		type: scalarOf(contractDescriptor("Cents", pgDescriptors.bigint)),
+		type: scalarOf(contractDescriptor("Cents", int8)),
 		live: weighted<unknown>([
 			[1, int8Values],
 			[1, constant(1)]
@@ -1015,7 +1015,7 @@ export const literalOperandSpace = aimed<LiteralOperand, LiteralFeature>(
 )
 
 /**
- * The descriptor boundary: describeField reads a descriptor a builder made, pg.numeric itself among them (numeric of no
+ * The descriptor boundary: describeField reads a descriptor a builder made, numeric itself among them (numeric of no
  * typmod, which is also numeric(p, s)'s constructor), and a field of a writing of its own (drawn, accumulated,
  * or a place) as the descriptor its values are of, a place as natural, one rule for every field, so a
  * parameter typed by one is typed by its value type; span takes one as its endpoint, and closedId takes a closed
@@ -1032,31 +1032,31 @@ export type DescribeFeature =
 	| `boundary ${Boundary}`
 	| "a written field, read as its value type"
 
-const Cents = contractDescriptor("Cents", pgDescriptors.bigint)
-const Day = contractDescriptor("Day", pgDescriptors.integer)
+const Cents = contractDescriptor("Cents", int8)
+const Day = contractDescriptor("Day", int4)
 
 /** The descriptors a span takes as its endpoint. */
 export const endpoints: Arr.NonEmptyReadonlyArray<object> = [
-	pgDescriptors.integer,
-	pgDescriptors.bigint,
+	int4,
+	int8,
 	Cents,
 	Day,
 	naturalDescriptor
 ]
 const descriptors: Arr.NonEmptyReadonlyArray<object> = [
 	...endpoints,
-	pgDescriptors.smallint,
-	pgDescriptors.numeric,
-	pgDescriptors.numeric(9, 2),
-	pgDescriptors.numeric(1000, -1000),
-	pgDescriptors.real,
-	pgDescriptors["double precision"],
-	pgDescriptors.money,
-	pgDescriptors.boolean,
+	int2,
+	numeric,
+	numeric(9, 2),
+	numeric(1000, -1000),
+	float4,
+	float8,
+	money,
+	bool,
 	uuidDescriptor,
-	pgDescriptors.vector(3),
-	spanDescriptor(pgDescriptors.bigint),
-	spanDescriptor(pgDescriptors.integer, 7),
+	vector(3),
+	spanDescriptor(int8),
+	spanDescriptor(int4, 7),
 	admittedClosedId(Kind),
 	str.regex("^a$")
 ]
@@ -1069,7 +1069,7 @@ const writtenFields: Arr.NonEmptyReadonlyArray<readonly [object, object]> = [
 	[drawnField(naturalDescriptor, []), naturalDescriptor],
 	[placeDescriptor, naturalDescriptor],
 	[placeDescriptor.by("stage"), naturalDescriptor],
-	[accumulatedField(pgDescriptors.integer, 0, []), pgDescriptors.integer]
+	[accumulatedField(int4, 0, []), int4]
 ]
 
 /** The descriptor a live value's values are of: a written field's (writtenFields), or the descriptor itself. */

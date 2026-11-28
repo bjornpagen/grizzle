@@ -21,7 +21,7 @@ import { parseBuiltSchema } from "#compiler/program/input.ts"
 import { type PreviewWrite, previewWriteOf } from "#compiler/program/preview.ts"
 import { builtLawModel, schemaArtifacts } from "#compiler/program/schema.ts"
 import { compileParsed } from "#compiler/program/workload/change.ts"
-import { instant, pg, place } from "#compiler/public/fields.ts"
+import { instant, place, int4 } from "#compiler/public/fields.ts"
 import { type AnySchema, contained, on, relation, schema } from "#compiler/public/schema.ts"
 import { inForce, type Transport } from "#compiler/runtime/write/transport.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
@@ -68,14 +68,11 @@ export interface PreviewCostCase {
 
 /** The stamps' relations and statements of `stamps`, built anew for each schema. */
 const stampsOf = (stamps: Stamps) => {
-	const Shift = relation("Shift", { crew: pg.integer, at: instant, note: pg.integer }, [
-		"crew",
-		"at"
-	])
-	const Badge = relation("Badge", { id: pg.integer, crew: pg.integer, at: instant }, ["id"])
-	const Turn = relation("Turn", { crew: pg.integer, n: place, seat: pg.integer }, ["crew", "n"])
-	const Watch = relation("Watch", { crew: pg.integer, at: instant }, ["crew", "at"])
-	const Stray = relation("Stray", { id: pg.integer, crew: pg.integer, at: instant }, ["id"])
+	const Shift = relation("Shift", { crew: int4, at: instant, note: int4 }, ["crew", "at"])
+	const Badge = relation("Badge", { id: int4, crew: int4, at: instant }, ["id"])
+	const Turn = relation("Turn", { crew: int4, n: place, seat: int4 }, ["crew", "n"])
+	const Watch = relation("Watch", { crew: int4, at: instant }, ["crew", "at"])
+	const Stray = relation("Stray", { id: int4, crew: int4, at: instant }, ["id"])
 	switch (stamps) {
 		case "none":
 			return { relations: [], statements: [] }

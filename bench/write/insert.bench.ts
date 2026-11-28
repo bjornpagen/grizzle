@@ -40,7 +40,7 @@ import { trusted } from "#compiler/core/trusted.ts"
 import { compileParsed, parsedChange } from "#compiler/plan/change.ts"
 import { noClock, transactionClock } from "#compiler/plan/common.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4, int8 } from "#compiler/public/fields.ts"
 import { query } from "#compiler/public/query.ts"
 import {
 	key,
@@ -83,16 +83,16 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * Measured: N new facts, N exact repeats and N conflicts through the Db, against the hand-written protocol statement
  * (INSERT ... ON CONFLICT DO SELECT) and a plain INSERT ... ON CONFLICT DO NOTHING, which reports no conflict at all.
  */
-const Item = defineRelation("Item", { id: pg.bigint, v: pg.integer }, ["id"])
-const Note = defineRelation("Note", { id: pg.bigint, v: pg.integer }, ["id"])
-const Tag = defineRelation("Tag", { id: pg.bigint }, ["id"])
-const Coded = defineRelation("Coded", { id: pg.bigint, code: pg.bigint }, ["id"])
-const Anchor = defineRelation("Anchor", { id: pg.integer }, ["id"])
+const Item = defineRelation("Item", { id: int8, v: int4 }, ["id"])
+const Note = defineRelation("Note", { id: int8, v: int4 }, ["id"])
+const Tag = defineRelation("Tag", { id: int8 }, ["id"])
+const Coded = defineRelation("Coded", { id: int8, code: int8 }, ["id"])
+const Anchor = defineRelation("Anchor", { id: int4 }, ["id"])
 const build = (name: string) =>
 	schema(
 		name,
 		[Item, Note, Tag, Coded, Anchor],
-		[unit("Note", { id: pg.bigint }), mutable(Note), key(on(Coded, "code"))]
+		[unit("Note", { id: int8 }), mutable(Note), key(on(Coded, "code"))]
 	)
 
 interface Options extends Readonly<Record<string, unknown>> {

@@ -3,13 +3,13 @@
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, String as Str } from "effect"
 import { type Facts, Fn, type Term } from "#compiler/public/compute.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { fn, relation, row, rows, schema } from "#compiler/public/schema.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
 
-const A = rows({ k: pg.bigint, v: pg.bigint })
+const A = rows({ k: int8, v: int8 })
 
 /** machine: two rows arguments of (k, v), and one row of two fields of rows of (k, v). */
 const machine = fn("machine", {
@@ -23,8 +23,8 @@ const machine = fn("machine", {
 })
 
 /** A session, and its items. */
-const Session = relation("Session", { s: pg.integer, n: pg.integer }, ["s"])
-const Item = relation("Item", { session: pg.integer, k: pg.bigint, v: pg.bigint }, ["session", "k"])
+const Session = relation("Session", { s: int4, n: int4 }, ["s"])
+const Item = relation("Item", { session: int4, k: int8, v: int8 }, ["session", "k"])
 const Attached = schema("AttachedEvaluations", [Session, Item, machine], [])
 
 /** The session's items whose v is at least `j`. */
@@ -32,7 +32,7 @@ const itemsOf = (j: bigint) =>
 	query(Attached).rule((r) => {
 		const { k, v: x } = v(Item, "item")
 		return r
-			.match(Item, { session: r.param("s", pg.integer), k, v: x })
+			.match(Item, { session: r.param("s", int4), k, v: x })
 			.where(r.ge(x, j))
 			.find({ k, v: x })
 	})
@@ -60,13 +60,13 @@ const sessions = query(Attached).rule((r) => {
 	const { s, n } = v(Session, "session")
 	return r
 		.match(Session, { s, n })
-		.where(r.eq(s, r.param("session", pg.integer)))
+		.where(r.eq(s, r.param("session", int4)))
 		.find({ s, n })
 })
 
 /** A session's key as its parent row carries it. */
 type SessionKey = Readonly<{
-	s: Term<number, unknown, unknown, "integer", unknown, Facts, unknown>
+	s: Term<number, unknown, unknown, "int4", unknown, Facts, unknown>
 }>
 
 /**

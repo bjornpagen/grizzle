@@ -202,7 +202,7 @@ const spelledLiteral = (
  * Typed SQL literals for oracle facts, for the loader's typed literal INSERTs.
  *
  * A fact value is the host value a Description carries (LiteralDesc): a JavaScript number for smallint,
- * integer, real and double precision; a bigint for bigint; a Decimal, a bigint or an exact decimal string for numeric,
+ * integer, real and double precision; a bigint for bigint; a Numeric, a bigint or an exact decimal string for numeric,
  * never a JavaScript number; a Money for money; a boolean; a string for text, uuid and a closed id's handle, which is
  * written as its code under the installation's codes; a Set of handles, or the Description's { handles }, for a set,
  * written as its bit(size) text; a span
@@ -251,7 +251,7 @@ export const literalFor = (
 							: Option.none()
 			return Option.match(text, {
 				onNone: () =>
-					refuse(location, "numeric (a Decimal, bigint or exact decimal string)", value),
+					refuse(location, "numeric (a Numeric, bigint or exact decimal string)", value),
 				onSome: (payload) => Result.succeed(literal({ kind: "decimal", value: payload }, type))
 			})
 		}

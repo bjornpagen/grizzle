@@ -1,6 +1,6 @@
 import { nonEmpty } from "@bjornpagen/testing/assert"
 import { Array as Arr, String as Str } from "effect"
-import { accumulated, drawn, natural, pg } from "#compiler/public/fields.ts"
+import { accumulated, drawn, natural, int8 } from "#compiler/public/fields.ts"
 import {
 	type AnySchema,
 	contained,
@@ -120,11 +120,11 @@ export const shopOf = (name: string) => {
 			region: word,
 			label: word,
 			items: drawn(natural),
-			stock: accumulated(pg.bigint, 0n)
+			stock: accumulated(int8, 0n)
 		},
 		["id"]
 	)
-	const Item = relation("Item", { id: Id, store: Id, region: word, qty: pg.bigint }, ["id"])
+	const Item = relation("Item", { id: Id, store: Id, region: word, qty: int8 }, ["id"])
 	const items = counted(on(Item, "store"), fin(Store, "items"))
 	const shop = schema(
 		name,

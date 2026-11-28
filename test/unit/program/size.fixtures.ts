@@ -4,7 +4,7 @@ import { int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record as Rec } from "effect"
 import { isList, isRecord } from "#compiler/core/record.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { type Relation, schema } from "#compiler/public/schema.ts"
 import { queryOver, type QueryValue, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
@@ -62,7 +62,7 @@ const keyedRelation = (
 		descriptors[f] = Id
 	}
 	for (const f of integers) {
-		descriptors[f] = pg.integer
+		descriptors[f] = int4
 	}
 	return relationBuilder(name, descriptors, ["id"], [])
 }

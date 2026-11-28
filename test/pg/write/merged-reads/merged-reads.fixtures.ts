@@ -2,17 +2,17 @@
 
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Order } from "effect"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { mutable, relation, schema, unit } from "#compiler/public/schema.ts"
 import { type QueryValue, queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
 
 /** An item and its count, keyed by its id. */
-export const Item = relation("Item", { id: pg.integer, n: pg.integer }, ["id"])
+export const Item = relation("Item", { id: int4, n: int4 }, ["id"])
 
 export const build = (name: string) =>
-	schema(name, [Item], [mutable(Item), unit("Row", { id: pg.integer })])
+	schema(name, [Item], [mutable(Item), unit("Row", { id: int4 })])
 
 export type Schema = ReturnType<typeof build>
 

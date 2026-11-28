@@ -10,7 +10,7 @@ import type { MonoidName, SideDesc, SlotsDesc } from "#compiler/ir/desc.ts"
 
 /** One side of a law as an outcome names it: its statement's side, as its Description states it (ir/desc.ts). */
 export type { SideDesc as LawSide } from "#compiler/ir/desc.ts"
-import type { Decimal } from "#compiler/scalar/values/decimal.ts"
+import type { Numeric } from "#compiler/scalar/values/decimal.ts"
 import type { VariantValue } from "#compiler/scalar/values/identity.ts"
 import type { Money } from "#compiler/scalar/values/money.ts"
 import type { Span } from "#compiler/scalar/values/span.ts"
@@ -1246,7 +1246,7 @@ type CarrierAt<R, F> = "heading" extends keyof R
 /**
  * What a selection equates a field of carrier C to: a parameter, a term of origin ParamOrigin (`param`, `r.param`) that
  * meets the field's type (Meets), the field's own domain and SQL type; or a JavaScript value of its language, a
- * string, number, bigint, boolean, Decimal or Money, which the checker types by the field it meets, as it types a head
+ * string, number, bigint, boolean, Numeric or Money, which the checker types by the field it meets, as it types a head
  * literal. A variable, a typed constant and a scalar term are no parameter, so a selection reads nothing but the
  * relation's own fields and the values its caller names.
  */
@@ -2010,7 +2010,7 @@ export type KeyHost =
 	| number
 	| bigint
 	| boolean
-	| Decimal
+	| Numeric
 	| Money
 	| Span<number>
 	| Span<bigint>

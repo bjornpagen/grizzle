@@ -28,7 +28,7 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import type { OutputText } from "#compiler/core/wire.ts"
 import { variantLayout } from "#compiler/ir/codes.ts"
 import { converterOf, recordAttributeTexts } from "#compiler/scalar/values/convert.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 
 /**
@@ -62,13 +62,13 @@ const bytesAt = (row: Row, position: number): Uint8Array<ArrayBuffer> =>
 const samePrimitive = (literal: unknown, host: unknown): boolean => literal === host
 
 const sameDecimal = (literal: unknown, host: unknown): boolean =>
-	literal instanceof Decimal && host instanceof Decimal && literal.equals(host)
+	literal instanceof Numeric && host instanceof Numeric && literal.equals(host)
 
 const sameMoney = (literal: unknown, host: unknown): boolean =>
 	literal instanceof Money && host instanceof Money && literal.equals(host)
 
 /**
- * The equality of host values under a head literal's conversion: a Decimal's and a Money's `equals`, every other
+ * The equality of host values under a head literal's conversion: a Numeric's and a Money's `equals`, every other
  * literal's `===` (a string, a number, a bigint or a boolean).
  */
 const literalEquality = (
@@ -151,7 +151,7 @@ const attributeConversion = (
 	names: CodeNames
 ): ((text: OutputText) => unknown) => {
 	if (column.kind === "bytes") {
-		defect("no variant arm holds bytes")
+		defect("no variant arm holds bytea")
 	}
 	if (column.kind === "convert" && column.conversion.carrier === "sha256") {
 		return (text) => sha256FromText(text)

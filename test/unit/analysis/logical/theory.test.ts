@@ -135,8 +135,8 @@ export const spanLawsRefusesAContainmentPairingMoreThanOneSpanFieldWhateverElseI
 
 /**
  * Field-compatibility classes admit a containment's pairing of two fields exactly when their base carriers are one,
- * keeping a contract, a typmod and a refinement inside one class: natural or a contract over pg.bigint pairs with
- * pg.bigint, either side refining the other, and int4 never with int8, nor a closed id with another roster's.
+ * keeping a contract, a typmod and a refinement inside one class: natural or a contract over int8 pairs with
+ * int8, either side refining the other, and int4 never with int8, nor a closed id with another roster's.
  *
  * Budget: 300 runs and 1000 steered cases, what its suite stated before it became a property
  * (test/unit/analysis/logical/theory.test.ts:284 at 8cad5bce, its runs and its coverage's cases).

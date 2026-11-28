@@ -9,9 +9,10 @@ import {
 	type Infer,
 	mintOf,
 	natural,
-	pg,
-	type Span,
-	span as spanOf
+	range as rangeOf,
+	int4,
+	int8,
+	numeric
 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
@@ -41,21 +42,21 @@ import { paged, workload } from "#compiler/public/workload.ts"
 import { Id, type IdValue } from "#test/support/ids.ts"
 
 const instantKey = Symbol("Instant")
-export const Instant = contract<typeof instantKey>()("Instant", pg.bigint)
+export const Instant = contract<typeof instantKey>()("Instant", int8)
 export const toInstant = mintOf(instantKey)
 const microsKey = Symbol("Micros")
-export const Micros = contract<typeof microsKey>()("Micros", pg.bigint, (x) => Logic.ge(x, 0n))
+export const Micros = contract<typeof microsKey>()("Micros", int8, (x) => Logic.ge(x, 0n))
 export const toMicros = mintOf(microsKey)
 const tokensKey = Symbol("Tokens")
-export const Tokens = contract<typeof tokensKey>()("Tokens", pg.bigint, (x) => Logic.ge(x, 0n))
+export const Tokens = contract<typeof tokensKey>()("Tokens", int8, (x) => Logic.ge(x, 0n))
 export const toTokens = mintOf(tokensKey)
 const rateKey = Symbol("Rate")
-export const Rate = contract<typeof rateKey>()("Rate", pg.bigint, (x) => Logic.ge(x, 0n))
+export const Rate = contract<typeof rateKey>()("Rate", int8, (x) => Logic.ge(x, 0n))
 export const toRate = mintOf(rateKey)
 const dayNoKey = Symbol("DayNo")
-export const DayNo = contract<typeof dayNoKey>()("DayNo", pg.integer)
+export const DayNo = contract<typeof dayNoKey>()("DayNo", int4)
 const monthNoKey = Symbol("MonthNo")
-export const MonthNo = contract<typeof monthNoKey>()("MonthNo", pg.integer)
+export const MonthNo = contract<typeof monthNoKey>()("MonthNo", int4)
 export const toMonthNo = mintOf(monthNoKey)
 
 const TokenKind = closed.ordered("TokenKind", [
@@ -80,7 +81,7 @@ export const ApiKey = relation("ApiKey", { id: Id, workspace: Id, state: closedI
 ])
 export const Revocation = relation("Revocation", { key: Id, at: Instant }, ["key"])
 /** The spans a key may be used in: a span key, so one key's spans never overlap. */
-export const ApiKeyActive = relation("ApiKeyActive", { key: Id, during: spanOf(Instant) }, [
+export const ApiKeyActive = relation("ApiKeyActive", { key: Id, during: rangeOf(Instant) }, [
 	"key",
 	"during"
 ])
@@ -91,7 +92,7 @@ export const Route = relation("Route", { model: Id, provider: Id }, ["model", "p
 /** What a provider charges upstream per million tokens of a model's kind, over time. */
 export const ProviderPrice = relation(
 	"ProviderPrice",
-	{ provider: Id, model: Id, kind: closedId(TokenKind), during: spanOf(Instant), rate: Rate },
+	{ provider: Id, model: Id, kind: closedId(TokenKind), during: rangeOf(Instant), rate: Rate },
 	["provider", "model", "kind", "during"]
 )
 
@@ -100,12 +101,12 @@ export const ProviderPrice = relation(
  */
 export const RateCard = relation(
 	"RateCard",
-	{ id: Id, model: Id, kind: closedId(TokenKind), during: spanOf(Instant) },
+	{ id: Id, model: Id, kind: closedId(TokenKind), during: rangeOf(Instant) },
 	["id"]
 )
 
 /** A card's graduated tiers over token counts: each prices the part of an event's tokens it overlaps. */
-export const RateTier = relation("RateTier", { card: Id, tier: spanOf(Tokens), rate: Rate }, [
+export const RateTier = relation("RateTier", { card: Id, tier: rangeOf(Tokens), rate: Rate }, [
 	"card",
 	"tier"
 ])
@@ -113,7 +114,7 @@ export const RateTier = relation("RateTier", { card: Id, tier: spanOf(Tokens), r
 /** The immutable, high-volume stream: one API request over its window. */
 export const UsageEvent = relation(
 	"UsageEvent",
-	{ id: Id, key: Id, model: Id, provider: Id, during: spanOf(Instant) },
+	{ id: Id, key: Id, model: Id, provider: Id, during: rangeOf(Instant) },
 	["id"]
 )
 
@@ -129,7 +130,7 @@ export const UsageCharge = relation(
 		event: Id,
 		kind: closedId(TokenKind),
 		model: Id,
-		priced: spanOf(Instant),
+		priced: rangeOf(Instant),
 		tokens: Tokens,
 		amount: Micros,
 		credited: Micros,
@@ -169,7 +170,7 @@ export const CreditGrant = relation(
 		id: Id,
 		org: Id,
 		amount: Micros,
-		valid: spanOf(Instant),
+		valid: rangeOf(Instant),
 		debits: drawn(natural),
 		debited: accumulated(Micros, toMicros(0n), microsKey)
 	},
@@ -183,7 +184,7 @@ export const CreditGrant = relation(
  */
 export const CreditDebit = relation(
 	"CreditDebit",
-	{ grant: Id, event: Id, kind: closedId(TokenKind), amount: Micros, during: spanOf(Instant) },
+	{ grant: Id, event: Id, kind: closedId(TokenKind), amount: Micros, during: rangeOf(Instant) },
 	["grant", "event", "kind"]
 )
 
@@ -203,8 +204,10 @@ export const WorkspaceLimit = relation(
 	["workspace", "month"]
 )
 
-export const Day = relation("Day", { day: DayNo, during: spanOf(Instant), month: MonthNo }, ["day"])
-export const Month = relation("Month", { month: MonthNo, during: spanOf(Instant) }, ["month"])
+export const Day = relation("Day", { day: DayNo, during: rangeOf(Instant), month: MonthNo }, [
+	"day"
+])
+export const Month = relation("Month", { month: MonthNo, during: rangeOf(Instant) }, ["month"])
 
 /**
  * An organization's invoice for a period. Its lines and its refunds are two counted families (invoiceLines,
@@ -216,7 +219,7 @@ export const Invoice = relation(
 	{
 		id: Id,
 		org: Id,
-		period: spanOf(Instant),
+		period: rangeOf(Instant),
 		amount: Micros,
 		state: closedId(InvoiceState),
 		lines: drawn(natural),
@@ -266,14 +269,14 @@ export const Subscription = relation("Subscription", { id: Id, org: Id }, ["id"]
 /** A subscription's monthly price over time: a span key, so two segments of one subscription never overlap. */
 export const Segment = relation(
 	"Segment",
-	{ subscription: Id, during: spanOf(Instant), monthlyPrice: Micros },
+	{ subscription: Id, during: rangeOf(Instant), monthlyPrice: Micros },
 	["subscription", "during"]
 )
 
 /** A plan line apportioned across the priced segments it bills, to the micro-dollar. */
 export const Allocation = relation(
 	"Allocation",
-	{ line: Id, subscription: Id, during: spanOf(Instant), amount: Micros },
+	{ line: Id, subscription: Id, during: rangeOf(Instant), amount: Micros },
 	["line", "during"]
 )
 
@@ -1211,7 +1214,7 @@ export const refundable = query(Platform)
 		return r
 			.match(Invoice, { id, org: r.param("org", Id), amount, state: "paid" })
 			.where(r.not(Refund, { invoice: id }))
-			.find({ invoice: id, amount, refunded: Type.literal(pg.numeric(1, 0), 0n) })
+			.find({ invoice: id, amount, refunded: Type.literal(numeric(1, 0), 0n) })
 	})
 
 /** An organization's refunds in a window, per reason. */
@@ -1482,7 +1485,7 @@ const revokeKey = ChangeSet.empty(Platform)
 export const revokeFacts = (
 	key: IdValue,
 	at: Infer<typeof Instant>,
-	active: Span<Infer<typeof Instant>>
+	active: Range<Infer<typeof Instant>>
 ) => ({
 	delete: { ApiKeyActive: [{ key, during: active }] },
 	insert: {

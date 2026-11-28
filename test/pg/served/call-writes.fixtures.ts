@@ -6,7 +6,7 @@ import { isRecord } from "#compiler/core/record.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Fn } from "#compiler/public/compute.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, fn, relation, rows, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -33,27 +33,21 @@ import { fullWorld } from "#test/support/worlds.ts"
 /** Any text. */
 const Text = str.regex("^.*$", "su")
 
-const Session = relation("Session", { session: pg.integer, shift: pg.integer }, ["session"])
+const Session = relation("Session", { session: int4, shift: int4 }, ["session"])
 
-const Line = relation("Line", { session: pg.integer, pos: pg.integer, txt: Text }, [
-	"session",
-	"pos"
-])
+const Line = relation("Line", { session: int4, pos: int4, txt: Text }, ["session", "pos"])
 
-const Attempt = relation("Attempt", { session: pg.integer }, ["session"])
+const Attempt = relation("Attempt", { session: int4 }, ["session"])
 
-const Value = relation("Value", { session: pg.integer, pos: pg.integer, out: Text }, [
-	"session",
-	"pos"
-])
+const Value = relation("Value", { session: int4, pos: int4, out: Text }, ["session", "pos"])
 
-const Lines = rows({ pos: pg.integer, txt: Text })
+const Lines = rows({ pos: int4, txt: Text })
 
-const Graded = rows({ out: Text, pos: pg.integer })
+const Graded = rows({ out: Text, pos: int4 })
 
 const grade = fn("grade", {
 	calls: [],
-	args: { program: Lines, shift: pg.integer },
+	args: { program: Lines, shift: int4 },
 	returns: Graded,
 	volatility: "immutable",
 	nullInput: "called",
@@ -90,9 +84,7 @@ export const programsOf = (name: string) => {
 	const { level, Open, Program } = gradingSchema(name)
 	const linesOf = query(level).rule((r) => {
 		const { pos, txt } = v(Program, "line")
-		return r
-			.match(Program, { session: r.param("session", pg.integer), pos, txt })
-			.find({ pos, txt })
+		return r.match(Program, { session: r.param("session", int4), pos, txt }).find({ pos, txt })
 	})
 	const graded = query(level).rule((r) => {
 		const { session, shift } = v(Open, "open")
@@ -100,7 +92,7 @@ export const programsOf = (name: string) => {
 		const { pos, out } = v(run, "run")
 		return r
 			.match(Open, { session, shift })
-			.where(r.eq(session, r.param("session", pg.integer)))
+			.where(r.eq(session, r.param("session", int4)))
 			.match(run, { pos, out })
 			.find({ session, pos, out })
 	})
@@ -109,7 +101,7 @@ export const programsOf = (name: string) => {
 			.insert(
 				Attempt,
 				query(level).rule((r) => {
-					const one = graded.bind({ session: r.param("session", pg.integer) })
+					const one = graded.bind({ session: r.param("session", int4) })
 					const { session } = v(one, "graded")
 					return r.match(one, { session }).find({ session })
 				})
@@ -117,7 +109,7 @@ export const programsOf = (name: string) => {
 			.insert(
 				Value,
 				query(level).rule((r) => {
-					const one = graded.bind({ session: r.param("session", pg.integer) })
+					const one = graded.bind({ session: r.param("session", int4) })
 					const { session, pos, out } = v(one, "graded")
 					return r.match(one, { session, pos, out }).find({ session, pos, out })
 				})

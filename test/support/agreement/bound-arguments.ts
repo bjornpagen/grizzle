@@ -4,7 +4,7 @@ import type { Built } from "#compiler/core/phantom.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { Fn } from "#compiler/public/compute.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4, int8 } from "#compiler/public/fields.ts"
 import { query, type Rule, v } from "#compiler/public/query.ts"
 import {
 	attached,
@@ -122,7 +122,7 @@ const argumentText = (form: Form): string => {
 		case "a query of a parameter, unbound, its caller reading a parameter of its name":
 			return "scalar"
 		case "a query of a parameter, bound to the caller's parameter":
-			return 'scalar.bind({ s: r.param("s", pg.integer) })'
+			return 'scalar.bind({ s: r.param("s", int4) })'
 		case "a query of a parameter, bound to the caller's variable":
 			return "scalar.bind({ s })"
 		case "a query of a parameter, bound to a constant":
@@ -130,7 +130,7 @@ const argumentText = (form: Form): string => {
 		case "a query of a relation parameter, unbound":
 			return "relational"
 		case "a query of a relation parameter, bound to the caller's":
-			return 'relational.bind({ rel: r.relation("rel", { k: pg.bigint }) })'
+			return 'relational.bind({ rel: r.relation("rel", { k: int8 }) })'
 		case "a union whose second arm reads a parameter, unbound":
 			return "union"
 		case "a union whose second arm reads a parameter, bound":
@@ -156,7 +156,7 @@ const argumentBuilt = (form: Form, r: Rule<typeof Bound>, item: ItemVars): Built
 		case "a query of a parameter, unbound, its caller reading a parameter of its name":
 			return scalar
 		case "a query of a parameter, bound to the caller's parameter":
-			return scalar.bind({ s: r.param("s", pg.integer) })
+			return scalar.bind({ s: r.param("s", int4) })
 		case "a query of a parameter, bound to the caller's variable":
 			return scalar.bind({ s: item.s })
 		case "a query of a parameter, bound to a constant":
@@ -164,7 +164,7 @@ const argumentBuilt = (form: Form, r: Rule<typeof Bound>, item: ItemVars): Built
 		case "a query of a relation parameter, unbound":
 			return relational
 		case "a query of a relation parameter, bound to the caller's":
-			return relational.bind({ rel: r.relation("rel", { k: pg.bigint }) })
+			return relational.bind({ rel: r.relation("rel", { k: int8 }) })
 		case "a union whose second arm reads a parameter, unbound":
 			return union
 		case "a union whose second arm reads a parameter, bound":
@@ -182,7 +182,7 @@ const argumentBuilt = (form: Form, r: Rule<typeof Bound>, item: ItemVars): Built
 
 /** A cell's call, as the program writes it: its rows a source. */
 const callText = (cell: BoundCell): string => {
-	const args = `{ a: ${argumentText(cell.form)}, x: ${readsX(cell.form) ? 'r.param("x", pg.bigint)' : "1n"} }`
+	const args = `{ a: ${argumentText(cell.form)}, x: ${readsX(cell.form) ? 'r.param("x", int8)' : "1n"} }`
 	switch (cell.call) {
 		case "Fn.rows":
 			return `Fn.rows(f, ${args})`
@@ -200,14 +200,14 @@ const cellText = (cell: BoundCell): string => {
 		case "an item":
 			return `query(Bound).rule((r) => { const { s } = v(Item, "item"); ${run} return r.match(Item, { s }).match(run, { k }).find({ s, k }) })`
 		case "a parameter":
-			return `query(Bound).rule((r) => { ${run} return r.match(run, { k }).find({ s: r.param("s", pg.integer), k }) })`
+			return `query(Bound).rule((r) => { ${run} return r.match(run, { k }).find({ s: r.param("s", int4), k }) })`
 	}
 }
 
 /** A cell's call, as the runtime builders build it in a rule `r` of Item's variables `item` (callText). */
 const callBuilt = (cell: BoundCell, r: Rule<typeof Bound>, item: ItemVars) => {
 	const a = argumentBuilt(cell.form, r, item)
-	const x = readsX(cell.form) ? r.param("x", pg.bigint) : 1n
+	const x = readsX(cell.form) ? r.param("x", int8) : 1n
 	switch (cell.call) {
 		case "Fn.rows":
 			return Fn.rows(f, { a, x })
@@ -236,7 +236,7 @@ const cellBuilt = (cell: BoundCell): unknown => {
 			return query(Bound).rule((r) => {
 				const run = callBuilt(cell, r, itemOf())
 				const { k } = v(run, "run")
-				return r.match(run, { k }).find({ s: r.param("s", pg.integer), k })
+				return r.match(run, { k }).find({ s: r.param("s", int4), k })
 			})
 	}
 }

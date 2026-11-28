@@ -3,7 +3,7 @@
  * program imports these alone, each through this module.
  */
 export type { InsertAllRowsOf } from "#compiler/public/changeset.ts"
-export { drawn, natural, pg, uuid } from "#compiler/public/fields.ts"
+export { drawn, int4, natural, uuid } from "#compiler/public/fields.ts"
 export { query, v } from "#compiler/public/query.ts"
 export {
 	derived,

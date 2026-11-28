@@ -13,13 +13,13 @@ import {
 	whole
 } from "#compiler/lower/shapes/share/keys.ts"
 import { Fn } from "#compiler/public/compute.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4, int8 } from "#compiler/public/fields.ts"
 import { query, type Rule, v } from "#compiler/public/query.ts"
 import { fn, relation, row, rows, schema } from "#compiler/public/schema.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
 
-const A = rows({ k: pg.bigint, v: pg.bigint })
+const A = rows({ k: int8, v: int8 })
 
 /** processing: one rows argument of (k, v), and one row of a field of rows of (k, v), as metis's response processing. */
 const processing = fn("processing", {
@@ -33,14 +33,14 @@ const processing = fn("processing", {
 })
 
 /** A session's items, which the call's argument reads and its readers join it to. */
-const Item = relation("Item", { session: pg.integer, k: pg.bigint, v: pg.bigint }, ["session", "k"])
+const Item = relation("Item", { session: int4, k: int8, v: int8 }, ["session", "k"])
 
 const Calls = schema("CallKeys", [Item, processing], [])
 
 /** The session's items, at the parameter. */
 const items = query(Calls).rule((r) => {
 	const { k, v: x } = v(Item, "item")
-	return r.match(Item, { session: r.param("session", pg.integer), k, v: x }).find({ k, v: x })
+	return r.match(Item, { session: r.param("session", int4), k, v: x }).find({ k, v: x })
 })
 
 /** How a read reads the call's field: joined to the session's items by its row, or alone. */
@@ -62,15 +62,13 @@ export const boxGen: Gen<Box> = element<Box>(
 const readOf = (box: Box) => {
 	const read = (r: Rule<typeof Calls>, j: number) => {
 		const out = Fn.row(processing, {
-			in0: items.bind({ session: r.param("session", pg.integer) })
+			in0: items.bind({ session: r.param("session", int4) })
 		}).out
 		const { k, v: x } = v(out, "out")
 		const matched =
 			box.reading === "alone"
 				? r.match(out, { k, v: x })
-				: r
-						.match(Item, { session: r.param("session", pg.integer), k, v: x })
-						.match(out, { k, v: x })
+				: r.match(Item, { session: r.param("session", int4), k, v: x }).match(out, { k, v: x })
 		return matched.where(r.ge(x, BigInt(j))).find({ k, v: x })
 	}
 	const first = query(Calls).rule((r) => read(r, 0))

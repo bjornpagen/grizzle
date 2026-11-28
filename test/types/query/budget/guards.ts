@@ -94,7 +94,7 @@ ${Arr.join(
 	),
 	"\n"
 )}
-export const Stage = relation("Stage", { child: natural, key: natural, validateResponses: pg.boolean }, ["child", "key"])
+export const Stage = relation("Stage", { child: natural, key: natural, validateResponses: bool }, ["child", "key"])
 export const Var = relation("Var", { child: natural, stage: natural, variable: Word }, ["child", "stage", "variable"])
 ${Arr.join(
 	Arr.map(
@@ -110,7 +110,7 @@ export const admission = fn("admission", {
 	args: { ${Arr.join(
 		Arr.map(indices(args), (a) => `doc${a}: Doc`),
 		", "
-	)}, validate: pg.boolean },
+	)}, validate: bool },
 	returns: row(rows({ reasons: rows({ code: Word, variable: Word }), hidden: rows({ response: Word }) })),
 	volatility: "immutable",
 	nullInput: "called",
@@ -187,9 +187,9 @@ export const apply = (db: DbOf<typeof Writer, typeof w.programs>) =>
 /** Two inserts reading one relation parameter under headings that differ at `value`, applied with a bigint value. */
 const differingRows = `export const Word = str.regex("^[a-z]*$")
 export const Out = relation("Out", { variable: Word, value: natural }, ["variable"])
-export const Other = relation("Other", { variable: Word, count: pg.integer }, ["variable"])
+export const Other = relation("Other", { variable: Word, count: int4 }, ["variable"])
 export const S = schema("S", [Out, Other], [])
-const countsIn = <L>(r: Rule<L>) => r.relation("x", { variable: Word, value: pg.integer })
+const countsIn = <L>(r: Rule<L>) => r.relation("x", { variable: Word, value: int4 })
 export const both = ChangeSet.empty(S)
 	.insert(
 		Out,

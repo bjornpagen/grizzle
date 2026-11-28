@@ -9,7 +9,7 @@ import type { HostCall } from "#adapter/apply/run.ts"
 import { type DrawnShares, drawShares, eachShare, sendsAlone } from "#adapter/apply/shares.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import type { EncodingFailure } from "#compiler/core/errors.ts"
-import { accumulated, drawn, natural, pg } from "#compiler/public/fields.ts"
+import { accumulated, drawn, natural, int8 } from "#compiler/public/fields.ts"
 import {
 	counted,
 	fin,
@@ -37,7 +37,7 @@ import { descOf, parsedOf } from "#test/support/unit/write/changeset/fixtures.ts
 const Text = str.bytes(512, str.regex("^.*$", "su"))
 
 /** Nodes of documents, wide: learning-commons' standards are facts of this width, inserted by the hundred thousand. */
-const Wide = relation("Wide", { doc: pg.bigint, path: Text, at: pg.bigint, body: Text }, [
+const Wide = relation("Wide", { doc: int8, path: Text, at: int8, body: Text }, [
 	"doc",
 	"path",
 	"at"
@@ -158,30 +158,27 @@ export const runShares = (c: Drawn, k: Case<Feature>) =>
  * no fact states, their values folded into the node's `weight`, as Attribute's slots into Node.attrs (AL2), which AL3
  * holds to the slots its governor requires.
  */
-const Owner = relation("Owner", { id: pg.bigint, children: drawn(natural) }, ["id"])
+const Owner = relation("Owner", { id: int8, children: drawn(natural) }, ["id"])
 
-const Child = relation("Child", { parent: pg.bigint, at: drawn(natural), value: pg.bigint }, [
-	"parent",
-	"at"
-])
+const Child = relation("Child", { parent: int8, at: drawn(natural), value: int8 }, ["parent", "at"])
 
 const Node = relation(
 	"Node",
 	{
-		root: pg.bigint,
+		root: int8,
 		start: drawn(natural),
 		end: drawn(natural),
 		parent: drawn(natural),
 		at: drawn(natural),
 		children: drawn(natural),
-		label: pg.bigint,
+		label: int8,
 		marks: drawn(natural),
-		weight: accumulated(pg.bigint, 0n)
+		weight: accumulated(int8, 0n)
 	},
 	["root", "start"]
 )
 
-const Mark = relation("Mark", { root: pg.bigint, start: natural, name: pg.bigint, v: pg.bigint }, [
+const Mark = relation("Mark", { root: int8, start: natural, name: int8, v: int8 }, [
 	"root",
 	"start",
 	"name"
@@ -189,9 +186,9 @@ const Mark = relation("Mark", { root: pg.bigint, start: natural, name: pg.bigint
 
 const nodeMarks = counted(on(Mark, "root", "start"), fin(Node, "marks"))
 
-const Area = relation("Area", { area: pg.bigint, members: drawn(natural) }, ["area"])
+const Area = relation("Area", { area: int8, members: drawn(natural) }, ["area"])
 
-const Member = relation("Member", { member: pg.bigint, area: pg.bigint }, ["member"])
+const Member = relation("Member", { member: int8, area: int8 }, ["member"])
 
 const Families = schema(
 	"ShareFamilies",

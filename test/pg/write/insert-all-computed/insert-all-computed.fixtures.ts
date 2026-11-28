@@ -4,7 +4,7 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { array, constant, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option } from "effect"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { accumulated, drawn, natural, pg, place } from "#compiler/public/fields.ts"
+import { accumulated, drawn, natural, place, int8 } from "#compiler/public/fields.ts"
 import { param } from "#compiler/public/query.ts"
 import {
 	check,
@@ -70,7 +70,7 @@ const Cell = relation(
 		children: drawn(natural),
 		leaf: PackageName,
 		marks: drawn(natural),
-		weight: accumulated(pg.bigint, 0n)
+		weight: accumulated(int8, 0n)
 	},
 	["package", "root", "start"]
 )
@@ -78,7 +78,7 @@ const Cell = relation(
 /** A mark of a cell, a counted member naming its node, as pantry's Attribute names its Node. */
 const Mark = relation(
 	"Mark",
-	{ package: PackageName, root: natural, start: natural, name: PackageName, v: pg.bigint },
+	{ package: PackageName, root: natural, start: natural, name: PackageName, v: int8 },
 	["package", "root", "start", "name"]
 )
 
@@ -88,7 +88,7 @@ const cellMarks = counted(on(Mark, "package", "root", "start"), fin(Cell, "marks
  * A note of a package, one a call to its group (package, id), at the place its insert stamps, which no host value
  * holds; Weighed holds its weight to 1, so a refused note is witnessed by its key with its place named as drawn.
  */
-const Note = relation("Note", { package: PackageName, id: natural, n: place, weight: pg.bigint }, [
+const Note = relation("Note", { package: PackageName, id: natural, n: place, weight: int8 }, [
 	"package",
 	"id",
 	"n"

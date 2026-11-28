@@ -6,7 +6,7 @@ import { array, boolean, element, type Gen, int, subset } from "@bjornpagen/test
 import { Array as Arr, String as Str } from "effect"
 import { inlineLiteralMaxBytes } from "#compiler/physical/ddl/row-functions.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
-import { closedId, natural, pg } from "#compiler/public/fields.ts"
+import { closedId, natural, int4, int8 } from "#compiler/public/fields.ts"
 import { closed, relation } from "#compiler/public/schema.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { generatedField, generatedRelation } from "#compiler/schema/relation.ts"
@@ -59,7 +59,7 @@ const containedSchema = (rows: ReadonlyArray<boolean>) => {
 			return held && k !== undefined ? [{ k, n: BigInt(code) }] : []
 		})
 	)
-	const T = relation("T", { id: pg.integer, k: closedId(K), n: natural }, ["id"])
+	const T = relation("T", { id: int4, k: closedId(K), n: natural }, ["id"])
 	return schema(
 		"Contained",
 		[K, Pairs, T],
@@ -78,10 +78,10 @@ const patternedSchema = (length: number, generated: boolean) => {
 	const pattern = computeCore.pattern(`^${Str.repeat(length)("a")}`)
 	const R = generatedRelation(
 		"R",
-		{ id: pg.integer, w: Numeral, t: Letters, u: Letters },
+		{ id: int4, w: Numeral, t: Letters, u: Letters },
 		["id"],
 		(r: Readonly<Record<string, unknown>>) =>
-			generated ? { v: generatedField(pg.bigint, computeCore.cast(r["w"], pg.bigint), []) } : {},
+			generated ? { v: generatedField(int8, computeCore.cast(r["w"], int8), []) } : {},
 		[]
 	)
 	const selected = selectBuilder(R, (r: Readonly<Record<string, unknown>>) =>
@@ -139,11 +139,7 @@ export const leadCaseGen: Gen<LeadCase> = (s) => ({
 /** The lead case's schema: R(id, kind, t, u, w), with the key over the selected side or the CHECK its shape draws. */
 const leadSchemaOf = (c: LeadCase) => {
 	const pattern = computeCore.pattern("^a")
-	const R = relation(
-		"R",
-		{ id: pg.integer, kind: pg.integer, t: Letters, u: Letters, w: Numeral },
-		["id"]
-	)
+	const R = relation("R", { id: int4, kind: int4, t: Letters, u: Letters, w: Numeral }, ["id"])
 	const among = (r: Readonly<Record<string, unknown>>) =>
 		c.members.length === 1
 			? rowHelpers.eq(r["kind"], c.members[0])

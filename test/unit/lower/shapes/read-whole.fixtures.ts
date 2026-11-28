@@ -11,7 +11,7 @@
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, String as Str } from "effect"
 import { Fn } from "#compiler/public/compute.ts"
-import { closedId, pg } from "#compiler/public/fields.ts"
+import { closedId, int4 } from "#compiler/public/fields.ts"
 import { query, type Rule, v } from "#compiler/public/query.ts"
 import { closed, fn, relation, row, rows, schema } from "#compiler/public/schema.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -21,7 +21,7 @@ const Tier = closed.ordered("Tier", ["low", "mid", "high"])
 
 const TierRank = closed.relation(
 	"TierRank",
-	{ tier: closedId(Tier), rank: pg.integer },
+	{ tier: closedId(Tier), rank: int4 },
 	["tier"],
 	[
 		{ tier: "low", rank: 1 },
@@ -31,24 +31,19 @@ const TierRank = closed.relation(
 )
 
 /** A closed relation of no row, which grade's argument reads where the case's argument is empty. */
-const TierNone = closed.relation(
-	"TierNone",
-	{ tier: closedId(Tier), rank: pg.integer },
-	["tier"],
-	[]
-)
+const TierNone = closed.relation("TierNone", { tier: closedId(Tier), rank: int4 }, ["tier"], [])
 
-const Item = relation("Item", { id: pg.integer, tier: closedId(Tier), n: pg.integer }, ["id"])
+const Item = relation("Item", { id: int4, tier: closedId(Tier), n: int4 }, ["id"])
 
 /** Tags, each of a rank: many tags of one rank, so their ranks are a projection that repeats. */
-const Tag = relation("Tag", { id: pg.integer, rank: pg.integer }, ["id"])
+const Tag = relation("Tag", { id: int4, rank: int4 }, ["id"])
 
-const R = rows({ k: pg.integer })
+const R = rows({ k: int4 })
 
 /** grade: one rows argument of (k) and a value, and one row of one field of rows of (k). */
 const grade = fn("grade", {
 	calls: [],
-	args: { ranked: R, at: pg.integer },
+	args: { ranked: R, at: int4 },
 	returns: row(rows({ a0: R })),
 	volatility: "immutable",
 	nullInput: "called",
@@ -105,9 +100,9 @@ const rankedOf = (ranked: Ranked, r: Rule<typeof Whole>) => {
 			return query(Whole)
 				.rule((q) => {
 					const { rank } = v(Tag, "ranked")
-					return q.match(Tag, { id: q.param("tag", pg.integer), rank }).find({ k: rank })
+					return q.match(Tag, { id: q.param("tag", int4), rank }).find({ k: rank })
 				})
-				.bind({ tag: r.param("tag", pg.integer) })
+				.bind({ tag: r.param("tag", int4) })
 	}
 }
 

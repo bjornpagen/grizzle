@@ -17,7 +17,7 @@ import { hashedNames } from "#compiler/physical/install/comments.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
 import { Logic, Xml } from "#compiler/public/compute.ts"
-import { Bits, bits, closedId, contract, natural, pg } from "#compiler/public/fields.ts"
+import { Bit, bit, closedId, contract, natural, int8 } from "#compiler/public/fields.ts"
 import {
 	type AnyLogin,
 	type AnySchema,
@@ -83,7 +83,7 @@ const definitionsOf = (name: string) => {
 		["k"],
 		[{ k: "k0", f: "k1" }]
 	)
-	const Inner = contract<typeof innerKey>()("Inner", pg.bigint, (v) => Logic.ge(v, 0n))
+	const Inner = contract<typeof innerKey>()("Inner", int8, (v) => Logic.ge(v, 0n))
 	const Outer = contract<typeof outerKey>()("Outer", Inner, (v) => Logic.le(v, 10n))
 	const Handle = contract<typeof handleKey>()("Handle", closedId(K), undefined)
 	const Patterned = contract<typeof patternedKey>()("Patterned", str.regex("^.*$", "su"), (v) =>
@@ -93,7 +93,7 @@ const definitionsOf = (name: string) => {
 		"T",
 		{ id: Id, k: closedId(K), n: natural, outer: Outer, handle: Handle, pattern: Patterned },
 		["id"],
-		() => ({ g: generatedField(bits(K), Bits.singleton(Picks.at("f", "k2")), []) })
+		() => ({ g: generatedField(bit(K), Bit.singleton(Picks.at("f", "k2")), []) })
 	)
 	const s = schema(name, [K, Pairs, Picks, T], [contained(on(T, "k", "n"), on(Pairs, "k", "n"))])
 	return {

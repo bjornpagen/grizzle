@@ -1,15 +1,15 @@
 import { Record as Rec } from "effect"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { natural, pg } from "#compiler/public/fields.ts"
+import { natural, int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, login, on, relation, role, schema } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
 import { Id } from "#test/support/ids.ts"
 
-const Doc = relation("Doc", { node: Id, n: pg.integer }, ["node"])
-const Pool = relation("Pool", { doc: Id, pool: pg.integer, size: pg.integer }, ["doc", "pool"])
-const Sitting = relation("Sitting", { id: Id, doc: Id, child: pg.integer, pools: natural }, ["id"])
-const Served = relation("Served", { sitting: Id, doc: Id, pool: pg.integer, size: pg.integer }, [
+const Doc = relation("Doc", { node: Id, n: int4 }, ["node"])
+const Pool = relation("Pool", { doc: Id, pool: int4, size: int4 }, ["doc", "pool"])
+const Sitting = relation("Sitting", { id: Id, doc: Id, child: int4, pools: natural }, ["id"])
+const Served = relation("Served", { sitting: Id, doc: Id, pool: int4, size: int4 }, [
 	"sitting",
 	"pool"
 ])
@@ -33,7 +33,7 @@ export const sittingShape = (name: string, members: "start" | "named", extended:
 	const docOf = (n: number) => query(importer).rule((r) => r.find({ node: r.param("node", Id), n }))
 	const poolOf = (pool: number, size: "a" | "b") =>
 		query(importer).rule((r) =>
-			r.find({ doc: r.param("node", Id), pool, size: r.param(size, pg.integer) })
+			r.find({ doc: r.param("node", Id), pool, size: r.param(size, int4) })
 		)
 	const import1 = ChangeSet.empty(importer)
 		.insert(theirs.Doc, docOf(1))
@@ -43,7 +43,7 @@ export const sittingShape = (name: string, members: "start" | "named", extended:
 		.insert(
 			theirs.Pool,
 			poolOf(0, "a").rule((r) =>
-				r.find({ doc: r.param("node", Id), pool: 1, size: r.param("b", pg.integer) })
+				r.find({ doc: r.param("node", Id), pool: 1, size: r.param("b", int4) })
 			)
 		)
 	const extend = ChangeSet.empty(importer).insert(
@@ -53,7 +53,7 @@ export const sittingShape = (name: string, members: "start" | "named", extended:
 			return r
 				.match(theirs.Doc, { node })
 				.where(r.eq(node, r.param("node", Id)))
-				.find({ doc: node, pool: r.param("pool", pg.integer), size: r.param("a", pg.integer) })
+				.find({ doc: node, pool: r.param("pool", int4), size: r.param("a", int4) })
 		})
 	)
 	const counted = query(learner).rule((r) => {
@@ -72,7 +72,7 @@ export const sittingShape = (name: string, members: "start" | "named", extended:
 					.find({
 						id: r.param("id", Id),
 						doc: r.param("doc", Id),
-						child: r.param("child", pg.integer),
+						child: r.param("child", int4),
 						pools
 					})
 			})
@@ -95,7 +95,7 @@ export const sittingShape = (name: string, members: "start" | "named", extended:
 			r.find({
 				id: r.param("id", Id),
 				doc: r.param("doc", Id),
-				child: r.param("child", pg.integer),
+				child: r.param("child", int4),
 				pools: BigInt(pools)
 			})
 		)
@@ -104,7 +104,7 @@ export const sittingShape = (name: string, members: "start" | "named", extended:
 				sitting: r.param("id", Id),
 				doc: r.param("doc", Id),
 				pool: 0,
-				size: r.param("a", pg.integer)
+				size: r.param("a", int4)
 			})
 		)
 		const served =
@@ -115,7 +115,7 @@ export const sittingShape = (name: string, members: "start" | "named", extended:
 							sitting: r.param("id", Id),
 							doc: r.param("doc", Id),
 							pool: 1,
-							size: r.param("b", pg.integer)
+							size: r.param("b", int4)
 						})
 					)
 		return ChangeSet.empty(learner).insert(mine.Sitting, sitting).insert(mine.Served, served)

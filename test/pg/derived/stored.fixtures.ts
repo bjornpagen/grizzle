@@ -27,7 +27,7 @@ import type { Installation } from "#compiler/physical/install/compile.ts"
 import { admittedIdentifier, notificationText } from "#compiler/plan/runtime.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Fn, Logic } from "#compiler/public/compute.ts"
-import { closedId, pg } from "#compiler/public/fields.ts"
+import { closedId, int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	check,
@@ -69,17 +69,13 @@ import { fullWorld } from "#test/support/worlds.ts"
  * touched alone, never the rest of the shelf (analysis/derived/storage.ts deltaBounded). Doc and Link are closed, their
  * facts inserted and never changed or removed, or open, written in place and deleted inside their unit.
  */
-const Doc = relation("Doc", { shelf: pg.integer, doc: pg.integer, at: pg.integer, v: pg.integer }, [
+const Doc = relation("Doc", { shelf: int4, doc: int4, at: int4, v: int4 }, ["shelf", "doc", "at"])
+const Link = relation("Link", { shelf: int4, doc: int4, at: int4, to: int4 }, [
 	"shelf",
 	"doc",
 	"at"
 ])
-const Link = relation(
-	"Link",
-	{ shelf: pg.integer, doc: pg.integer, at: pg.integer, to: pg.integer },
-	["shelf", "doc", "at"]
-)
-const Shelf = unit("Shelf", { shelf: pg.integer })
+const Shelf = unit("Shelf", { shelf: int4 })
 
 /** The shelf every write of a case stands at: the borrow its transactions take, its documents the units its stored
  * relations are kept at. */
@@ -88,8 +84,8 @@ const shelf = 1
 /** A place's codes, a set-returning immutable function of its document and place, two rows for a first place. */
 const codes = fn("codes", {
 	calls: [],
-	args: { d: pg.integer, p: pg.integer },
-	returns: rows({ code: pg.integer }),
+	args: { d: int4, p: int4 },
+	returns: rows({ code: int4 }),
 	volatility: "immutable",
 	nullInput: "strict",
 	language: "sql",
@@ -107,8 +103,8 @@ const callsSetting = "stored_test.compiled"
  */
 const compile = fn("compile", {
 	calls: [],
-	args: { x: pg.integer },
-	returns: pg.integer,
+	args: { x: int4 },
+	returns: int4,
 	volatility: "immutable",
 	nullInput: "called",
 	language: "plpgsql",
@@ -125,7 +121,7 @@ export type Openness = "closed" | "open"
 const Shade = closed.ordered("Shade", ["light", "dark"])
 const Weight = closed.relation(
 	"Weight",
-	{ shade: closedId(Shade), w: pg.integer },
+	{ shade: closedId(Shade), w: int4 },
 	["shade"],
 	[
 		{ shade: "light", w: 1 },
@@ -571,19 +567,19 @@ const watchedOf = (openness: Openness, name: string) => {
 	const programs: Record<string, unknown> = {
 		placedAt: query(top).rule((r) => {
 			const { at, v: x } = v(Placed, "p")
-			return r.match(Placed, { doc: r.param("doc", pg.integer), at, v: x }).find({ at, v: x })
+			return r.match(Placed, { doc: r.param("doc", int4), at, v: x }).find({ at, v: x })
 		}),
 		placedOf: query(top).rule((r) => {
 			const { doc, at } = v(Placed, "p")
-			return r.match(Placed, { doc, at, v: r.param("v", pg.integer) }).find({ doc, at })
+			return r.match(Placed, { doc, at, v: r.param("v", int4) }).find({ doc, at })
 		}),
 		countedAt: query(top).rule((r) => {
 			const { places } = v(Counted, "c")
-			return r.match(Counted, { doc: r.param("doc", pg.integer), places }).find({ places })
+			return r.match(Counted, { doc: r.param("doc", int4), places }).find({ places })
 		}),
 		unlinkedAt: query(top).rule((r) => {
 			const { at } = v(Unlinked, "u")
-			return r.match(Unlinked, { doc: r.param("doc", pg.integer), at }).find({ at })
+			return r.match(Unlinked, { doc: r.param("doc", int4), at }).find({ at })
 		})
 	}
 	return { top, world: fullWorld(top, programs, []) }

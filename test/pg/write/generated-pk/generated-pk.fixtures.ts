@@ -5,7 +5,7 @@ import { Array as Arr, Order, Record as Rec, String as Str } from "effect"
 import { sha256Hex } from "#compiler/core/sha256.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Crypto, Text } from "#compiler/public/compute.ts"
-import { accumulated, drawn, generated, natural, pg, sha256 } from "#compiler/public/fields.ts"
+import { accumulated, drawn, generated, natural, sha256, int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	contained,
@@ -63,7 +63,7 @@ export const FoldedRef = relation.generated(
  */
 export const Doc = relation.generated(
 	"Doc",
-	{ package: Package, path: Path, title: pg.integer, lines: drawn(natural), notes: drawn(natural) },
+	{ package: Package, path: Path, title: int4, lines: drawn(natural), notes: drawn(natural) },
 	["package", "pathDigest"],
 	(r) => ({ pathDigest: generated(sha256, Crypto.sha256(r.path)) })
 )
@@ -75,8 +75,8 @@ export const Line = relation.generated(
 		package: Package,
 		path: Path,
 		at: drawn(natural),
-		word: pg.integer,
-		docTitle: accumulated(pg.integer, 0)
+		word: int4,
+		docTitle: accumulated(int4, 0)
 	},
 	["package", "pathDigest", "at"],
 	(r) => ({ pathDigest: generated(sha256, Crypto.sha256(r.path)) })
@@ -89,8 +89,8 @@ const Note = relation(
 		package: Package,
 		pathDigest: sha256,
 		at: drawn(natural),
-		word: pg.integer,
-		docTitle: accumulated(pg.integer, 0)
+		word: int4,
+		docTitle: accumulated(int4, 0)
 	},
 	["package", "pathDigest", "at"]
 )
@@ -109,7 +109,7 @@ export const TreeNode = relation.generated(
 		children: drawn(natural),
 		start: drawn(natural),
 		end: drawn(natural),
-		label: pg.integer
+		label: int4
 	},
 	["package", "pathDigest", "start"],
 	(r) => ({ pathDigest: generated(sha256, Crypto.sha256(r.path)) })
@@ -127,7 +127,7 @@ const Variable = str.bytes(64, str.regex("^[A-Za-z_][A-Za-z0-9_.-]*$"))
  */
 export const SetString = relation.generated(
 	"SetString",
-	{ child: pg.integer, variable: Variable, value: AnyText, weight: pg.integer },
+	{ child: int4, variable: Variable, value: AnyText, weight: int4 },
 	["child", "variable", "valueDigest"],
 	(r) => ({ valueDigest: generated(sha256, Crypto.sha256(r.value)) })
 )
@@ -163,7 +163,7 @@ export const GeneratedKeys = schema(
 		mutable(TreeNode),
 		mutable(SetString),
 		unit("Bundle", { package: Package }),
-		unit("Learner", { child: pg.integer })
+		unit("Learner", { child: int4 })
 	]
 )
 
@@ -211,7 +211,7 @@ const programs = Object.freeze({
 	childDelete: ChangeSet.empty(GeneratedKeys).delete(
 		SetString,
 		query(GeneratedKeys).rule((r) => {
-			const child = r.param("child", pg.integer)
+			const child = r.param("child", int4)
 			const { variable, value, weight } = v(SetString, "s")
 			return r
 				.match(SetString, { child, variable, value, weight })
@@ -221,11 +221,11 @@ const programs = Object.freeze({
 	childReweigh: ChangeSet.empty(GeneratedKeys).put(
 		SetString,
 		query(GeneratedKeys).rule((r) => {
-			const child = r.param("child", pg.integer)
+			const child = r.param("child", int4)
 			const { variable, value, weight } = v(SetString, "s")
 			return r
 				.match(SetString, { child, variable, value, weight })
-				.find({ child, variable, value, weight: r.param("weight", pg.integer) })
+				.find({ child, variable, value, weight: r.param("weight", int4) })
 		})
 	),
 	setByKey: SetString,

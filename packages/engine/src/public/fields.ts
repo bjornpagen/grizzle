@@ -22,16 +22,31 @@ import { admitContractCall, callerContractParts } from "#compiler/scalar/contrac
 import { dateDescriptor } from "#compiler/scalar/date.ts"
 import { exactIntegerDescriptor, exactMoneyDescriptor } from "#compiler/scalar/exact.ts"
 import { instantDescriptor } from "#compiler/scalar/instant.ts"
+import { minted, type mintedRefusal } from "#compiler/scalar/minted.ts"
 import { naturalDescriptor } from "#compiler/scalar/natural.ts"
-import { pgDescriptors } from "#compiler/scalar/pg.ts"
+import {
+	bool as boolDescriptor,
+	cidr as cidrDescriptor,
+	float4 as float4Descriptor,
+	float8 as float8Descriptor,
+	inet as inetDescriptor,
+	int2 as int2Descriptor,
+	int4 as int4Descriptor,
+	int8 as int8Descriptor,
+	money as moneyDescriptor,
+	numeric as numericDescriptor
+} from "#compiler/scalar/pg.ts"
 import { bareEnv, carrierSql, defineField } from "#compiler/scalar/registry.ts"
 import type { Described } from "#compiler/scalar/registry.ts"
-import { searchDescriptor } from "#compiler/scalar/search.ts"
+import { searchDescriptor, storedSearchDescriptor } from "#compiler/scalar/search.ts"
 import { sha256Descriptor } from "#compiler/scalar/sha256.ts"
 import { spanColumn, spanParts } from "#compiler/scalar/span.ts"
 import { uuidDescriptor } from "#compiler/scalar/uuid.ts"
+import type { Money } from "#compiler/scalar/values/money.ts"
+import type { Cidr, Inet } from "#compiler/scalar/values/net.ts"
 import type { Sha256 } from "#compiler/scalar/values/sha256.ts"
 import type { Uuid } from "#compiler/scalar/values/uuid.ts"
+import { vector as vectorDescriptor } from "#compiler/scalar/vector.ts"
 import { variantSpellings } from "#compiler/schema/function.ts"
 import { armSource, casesTerm } from "#compiler/schema/record.ts"
 import {
@@ -52,7 +67,7 @@ import {
 	variantField,
 	variantLoc
 } from "#compiler/schema/variant.ts"
-import type { BitsApi } from "#compiler/types/compute/compute.ts"
+import type { BitApi } from "#compiler/types/compute/compute.ts"
 import type { Scalar } from "#compiler/types/compute/scalar.ts"
 import type {
 	ContractValueOrigin,
@@ -60,12 +75,13 @@ import type {
 	Facts,
 	OriginOfTerm,
 	Parameterless,
-	Predicate
+	Predicate,
+	Refusal
 } from "#compiler/types/core/phantom.ts"
 import type {
 	AccumulatedConstructor,
 	ArmsAdmitted,
-	BitsConstructor,
+	BitConstructor,
 	ClosedIdConstructor,
 	ContractConstructor,
 	VariantConstructor,
@@ -75,17 +91,16 @@ import type {
 	NotInstantBase,
 	KeyApart,
 	OneContractName,
-	Pg,
 	UniqueKey,
-	SpanConstructor
+	RangeConstructor
 } from "#compiler/types/fields/constructors.ts"
 
 import type { TextSearchConfiguration } from "#compiler/ir/search.ts"
 import type {
 	AccumulatedField,
 	Bits as BitsValue,
-	BitsField,
-	BytesField,
+	BitField,
+	ByteaField,
 	ClosedIdField,
 	ClosedSubset,
 	Contract,
@@ -101,12 +116,13 @@ import type {
 	Infer,
 	InstantField,
 	MintKey,
-	SpanEndpointLike,
+	RangeEndpointLike,
 	NaturalField,
 	NoWriting,
+	NumericField,
 	PlaceDescriptor,
-	SpanField,
-	SpanWidthOf,
+	RangeField,
+	RangeWidthOf,
 	SubsetHandles,
 	ArmChecks,
 	ArmHandles,
@@ -125,10 +141,10 @@ import type {
 	SearchDocumentField,
 	SearchPart
 } from "#compiler/types/search/search.ts"
+import type { VectorField } from "#compiler/types/vector/vector.ts"
 
-export { Decimal } from "#compiler/scalar/values/decimal.ts"
+export { Numeric } from "#compiler/scalar/values/decimal.ts"
 export { Money } from "#compiler/scalar/values/money.ts"
-export type { Span } from "#compiler/scalar/values/span.ts"
 /** The uuid host value, uuid_out's spelling as ArkRegex infers it, and its parse from a plain string. */
 export { Uuid } from "#compiler/scalar/values/uuid.ts"
 /**
@@ -151,8 +167,8 @@ export { Sha256 } from "#compiler/scalar/values/sha256.ts"
 export type {
 	AccumulatedField,
 	AnyContract,
-	BitsField,
-	BytesField,
+	BitField,
+	ByteaField,
 	CalendarDate,
 	ClosedIdField,
 	ClosedSubset,
@@ -171,7 +187,7 @@ export type {
 	InstantDomain,
 	InstantField,
 	IntegerLike,
-	SpanEndpointLike,
+	RangeEndpointLike,
 	LiteralOf,
 	MintKey,
 	OwnKeyOf,
@@ -185,8 +201,8 @@ export type {
 	PatternField,
 	PlaceDescriptor,
 	PlaceField,
-	SpanField,
-	SpanWidthOf,
+	RangeField,
+	RangeWidthOf,
 	SqlOf,
 	StoredInstantField,
 	SubsetHandles,
@@ -213,9 +229,10 @@ export type {
 } from "#compiler/types/search/search.ts"
 
 /**
- * Public barrel: Scalar field descriptors: uuid, sha256, natural, date, bytes, exactInteger, exactMoney, pg, contract, span
- * and closedId, the runtime values of
- * packages/engine/src/scalar bound to their public signatures (types/fields), with the exact carriers Decimal and Money,
+ * Public barrel: Scalar field descriptors: uuid, sha256, natural, date, bytea, exactInteger, exactMoney, PostgreSQL's
+ * plain types under their pg_type names (int2, int4, int8, numeric, float4, float8, money, bool, inet, cidr, vector,
+ * tsvector), contract, range and closedId, the runtime values of
+ * packages/engine/src/scalar bound to their public signatures (types/fields), with the exact carriers Numeric and Money,
  * the uuid host value Uuid, the digest Sha256 and pgvector's carrier Vector. str.regex is the text barrel's.
  *
  * The runtime descriptors carry their literal SQL names, their members and their columns (scalar/registry.ts
@@ -235,17 +252,17 @@ export const uuid: Field<Uuid, "uuid"> = uuidDescriptor
  */
 export const sha256: Field<Sha256, "sha256"> = sha256Descriptor
 
-/** natural: a bigint never below zero, the builtin contract over pg.bigint that pred reads (scalar/natural.ts). */
+/** natural: a bigint never below zero, the builtin contract over int8 that pred reads (scalar/natural.ts). */
 export const natural: NaturalField = naturalDescriptor
 
 /** date: a calendar day, 0001-01-01 to 9999-12-31, its host value its ISO 8601 text (scalar/date.ts). */
 export const date: DateField = dateDescriptor
 
 /**
- * bytes: PostgreSQL's bytea, its host value a Uint8Array over its own ArrayBuffer, written and read back whole and
+ * bytea: PostgreSQL's bytea, its host value a Uint8Array over its own ArrayBuffer, written and read back whole and
  * nothing else (scalar/bytes.ts).
  */
-export const bytes: BytesField = bytesDescriptor
+export const bytea: ByteaField = bytesDescriptor
 
 /**
  * exactInteger: an integer of any size, a bigint, the type integer arithmetic delivers, stored as numeric under the
@@ -259,7 +276,75 @@ export const exactInteger: ExactIntegerField = exactIntegerDescriptor
  */
 export const exactMoney: ExactMoneyField = exactMoneyDescriptor
 
-export const pg: Pg = pgDescriptors
+/** int2: PostgreSQL's two-byte integer, its host value a number. */
+export const int2: Field<number, "int2"> = int2Descriptor
+
+/** int4: PostgreSQL's four-byte integer, its host value a number. */
+export const int4: Field<number, "int4"> = int4Descriptor
+
+/** int8: PostgreSQL's eight-byte integer, its host value a bigint. */
+export const int8: Field<bigint, "int8"> = int8Descriptor
+
+/**
+ * numeric: PostgreSQL's numeric of no typmod, every value numeric holds, NaN and the infinities among them, its host
+ * value a Numeric: a field, a parameter, a declared function's argument or result or a domain's base of it passes each
+ * value as it is (scalar/pg.ts).
+ *
+ * - `numeric(p, s)` is numeric with its typmod, precision and scale both declared, so every value a field of it holds
+ *   has the digits its typmod states, under PostgreSQL's numerictypmodin rule: precision 1-numericMaxPrecision and scale
+ *   numericMinScale-numericMaxScale (ir/carriers.ts), both integers, a scale larger than the precision permitted. Its
+ *   host value follows its values: a bigint at scale 0, whose values are integers and never NaN, and a Numeric at any
+ *   other scale.
+ * - `numeric.within(digits, scale)` is numeric of no typmod within a computed numeric's bound, the type a stored field of
+ *   a sum's or a mean's value is of, exactly.
+ *
+ * A malformed typmod from a JavaScript caller is CompileError MalformedDescription, thrown synchronously, the builders'
+ * convention.
+ */
+export const numeric: NumericField = numericDescriptor
+
+/** float4: PostgreSQL's single-precision float, its host value a number. */
+export const float4: Field<number, "float4"> = float4Descriptor
+
+/** float8: PostgreSQL's double-precision float, its host value a number. */
+export const float8: Field<number, "float8"> = float8Descriptor
+
+/** money: PostgreSQL's money, its host value a Money. */
+export const money: Field<Money, "money"> = moneyDescriptor
+
+/** bool: PostgreSQL's boolean, its host value a boolean. */
+export const bool: Field<boolean, "bool"> = boolDescriptor
+
+/**
+ * inet and cidr: PostgreSQL's network address types, an address with its network's mask and a network, each host value
+ * the one text inet_out or cidr_out prints of it (scalar/values/net.ts Inet, Cidr), so '1.2.3.4/32' is the inet
+ * '1.2.3.4'.
+ */
+export const inet: Field<Inet, "inet"> = inetDescriptor
+
+/** cidr: a network, whose address has no bit set right of its mask (inet). */
+export const cidr: Field<Cidr, "cidr"> = cidrDescriptor
+
+/**
+ * smallserial, serial, bigserial and uuidv7 are no fields but the refusal of one (scalar/minted.ts): grizzle mints no
+ * ids, so a declaration that names one is a type error that names the model.
+ */
+export const smallserial: Refusal<typeof mintedRefusal> = minted
+export const serial: Refusal<typeof mintedRefusal> = minted
+export const bigserial: Refusal<typeof mintedRefusal> = minted
+export const uuidv7: Refusal<typeof mintedRefusal> = minted
+
+/** vector(1536): a model-agnostic pgvector field; the dimension count is an equality-only tag (scalar/vector.ts). */
+export const vector: <const N extends number>(dimensions: N) => VectorField<N> = vectorDescriptor
+
+/**
+ * tsvector("english"): a search document of the configuration, a field its caller writes, each value a document a read
+ * delivered (SearchDocument), written back as it is (scalar/search.ts storedSearchDescriptor); the configuration is an
+ * equality-only tag. The generated field PostgreSQL parses from its row's texts is searchDocument's.
+ */
+export const tsvector: <const C extends TextSearchConfiguration>(
+	configuration: C
+) => SearchDocumentField<C> = storedSearchDescriptor
 
 export const contract: ContractConstructor = <K extends symbol>(...first: ReadonlyArray<never>) => {
 	admitContractCall(first)
@@ -300,12 +385,15 @@ export const contract: ContractConstructor = <K extends symbol>(...first: Readon
  */
 export const mintOf: MintOfConstructor = hostMintOf
 
-/** A span over the endpoint the admission core admitted, its column converting endpoints with the endpoint's own. */
-export const span: SpanConstructor = <E extends SpanEndpointLike>(
+/**
+ * range(endpoint, width?): PostgreSQL's range over the endpoint the admission core admitted, int4range, int8range or
+ * daterange, its column converting endpoints with the endpoint's own.
+ */
+export const range: RangeConstructor = <E extends RangeEndpointLike>(
 	endpoint: E & Columned<Infer<E>> & NoWriting,
-	width: SpanWidthOf<Infer<E>> | undefined,
+	width: RangeWidthOf<Infer<E>> | undefined,
 	...extra: ReadonlyArray<never>
-): SpanField<Infer<E>, DomainOf<E>> => {
+): RangeField<Infer<E>, DomainOf<E>> => {
 	const parts = spanParts(endpoint, [width, ...extra])
 	const column = spanColumn(endpoint.column)
 	return defineField(
@@ -433,23 +521,26 @@ export const variant: VariantConstructor = <
 	return descriptor
 }
 
-/** A set over the roster the admission core admitted, its column a bit string read as the set of its codes' handles. */
-export const bits: BitsConstructor = <C extends AnyRoster>(
+/**
+ * bit(roster): a set over the roster the admission core admitted, its column PostgreSQL's bit(n), one bit per code the
+ * roster has minted, read as the set of its codes' handles.
+ */
+export const bit: BitConstructor = <C extends AnyRoster>(
 	roster: C & { readonly handles: ReadonlyArray<HandleOf<C>> }
-): BitsField<C> => {
+): BitField<C> => {
 	const parts = closedIdOf(roster, [])
 	return defineField(
 		{},
 		carrierSql.bits,
 		{ kind: "bits", roster: parts.roster.closed },
 		{ roster, column: bitsColumn<BitsValue<C>>(parts.roster.closed) },
-		SourceLoc(`bits(${parts.roster.closed})`, []),
+		SourceLoc(`bit(${parts.roster.closed})`, []),
 		parts.env
 	)
 }
 
-/** The Bits namespace: Bits.of, a set value, and the set algebra over set terms (BitsApi). */
-type BitsNamespace = BitsApi & {
+/** The Bit namespace: Bit.of, a set value, and the set algebra over set terms (BitApi). */
+type BitNamespace = BitApi & {
 	readonly of: <C extends AnyRoster, const H extends ReadonlyArray<HandleOf<C>>>(
 		roster: C,
 		handles: H & DistinctMembers<H>
@@ -457,12 +548,12 @@ type BitsNamespace = BitsApi & {
 }
 
 /**
- * Bits.of(roster, handles): the set of `handles`, each a handle of `roster`, each once; a fresh Set, branded by the
+ * Bit.of(roster, handles): the set of `handles`, each a handle of `roster`, each once; a fresh Set, branded by the
  * roster, which every boundary that admits it copies. A JavaScript caller's handle outside the roster, or a repeat, is MalformedDescription.
- * Beside it, the set algebra over set terms of one roster (types/compute/compute.ts BitsApi), the scalar catalogue's
- * members over the bits type.
+ * Beside it, the set algebra over set terms of one roster (types/compute/compute.ts BitApi), the scalar catalogue's
+ * members over the bit type.
  */
-export const Bits: BitsNamespace = Object.freeze<BitsNamespace>({
+export const Bit: BitNamespace = Object.freeze<BitNamespace>({
 	of: <C extends AnyRoster, const H extends ReadonlyArray<HandleOf<C>>>(
 		roster: C,
 		handles: H & DistinctMembers<H>,

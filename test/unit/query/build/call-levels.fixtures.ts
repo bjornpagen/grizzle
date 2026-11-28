@@ -3,7 +3,7 @@
 import { array, element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record as Rec } from "effect"
 import { Fn } from "#compiler/public/compute.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { fn, relation, row, rows, schema } from "#compiler/public/schema.ts"
 
@@ -18,18 +18,18 @@ import { fn, relation, row, rows, schema } from "#compiler/public/schema.ts"
  */
 
 /** The rows each rows argument passes and each function returns. */
-const Line = rows({ pos: pg.integer })
+const Line = rows({ pos: int4 })
 
 /** The one row `split` returns. */
 const Split = rows({ lines: Line })
 
-const Item = relation("Item", { item: pg.integer, pos: pg.integer }, ["item", "pos"])
+const Item = relation("Item", { item: int4, pos: int4 }, ["item", "pos"])
 
 /** Upper's relation of its own. */
-const Mark = relation("Mark", { mark: pg.integer }, ["mark"])
+const Mark = relation("Mark", { mark: int4 }, ["mark"])
 
 /** Aside's relation of its own. */
-const Note = relation("Note", { note: pg.integer }, ["note"])
+const Note = relation("Note", { note: int4 }, ["note"])
 
 /** The name of the i-th rows argument. */
 const argName = (i: number): string => `a${i}`
@@ -156,7 +156,7 @@ export const levelsFor = (n: number) => {
 			return query(levels[a.over])
 				.rule((r) => {
 					const { pos } = v(Item, "line")
-					return r.match(Item, { item: r.param("item", pg.integer), pos }).find({ pos })
+					return r.match(Item, { item: r.param("item", int4), pos }).find({ pos })
 				})
 				.bind({ item: 1 })
 		}

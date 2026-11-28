@@ -24,7 +24,7 @@ const readers = {
 	],
 	"accumulated's type": ["accumulated(term, 0n)", "TS2741"],
 	"generated's type": [
-		'relation.generated("T", { id: Id, n: pg.bigint }, ["id"], (r) => ({ g: generated(term, r.n) }))',
+		'relation.generated("T", { id: Id, n: int8 }, ["id"], (r) => ({ g: generated(term, r.n) }))',
 		"TS2345"
 	],
 	"a contract's base": ['contract<typeof probeKey>()("C", term, (v) => Logic.gt(v, 0n))', "TS2345"],
@@ -52,7 +52,7 @@ const prelude = await Effect.runPromise(preludeAt("test/support/programs/fields.
 
 /** The term every cell passes where its reader takes a field: a bigint literal, of a type every reader admits. */
 const fieldsHeader: ReadonlyArray<string> = [
-	"export const term = Type.literal(pg.bigint, 1n)",
+	"export const term = Type.literal(int8, 1n)",
 	'export const probeKey = Symbol("Probe")',
 	""
 ]

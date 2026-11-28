@@ -83,7 +83,7 @@ interface TextColumn<out A> extends Phantom<{ readonly host: A }> {
  * Head literals' column: a head literal's own, or a union's whose arms deliver head literals alone at the key. Every
  * cell is the output text of one of the literals under their one SQL type (the checker types a union's column alike in
  * every arm), and is the literal equal to its conversion: `conversion` is that type's, and the literals are compared
- * by that type's equality of host values (`===` for a string, number, bigint or boolean, `equals` for a Decimal or a
+ * by that type's equality of host values (`===` for a string, number, bigint or boolean, `equals` for a Numeric or a
  * Money), so a cell is read by its column's type and compared by its host value, never by its spelling.
  */
 interface ConstantColumn<out A> {
@@ -191,7 +191,7 @@ export const hostColumn = <A, H extends A>(base: Column<A>): Column<H> => {
 		case "bits":
 			defect("no contract is over a set over a roster")
 		case "bytes":
-			defect("no contract is over bytes")
+			defect("no contract is over bytea")
 		case "variant":
 			defect("no contract is over a variant")
 		case "text":
@@ -237,7 +237,7 @@ export const unionColumn = <A, B>(a: Column<A>, b: Column<B>): Column<A | B> => 
 			case "bits":
 				defect("a set's column meets only a set's column of its roster")
 			case "bytes":
-				defect("a bytes column meets only a bytes column")
+				defect("a bytea column meets only a bytea column")
 			case "variant":
 				defect("a variant's column meets only a variant's column of its roster")
 			case "text":
@@ -249,7 +249,7 @@ export const unionColumn = <A, B>(a: Column<A>, b: Column<B>): Column<A | B> => 
 	}
 	if (a.kind === "bytes" || b.kind === "bytes") {
 		if (a.kind !== "bytes" || b.kind !== "bytes") {
-			defect("a bytes column meets only a bytes column")
+			defect("a bytea column meets only a bytea column")
 		}
 		return Object.freeze({ ...builtMark, kind: "bytes" })
 	}
@@ -608,7 +608,7 @@ export const outputTextOf = (cell: Cell): OutputText => {
  */
 export const bytesValueOf = (cell: Cell): Uint8Array<ArrayBuffer> => {
 	if (typeof cell === "string") {
-		defect("a bytes column's cell is its assembled value")
+		defect("a bytea column's cell is its assembled value")
 	}
 	return cell
 }

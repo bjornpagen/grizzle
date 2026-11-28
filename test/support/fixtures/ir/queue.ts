@@ -10,9 +10,9 @@
  *   const Outcome = closed.ordered("Outcome", ["succeeded", "failed"])
  *   const Reason = closed.ordered("Reason", ["malformed", "unsupported"])
  *   const Digest = contract("Digest", str.regex("^[0-9a-f]{64}$"))     // a lowercase SHA-256 hex digest
- *   const Slot = contract("Slot", pg.integer, (v) => Logic.ge(v, 0))
- *   const SeatNo = contract("SeatNo", pg.integer, (v) => Logic.ge(v, 0))
- *   const Instant = contract("Instant", pg.bigint)                      // epoch microseconds; brand only
+ *   const Slot = contract("Slot", int4, (v) => Logic.ge(v, 0))
+ *   const SeatNo = contract("SeatNo", int4, (v) => Logic.ge(v, 0))
+ *   const Instant = contract("Instant", int8)                      // epoch microseconds; brand only
  *
  * Digest keys are bounded ASCII text, so they are representable B-tree keys and spread uniformly; Instant is the
  * brand-only contract of the calendar pattern, as in the payroll ledger.

@@ -4,7 +4,7 @@ import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonemp
 import { aimed, array, boolean, type Gen, int, map, subarray } from "@bjornpagen/testing/gen"
 import { Array as Arr, Order, String as Str } from "effect"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { Bits, bits, closedId, generated, pg } from "#compiler/public/fields.ts"
+import { Bit, bit, closedId, generated, int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 
@@ -101,14 +101,14 @@ export const schemaOf = (d: Drawn) => {
 	)
 	const R = relation.generated(
 		"R",
-		{ id: pg.integer, k: closedId(S), a: bits(S), b: bits(S) },
+		{ id: int4, k: closedId(S), a: bit(S), b: bit(S) },
 		["id"],
 		(r) => ({
-			u: generated(bits(S), Bits.union(r.a, r.b)),
-			i: generated(bits(S), Bits.intersection(r.a, r.b)),
-			d: generated(bits(S), Bits.difference(r.a, r.b)),
-			e: generated(bits(S), Bits.difference(Bits.union(r.a, Bits.of(S, handles)), r.a)),
-			w: generated(bits(S), C.row(r.k))
+			u: generated(bit(S), Bit.union(r.a, r.b)),
+			i: generated(bit(S), Bit.intersection(r.a, r.b)),
+			d: generated(bit(S), Bit.difference(r.a, r.b)),
+			e: generated(bit(S), Bit.difference(Bit.union(r.a, Bit.of(S, handles)), r.a)),
+			w: generated(bit(S), C.row(r.k))
 		})
 	)
 	const Sets = schema("SetPadding", [S, C, R], [])
@@ -123,8 +123,8 @@ export const schemaOf = (d: Drawn) => {
 				d: diff,
 				e,
 				w,
-				qu: Bits.union(a, b),
-				qd: Bits.difference(a, b)
+				qu: Bit.union(a, b),
+				qd: Bit.difference(a, b)
 			})
 		})
 	}

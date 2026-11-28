@@ -13,7 +13,16 @@ import {
 	weighted
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order } from "effect"
-import { closedId, drawn, generated, natural, pg, slot } from "#compiler/public/fields.ts"
+import {
+	closedId,
+	drawn,
+	generated,
+	natural,
+	slot,
+	bool,
+	int2,
+	int4
+} from "#compiler/public/fields.ts"
 import { closed as closedRelations, fin, relation } from "#compiler/public/schema.ts"
 import {
 	accumulatedField,
@@ -61,11 +70,11 @@ export const descriptorOf = (c: CompanionType): FieldBase => {
 		case "natural":
 			return natural
 		case "integer":
-			return pg.integer
+			return int4
 		case "smallint":
-			return pg.smallint
+			return int2
 		case "boolean":
-			return pg.boolean
+			return bool
 		case "closedId":
 			return admittedClosedId(Kind)
 	}

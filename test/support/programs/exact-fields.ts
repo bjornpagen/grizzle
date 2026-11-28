@@ -6,12 +6,15 @@ export { ChangeSet } from "#compiler/public/changeset.ts"
 export { Num, Type } from "#compiler/public/compute.ts"
 export {
 	contract,
-	Decimal,
 	exactInteger,
 	exactMoney,
 	generated,
+	int4,
+	int8,
 	Money,
-	pg
+	money,
+	numeric,
+	Numeric
 } from "#compiler/public/fields.ts"
 export type { Field } from "#compiler/public/fields.ts"
 export { query, v } from "#compiler/public/query.ts"

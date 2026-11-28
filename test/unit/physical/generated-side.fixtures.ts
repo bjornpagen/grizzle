@@ -4,7 +4,7 @@ import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { nonEmpty } from "@bjornpagen/testing/assert"
 import { array, boolean, type Gen, int, shuffled } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record as Rec } from "effect"
-import { pg } from "#compiler/public/fields.ts"
+import { int4, int8 } from "#compiler/public/fields.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import {
 	generatedField,
@@ -85,7 +85,7 @@ export const schemaOf = (c: SideCase) => {
 	const R = generatedRelation(
 		"R",
 		{
-			id: pg.integer,
+			id: int4,
 			...Rec.fromEntries(Arr.map(indices(c.written), (at) => [`w${at}`, Numeral] as const))
 		},
 		["id"],
@@ -93,7 +93,7 @@ export const schemaOf = (c: SideCase) => {
 			Rec.fromEntries(
 				Arr.map(c.generated, (w, at) => [
 					`v${at}`,
-					generatedField(pg.bigint, computeCore.cast(r[`w${w}`], pg.bigint), [])
+					generatedField(int8, computeCore.cast(r[`w${w}`], int8), [])
 				])
 			),
 		[]
@@ -109,7 +109,7 @@ export const schemaOf = (c: SideCase) => {
 	}
 	const targets = Arr.map(c.terms, (_, i) => `t${i}`)
 	const targetFields: Readonly<Record<string, FieldBase>> = Rec.fromEntries(
-		Arr.map(c.terms, (t, i) => [`t${i}`, t.kind === "written" ? Numeral : pg.bigint] as const)
+		Arr.map(c.terms, (t, i) => [`t${i}`, t.kind === "written" ? Numeral : int8] as const)
 	)
 	const T = relation("T", targetFields, nonEmpty(targets, "T's key"), [])
 	return {

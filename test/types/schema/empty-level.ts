@@ -50,7 +50,7 @@ const boxCases: ReadonlyArray<EmptyLevelCase> = [
 	{
 		what: "a relation parameter of a read over the base bound to a read over the empty level of no parameter",
 		statement:
-			'query(Base).rule((r) => { const p = r.relation("p", { at: pg.bigint }); const { at } = v(p, "p"); return r.match(p, { at }).find({ at }) }).bind({ p: query(schema.empty).rule((r) => r.find({ at: 5n })) })',
+			'query(Base).rule((r) => { const p = r.relation("p", { at: int8 }); const { at } = v(p, "p"); return r.match(p, { at }).find({ at }) }).bind({ p: query(schema.empty).rule((r) => r.find({ at: 5n })) })',
 		verdict: admitted
 	},
 	{
@@ -61,13 +61,13 @@ const boxCases: ReadonlyArray<EmptyLevelCase> = [
 	{
 		what: "a census over a role holding nothing of the base, den's request of a root derived from its key: the insert of the rows a read over the empty level, bound by the request's own parameters, finds that the role holds no row of yet",
 		statement:
-			'ChangeSet.empty(Den).insert(Hour, query(Den).rule((r) => { const derived = hourOf.bind({ at: r.param("hourAt", pg.bigint), bell: r.param("hourBell", Name) }); const { at, bell } = v(derived, "derived"); return r.match(derived, { at, bell }).where(r.not(Hour, { at, bell })).find({ at, bell }) }))',
+			'ChangeSet.empty(Den).insert(Hour, query(Den).rule((r) => { const derived = hourOf.bind({ at: r.param("hourAt", int8), bell: r.param("hourBell", Name) }); const { at, bell } = v(derived, "derived"); return r.match(derived, { at, bell }).where(r.not(Hour, { at, bell })).find({ at, bell }) }))',
 		verdict: admitted
 	},
 	{
 		what: "a rule over an extension of the base matching a read over the empty level bound by the rule's own parameters",
 		statement:
-			'query(App).rule((r) => { const derived = hourOf.bind({ at: r.param("hourAt", pg.bigint), bell: r.param("hourBell", Name) }); const { at, bell } = v(derived, "derived"); return r.match(derived, { at, bell }).find({ at, bell }) })',
+			'query(App).rule((r) => { const derived = hourOf.bind({ at: r.param("hourAt", int8), bell: r.param("hourBell", Name) }); const { at, bell } = v(derived, "derived"); return r.match(derived, { at, bell }).find({ at, bell }) })',
 		verdict: admitted
 	},
 	{
@@ -128,14 +128,14 @@ const prelude = await Effect.runPromise(preludeAt("test/support/programs/empty-l
  * of Want over Base and over Thin.
  */
 const emptyLevelHeader = `const Name = str.regex("^[a-z]{1,8}$")
-export const Want = relation("Want", { batch: Name, size: pg.bigint }, ["batch"])
-export const Hour = relation("Hour", { at: pg.bigint, bell: Name }, ["at", "bell"])
+export const Want = relation("Want", { batch: Name, size: int8 }, ["batch"])
+export const Hour = relation("Hour", { at: int8, bell: Name }, ["at", "bell"])
 export const Base = schema("Base", [Want], [])
 export const Thin = schema.extend([Base], "Thin", [], [])
 export const App = schema.extend([Thin], "App", [fragment([Hour], [])], [])
 export const Den = role(App, "den", { Hour }, { insert: ["Hour"] })
 export const Full = role(App, "full", { Want, Hour }, { insert: ["Want", "Hour"] })
-export const hourOf = query(schema.empty).rule((r) => r.find({ at: r.param("at", pg.bigint), bell: r.param("bell", Name) }))
+export const hourOf = query(schema.empty).rule((r) => r.find({ at: r.param("at", int8), bell: r.param("bell", Name) }))
 export const wantOf = query(Base).rule((r) => { const { batch, size } = v(Want, "want"); return r.match(Want, { batch, size }).find({ batch, size }) })
 export const thinWant = query(Thin).rule((r) => { const { batch, size } = v(Want, "want"); return r.match(Want, { batch, size }).find({ batch, size }) })
 `

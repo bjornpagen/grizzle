@@ -38,7 +38,7 @@ export const ownedDeclarations = (owned: Pick<Owned, "contracts" | "variants">):
 /**
  * The field descriptor of one column type, the descriptor of a field that holds every value of it and is of it exactly,
  * so its type is the column's again (scalar/registry.ts scalarTypeOf): numeric of no typmod by its bound
- * (numericBoundDesc), a computed numeric's or pg.numeric's, or the descriptor a declaration of the type writes
+ * (numericBoundDesc), a computed numeric's or numeric's, or the descriptor a declaration of the type writes
  * (declaredDescOf). A derived relation's heading is described by it, and so is a stored field of a read's column.
  * `declared` are the schema's contracts and variants, by name.
  */
@@ -72,19 +72,19 @@ export const declaredDescOf = (
 	}
 	switch (type.carrier) {
 		case "int2":
-			return Result.ok({ kind: "pg", type: "smallint" })
+			return Result.ok({ kind: "pg", type: "int2" })
 		case "int4":
-			return Result.ok({ kind: "pg", type: "integer" })
+			return Result.ok({ kind: "pg", type: "int4" })
 		case "int8":
-			return Result.ok({ kind: "pg", type: "bigint" })
+			return Result.ok({ kind: "pg", type: "int8" })
 		case "float4":
-			return Result.ok({ kind: "pg", type: "real" })
+			return Result.ok({ kind: "pg", type: "float4" })
 		case "float8":
-			return Result.ok({ kind: "pg", type: "double precision" })
+			return Result.ok({ kind: "pg", type: "float8" })
 		case "money":
 			return Result.ok({ kind: "pg", type: "money" })
 		case "bool":
-			return Result.ok({ kind: "pg", type: "boolean" })
+			return Result.ok({ kind: "pg", type: "bool" })
 		case "uuid":
 			return Result.ok({ kind: "uuid" })
 		case "bytes":

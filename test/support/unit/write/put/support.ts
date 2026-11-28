@@ -6,7 +6,7 @@ import { noClock, transactionClock } from "#compiler/ir/clock.ts"
 import type { ParamDecl } from "#compiler/ir/products.ts"
 import { installOptions } from "#compiler/physical/install/compile.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
-import { drawn, natural, pg } from "#compiler/public/fields.ts"
+import { drawn, natural, int8 } from "#compiler/public/fields.ts"
 import {
 	check,
 	contained,
@@ -45,16 +45,16 @@ import { descOf } from "#test/support/unit/write/changeset/fixtures.ts"
 const label = str.regex("^[a-z]{1,8}$")
 
 /** Item is immutable, the pinned default; Stock is its mutable twin. */
-export const Item = relation("Item", { id: Id, label, qty: pg.bigint }, ["id"])
-export const Stock = relation("Stock", { id: Id, label, qty: pg.bigint }, ["id"])
+export const Item = relation("Item", { id: Id, label, qty: int8 }, ["id"])
+export const Stock = relation("Stock", { id: Id, label, qty: int8 }, ["id"])
 /** A mutable relation keyed by its number. */
-export const Seat = relation("Seat", { no: pg.bigint, label }, ["no"])
+export const Seat = relation("Seat", { no: int8, label }, ["no"])
 /** A mutable relation with a candidate key outside its primary key. */
 export const Code = relation("Code", { id: Id, code: label }, ["id"])
 /** A mutable pure set. */
 export const Pair = relation("Pair", { a: Id, b: label }, ["a", "b"])
 /** A mutable relation with a field outside its key. */
-export const Counter = relation("Counter", { name: label, n: pg.bigint }, ["name"])
+export const Counter = relation("Counter", { name: label, n: int8 }, ["name"])
 /** An immutable relation referencing Stock: a put on Stock can replace a referenced row, so the reference is deferred
  * and its check is a deferred event of each Line fact. */
 const Line = relation("Line", { id: Id, stock: Id }, ["id"])
@@ -83,7 +83,7 @@ const shopRelations = {
 
 const shopLaws = [
 	unit("Row", { id: Id }),
-	unit("Seats", { no: pg.bigint }),
+	unit("Seats", { no: int8 }),
 	unit("Pairs", { a: Id }),
 	unit("Counters", { name: label }),
 	mutable(Stock),

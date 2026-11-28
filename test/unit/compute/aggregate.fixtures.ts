@@ -6,7 +6,17 @@ import { Array as Arr, Record } from "effect"
 import { type CompareOp, type ComputeFn, computeFns } from "#compiler/ir/desc.ts"
 import type { NumericBound } from "#compiler/ir/scalar.ts"
 import { Logic, Type } from "#compiler/public/compute.ts"
-import { contract, pg } from "#compiler/public/fields.ts"
+import {
+	contract,
+	bool,
+	float4,
+	float8,
+	int2,
+	int4,
+	int8,
+	money,
+	numeric
+} from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -36,7 +46,7 @@ export const countsByFilter = (
 	return filtered
 }
 
-const Line = relation("Line", { id: Id, flag: pg.boolean, qty: pg.integer }, ["id"])
+const Line = relation("Line", { id: Id, flag: bool, qty: int4 }, ["id"])
 
 const Lines = schema("Lines", [Line], [])
 
@@ -53,17 +63,17 @@ type Leaf = "integer 0" | "integer 1" | "integer 2" | "qty" | "numeric(5,1) 1.0"
 const integerOf = (leaf: Leaf): number => (leaf === "integer 2" ? 2 : leaf === "integer 1" ? 1 : 0)
 
 const numericOf = (leaf: Leaf) =>
-	Type.literal(pg.numeric(5, 1), leaf === "numeric(5,1) 1.0" ? "1.0" : "0")
+	Type.literal(numeric(5, 1), leaf === "numeric(5,1) 1.0" ? "1.0" : "0")
 
 /** A query of the shape over integer branches, and one over numeric(5,1) branches. */
 const integerQuery = (shape: Shape, then: Leaf, otherwise: Leaf): unknown =>
 	query(Lines).rule((r) => {
 		const { id, flag, qty } = v(Line, "line")
-		const other = otherwise === "qty" ? qty : Type.literal(pg.integer, integerOf(otherwise))
+		const other = otherwise === "qty" ? qty : Type.literal(int4, integerOf(otherwise))
 		const conditional =
 			then === "qty"
 				? Logic.cond(flag, qty, other)
-				: Logic.cond(flag, Type.literal(pg.integer, integerOf(then)), other)
+				: Logic.cond(flag, Type.literal(int4, integerOf(then)), other)
 		return r
 			.match(Line, { id, flag, qty })
 			.find({ n: shape === "sum" ? r.sum(conditional) : conditional })
@@ -146,14 +156,14 @@ const kept_smallintKey = Symbol("Kept_smallint")
 const kept_textKey = Symbol("Kept_text")
 /** A contract over each type min, max, LEAST and GREATEST are defined on. */
 export const kept = [
-	contract<typeof kept_smallintKey>()("Kept_smallint", pg.smallint),
-	contract<typeof kept_integerKey>()("Kept_integer", pg.integer),
-	contract<typeof kept_bigintKey>()("Kept_bigint", pg.bigint),
-	contract<typeof kept_numericKey>()("Kept_numeric", pg.numeric(7, 2)),
-	contract<typeof kept_realKey>()("Kept_real", pg.real),
-	contract<typeof kept_doubleKey>()("Kept_double", pg["double precision"]),
-	contract<typeof kept_moneyKey>()("Kept_money", pg.money),
-	contract<typeof kept_booleanKey>()("Kept_boolean", pg.boolean),
+	contract<typeof kept_smallintKey>()("Kept_smallint", int2),
+	contract<typeof kept_integerKey>()("Kept_integer", int4),
+	contract<typeof kept_bigintKey>()("Kept_bigint", int8),
+	contract<typeof kept_numericKey>()("Kept_numeric", numeric(7, 2)),
+	contract<typeof kept_realKey>()("Kept_real", float4),
+	contract<typeof kept_doubleKey>()("Kept_double", float8),
+	contract<typeof kept_moneyKey>()("Kept_money", money),
+	contract<typeof kept_booleanKey>()("Kept_boolean", bool),
 	contract<typeof kept_textKey>()("Kept_text", str.regex("^.*$", "su"))
 ] as const
 

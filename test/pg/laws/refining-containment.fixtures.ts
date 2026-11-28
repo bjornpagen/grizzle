@@ -7,7 +7,7 @@ import type { TheoryLaw } from "#compiler/analysis/theory/laws.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { lawsOfConstraint } from "#compiler/ir/products.ts"
 import { Logic } from "#compiler/public/compute.ts"
-import { contract, natural, pg } from "#compiler/public/fields.ts"
+import { contract, natural, int4, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	contained,
@@ -23,14 +23,14 @@ import { type Seat, seatTemplate } from "#test/support/pg/fin/installed.ts"
 import { attempt } from "#test/support/substrate.ts"
 
 const lowKey = Symbol("Low")
-/** A contract over pg.bigint of the values at most 1, a sibling of natural: neither refines the other. */
-const Low = contract<typeof lowKey>()("Low", pg.bigint, (x) => Logic.le(x, 1n))
+/** A contract over int8 of the values at most 1, a sibling of natural: neither refines the other. */
+const Low = contract<typeof lowKey>()("Low", int8, (x) => Logic.le(x, 1n))
 
 const unitKey = Symbol("Unit")
-/** A contract over natural of the values at most 1: a refinement of natural, and through it of pg.bigint. */
+/** A contract over natural of the values at most 1: a refinement of natural, and through it of int8. */
 const Unit = contract<typeof unitKey>()("Unit", natural, (x) => Logic.le(x, 1n))
 
-/** The types the schema's fields are of, each of the base carrier int8: pg.bigint, natural, Low and Unit. */
+/** The types the schema's fields are of, each of the base carrier int8: int8, natural, Low and Unit. */
 const types = ["Big", "Natural", "Low", "Unit"] as const
 type TypeName = (typeof types)[number]
 
@@ -42,7 +42,7 @@ const admitted: { readonly [T in TypeName]: Arr.NonEmptyReadonlyArray<number> } 
 	Unit: [0, 1]
 }
 
-/** Whether a type refines another: its contracts reach it, natural and Low pg.bigint, Unit natural and pg.bigint. */
+/** Whether a type refines another: its contracts reach it, natural and Low int8, Unit natural and int8. */
 const refines = (x: TypeName, y: TypeName): boolean =>
 	(x === "Natural" && y === "Big") ||
 	(x === "Low" && y === "Big") ||
@@ -64,165 +64,92 @@ interface Pair {
 }
 
 /** Each type's target: its values at g, keyed by both. */
-const BigTarget = relation("BigTarget", { g: pg.integer, v: pg.bigint }, ["g", "v"])
-const NaturalTarget = relation("NaturalTarget", { g: pg.integer, v: natural }, ["g", "v"])
-const LowTarget = relation("LowTarget", { g: pg.integer, v: Low }, ["g", "v"])
-const UnitTarget = relation("UnitTarget", { g: pg.integer, v: Unit }, ["g", "v"])
+const BigTarget = relation("BigTarget", { g: int4, v: int8 }, ["g", "v"])
+const NaturalTarget = relation("NaturalTarget", { g: int4, v: natural }, ["g", "v"])
+const LowTarget = relation("LowTarget", { g: int4, v: Low }, ["g", "v"])
+const UnitTarget = relation("UnitTarget", { g: int4, v: Unit }, ["g", "v"])
 
 /**
  * Each pair of two types' sources, a row's value at g of the first type with its kind: one a foreign key holds in the
  * second type's target, and one whose rows of kind 1 the judge holds there.
  */
-const NaturalInBig = relation("NaturalInBig", { g: pg.integer, v: natural, kind: pg.integer }, [
+const NaturalInBig = relation("NaturalInBig", { g: int4, v: natural, kind: int4 }, ["g", "v"])
+const LowInBig = relation("LowInBig", { g: int4, v: Low, kind: int4 }, ["g", "v"])
+const UnitInBig = relation("UnitInBig", { g: int4, v: Unit, kind: int4 }, ["g", "v"])
+const BigInNatural = relation("BigInNatural", { g: int4, v: int8, kind: int4 }, ["g", "v"])
+const LowInNatural = relation("LowInNatural", { g: int4, v: Low, kind: int4 }, ["g", "v"])
+const UnitInNatural = relation("UnitInNatural", { g: int4, v: Unit, kind: int4 }, ["g", "v"])
+const BigInLow = relation("BigInLow", { g: int4, v: int8, kind: int4 }, ["g", "v"])
+const NaturalInLow = relation("NaturalInLow", { g: int4, v: natural, kind: int4 }, ["g", "v"])
+const UnitInLow = relation("UnitInLow", { g: int4, v: Unit, kind: int4 }, ["g", "v"])
+const BigInUnit = relation("BigInUnit", { g: int4, v: int8, kind: int4 }, ["g", "v"])
+const NaturalInUnit = relation("NaturalInUnit", { g: int4, v: natural, kind: int4 }, ["g", "v"])
+const LowInUnit = relation("LowInUnit", { g: int4, v: Low, kind: int4 }, ["g", "v"])
+const NaturalInBigJudged = relation("NaturalInBigJudged", { g: int4, v: natural, kind: int4 }, [
 	"g",
 	"v"
 ])
-const LowInBig = relation("LowInBig", { g: pg.integer, v: Low, kind: pg.integer }, ["g", "v"])
-const UnitInBig = relation("UnitInBig", { g: pg.integer, v: Unit, kind: pg.integer }, ["g", "v"])
-const BigInNatural = relation("BigInNatural", { g: pg.integer, v: pg.bigint, kind: pg.integer }, [
+const LowInBigJudged = relation("LowInBigJudged", { g: int4, v: Low, kind: int4 }, ["g", "v"])
+const UnitInBigJudged = relation("UnitInBigJudged", { g: int4, v: Unit, kind: int4 }, ["g", "v"])
+const BigInNaturalJudged = relation("BigInNaturalJudged", { g: int4, v: int8, kind: int4 }, [
 	"g",
 	"v"
 ])
-const LowInNatural = relation("LowInNatural", { g: pg.integer, v: Low, kind: pg.integer }, [
+const LowInNaturalJudged = relation("LowInNaturalJudged", { g: int4, v: Low, kind: int4 }, [
 	"g",
 	"v"
 ])
-const UnitInNatural = relation("UnitInNatural", { g: pg.integer, v: Unit, kind: pg.integer }, [
+const UnitInNaturalJudged = relation("UnitInNaturalJudged", { g: int4, v: Unit, kind: int4 }, [
 	"g",
 	"v"
 ])
-const BigInLow = relation("BigInLow", { g: pg.integer, v: pg.bigint, kind: pg.integer }, ["g", "v"])
-const NaturalInLow = relation("NaturalInLow", { g: pg.integer, v: natural, kind: pg.integer }, [
+const BigInLowJudged = relation("BigInLowJudged", { g: int4, v: int8, kind: int4 }, ["g", "v"])
+const NaturalInLowJudged = relation("NaturalInLowJudged", { g: int4, v: natural, kind: int4 }, [
 	"g",
 	"v"
 ])
-const UnitInLow = relation("UnitInLow", { g: pg.integer, v: Unit, kind: pg.integer }, ["g", "v"])
-const BigInUnit = relation("BigInUnit", { g: pg.integer, v: pg.bigint, kind: pg.integer }, [
+const UnitInLowJudged = relation("UnitInLowJudged", { g: int4, v: Unit, kind: int4 }, ["g", "v"])
+const BigInUnitJudged = relation("BigInUnitJudged", { g: int4, v: int8, kind: int4 }, ["g", "v"])
+const NaturalInUnitJudged = relation("NaturalInUnitJudged", { g: int4, v: natural, kind: int4 }, [
 	"g",
 	"v"
 ])
-const NaturalInUnit = relation("NaturalInUnit", { g: pg.integer, v: natural, kind: pg.integer }, [
-	"g",
-	"v"
-])
-const LowInUnit = relation("LowInUnit", { g: pg.integer, v: Low, kind: pg.integer }, ["g", "v"])
-const NaturalInBigJudged = relation(
-	"NaturalInBigJudged",
-	{ g: pg.integer, v: natural, kind: pg.integer },
-	["g", "v"]
-)
-const LowInBigJudged = relation("LowInBigJudged", { g: pg.integer, v: Low, kind: pg.integer }, [
-	"g",
-	"v"
-])
-const UnitInBigJudged = relation("UnitInBigJudged", { g: pg.integer, v: Unit, kind: pg.integer }, [
-	"g",
-	"v"
-])
-const BigInNaturalJudged = relation(
-	"BigInNaturalJudged",
-	{ g: pg.integer, v: pg.bigint, kind: pg.integer },
-	["g", "v"]
-)
-const LowInNaturalJudged = relation(
-	"LowInNaturalJudged",
-	{ g: pg.integer, v: Low, kind: pg.integer },
-	["g", "v"]
-)
-const UnitInNaturalJudged = relation(
-	"UnitInNaturalJudged",
-	{ g: pg.integer, v: Unit, kind: pg.integer },
-	["g", "v"]
-)
-const BigInLowJudged = relation(
-	"BigInLowJudged",
-	{ g: pg.integer, v: pg.bigint, kind: pg.integer },
-	["g", "v"]
-)
-const NaturalInLowJudged = relation(
-	"NaturalInLowJudged",
-	{ g: pg.integer, v: natural, kind: pg.integer },
-	["g", "v"]
-)
-const UnitInLowJudged = relation("UnitInLowJudged", { g: pg.integer, v: Unit, kind: pg.integer }, [
-	"g",
-	"v"
-])
-const BigInUnitJudged = relation(
-	"BigInUnitJudged",
-	{ g: pg.integer, v: pg.bigint, kind: pg.integer },
-	["g", "v"]
-)
-const NaturalInUnitJudged = relation(
-	"NaturalInUnitJudged",
-	{ g: pg.integer, v: natural, kind: pg.integer },
-	["g", "v"]
-)
-const LowInUnitJudged = relation("LowInUnitJudged", { g: pg.integer, v: Low, kind: pg.integer }, [
-	"g",
-	"v"
-])
+const LowInUnitJudged = relation("LowInUnitJudged", { g: int4, v: Low, kind: int4 }, ["g", "v"])
 
 /**
  * Each pair's source whose every value a probe holds among the second type's values at any unit (`Values`), a
  * containment into a derived relation that reads across units, so no unit holds it and the judge's probes do.
  */
-const NaturalInBigProbed = relation(
-	"NaturalInBigProbed",
-	{ g: pg.integer, v: natural, kind: pg.integer },
-	["g", "v"]
-)
-const LowInBigProbed = relation("LowInBigProbed", { g: pg.integer, v: Low, kind: pg.integer }, [
+const NaturalInBigProbed = relation("NaturalInBigProbed", { g: int4, v: natural, kind: int4 }, [
 	"g",
 	"v"
 ])
-const UnitInBigProbed = relation("UnitInBigProbed", { g: pg.integer, v: Unit, kind: pg.integer }, [
+const LowInBigProbed = relation("LowInBigProbed", { g: int4, v: Low, kind: int4 }, ["g", "v"])
+const UnitInBigProbed = relation("UnitInBigProbed", { g: int4, v: Unit, kind: int4 }, ["g", "v"])
+const BigInNaturalProbed = relation("BigInNaturalProbed", { g: int4, v: int8, kind: int4 }, [
 	"g",
 	"v"
 ])
-const BigInNaturalProbed = relation(
-	"BigInNaturalProbed",
-	{ g: pg.integer, v: pg.bigint, kind: pg.integer },
-	["g", "v"]
-)
-const LowInNaturalProbed = relation(
-	"LowInNaturalProbed",
-	{ g: pg.integer, v: Low, kind: pg.integer },
-	["g", "v"]
-)
-const UnitInNaturalProbed = relation(
-	"UnitInNaturalProbed",
-	{ g: pg.integer, v: Unit, kind: pg.integer },
-	["g", "v"]
-)
-const BigInLowProbed = relation(
-	"BigInLowProbed",
-	{ g: pg.integer, v: pg.bigint, kind: pg.integer },
-	["g", "v"]
-)
-const NaturalInLowProbed = relation(
-	"NaturalInLowProbed",
-	{ g: pg.integer, v: natural, kind: pg.integer },
-	["g", "v"]
-)
-const UnitInLowProbed = relation("UnitInLowProbed", { g: pg.integer, v: Unit, kind: pg.integer }, [
+const LowInNaturalProbed = relation("LowInNaturalProbed", { g: int4, v: Low, kind: int4 }, [
 	"g",
 	"v"
 ])
-const BigInUnitProbed = relation(
-	"BigInUnitProbed",
-	{ g: pg.integer, v: pg.bigint, kind: pg.integer },
-	["g", "v"]
-)
-const NaturalInUnitProbed = relation(
-	"NaturalInUnitProbed",
-	{ g: pg.integer, v: natural, kind: pg.integer },
-	["g", "v"]
-)
-const LowInUnitProbed = relation("LowInUnitProbed", { g: pg.integer, v: Low, kind: pg.integer }, [
+const UnitInNaturalProbed = relation("UnitInNaturalProbed", { g: int4, v: Unit, kind: int4 }, [
 	"g",
 	"v"
 ])
+const BigInLowProbed = relation("BigInLowProbed", { g: int4, v: int8, kind: int4 }, ["g", "v"])
+const NaturalInLowProbed = relation("NaturalInLowProbed", { g: int4, v: natural, kind: int4 }, [
+	"g",
+	"v"
+])
+const UnitInLowProbed = relation("UnitInLowProbed", { g: int4, v: Unit, kind: int4 }, ["g", "v"])
+const BigInUnitProbed = relation("BigInUnitProbed", { g: int4, v: int8, kind: int4 }, ["g", "v"])
+const NaturalInUnitProbed = relation("NaturalInUnitProbed", { g: int4, v: natural, kind: int4 }, [
+	"g",
+	"v"
+])
+const LowInUnitProbed = relation("LowInUnitProbed", { g: int4, v: Low, kind: int4 }, ["g", "v"])
 
 /**
  * The schema the property installs: every type's target, and each ordered pair of two types' containments, a plain one
@@ -276,7 +203,7 @@ const Refining = schema(
 		LowInUnitProbed
 	],
 	[
-		unit("G", { g: pg.integer }),
+		unit("G", { g: int4 }),
 		mutable(BigTarget),
 		mutable(NaturalTarget),
 		mutable(LowTarget),

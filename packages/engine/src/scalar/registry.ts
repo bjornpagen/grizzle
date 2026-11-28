@@ -115,7 +115,7 @@ export const storedOnly = (t: ScalarType): boolean => capsOf(t).every((c) => c =
 /**
  * Whether a type is a search document's (ir/scalar.ts SearchType), the one type of the textSearch capability: a value
  * PostgreSQL alone makes, parsing texts, and reads, matching and ranking it, which a generated field parses from its
- * row's texts or a caller's field holds as a read delivered it (pg.tsvector). So no parameter carries one, grizzle fills
+ * row's texts or a caller's field holds as a read delivered it (tsvector). So no parameter carries one, grizzle fills
  * none, and no literal is of one. Each of those refusals reads it here, off the capability set.
  */
 export const searchedOnly = (t: ScalarType): boolean => capsOf(t).includes("textSearch")
@@ -131,21 +131,21 @@ const capabilityError = (loc: SourceLoc, capability: Capability, detail: string)
 const spanEndpointDetail = (t: ScalarType): string => {
 	const base = baseOf(t)
 	if (base.carrier === "money") {
-		return "is money, for which no span is admitted"
+		return "is money, for which no range is admitted"
 	}
-	return "is not an admitted span endpoint; spans are over integer, bigint, date and contracts over them"
+	return "is not an admitted range endpoint; ranges are over int4, int8, date and contracts over them"
 }
 
 /** The PostgreSQL type names of descriptors, the `sql` member of each. */
 export const carrierSql = {
-	int2: "smallint",
-	int4: "integer",
-	int8: "bigint",
+	int2: "int2",
+	int4: "int4",
+	int8: "int8",
 	numeric: "numeric",
-	float4: "real",
-	float8: "double precision",
+	float4: "float4",
+	float8: "float8",
 	money: "money",
-	bool: "boolean",
+	bool: "bool",
 	uuid: "uuid",
 	date: "date",
 	inet: "inet",
@@ -154,7 +154,7 @@ export const carrierSql = {
 	bytes: "bytea",
 	sha256: "sha256",
 	code: "code",
-	bits: "bits",
+	bits: "bit",
 	range4: "range",
 	range8: "range",
 	rangeDate: "range",
@@ -184,7 +184,7 @@ type DescriptorMembers = Readonly<Record<string, unknown>> & Columned<unknown>
 /**
  * The capability registry and the runtime descriptor protocol.
  *
- * Every field descriptor (pg.*, uuid, contract, span, closedId, pg.vector and str.regex) is an
+ * Every field descriptor (pg.*, uuid, contract, span, closedId, vector and str.regex) is an
  * owned, frozen value that carries, beside its public members (its SQL name and its column, core/decoder.ts, whose
  * values are its host type), two internal ones:
  *
@@ -194,7 +194,7 @@ type DescriptorMembers = Readonly<Record<string, unknown>> & Columned<unknown>
  * `describeField` reads them from any descriptor a caller hands in, and admits a descriptor only by identity: one this
  * package defined, or a str.regex descriptor its builder registered, which is read from its pattern. Anything else, a
  * JavaScript caller's look-alike or a copy of a descriptor, is CompileError MalformedDescription: a value no builder
- * made has no column a builder made, so nothing could deliver its values. A spelling of the serial family, pg.serial
+ * made has no column a builder made, so nothing could deliver its values. A spelling of the serial family, serial
  * and its kin, is Refused by the model's own message: grizzle mints no ids (scalar/minted.ts).
  *
  * The capability registry states, per native carrier, which operations grizzle admits on it: storage, equality,
@@ -220,7 +220,7 @@ const owned = new WeakSet<object>()
 
 /**
  * Freezes `target` with its members, registers it as an owned descriptor, and returns it. `target` is an object or,
- * for a value-and-callable descriptor (pg.numeric, whose call is numeric(p, s)), a function. Every member is non-writable;
+ * for a value-and-callable descriptor (numeric, whose call is numeric(p, s)), a function. Every member is non-writable;
  * the public ones, the column among them, are enumerable, and the internal desc and scalar are not enumerated. A caller
  * leaves an absent optional member out of `members`. Only defineField reaches it, so every owned descriptor was
  * decoded and checked.
@@ -553,7 +553,7 @@ const brandedText = (b: Branded): string => {
 		case "copy":
 			return "a field descriptor a builder made: a copy of one (an object spread) is none, because a descriptor's host type is its builder's"
 		case "unbranded":
-			return "a field descriptor a builder made: pg.*, uuid, bytes, exactInteger, exactMoney, str.regex, contract, span, closedId or pg.vector"
+			return "a field descriptor a builder made: int2, int4, int8, numeric, float4, float8, money, bool, inet, cidr, uuid, bytea, exactInteger, exactMoney, str.regex, contract, range, closedId or vector"
 	}
 }
 
@@ -615,7 +615,7 @@ const plainType = (carrier: BareCarrier | IntegerCarrier | "uuid"): ContractBase
 
 /**
  * A computed numeric of `bound`, frozen (ir/scalar.ts NumericBound), its keys in the decoder's order: an operation's,
- * an aggregate's or a literal's numeric, and at numeric's own limits (ownLimits) numeric of no typmod as pg.numeric
+ * an aggregate's or a literal's numeric, and at numeric's own limits (ownLimits) numeric of no typmod as numeric
  * declares it.
  */
 const numericOfBound = (bound: NumericBound): NumericValueType =>
@@ -632,7 +632,7 @@ export const numericValue = (bound: NumericBound): ScalarType => numericOfBound(
 
 /**
  * numeric of no typmod at numeric's own limits, numericMaxIntegerDigits integer and numericMaxFractionDigits fraction
- * digits: every value numeric holds, NaN and the infinities among them. It is the type pg.numeric declares, and the one
+ * digits: every value numeric holds, NaN and the infinities among them. It is the type numeric declares, and the one
  * a literal adopts and an overload is looked up by (scalar/compute/types.ts anyNumeric): no bound is proved of it but
  * numeric's own, which PostgreSQL enforces.
  */
@@ -665,14 +665,14 @@ const exactFieldTypes: { readonly [C in ExactValueCarrier]: DeclaredType } = {
  * typmod at numeric's own limits.
  */
 const pgTypes = {
-	smallint: plainType("int2"),
-	integer: plainType("int4"),
-	bigint: plainType("int8"),
+	int2: plainType("int2"),
+	int4: plainType("int4"),
+	int8: plainType("int8"),
 	numeric: numericOwnLimits,
-	real: plainType("float4"),
-	"double precision": plainType("float8"),
+	float4: plainType("float4"),
+	float8: plainType("float8"),
 	money: plainType("money"),
-	boolean: plainType("bool"),
+	bool: plainType("bool"),
 	date: plainType("date"),
 	inet: plainType("inet"),
 	cidr: plainType("cidr")
@@ -873,7 +873,7 @@ const variantAt = (
 				return Result.err(
 					ruleRefused(
 						fieldLoc,
-						"a variant arm's field is a value of a type that is no variant, bytes, search document, vector or money"
+						"a variant arm's field is a value of a type that is no variant, bytea, search document, vector or money"
 					)
 				)
 			}
@@ -1033,7 +1033,7 @@ export const descCapabilities = (desc: FieldDesc): CapabilitySet => {
 			return capabilitiesOf(
 				endpoint.kind === "pg" && endpoint.type === "date"
 					? "rangeDate"
-					: endpoint.kind === "pg" && endpoint.type === "bigint"
+					: endpoint.kind === "pg" && endpoint.type === "int8"
 						? "range8"
 						: "range4"
 			)
@@ -1145,7 +1145,7 @@ const contractOver = (
 			capabilityError(
 				loc,
 				"equality",
-				`${typeLabel(base)} is stored only, so no predicate reads it; no contract is over bytes`
+				`${typeLabel(base)} is stored only, so no predicate reads it; no contract is over bytea`
 			)
 		)
 	}
@@ -1170,7 +1170,7 @@ const contractOver = (
 		return Result.err(
 			ruleRefused(
 				loc,
-				"no contract is over an exact value of any size: declare it over pg.bigint, pg.numeric(p, s) or pg.money"
+				"no contract is over an exact value of any size: declare it over int8, numeric(p, s) or money"
 			)
 		)
 	}
@@ -1222,7 +1222,7 @@ export const scalarTypeOf = (
 
 /**
  * The descriptor of numeric of no typmod within `bound` (ir/desc.ts FieldDesc): a computed numeric of it, or
- * pg.numeric where the bound is numeric's own limits, the one descriptor of that type.
+ * numeric where the bound is numeric's own limits, the one descriptor of that type.
  */
 export const numericBoundDesc = (bound: NumericBound): FieldDesc =>
 	bound.digits === numericOwnBound.digits && bound.scale === numericOwnBound.scale

@@ -719,7 +719,7 @@ export const sharedChecksBacked = (
 		for (const check of [...slot.facts.host.keys, ...slot.facts.host.spans]) {
 			if (!objects.has(check.law)) {
 				defect(
-					`a write drawn in shares judges law ${check.law} of ${slot.relation.name} on the host alone: no unique or span object of the relation refuses it across shares`
+					`a write drawn in shares judges law ${check.law} of ${slot.relation.name} on the host alone: no unique or range object of the relation refuses it across shares`
 				)
 			}
 		}

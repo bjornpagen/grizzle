@@ -597,7 +597,7 @@ interface NumericTypmodType {
 
 /**
  * PostgreSQL's numeric of no typmod, with the bound what makes it proved: an aggregate's, an operation's or a
- * conversion's result, a computed numeric, with its making's, and pg.numeric's declaration, a field, a parameter, a
+ * conversion's result, a computed numeric, with its making's, and numeric's declaration, a field, a parameter, a
  * declared function's argument or result or a contract's base, with numeric's own limits, which PostgreSQL enforces
  * (scalar/registry.ts numericOwnLimits). No declaration states a narrower bound.
  */
@@ -692,7 +692,7 @@ interface VectorType {
  * tsvector: a search document PostgreSQL computes from texts under `configuration` (ir/search.ts), whose
  * configuration is its identity as a type, so a query is parsed under the configuration of the document it meets and two
  * documents of two configurations are two types: a generated field's parse of its row's texts (searchDocument), or a
- * field its caller writes from a document a read delivered (pg.tsvector). It is of storage and textSearch alone
+ * field its caller writes from a document a read delivered (tsvector). It is of storage and textSearch alone
  * (scalar/native.ts): written and read back whole as the text PostgreSQL prints, matched and ranked by PostgreSQL, and
  * nothing more, so no key, rule, comparison, parameter or host computation reads one, and no contract is over one.
  */
@@ -712,7 +712,7 @@ export interface SearchType {
  * numeric (exactMoney at scale 2). A field of each, exactInteger or exactMoney (scalar/exact.ts), is the type at
  * numeric's own limit, numericMaxIntegerDigits, so it holds every value any operation delivers: a numeric column
  * CHECKed to the values its host spells (physical/numeric/storage.ts exactNumeric), whose arithmetic past the limit
- * PostgreSQL refuses (22003), as pg.numeric's. No contract is over one; Type.cast narrows one into a storage carrier
+ * PostgreSQL refuses (22003), as numeric's. No contract is over one; Type.cast narrows one into a storage carrier
  * where the value is proved to fit.
  */
 interface ExactType {
@@ -871,7 +871,7 @@ export interface SpanInfo {
 	readonly width: bigint | undefined
 }
 
-/** Whether a type is numeric of no typmod, a computed numeric or pg.numeric's, and no contract. */
+/** Whether a type is numeric of no typmod, a computed numeric or numeric's, and no contract. */
 export const isNumericValue = (t: ScalarType): t is NumericValueType =>
 	t.carrier === "numeric" && t.contract === undefined && t.typmod === undefined
 
@@ -915,7 +915,7 @@ export const isFloat = (t: ScalarType): boolean => floatCarrierOf(t) !== undefin
  * written and delivered alike, so a column an equality holds at a value holds that very value. A float's two zeros are
  * not (-0 = 0), which a fact's identity tells apart (ir/compare.ts factEq). Every other carrier's are:
  *
- * - a numeric's display scales (1.0 = 1.00) are no part of its value: its output text decodes to one Decimal in its one
+ * - a numeric's display scales (1.0 = 1.00) are no part of its value: its output text decodes to one Numeric in its one
  *   form, of no display scale (scalar/values/decimal.ts fromOutput; test/unit/values/decimal.test.ts
  *   decimalParsingConvertsNumericOutTextAtEveryDisplayScaleToTheValuesOneFormItsTextAndPartsTheValues), and each
  *   overload that reads a display scale reads its operands through trim_scale (lower/conservative/expr/ops.ts
@@ -1095,7 +1095,7 @@ export const exactDigitsOf = (t: ScalarType): number | undefined =>
 	t.carrier === "exactInteger" || t.carrier === "exactMoney" ? t.digits : undefined
 
 /**
- * The bound of numeric of no typmod, a contract's its base's: a computed numeric's proved one, pg.numeric's numeric's
+ * The bound of numeric of no typmod, a contract's its base's: a computed numeric's proved one, numeric's numeric's
  * own limits; undefined for numeric(p, s) and every other carrier.
  */
 export const numericBoundOf = (t: ScalarType): NumericBound | undefined => {

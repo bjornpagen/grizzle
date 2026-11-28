@@ -8,23 +8,16 @@
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record as Rec } from "effect"
 import type { InferredQuery } from "#compiler/ir/desc.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, relation, schema, unit } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { decodedQuery } from "#test/support/fixtures/ir/desc.ts"
 
-const Doc = relation("Doc", { doc: pg.integer, at: pg.integer, v: pg.integer }, ["doc", "at"])
-const Note = relation("Note", { doc: pg.integer, at: pg.integer, body: str.regex("^.*$", "su") }, [
-	"doc",
-	"at"
-])
-const Link = relation(
-	"Link",
-	{ doc: pg.integer, at: pg.integer, toDoc: pg.integer, toAt: pg.integer },
-	["doc", "at"]
-)
-const documentUnit = unit("Document", { doc: pg.integer })
+const Doc = relation("Doc", { doc: int4, at: int4, v: int4 }, ["doc", "at"])
+const Note = relation("Note", { doc: int4, at: int4, body: str.regex("^.*$", "su") }, ["doc", "at"])
+const Link = relation("Link", { doc: int4, at: int4, toDoc: int4, toAt: int4 }, ["doc", "at"])
+const documentUnit = unit("Document", { doc: int4 })
 
 const base = schema("CanonicalForms", [Doc, Note, Link], [documentUnit])
 

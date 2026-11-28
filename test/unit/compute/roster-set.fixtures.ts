@@ -10,7 +10,7 @@ import { firstCodebook } from "#compiler/ir/codes.ts"
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
 import type { OpenExpr } from "#compiler/ir/open.ts"
 import { rosterOf } from "#compiler/ir/scalar.ts"
-import { bits } from "#compiler/public/fields.ts"
+import { bit } from "#compiler/public/fields.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { storedLiteral } from "#compiler/scalar/literal.ts"
 import { describeFieldOrThrow } from "#compiler/scalar/registry.ts"
@@ -82,7 +82,7 @@ const built = (make: () => { readonly expr: OpenExpr }): Effect.Effect<Verdict> 
 /** The verdict of `door` on `set` at the set field `field`, whose roster's handles `members` are drawn against. */
 export const doorVerdict = (
 	door: Door,
-	field: ReturnType<typeof bits>,
+	field: ReturnType<typeof bit>,
 	set: ReadonlySet<string>,
 	members: ReadonlyArray<string>
 ): Effect.Effect<Verdict> => {

@@ -875,7 +875,7 @@ const refuseUnmet = (
 		refuse(
 			"UnsupportedOperation",
 			loc,
-			`a delta.met of ${relation.name}, whose primary key holds a span: its exclusion constraint arbitrates by ON CONFLICT DO NOTHING ON CONSTRAINT alone, so no statement tells a fact an insertion met from one it made`
+			`a delta.met of ${relation.name}, whose primary key holds a range: its exclusion constraint arbitrates by ON CONFLICT DO NOTHING ON CONSTRAINT alone, so no statement tells a fact an insertion met from one it made`
 		)
 	}
 }

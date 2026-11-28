@@ -16,7 +16,7 @@ import { element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import { parseSchemaInput } from "#compiler/program/input.ts"
-import { closedId, pg } from "#compiler/public/fields.ts"
+import { closedId, int4 } from "#compiler/public/fields.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
 
@@ -43,7 +43,7 @@ const schemaOf = (cell: RosterCell) => {
 	return cell.held
 		? schema(
 				"RosterInput",
-				[roster, relation("Thing", { id: pg.integer, sort: closedId(roster) }, ["id"])],
+				[roster, relation("Thing", { id: int4, sort: closedId(roster) }, ["id"])],
 				[]
 			)
 		: schema("RosterInput", [roster], [])

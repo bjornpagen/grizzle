@@ -15,7 +15,7 @@ export {
 	Type,
 	Xml
 } from "#compiler/public/compute.ts"
-export { Money, pg } from "#compiler/public/fields.ts"
+export { Money } from "#compiler/public/fields.ts"
 export { param, query, v } from "#compiler/public/query.ts"
 export {
 	Bin,

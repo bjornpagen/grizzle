@@ -23,7 +23,7 @@ import {
 import { compiledExpr, sqlNull, noParamLeaf } from "#compiler/scalar/compute/evaluate.ts"
 import { nativeOp } from "#compiler/scalar/compute/registry.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
-import { bytesMaxLength } from "#compiler/scalar/values/fault.ts"
+import { byteaMaxLength } from "#compiler/scalar/values/fault.ts"
 import type { HostValue } from "#compiler/scalar/values/identity.ts"
 import { textLookup } from "#compiler/text/refinement.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -449,14 +449,14 @@ const isIntegerLiteral = (e: ScalarExpr, n: number): boolean =>
 
 /**
  * Whether a cond is the guard of a concatenation: its WHEN a byte count compared past the most bytes one varlena holds,
- * `… > bytesMaxLength` (scalar/values/fault.ts), so its ELSE builds a text PostgreSQL can allocate.
+ * `… > byteaMaxLength` (scalar/values/fault.ts), so its ELSE builds a text PostgreSQL can allocate.
  */
 const isBytesGuard = (cond: ScalarExpr): boolean => {
 	const [when] = cond.args
 	return (
 		when !== undefined &&
 		nativeFnOf(when) === "gt" &&
-		Arr.some(when.args, (a) => isIntegerLiteral(a, bytesMaxLength))
+		Arr.some(when.args, (a) => isIntegerLiteral(a, byteaMaxLength))
 	)
 }
 
@@ -555,7 +555,7 @@ export const rowFeatures = (c: EquationCase, row: EquationRow): ReadonlyArray<Eq
 /**
  * How a column part of a concatenation term bounds its bytes by its type: within 16, `^.{0,4}$`'s four characters of
  * at most four bytes each; within the lower or the upper half of the most bytes one varlena holds
- * (values/fault.ts bytesMaxLength), so the two halves together are exactly it; or not at all.
+ * (values/fault.ts byteaMaxLength), so the two halves together are exactly it; or not at all.
  */
 const columnBounds = ["narrow", "lower half", "upper half", "none"] as const
 
@@ -577,8 +577,8 @@ export interface TermCase {
 }
 
 /** The lower half of the most bytes one varlena holds, and the upper, which together are exactly it. */
-const lowerHalf = Math.floor(bytesMaxLength / 2)
-const upperHalf = bytesMaxLength - lowerHalf
+const lowerHalf = Math.floor(byteaMaxLength / 2)
+const upperHalf = byteaMaxLength - lowerHalf
 
 /**
  * A column type of `^.*$` whose bytes its type bounds at `bytes`, as str.bytes states it: its pattern's language cut to
@@ -739,10 +739,10 @@ export const termFeatures = (c: TermCase): ReadonlyArray<TermFeature> => {
 	return [
 		...(bytes === undefined
 			? ["refused in a query over a part no type bounds" as const]
-			: bytes > bytesMaxLength
+			: bytes > byteaMaxLength
 				? ["refused in a query past the most bytes one varlena holds" as const]
 				: ["held by a query" as const]),
-		...(bytes === bytesMaxLength ? ["exactly the most bytes one varlena holds" as const] : []),
+		...(bytes === byteaMaxLength ? ["exactly the most bytes one varlena holds" as const] : []),
 		...(depthOf(c.shape) >= 2 ? ["a concatenation nested in a concatenation" as const] : []),
 		...(Arr.some(c.parts, (p) => p.kind === "literal") ? ["a literal part" as const] : [])
 	]

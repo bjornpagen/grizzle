@@ -20,7 +20,7 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { rosterOf } from "#compiler/ir/scalar.ts"
-import { Bits, bits } from "#compiler/public/fields.ts"
+import { Bit, bit } from "#compiler/public/fields.ts"
 import { closed } from "#compiler/public/schema.ts"
 import { describeFieldOrThrow } from "#compiler/scalar/registry.ts"
 import {
@@ -74,8 +74,8 @@ export const aSetOverARosterIsAdmittedAtAFieldExactlyWhenItStatesThatFieldsRoste
 					const pool = made === undefined ? names : made.handles
 					const members = Arr.filter(picked(c.members), (h) => pool.includes(h))
 					const set: ReadonlySet<string> =
-						made === undefined ? new Set(members) : Bits.of(made, members)
-					const field = bits(rosters[c.field])
+						made === undefined ? new Set(members) : Bit.of(made, members)
+					const field = bit(rosters[c.field])
 					const described = describeFieldOrThrow(field, SourceLoc("the set's field", []))
 					const roster = defined(rosterOf(described.scalar), "a set field's roster")
 					const held = Arr.every(members, (h) => roster.handles.includes(h))
@@ -105,7 +105,7 @@ export const aSetOverARosterIsAdmittedAtAFieldExactlyWhenItStatesThatFieldsRoste
 					original:
 						'\tconst stated = statedRoster(value)\n\tif (stated !== undefined && stated !== roster.roster) {\n\t\treturn Result.err("bitsMember")\n\t}\n',
 					replacement: "",
-					why: 'The codec\'s door reads a set\'s handles alone, its stated roster unchecked, so Bits.of(Alpha, ["low"]) at a field over Beta is admitted where Beta holds "low"; the door property fails at the codec.'
+					why: 'The codec\'s door reads a set\'s handles alone, its stated roster unchecked, so Bit.of(Alpha, ["low"]) at a field over Beta is admitted where Beta holds "low"; the door property fails at the codec.'
 				}
 			]
 		}

@@ -3,7 +3,7 @@
 import { array, boolean, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, String as Str } from "effect"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { pg, Sha256, sha256 } from "#compiler/public/fields.ts"
+import { Sha256, sha256, int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -18,7 +18,7 @@ const Path = str.regex("^.*$", "su")
  * A media file, keyed by `digest`, the SHA-256 of its path's UTF-8 that the host states (Sha256.ofText), the pantry's
  * Media declaration: a key over a digest, which holds a path past any B-tree entry by its 32 bytes.
  */
-export const Media = relation("Media", { digest: sha256, path: Path, size: pg.integer }, ["digest"])
+export const Media = relation("Media", { digest: sha256, path: Path, size: int4 }, ["digest"])
 
 export const Digests = schema("Digests", [Media], [])
 

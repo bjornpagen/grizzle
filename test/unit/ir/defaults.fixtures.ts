@@ -21,7 +21,7 @@ type Writing =
 
 /** The field descriptors a relation parameter's heading or a cast names, each stated whole. */
 const fields: Arr.NonEmptyReadonlyArray<Json> = [
-	{ kind: "pg", type: "integer" },
+	{ kind: "pg", type: "int4" },
 	{ kind: "uuid" },
 	{ kind: "numeric", precision: 10, scale: 2 },
 	{ kind: "numeric", precision: 1000, scale: 0 },

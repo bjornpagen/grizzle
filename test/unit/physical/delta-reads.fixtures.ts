@@ -7,7 +7,7 @@ import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { installOptions } from "#compiler/physical/install/compile.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, type Rule, v } from "#compiler/public/query.ts"
 import {
 	check,
@@ -86,24 +86,17 @@ export type Reached =
  * or its `b` once per document.
  */
 const schemaOf = (shape: Shape) => {
-	const T = relation(
-		"T",
-		{ doc: pg.integer, at: pg.integer, a: pg.integer, b: pg.integer, tag: word },
-		["doc", "at"]
-	)
-	const S = relation("S", { doc: pg.integer, at: pg.integer, ref: pg.integer, label: word }, [
-		"doc",
-		"at"
-	])
-	const W = relation("W", { wdoc: pg.integer }, ["wdoc"])
+	const T = relation("T", { doc: int4, at: int4, a: int4, b: int4, tag: word }, ["doc", "at"])
+	const S = relation("S", { doc: int4, at: int4, ref: int4, label: word }, ["doc", "at"])
+	const W = relation("W", { wdoc: int4 }, ["wdoc"])
 	const probed = shape.judge === "probed"
 	const Base = schema(
 		"delta_reads",
 		[T, S, W],
 		probed
 			? [
-					unit("Document", { doc: pg.integer }),
-					unit("Ws", { wdoc: pg.integer }),
+					unit("Document", { doc: int4 }),
+					unit("Ws", { wdoc: int4 }),
 					mutable(T),
 					mutable(S),
 					mutable(W)
@@ -614,18 +607,10 @@ export type UpkeepReached =
  * of `shape`'s arms over T.
  */
 const upkeptSchemaOf = (shape: Upkept) => {
-	const T = relation(
-		"T",
-		{ doc: pg.integer, at: pg.integer, a: pg.integer, b: pg.integer, tag: word },
-		["doc", "at"]
-	)
-	const S = relation("S", { doc: pg.integer, at: pg.integer }, ["doc", "at"])
-	const U = relation("U", { doc: pg.integer, at: pg.integer, w: pg.integer, x: pg.integer }, [
-		"doc",
-		"at",
-		"w"
-	])
-	const document = unit("Document", { doc: pg.integer })
+	const T = relation("T", { doc: int4, at: int4, a: int4, b: int4, tag: word }, ["doc", "at"])
+	const S = relation("S", { doc: int4, at: int4 }, ["doc", "at"])
+	const U = relation("U", { doc: int4, at: int4, w: int4, x: int4 }, ["doc", "at", "w"])
+	const document = unit("Document", { doc: int4 })
 	/** The base, its relations open in the document's unit, or closed in it, sealed or not: no mutable relation is
 	 * under a sealed unit, which the schema's type refuses. */
 	const Base =
@@ -840,20 +825,21 @@ const nettedSchemaOf = (shape: Netted) => {
 	const A = relation(
 		"A",
 		{
-			package: pg.integer,
-			path: pg.integer,
-			start: pg.integer,
-			name: pg.integer,
-			governor: pg.integer
+			package: int4,
+			path: int4,
+			start: int4,
+			name: int4,
+			governor: int4
 		},
 		["package", "path", "start", "name"]
 	)
-	const R = relation(
-		"R",
-		{ pack: pg.integer, path: pg.integer, start: pg.integer, name: pg.integer },
-		["pack", "path", "start", "name"]
-	)
-	const Q = relation("Q", { pack: pg.integer, name: pg.integer }, ["pack", "name"])
+	const R = relation("R", { pack: int4, path: int4, start: int4, name: int4 }, [
+		"pack",
+		"path",
+		"start",
+		"name"
+	])
+	const Q = relation("Q", { pack: int4, name: int4 }, ["pack", "name"])
 	const Base = schema(
 		"netted",
 		[A, R, Q],
@@ -861,8 +847,8 @@ const nettedSchemaOf = (shape: Netted) => {
 			mutable(A),
 			mutable(R),
 			mutable(Q),
-			unit("Package", { package: pg.integer }),
-			unit("Pack", { pack: pg.integer })
+			unit("Package", { package: int4 }),
+			unit("Pack", { pack: int4 })
 		]
 	)
 	/** Media, Named and Placed by the untyped builders (schema/relation.ts derivedBuilder), so one Media reads as either

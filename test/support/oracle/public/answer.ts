@@ -6,7 +6,7 @@ import { isRecord } from "#compiler/core/record.ts"
 import { VectorText } from "#compiler/ir/carriers.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { BytesDigest } from "#compiler/scalar/values/bytes.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { isVector } from "#compiler/scalar/values/vector.ts"
 import { sameIdentity } from "#test/support/kernel/identity.ts"
@@ -73,12 +73,12 @@ export interface Nested {
  *
  * Rule: a delivered row is its head values in heading order and, for each attachment in order, the rows of its child.
  * Values are the reference's exact carriers (reference/values.ts), each in its one form: an integer a bigint, numeric a
- * Decimal with no display scale, a float a double with one zero, a handle its name. The contract fixes exactly this
+ * Numeric with no display scale, a float a double with one zero, a handle its name. The contract fixes exactly this
  * much of an answer:
  *
  * - a set holds each row once and is compared as a set, a repeated row on either side a difference; a root delivered
  *   in an order, its final orderBy's or its take's (program.ts deliveredOrder), is compared in order;
- * - a column's values are compared exactly: equal values are identical (1.0 and 1.00 are one Decimal, NaN is NaN, a
+ * - a column's values are compared exactly: equal values are identical (1.0 and 1.00 are one Numeric, NaN is NaN, a
  *   float's zero is 0), so a delivered value that is equal but not identical, a -0 among them, is a difference;
  * - an attachment's children are a set per parent, compared as a set: a child missing from one parent, repeated, or
  *   given to another parent is a difference; a child that ends in `.orderBy(...).take(k)` is delivered in that order,
@@ -107,7 +107,7 @@ const showValue = (v: Value): string => {
 	if (typeof v === "boolean") {
 		return String(v)
 	}
-	if (v instanceof Decimal) {
+	if (v instanceof Numeric) {
 		return `${v.toString()}d`
 	}
 	if (v instanceof Money) {
@@ -171,7 +171,7 @@ export const answersReport = (
 
 /**
  * Whether two values are one exactly: a double by Object.is, so a delivered -0 is no 0, and every other value by its
- * identity (reference/values.ts valueIdentity): a Decimal by its one text, as `equals` compares it, Money by its minor
+ * identity (reference/values.ts valueIdentity): a Numeric by its one text, as `equals` compares it, Money by its minor
  * units, a span by its endpoints, a vector by its components, a declined value by its reading's identity.
  */
 const sameValue = (a: Value, b: Value, type: ScalarType): boolean =>
@@ -338,7 +338,7 @@ const carrierValue = (type: ScalarType, host: unknown): Result.Result<Value, str
 		case "exactInteger":
 			return typeof host === "bigint" ? Result.succeed(host) : wrong()
 		case "numeric":
-			return host instanceof Decimal ? Result.succeed(host) : wrong()
+			return host instanceof Numeric ? Result.succeed(host) : wrong()
 		case "float4":
 		case "float8":
 			return typeof host === "number" ? Result.succeed(host) : wrong()

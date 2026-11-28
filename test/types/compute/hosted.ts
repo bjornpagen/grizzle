@@ -63,10 +63,10 @@ type Family = "int" | "dec" | "dbl" | "vec"
 const familyField: { readonly [F in Family]: string } = { int: "n", dec: "d", dbl: "x", vec: "w" }
 
 const familyBase: { readonly [F in Family]: string } = {
-	int: "pg.bigint",
-	dec: "pg.numeric(10, 2)",
-	dbl: 'pg["double precision"]',
-	vec: "pg.vector(2)"
+	int: "int8",
+	dec: "numeric(10, 2)",
+	dbl: "float8",
+	vec: "vector(2)"
 }
 
 /** Each function's term over an operand `a`, its family, and the type of the generated field that stores it. */
@@ -80,76 +80,75 @@ const termOf: {
 	quot: {
 		family: "dec",
 		term: (a) => `Logic.when(Num.nonzero(${a}), (k) => Num.quot(${a}, k), ${a})`,
-		stored: "pg.numeric(10, 2)"
+		stored: "numeric(10, 2)"
 	},
 	rem: {
 		family: "dec",
 		term: (a) => `Logic.when(Num.nonzero(${a}), (k) => Num.rem(${a}, k), ${a})`,
-		stored: "pg.numeric(10, 2)"
+		stored: "numeric(10, 2)"
 	},
 	round: {
 		family: "dec",
 		term: (a) => `Logic.when(Num.isFinite(${a}), (k) => Num.round(k), ${a})`,
-		stored: "pg.numeric(10, 2)"
+		stored: "numeric(10, 2)"
 	},
 	trunc: {
 		family: "dec",
 		term: (a) => `Logic.when(Num.isFinite(${a}), (k) => Num.trunc(k), ${a})`,
-		stored: "pg.numeric(10, 2)"
+		stored: "numeric(10, 2)"
 	},
 	ceil: {
 		family: "dec",
 		term: (a) => `Logic.when(Num.isFinite(${a}), (k) => Num.ceil(k), ${a})`,
-		stored: "pg.numeric(10, 2)"
+		stored: "numeric(10, 2)"
 	},
 	floor: {
 		family: "dec",
 		term: (a) => `Logic.when(Num.isFinite(${a}), (k) => Num.floor(k), ${a})`,
-		stored: "pg.numeric(10, 2)"
+		stored: "numeric(10, 2)"
 	},
 	gcd: {
 		family: "int",
 		term: (a) =>
-			`Logic.when(Num.within(Num.gcd(${a}, ${a}), 0n, 1000n), (k) => Type.cast(k, pg.bigint), 0n)`,
-		stored: "pg.bigint"
+			`Logic.when(Num.within(Num.gcd(${a}, ${a}), 0n, 1000n), (k) => Type.cast(k, int8), 0n)`,
+		stored: "int8"
 	},
 	lcm: {
 		family: "int",
 		term: (a) =>
-			`Logic.when(Num.within(Num.lcm(${a}, ${a}), 0n, 1000n), (k) => Type.cast(k, pg.bigint), 0n)`,
-		stored: "pg.bigint"
+			`Logic.when(Num.within(Num.lcm(${a}, ${a}), 0n, 1000n), (k) => Type.cast(k, int8), 0n)`,
+		stored: "int8"
 	},
 	power: {
 		family: "dbl",
 		term: (a) => `Logic.when(Num.positive(${a}), (k) => Num.power(k, 2), 0)`,
-		stored: 'pg["double precision"]'
+		stored: "float8"
 	},
 	sqrt: {
 		family: "dbl",
 		term: (a) => `Num.sqrt(Num.abs(${a}))`,
-		stored: 'pg["double precision"]'
+		stored: "float8"
 	},
 	minScale: {
 		family: "dec",
 		term: (a) => `Logic.when(Num.isFinite(${a}), (k) => Num.minScale(k), 0)`,
-		stored: "pg.integer"
+		stored: "int4"
 	},
-	numeric: { family: "int", term: (a) => `Num.numeric(${a})`, stored: "pg.numeric(10, 2)" },
+	numeric: { family: "int", term: (a) => `Num.numeric(${a})`, stored: "numeric(10, 2)" },
 	cosineDistance: {
 		family: "vec",
 		term: (a) => `Distance.cosine(${a}, ${a})`,
-		stored: 'pg["double precision"]'
+		stored: "float8"
 	},
 	abs: {
 		family: "int",
-		term: (a) =>
-			`Logic.when(Num.within(Num.abs(${a}), 0n, 1000n), (k) => Type.cast(k, pg.bigint), 0n)`,
-		stored: "pg.bigint"
+		term: (a) => `Logic.when(Num.within(Num.abs(${a}), 0n, 1000n), (k) => Type.cast(k, int8), 0n)`,
+		stored: "int8"
 	},
 	call: {
 		family: "int",
 		term: (a) => `Fn.call(scale, { x: ${a}, k: 2n })`,
-		stored: "pg.bigint"
+		stored: "int8"
 	}
 }
 
@@ -210,8 +209,8 @@ const prelude = await Effect.runPromise(preludeAt("test/support/programs/hosted.
 
 /** Cell, a field of each family, its schema, and Cells, a derived relation of its rows. */
 const hostedHeader = `export const probeKey = Symbol("Probe")
-export const Cell = relation("Cell", { id: Id, n: pg.bigint, d: pg.numeric(10, 2), x: pg["double precision"], w: pg.vector(2) }, ["id"])
-export const scale = fn("scale", { calls: [], args: { x: pg.bigint, k: pg.bigint }, returns: pg.bigint, volatility: "immutable", nullInput: "called", language: "sql", body: fn.body\`SELECT x * k\` })
+export const Cell = relation("Cell", { id: Id, n: int8, d: numeric(10, 2), x: float8, w: vector(2) }, ["id"])
+export const scale = fn("scale", { calls: [], args: { x: int8, k: int8 }, returns: int8, volatility: "immutable", nullInput: "called", language: "sql", body: fn.body\`SELECT x * k\` })
 export const Root = schema("Root", [Cell, scale], [])
 export const Cells = derived("Cells", query(Root).rule((r) => {
 	const { id, n, d, x, w } = v(Cell, "cell")

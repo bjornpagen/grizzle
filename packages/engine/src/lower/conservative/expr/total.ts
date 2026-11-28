@@ -249,8 +249,8 @@ const exactIn = (
 		case "isXsdPattern":
 		case "replace":
 		case "btrim":
-		case "parseDouble":
-		case "parseDecimal":
+		case "parseFloat8":
+		case "parseNumeric":
 		case "sha256":
 		case "floatBits":
 		case "lower":

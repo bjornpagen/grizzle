@@ -49,7 +49,7 @@ import {
 } from "#bench/query/support/plans.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import type { DeliveredPart } from "#compiler/lower/shapes/index.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -74,21 +74,21 @@ import { labeledStatements } from "#test/support/oracle/compare.ts"
  * the origin, each parent's reachable set aggregated the same way. They deliver nested JSON rather than the runtime's
  * rows, so they are compared with the generated delivery as nested results, every scalar by its text.
  */
-const Account = relation("Account", { id: pg.bigint, region: pg.integer }, ["id"])
+const Account = relation("Account", { id: int8, region: int4 }, ["id"])
 const Task = relation(
 	"Task",
 	{
-		id: pg.bigint,
-		account: pg.bigint,
+		id: int8,
+		account: int8,
 		title: str.regex("^.{1,80}$", "su"),
-		priority: pg.integer,
-		due: pg.integer,
-		points: pg.integer
+		priority: int4,
+		due: int4,
+		points: int4
 	},
 	["id"]
 )
-const Person = relation("Person", { id: pg.bigint, team: pg.integer }, ["id"])
-const Follows = relation("Follows", { from: pg.bigint, to: pg.bigint }, ["from", "to"])
+const Person = relation("Person", { id: int8, team: int4 }, ["id"])
+const Follows = relation("Follows", { from: int8, to: int8 }, ["from", "to"])
 const Attach = schema(
 	"Attach",
 	[Account, Task, Person, Follows],
@@ -105,7 +105,7 @@ const regionCards = query(Attach)
 		const { id, region } = v(Account, "account")
 		return r
 			.match(Account, { id, region })
-			.where(r.eq(region, r.param("region", pg.integer)))
+			.where(r.eq(region, r.param("region", int4)))
 			.find({ id })
 	})
 	.attach(
@@ -147,7 +147,7 @@ const regionTitles = query(Attach)
 		const { id, region } = v(Account, "account")
 		return r
 			.match(Account, { id, region })
-			.where(r.eq(region, r.param("region", pg.integer)))
+			.where(r.eq(region, r.param("region", int4)))
 			.find({ id })
 	})
 	.attach(
@@ -169,14 +169,14 @@ const reachCards = query(Attach)
 		const { id } = v(Person, "person")
 		return r
 			.match(Person, { id })
-			.where(r.ge(id, r.param("lo", pg.bigint)), r.le(id, r.param("hi", pg.bigint)))
+			.where(r.ge(id, r.param("lo", int8)), r.le(id, r.param("hi", int8)))
 			.find({ id })
 	})
 	.attach(
 		"reach",
 		(p) =>
 			query(Attach).recursive("Reach", {
-				row: { person: pg.bigint },
+				row: { person: int8 },
 				base: [
 					(r) => {
 						const { to } = v(Follows, "follows")

@@ -22,7 +22,7 @@ import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { namedIdent } from "#compiler/physical/obligations/graph.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
-import { accumulated, drawn as drawnField, natural, pg } from "#compiler/public/fields.ts"
+import { accumulated, drawn as drawnField, natural, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	contained,
@@ -62,12 +62,12 @@ const Store = relation(
 		region: word,
 		label: word,
 		items: drawnField(natural),
-		stock: accumulated(pg.bigint, 0n)
+		stock: accumulated(int8, 0n)
 	},
 	["id"]
 )
 
-const Item = relation("Item", { id: Id, store: Id, region: word, qty: pg.bigint }, ["id"])
+const Item = relation("Item", { id: Id, store: Id, region: word, qty: int8 }, ["id"])
 
 const Open = relation("Open", { store: Id }, ["store"])
 
@@ -75,7 +75,7 @@ const Shelf = relation("Shelf", { id: Id, tag: word, slots: drawnField(natural) 
 
 const Slot = relation("Slot", { shelf: Id, at: drawnField(natural), what: word }, ["shelf", "at"])
 
-const Ticket = relation("Ticket", { no: pg.bigint, note: word }, ["no"])
+const Ticket = relation("Ticket", { no: int8, note: word }, ["no"])
 
 const items = counted(on(Item, "store"), fin(Store, "items"))
 
@@ -104,7 +104,7 @@ export const schemaOf = (mutability: Mutability, name: string) =>
 		contained(on(Item, "store", "region"), on(Store, "id", "region")),
 		slots,
 		unit("Row", { id: Id }),
-		unit("Tickets", { no: pg.bigint }),
+		unit("Tickets", { no: int8 }),
 		mutable(Ticket),
 		...(mutability.Store ? [mutable(Store)] : []),
 		...(mutability.Item ? [mutable(Item)] : []),

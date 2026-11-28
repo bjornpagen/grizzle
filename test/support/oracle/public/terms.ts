@@ -28,7 +28,7 @@ const literalDesc = (literal: TypedLiteral, type: ScalarType): ExprDesc => ({
 
 /**
  * A padding's Description (program.ts Padding): Logic.when(Num.within(v, low, high), (v) =>
- * Num.numeric(Type.cast(v, pg.numeric(1000, scale))), Num.numeric(v)), whose branch reads the guarded
+ * Num.numeric(Type.cast(v, numeric(1000, scale))), Num.numeric(v)), whose branch reads the guarded
  * subject, which is the variable.
  */
 const paddingDesc = (p: Padding, name: (v: Var) => string): ExprDesc => {

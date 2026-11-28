@@ -11,7 +11,7 @@ import type {
 } from "#compiler/core/function.ts"
 import { sha256Hex } from "#compiler/core/sha256.ts"
 import { quoteIdent, wellFormed } from "#compiler/core/text.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import {
 	type AnyFunction,
 	fn,
@@ -285,7 +285,7 @@ const functionsOf = (v: VersionSketch): ReadonlyArray<AnyFunction> => {
 	const peek = fn(peekName, {
 		calls: [],
 		args: {},
-		returns: pg.integer,
+		returns: int4,
 		volatility: "stable",
 		nullInput: "called",
 		language: "plpgsql",

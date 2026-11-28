@@ -6,7 +6,7 @@ import { type Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, String as Str } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
-import { accumulated, bytes, drawn as drawnField, natural, pg } from "#compiler/public/fields.ts"
+import { accumulated, bytea, drawn as drawnField, natural, int8 } from "#compiler/public/fields.ts"
 import {
 	counted,
 	fin,
@@ -39,15 +39,13 @@ const Letters = str.regex("^[a-z]{0,8}$")
 
 const Package = relation("Package", { id: Id, entries: drawnField(natural) }, ["id"])
 
-const Bin = relation("Bin", { id: Id, n: drawnField(natural), total: accumulated(pg.bigint, 0n) }, [
+const Bin = relation("Bin", { id: Id, n: drawnField(natural), total: accumulated(int8, 0n) }, [
 	"id"
 ])
 
-const Shelf = relation(
-	"Shelf",
-	{ id: Id, n: drawnField(natural), total: accumulated(pg.bigint, 0n) },
-	["id"]
-)
+const Shelf = relation("Shelf", { id: Id, n: drawnField(natural), total: accumulated(int8, 0n) }, [
+	"id"
+])
 
 const Entry = relation(
 	"Entry",
@@ -57,9 +55,9 @@ const Entry = relation(
 		path: Letters,
 		bin: Id,
 		shelf: Id,
-		size: pg.bigint,
+		size: int8,
 		chunks: drawnField(natural),
-		content: bytes
+		content: bytea
 	},
 	["package", "path"]
 )
@@ -70,15 +68,13 @@ const Chunk = relation(
 	["package", "path", "at"]
 )
 
-const Doc = relation(
-	"Doc",
-	{ id: Id, lines: drawnField(natural), total: accumulated(pg.bigint, 0n) },
-	["id"]
-)
+const Doc = relation("Doc", { id: Id, lines: drawnField(natural), total: accumulated(int8, 0n) }, [
+	"id"
+])
 
 const Line = relation(
 	"Line",
-	{ id: Id, doc: Id, at: drawnField(natural), qty: pg.bigint, note: Letters },
+	{ id: Id, doc: Id, at: drawnField(natural), qty: int8, note: Letters },
 	["id"]
 )
 
@@ -91,7 +87,7 @@ const Node = relation(
 		children: drawnField(natural),
 		start: drawnField(natural),
 		end: drawnField(natural),
-		label: pg.bigint
+		label: int8
 	},
 	["root", "start"]
 )

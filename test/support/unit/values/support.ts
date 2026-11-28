@@ -13,7 +13,7 @@ import {
 import { passed, type Wild, type WildKind, wild } from "@bjornpagen/testing/lsw"
 import { Array as Arr, Option, Order, String as Str } from "effect"
 import type { ValueFault } from "#compiler/core/errors.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 import { succeeded } from "#test/support/assert.ts"
 
 export type { ValueFault }
@@ -61,14 +61,14 @@ export const numericText: Gen<string> = (source) => {
 	return `${sign}${whole}${frac === undefined ? "" : `.${frac}`}${exp === undefined ? "" : `e${exp}`}`
 }
 
-const finiteDecimal: Gen<Decimal> = map(numericText, (text) => succeeded(Decimal.fromString(text)))
+const finiteDecimal: Gen<Numeric> = map(numericText, (text) => succeeded(Numeric.fromString(text)))
 
 /**
  * Shared helpers and generators for the value-carrier tests (test/unit/values and test/pg/values).
  */
-export const decimalGen: Gen<Decimal> = weighted([
+export const decimalGen: Gen<Numeric> = weighted([
 	[20, finiteDecimal],
-	[1, element([Decimal.nan, Decimal.infinity, Decimal.negativeInfinity])]
+	[1, element([Numeric.nan, Numeric.infinity, Numeric.negativeInfinity])]
 ])
 
 /** The sign of a comparison's result; zero for zero or NaN. */

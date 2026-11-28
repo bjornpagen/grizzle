@@ -4,7 +4,7 @@ import { awaitFact } from "@bjornpagen/testing/fact"
 import { array, element, type Gen } from "@bjornpagen/testing/gen"
 import { Effect, Option } from "effect"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -43,8 +43,8 @@ const Text = str.regex("^.{0,8}$", "su")
 
 /** The schema of a case and its login: notes by a text, the fence's probe, and the reads and the write above. */
 export const notebook = (name: string) => {
-	const Note = relation("Note", { id: pg.integer, tag: Text }, ["id"])
-	const Probe = relation(probeRelation, { id: pg.integer }, ["id"])
+	const Note = relation("Note", { id: int4, tag: Text }, ["id"])
+	const Probe = relation(probeRelation, { id: int4 }, ["id"])
 	const base = schema(name, [Note, Probe], [])
 	const world = fullWorld(
 		base,
@@ -58,7 +58,7 @@ export const notebook = (name: string) => {
 				return r.match(Note, { id, tag }).find({ id, tag })
 			}),
 			[probeAtMember]: query(base).rule((r) => {
-				const id = r.param("id", pg.integer)
+				const id = r.param("id", int4)
 				return r.match(Probe, { id }).find({ id })
 			}),
 			add: ChangeSet.empty(base).insert(Note, [])

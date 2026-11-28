@@ -104,7 +104,7 @@ type SignatureRefused<F> = F extends
 				| "money"
 				| "exact integer"
 				| "exact money"
-				| "bits"
+				| "bit"
 				| "range"
 				| "vector"
 				| StoredOnlySql
@@ -114,7 +114,7 @@ type SignatureRefused<F> = F extends
 
 /** The refusal of a field no signature takes (SignatureRefused). */
 type SignatureRefusal =
-	Refusal<"a declared function takes and returns values of a base type, a closed id, a digest, a contract or a refined text over one, or a variant: no serial, money, exact value, bytes, set, span or vector">
+	Refusal<"a declared function takes and returns values of a base type, a closed id, a digest, a contract or a refined text over one, or a variant: no serial, money, exact value, bytes, set, range or vector">
 
 /**
  * Whether a field is a closed id of a subset of its roster, its host type short of the roster's handles: no function's

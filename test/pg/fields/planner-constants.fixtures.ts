@@ -5,7 +5,7 @@ import { element, type Gen, int, oneOf, weighted } from "@bjornpagen/testing/gen
 import type { Case } from "@bjornpagen/testing/property"
 import { Effect, Formatter } from "effect"
 import { rowEvaluator } from "#adapter/public/host.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { bool, int4 } from "#compiler/public/fields.ts"
 import { schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { computeCore as C } from "#compiler/scalar/compute/builders.ts"
@@ -248,10 +248,7 @@ const predTerm = (f: Fields, x: Pred): unknown => {
 		case "texts":
 			return C[x.op](textTerm(f, x.a), textTerm(f, x.b))
 		case "integer":
-			return C[x.op](
-				x.left === "row" ? f.n : C.literal(pg.integer, x.left),
-				C.literal(pg.integer, x.right)
-			)
+			return C[x.op](x.left === "row" ? f.n : C.literal(int4, x.left), C.literal(int4, x.right))
 		case "folded":
 			return C[x.op](
 				C[x.of](C.literal(Wild, x.pair[0]), C.literal(Wild, x.pair[1])),
@@ -372,19 +369,15 @@ export const runPlanner = (drawn: PlannerCase, c: Case<PlannerFeature>) =>
 		}
 		const R = generatedRelation(
 			"R",
-			{ id: pg.integer, t: Wild, n: pg.integer },
+			{ id: int4, t: Wild, n: int4 },
 			["id"],
 			(r) => {
 				const fields: Fields = { t: r["t"], n: r["n"] }
 				return {
 					g: generatedField(Wild, textTerm(fields, drawn.text), []),
 					h: generatedField(
-						pg.boolean,
-						C.cond(
-							predTerm(fields, drawn.pred),
-							C.literal(pg.boolean, true),
-							C.literal(pg.boolean, false)
-						),
+						bool,
+						C.cond(predTerm(fields, drawn.pred), C.literal(bool, true), C.literal(bool, false)),
 						[]
 					)
 				}

@@ -10,7 +10,6 @@ import {
 	contained,
 	login,
 	on,
-	pg,
 	query,
 	relation,
 	role,
@@ -19,7 +18,8 @@ import {
 	v,
 	wholeEntriesOf,
 	workload,
-	wholeWritesOf
+	wholeWritesOf,
+	int8
 } from "@bjornpagen/grizzle"
 
 const Slug = str.regex("^[a-z0-9-]{1,96}$")
@@ -29,7 +29,7 @@ export const Status = closed.ordered("Status", ["Draft", "Published"])
 export const Note = relation("Note", { slug: Slug, body: Prose, status: closedId(Status) }, [
 	"slug"
 ])
-export const Views = relation("Views", { note: Slug, views: pg.bigint }, ["note"])
+export const Views = relation("Views", { note: Slug, views: int8 }, ["note"])
 export const Notes = schema(
 	"Notes",
 	[Status, Note, Views],

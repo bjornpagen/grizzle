@@ -17,9 +17,9 @@ import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { defined } from "@bjornpagen/testing/assert"
 import { array, boolean, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Record as Rec } from "effect"
-import { bits } from "#compiler/public/fields.ts"
+import { bit } from "#compiler/public/fields.ts"
 import { closed } from "#compiler/public/schema.ts"
-import { pgDescriptors } from "#compiler/scalar/pg.ts"
+import { bool, int2, int4, int8 } from "#compiler/scalar/pg.ts"
 import { relationBuilder as relation } from "#compiler/schema/relation.ts"
 import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
 import {
@@ -393,19 +393,19 @@ const descriptorOf = (t: ColumnType, side: "source" | "target"): FieldBase => {
 		case "uuid":
 			return Id
 		case "bigint":
-			return pgDescriptors.bigint
+			return int8
 		case "integer":
-			return pgDescriptors.integer
+			return int4
 		case "smallint":
-			return pgDescriptors.smallint
+			return int2
 		case "boolean":
-			return pgDescriptors.boolean
+			return bool
 		case "text":
 			return side === "target" ? short : textOf(t.codePoints)
 		case "free":
 			return side === "target" ? short : free
 		case "set":
-			return t.roster === "few" ? bits(FewTags) : bits(ManyTags)
+			return t.roster === "few" ? bit(FewTags) : bit(ManyTags)
 	}
 }
 
@@ -448,7 +448,7 @@ const reverseParts = (
 			source,
 			{
 				id: Id,
-				live: pgDescriptors.boolean,
+				live: bool,
 				x: Id,
 				...Rec.fromEntries(Arr.map(names, (n, i) => [n, descriptorOf(typeAt(i), "source")]))
 			},

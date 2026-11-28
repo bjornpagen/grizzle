@@ -22,7 +22,7 @@ key names the same row in every database that holds it, a replica, a restore and
   leading bits are its writer's clock, which another host's disagrees with, and its random bits answer uniqueness, not
   order, so no order of its ids is an order of the writes.
 
-`pg.serial` and its kin and `pg.uuidv7` are type errors that say so, and from JavaScript a `CompileError` (`Refused`)
+`serial` and its kin and `uuidv7` are type errors that say so, and from JavaScript a `CompileError` (`Refused`)
 with the same text.
 
 **Sharding.** The child is the shard key: every row under a parent carries the parent's key, so its subtree lives on
@@ -86,23 +86,23 @@ schema.
 | -------------------------------------------------- | ------------------------------------------------------------------- | ---------------------------------------------------------------------- |
 | `contract<typeof key>()("ClerkUserId", uuid)`      | uuid, behind the contract's domain; a bare `uuid` column is refused | `Marked<Uuid, typeof key>`, made by `mintOf(key)`; `Uuid.parse` reads a string |
 | `sha256`                                           | bytea, behind the digest domain that checks 32 bytes                | `Sha256`, a SHA-256 digest's 32 bytes, `Sha256.ofBytes` or `ofText`    |
-| `pg.smallint`, `pg.integer`                        | smallint, integer                                                   | `number`                                                               |
-| `pg.bigint`                                        | bigint                                                              | `bigint`                                                               |
+| `int2`, `int4`                        | smallint, integer                                                   | `number`                                                               |
+| `int8`                                        | bigint                                                              | `bigint`                                                               |
 | `natural`                                          | bigint, behind a domain that checks `>= 0`                          | `bigint`                                                               |
 | `instant`                                          | bigint, behind natural's domain                                     | `Instant`, a `bigint` of microseconds since the Unix epoch, written by the database |
 | `instant.stored`                                   | bigint, behind natural's domain                                     | `Instant`, an instant a read delivered, written by its caller as it is |
 | `date`                                             | date, its column checked to 0001-01-01 … 9999-12-31                 | `CalendarDate`, its ISO 8601 text `"YYYY-MM-DD"`                       |
-| `pg.numeric`                                       | numeric, no typmod: every value numeric holds, NaN and ±Infinity    | `Decimal`, exact, passed as it is                                      |
-| `pg.numeric(p, 0)`                                 | numeric(p, 0), its column checked to hold no NaN                    | `bigint`, an integer of at most p digits                               |
-| `pg.numeric(p, s)`, s not 0                        | numeric(p, s)                                                       | `Decimal`, exact, no display scale                                     |
-| `pg.numeric.within(digits, scale)`                 | numeric, no typmod, its column checked to NaN, ±Infinity and the finite values below 10^digits of at most `scale` fraction digits | `Decimal`, exact, a sum's, a mean's or an operation's value stored as it was read |
-| `pg.real`, `pg["double precision"]`                | real, double precision                                              | `number`                                                               |
-| `pg.money`                                         | money                                                               | `Money`                                                                |
+| `numeric`                                       | numeric, no typmod: every value numeric holds, NaN and ±Infinity    | `Numeric`, exact, passed as it is                                      |
+| `numeric(p, 0)`                                 | numeric(p, 0), its column checked to hold no NaN                    | `bigint`, an integer of at most p digits                               |
+| `numeric(p, s)`, s not 0                        | numeric(p, s)                                                       | `Numeric`, exact, no display scale                                     |
+| `numeric.within(digits, scale)`                 | numeric, no typmod, its column checked to NaN, ±Infinity and the finite values below 10^digits of at most `scale` fraction digits | `Numeric`, exact, a sum's, a mean's or an operation's value stored as it was read |
+| `float4`, `float8`                | real, double precision                                              | `number`                                                               |
+| `money`                                         | money                                                               | `Money`                                                                |
 | `exactInteger`                                     | numeric, its column checked to scale 0: no fraction, NaN or infinity | `bigint` of any size, integer arithmetic's exact value                 |
 | `exactMoney`                                       | numeric, its column checked to money's scale 2: no NaN or infinity  | `Money` of any count of cents, money arithmetic's exact value          |
-| `pg.boolean`                                       | boolean                                                             | `boolean`                                                              |
-| `pg.inet`                                          | inet                                                                | `Inet`, inet_out's text; `Inet.parse` reads any text inet_in reads     |
-| `pg.cidr`                                          | cidr                                                                | `Cidr`, cidr_out's text; `Cidr.parse` reads any text cidr_in reads     |
+| `bool`                                       | boolean                                                             | `boolean`                                                              |
+| `inet`                                          | inet                                                                | `Inet`, inet_out's text; `Inet.parse` reads any text inet_in reads     |
+| `cidr`                                          | cidr                                                                | `Cidr`, cidr_out's text; `Cidr.parse` reads any text cidr_in reads     |
 | `str.regex(pattern, flags?)`                       | text, behind a domain that checks the pattern                       | the pattern's language: `string`, or `"yes" \| "no"` for `^(yes\|no)$` |
 | `str.bytes(n, str.regex(...))`                     | text, behind a domain that checks its UTF-8 bytes, then the pattern | the pattern's                                                          |
 | `str.and(str.regex(p), str.regex(q), ...)`         | text, behind a domain that checks every pattern                     | the patterns' languages intersected, `P & Q`                           |
@@ -111,32 +111,32 @@ schema.
 | `bits(X)`, a set of `X`'s handles                  | bit(n), behind a domain that holds only live handles                | `Bits<typeof X>`, a `ReadonlySet` of its names; `Bits.of(X, [...])`    |
 | `contract<typeof key>()(name, base, check?)`       | a domain with that CHECK                                            | the base type under the key, `Marked<base, typeof key>`                |
 | `span(T, width?)`, T integer, bigint or date       | int4range, int8range or daterange                                   | `{ start, end }`, start included, end excluded                         |
-| `pg.vector(n)`                                     | pgvector's vector(n)                                                | `Vector`, a Float32Array                                               |
+| `vector(n)`                                     | pgvector's vector(n)                                                | `Vector`, a Float32Array                                               |
 | `searchDocument(configuration, [w, text], ...)`, generated | tsvector, a STORED generated column                            | `SearchDocument`, the text PostgreSQL prints for it                    |
-| `pg.tsvector(configuration)`                       | tsvector                                                            | `SearchDocument`, a document a read delivered, written back as it is   |
+| `tsvector(configuration)`                       | tsvector                                                            | `SearchDocument`, a document a read delivered, written back as it is   |
 | `bytes`                                            | bytea, at most 1,073,741,819 bytes                                  | `Uint8Array`, a fresh one over its own buffer                          |
 
-Each type has one name, the one PostgreSQL prints for it: `pg.integer`, never `int4`; `pg["double precision"]`, never
-`float8` or `float(p)`; `pg.numeric`, never `decimal`; `pg.boolean`, never `bool`.
+Each type has one name, the one PostgreSQL prints for it: `int4`, never `int4`; `float8`, never
+`float8` or `float(p)`; `numeric`, never `decimal`; `bool`, never `bool`.
 
 - **A value is parsed exactly, once.** Every value you pass, a fact's field, a parameter or a page's boundary, is read
-  as its field's type and never altered: a `Decimal` with more fractional digits than its `pg.numeric(p, s)` holds is
+  as its field's type and never altered: a `Numeric` with more fractional digits than its `numeric(p, s)` holds is
   an `EncodingFailure` (`numericScale`), never rounded, so `1.005` at scale 2 is refused where PostgreSQL would store
-  `1.01`; a `Decimal` past a `pg.numeric.within(digits, scale)` bound is an `EncodingFailure` (`numericBound`); a
-  `SearchDocument` for `pg.tsvector` is the text PostgreSQL prints for a document, its lexemes in their one order,
+  `1.01`; a `Numeric` past a `numeric.within(digits, scale)` bound is an `EncodingFailure` (`numericBound`); a
+  `SearchDocument` for `tsvector` is the text PostgreSQL prints for a document, its lexemes in their one order,
   each once, and anything else is an `EncodingFailure` (`searchDocumentForm`), never sent to be stored as another
-  document; a `number` for `pg.real` must be a binary32 value as it is, `Math.fround(x) === x`, or it is an
+  document; a `number` for `float4` must be a binary32 value as it is, `Math.fround(x) === x`, or it is an
   `EncodingFailure` (`realInexact`), never rounded to the nearest one. A uuid's case is a spelling of one value, a
   float's `-0` a value of its own, kept as written, and nothing else is changed. Everything else a field's type says, its pattern and contract, is
   PostgreSQL's to check ([Errors and outcomes](errors-and-concurrency.md#errors-and-outcomes)).
 
-- **Network types.** `pg.inet` is an address with its network's mask, `pg.cidr` a network, IPv4 and IPv6 alike, PostgreSQL's own. A value is any text PostgreSQL's inet_in or cidr_in reads, and its host value the one text inet_out or cidr_out prints of it, so `"1.2.3.4/32"` is the inet `"1.2.3.4"`, `"10/8"` the cidr `"10.0.0.0/8"`, and a cidr with a bit set right of its mask, `"10.1.2.3/8"`, is an `EncodingFailure` (`cidrHostBits`), as PostgreSQL refuses it. grizzle reads every text as PostgreSQL 19 does, quirks included, so a value means one thing on the host and in the database: `Inet.parse(text)` and `Cidr.parse(text)` read a text, such as a request's address from an edge's header, into the value, a `Result`. Both compare, order (IPv4 before IPv6, then network_cmp's order), hash, stand in a key or an index, and are a context's field; an inet has `min` and `max`, and a cidr none, since PostgreSQL has neither. Their containment is `Net`'s ([Scalar terms](reads-and-writes.md#scalar-terms)).
+- **Network types.** `inet` is an address with its network's mask, `cidr` a network, IPv4 and IPv6 alike, PostgreSQL's own. A value is any text PostgreSQL's inet_in or cidr_in reads, and its host value the one text inet_out or cidr_out prints of it, so `"1.2.3.4/32"` is the inet `"1.2.3.4"`, `"10/8"` the cidr `"10.0.0.0/8"`, and a cidr with a bit set right of its mask, `"10.1.2.3/8"`, is an `EncodingFailure` (`cidrHostBits`), as PostgreSQL refuses it. grizzle reads every text as PostgreSQL 19 does, quirks included, so a value means one thing on the host and in the database: `Inet.parse(text)` and `Cidr.parse(text)` read a text, such as a request's address from an edge's header, into the value, a `Result`. Both compare, order (IPv4 before IPv6, then network_cmp's order), hash, stand in a key or an index, and are a context's field; an inet has `min` and `max`, and a cidr none, since PostgreSQL has neither. Their containment is `Net`'s ([Scalar terms](reads-and-writes.md#scalar-terms)).
 - **A contract's values are its consumer's.** Its host type is its base's under a key the declaring module holds:
-  `const centsKey = Symbol("Cents")`, then `contract<typeof centsKey>()("Cents", pg.bigint, (c) => Logic.ge(c, 0n))`,
+  `const centsKey = Symbol("Cents")`, then `contract<typeof centsKey>()("Cents", int8, (c) => Logic.ge(c, 0n))`,
   whose values are `Marked<bigint, typeof centsKey>`. Only the key's mint makes one, `const toCents = mintOf(centsKey)`,
   then `toCents(500n)`, without checking it; the contract makes none. Where the key lives, and whether it is exported,
   decides who makes values: a module that grades keeps its key, exports its grading function and its type,
-  `Marked<Decimal, typeof gradedKey>`, and a write of a grade takes nothing else. A key is a unique symbol, one per
+  `Marked<Numeric, typeof gradedKey>`, and a write of a grade takes nothing else. A key is a unique symbol, one per
   contract: a key of type `symbol` is a type error, and `mintOf` refuses a registered one, which `Symbol.for` gives any
   module by its name.
 - **A contract's checked mint parses a value from outside.** `contractParser(Cents, centsKey)`
@@ -175,10 +175,10 @@ Each type has one name, the one PostgreSQL prints for it: `pg.integer`, never `i
   A read delivers the host type, the one conversion grizzle makes unchecked, since it trusts its own database, and the
   database checks the base type and the predicate on every write. A fourth argument, `{ proves: [...] }`, declares facts
   the check implies ([Queries](reads-and-writes.md#queries)).
-- **`natural`** is the builtin contract over `pg.bigint`, unbranded: a count, the type of every `r.count()`, and the one
+- **`natural`** is the builtin contract over `int8`, unbranded: a count, the type of every `r.count()`, and the one
   type a rule's `pred` reads ([Rules](#rules)). Every schema holds it, since every query over it may count, so its
   domain is installed whether or not a field is natural. A count meets a natural field, parameter or literal and is
-  written into a natural field as it is; a count beside a `pg.bigint` is two types, so type that side `natural`, which
+  written into a natural field as it is; a count beside a `int8` is two types, so type that side `natural`, which
   is what it holds, and an arithmetic's exact integer meets a count as `Type.base(count)`. A negative value is an
   outcome on the law `{ kind: "contract", contract: "natural" }`. No other contract may be named `natural`.
 - **`exactInteger` and `exactMoney`** are the types integer and money arithmetic deliver, of any size, as stored
@@ -189,16 +189,16 @@ Each type has one name, the one PostgreSQL prints for it: `pg.integer`, never `i
   `CHECK ((scale(x) = 0) IS TRUE)` for an exact integer, `= 2` for exact money, money's own fraction digits, which
   refuses a fraction, another scale (`5.0`, `1.5`), NaN and the infinities from a direct writer with 23514; grizzle's
   own writes are its host values, which hold no other. Its arithmetic is exact at numeric's own limit, PostgreSQL
-  refusing a result past it with 22003, as over a `pg.numeric`. A literal or a parameter of its family meets it, a
+  refusing a result past it with 22003, as over a `numeric`. A literal or a parameter of its family meets it, a
   bigint or a `Money` among them, and a parameter of its own type takes any value of it. A bare literal is a value of
   it as of any type, a bigint for an exact integer and a `Money` for exact money: where a field of it is written,
   `V.make("integer", { value: 1n })` over an arm's `exactInteger` field or `Type.literal(exactInteger, 1n)`, it is a
   value of the field, and opposite an exact value in a comparison or an operation any value of its family, an exact
   value's digits being what its making proves of it, never a domain the value it meets is held to; it is refused only
   past numeric's own limit, `MalformedDescription` naming 10^131072. No key, UNIQUE, containment or family axis holds one, since its widest
-  value outgrows every index entry: one there is `UnrepresentableKey` naming the precision to declare, `pg.numeric(p, 0)`
-  (or `pg.bigint`) for an exact integer, `pg.numeric(p, 2)` (or `pg.money`) for exact money; a lookup leaves one out
-  of its index, a filter beside it, as a `pg.numeric` of no typmod ([Keys and indexes](limits.md#keys-and-indexes)). No
+  value outgrows every index entry: one there is `UnrepresentableKey` naming the precision to declare, `numeric(p, 0)`
+  (or `int8`) for an exact integer, `numeric(p, 2)` (or `money`) for exact money; a lookup leaves one out
+  of its index, a filter beside it, as a `numeric` of no typmod ([Keys and indexes](limits.md#keys-and-indexes)). No
   contract is over one,
   nor a closed relation's, a context's or a declared function's field of one: bound it first, with `Type.cast` under
   `Num.within`, into the type that holds it.
@@ -221,7 +221,7 @@ Each type has one name, the one PostgreSQL prints for it: `pg.integer`, never `i
   where it is and copies it once, into its column's binary array, as the call is sent, checking the copy against the
   digest: an array you change or detach after passing it to a write's `apply`, before the call is sent, is an
   `EncodingFailure` (`bytesChanged`) rather than sent unlike the value the write was worked out from. Its bound,
-  1,073,741,819 bytes (`bytesMaxLength`), is PostgreSQL's longest bytea: a longer value is an `EncodingFailure` naming
+  1,073,741,819 bytes (`byteaMaxLength`), is PostgreSQL's longest bytea: a longer value is an `EncodingFailure` naming
   its field, before any SQL. An attachment whose rows hold a bytes field is a statement of its own, so one under rows
   that read `.approximateNearest` is refused: query the nearest rows, then attach to their keys in a second query.
 - **Patterns.** Text always carries one, with flags `"u"` (the default) or `"su"`. The syntax is JavaScript's under
@@ -274,13 +274,13 @@ Each type has one name, the one PostgreSQL prints for it: `pg.integer`, never `i
   `keyTextBytes` throws `UnrepresentableKey` naming every fault at once: more fields than an index holds beside a text,
   and each field of no byte bound; or, where neither is, fields that leave a text no byte. `keyFits(fields)` is whether a key over `fields` holds every value
   they admit, each as itself, the verdict a relation keyed by them meets, as a `boolean`, never thrown.
-- **A numeric in a key** needs a precision. A key's entry holds each numeric as itself, so a `pg.numeric` of no typmod,
-  an `exactInteger` or `exactMoney` field, or a `pg.numeric(p, s)` of digits enough to outgrow the entry, is
+- **A numeric in a key** needs a precision. A key's entry holds each numeric as itself, so a `numeric` of no typmod,
+  an `exactInteger` or `exactMoney` field, or a `numeric(p, s)` of digits enough to outgrow the entry, is
   `UnrepresentableKey` in a key; a lookup leaves such a numeric out of its index, a filter beside it. An entry is sized as PostgreSQL could lay it out in any order of its
   columns: from its data offset, each datum at its widest alignment padding and its longest, the whole MAXALIGNed, so
   a key, the UNIQUE a reference lands on and the reference agree whatever order each lists the columns in.
 - **Exported bounds.** `messageMaxBytes`, PostgreSQL's longest message (1,073,741,822 bytes), `maxStringLength`, V8's
-  longest string (536,870,888 UTF-16 code units), `bytesMaxLength` (1,073,741,819 bytes) and `flightMaxBytes`, the most
+  longest string (536,870,888 UTF-16 code units), `byteaMaxLength` (1,073,741,819 bytes) and `flightMaxBytes`, the most
   one write over TLS carries (1,908,342,784 bytes), refuse a call before it is sent; `regexTextMaxBytes`, the longest
   text PostgreSQL's regex engine reads (268,435,454 UTF-8 bytes), is the byte bound a text a query matches by a pattern
   must keep. Each is a `Limit`: `.value` is the
@@ -315,14 +315,14 @@ Every field has one writer. An insert or a put takes exactly the fields its call
 
 - **The caller**, the default: a field declared by its type alone, `title: Title`. A value a read delivered is
   stored so whatever its type, so a read's rows can be kept as rows of their own: `instant.stored`, an instant as it
-  was read ([Instants](reads-and-writes.md#instants)), `pg.tsvector(configuration)`, a search document as it was read
-  ([Full text search](reads-and-writes.md#full-text-search)), and `pg.numeric.within(digits, scale)`, a sum's, a mean's or an
+  was read ([Instants](reads-and-writes.md#instants)), `tsvector(configuration)`, a search document as it was read
+  ([Full text search](reads-and-writes.md#full-text-search)), and `numeric.within(digits, scale)`, a sum's, a mean's or an
   operation's numeric within the bound its query proves of it.
 - **PostgreSQL**: a STORED generated column,
   `relation.generated(name, written, primaryKey, (r) => ({ f: generated(type, term) }))`, or a search document PostgreSQL
   parses from the row's texts, `searchDocument(configuration, [weight, text], ...)` ([Full text search](reads-and-writes.md#full-text-search)).
 - **grizzle, drawn:** `drawn(natural)`, a family's count or index, and a tree's `start` and `end`
-  ([Families](#families)); or `drawn(c, key)`, c a contract over `pg.smallint`, `pg.integer` or `pg.bigint` under its
+  ([Families](#families)); or `drawn(c, key)`, c a contract over `int2`, `int4` or `int8` under its
   key, whose column is c's and whose CHECK bounds every value grizzle draws into it.
 - **grizzle, accumulated:** `accumulated(type, start)`, a fold's end or accumulator, or a copy along a family's axis,
   `start` its value where the axis begins; a contract's under its key, `accumulated(c, start, key)`.
@@ -389,7 +389,7 @@ roster and a record of typed fields. One field holds one value, its host value a
 "integer", value: 3 }`: the arm's handle under `tag`, then that arm's fields.
 
 ```ts
-import { closedId, generated, pg, sha256, variant } from "@bjornpagen/grizzle"
+import { closedId, generated, sha256, variant, bool, cidr, float4, float8, inet, int2, int4, int8, money, numeric, serial, tsvector, uuidv7, vector } from "@bjornpagen/grizzle"
 
 const baseTypes = ["boolean", "file", "float", "integer", "pair", "string"] as const
 const BaseType = closed.unordered("BaseType", baseTypes)
@@ -397,9 +397,9 @@ const QtiValue = variant(
 	"QtiValue",
 	BaseType,
 	{
-		boolean: { value: pg.boolean },
-		float: { value: pg["double precision"] },
-		integer: { value: pg.integer },
+		boolean: { value: bool },
+		float: { value: float8 },
+		integer: { value: int4 },
 		pair: { least: Identifier, greatest: Identifier },
 		string: { value: Prose }
 	},
@@ -489,7 +489,7 @@ set. A key field's roster may be `closed.ordered` or `closed.unordered`: its con
 history, and reads no roster's order. Its other fields are closed ids or open-typed values, never a span, set, vector, bytes or exact value. Its rows are a
 set: a row written twice is one row, and two rows of one key with different payloads are refused, naming the key and
 both payloads.
-`closed.relation("Allowed", { kind: closedId(Kind), flag: closedId(Flag), weight: pg.integer }, ["kind", "flag"], rows)`
+`closed.relation("Allowed", { kind: closedId(Kind), flag: closedId(Flag), weight: int4 }, ["kind", "flag"], rows)`
 says which flags each kind admits, and at what weight.
 
 A query reads a closed relation's rows as facts its declaration fixes. The engine keys the relation by every minimal
@@ -546,10 +546,10 @@ installs it in 35 ms.
 Rules are declared in a schema's list, beside its tables. A box office:
 
 ```ts
-import { check, contract, counted, drawn, fin, key, Logic, mutable, natural, span, unit } from "@bjornpagen/grizzle"
+import { check, contract, counted, drawn, fin, key, Logic, mutable, natural, range, unit } from "@bjornpagen/grizzle"
 
 const centsKey = Symbol("Cents")
-const Cents = contract<typeof centsKey>()("Cents", pg.bigint, (c) => Logic.ge(c, 0n))
+const Cents = contract<typeof centsKey>()("Cents", int8, (c) => Logic.ge(c, 0n))
 /** A show's production code, and a ticket's barcode, as the box office prints them. */
 const ShowCode = str.regex("^[A-Z0-9]{2,12}$")
 const Barcode = str.regex("^[0-9]{12}$")
@@ -562,7 +562,7 @@ export const Show = relation(
 export const Ticket = relation("Ticket", { id: Barcode, show: ShowCode, holder: ClerkUser }, ["id"])
 /** A stage is its name in the building. */
 export const Stage = relation("Stage", { name: Title }, ["name"])
-export const Run = relation("Run", { stage: Title, nights: span(pg.integer), show: ShowCode }, [
+export const Run = relation("Run", { stage: Title, nights: range(int4), show: ShowCode }, [
 	"stage",
 	"nights"
 ])
@@ -641,7 +641,7 @@ import { natural, pred, select } from "@bjornpagen/grizzle"
 /** A show's waitlist: its places in order from 0, and whether each place's holder has been called. */
 export const Place = relation(
 	"Place",
-	{ show: ShowCode, at: natural, holder: ClerkUser, called: pg.boolean },
+	{ show: ShowCode, at: natural, holder: ClerkUser, called: bool },
 	["show", "at"]
 )
 
@@ -703,7 +703,7 @@ const ResourceId = str.regex("^[A-Za-z_][0-9A-Za-z_.-]{0,63}$")
 export const Resource = relation("Resource", { id: ResourceId }, ["id"])
 export const ResourceHref = relation(
 	"ResourceHref",
-	{ resource: ResourceId, path: Title, internal: pg.boolean },
+	{ resource: ResourceId, path: Title, internal: bool },
 	["resource"]
 )
 export const ResourceTyped = relation("ResourceTyped", { resource: ResourceId, type: Title }, [
@@ -979,7 +979,7 @@ A family is a rule over rows the caller writes: each owner's members, counted by
 
 A family's count and an ordered family's index are of one type: `drawn(natural)`, or `drawn(c, key)` for c a contract
 over an integer under its key, `drawn(TestNumber, testNumberKey)` of
-`contract<typeof testNumberKey>()("TestNumber", pg.integer, (n) => Logic.and([Logic.ge(n, 0), Logic.le(n, 2147483647)]))`, which
+`contract<typeof testNumberKey>()("TestNumber", int4, (n) => Logic.and([Logic.ge(n, 0), Logic.le(n, 2147483647)]))`, which
 stores them in c's column, an int4 here, so a field of c elsewhere is contained in the indexes and they in it. An index
 and a count of two types are refused when the schema compiles (`an ordered family's index is of its count's type`), and
 `drawn` of any other type is a type error. A count past c's bound is `refused` on c's contract: past its CHECK by the
@@ -1188,7 +1188,7 @@ among a schema's statements declares one:
 ```ts
 /** An assignment's number, a sitting's key: a contract of its own, so no other number leads a key with it. */
 const assignmentNoKey = Symbol("AssignmentNo")
-const AssignmentNo = contract<typeof assignmentNoKey>()("AssignmentNo", pg.bigint, (n) =>
+const AssignmentNo = contract<typeof assignmentNoKey>()("AssignmentNo", int8, (n) =>
 	Logic.ge(n, 0n)
 )
 
@@ -1284,7 +1284,7 @@ export const Numbers = schema(
   wrap other work in.
 - **Its numbers' type.** `R`'s primary key is its one field, `natural` or a contract over an integer, exactly the types
   `drawn` takes ([Families](#families)): a test's number kept in an int4,
-  `contract<typeof testNumberKey>()("TestNumber", pg.integer, (n) => Logic.and([Logic.ge(n, 0), Logic.le(n, 2147483646)]))`, keys its series as
+  `contract<typeof testNumberKey>()("TestNumber", int4, (n) => Logic.and([Logic.ge(n, 0), Logic.le(n, 2147483646)]))`, keys its series as
   itself, and a number past its bound is refused by the contract's own CHECK. Any other key, a second field or a type
   of no integer carrier, is refused where `series(R)` is stated.
 - `R` is immutable: its numbers only grow by appends.
@@ -1306,7 +1306,7 @@ export const Flow = relation("Flow", { flow: RunKey, steps: natural }, ["flow"])
 /** The leases of a run's steps, each deleted once its step is done. */
 export const FlowLease = relation(
 	"FlowLease",
-	{ flow: RunKey, step: pg.integer, until: pg.bigint },
+	{ flow: RunKey, step: int4, until: int8 },
 	["flow", "step"]
 )
 export const Flows = schema(
@@ -1460,8 +1460,8 @@ query's to list: `${stem}Row`, the owner's fields, then each column of the query
 by `ownerKey`, a nonempty list of the owner's field names, as `relation`'s primary key takes it. A column is stored as
 the type it is declared of, its contract's host type and check, its closed id's roster, its text's patterns, so a closed id
 references the roster of the level below; a drawn, generated or accumulated field is stored as its declared type, never
-drawn again; a computed numeric is stored as numeric within its bound (`pg.numeric.within`), an instant as a stored one
-(`instant.stored`) and a search document as a stored one (`pg.tsvector`); a head literal is stored nowhere, its read writing it again, but a union's rules that write literals of
+drawn again; a computed numeric is stored as numeric within its bound (`numeric.within`), an instant as a stored one
+(`instant.stored`) and a search document as a stored one (`tsvector`); a head literal is stored nowhere, its read writing it again, but a union's rules that write literals of
 several values at one key (`kind: "draft"` in one, `kind: "final"` in the other) store that key as a column whose values
 are exactly them: a text of the pattern of just those texts, or a boolean. List `R.relations` in the level and
 `R.rules` among its rules.
@@ -1894,7 +1894,7 @@ of `Ledger` may change how a `Qti` write is compiled or drawn.
 - **The empty level is below every root.** `schema.empty` is the level of no relation and no rule, below every root: a
   query over it is a query over every schema and every role, which holds it whole whatever it holds: every level's
   reader of queries admits it beside its own, so no level's levels grow by it. A read of no relation, a row of its parameters and
-  constants alone, is written over it, `query(schema.empty).rule((r) => r.find({ at: r.param("at", pg.bigint) }))`, and
+  constants alone, is written over it, `query(schema.empty).rule((r) => r.find({ at: r.param("at", int8) }))`, and
   runs on every role, so the role serving it holds nothing for it: den's role serves a schedule's input derived from
   its key so while holding nothing of the app's. It installs nothing and names no migrations directory. A level that
   declares nothing over a base is no empty level: it holds the base's relations, and a role runs a program over it only
@@ -1936,8 +1936,8 @@ statements at that level, as if they were its own.
 /** A library's facts: each job, and its one result. */
 /** A job, by the key its enqueuer gave it. */
 const JobKey = str.regex("^[0-9A-Za-z:_-]{1,96}$")
-export const Job = relation("Job", { id: JobKey, attempts: pg.integer }, ["id"])
-export const JobDone = relation("JobDone", { job: JobKey, ok: pg.boolean }, ["job"])
+export const Job = relation("Job", { id: JobKey, attempts: int4 }, ["id"])
+export const JobDone = relation("JobDone", { job: JobKey, ok: bool }, ["job"])
 export const Jobs = fragment([Job, JobDone], [contained(on(JobDone, "job"), on(Job, "id"))])
 
 /** The library's programs, over the fragment: they name no application's schema. */
@@ -1951,7 +1951,7 @@ export const pendingJobs = query(Jobs).rule((r) => {
 })
 
 /** An application: a relation of its own beside the library's, and a law of its own into the library's key. */
-export const Fee = relation("Fee", { job: JobKey, cents: pg.bigint }, ["job"])
+export const Fee = relation("Fee", { job: JobKey, cents: int8 }, ["job"])
 export const Shop = schema("Shop", [Fee, Jobs], [contained(on(Fee, "job"), on(JobDone, "job"))])
 export const JobWorker = role(
 	Shop,

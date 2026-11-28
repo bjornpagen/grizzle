@@ -1,7 +1,7 @@
 /** What known-imports.test.ts reads: its box, its schema and the write of a case. */
 
 import { element, type Gen } from "@bjornpagen/testing/gen"
-import { pg } from "#compiler/public/fields.ts"
+import { int4, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
@@ -23,14 +23,14 @@ export const knownGen: Gen<Known> = (s) => ({
 })
 
 /** A session's items, its sittings, and the rows the members write. */
-const Item = relation("Item", { session: pg.integer, k: pg.bigint, v: pg.bigint }, ["session", "k"])
-const Sitting = relation("Sitting", { session: pg.integer, opened: pg.integer }, ["session"])
-const First = relation("First", { k: pg.bigint, v: pg.bigint }, ["k", "v"])
-const Second = relation("Second", { k: pg.bigint, v: pg.bigint }, ["k", "v"])
+const Item = relation("Item", { session: int4, k: int8, v: int8 }, ["session", "k"])
+const Sitting = relation("Sitting", { session: int4, opened: int4 }, ["session"])
+const First = relation("First", { k: int8, v: int8 }, ["k", "v"])
+const Second = relation("Second", { k: int8, v: int8 }, ["k", "v"])
 export const Known = schema("KnownImports", [Item, Sitting, First, Second], [])
 
 /** A set of sessions: the call's sittings, a relation parameter, and the sessions it takes, which the ChangeSet binds. */
-const sessions = { session: pg.integer } as const
+const sessions = { session: int4 } as const
 
 /**
  * The sessions the call takes: those of its sittings, a relation parameter, that a sitting holds, which the ChangeSet

@@ -20,7 +20,7 @@ import { Array as Arr, Order } from "effect"
 import { installOptions } from "#compiler/physical/install/compile.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
 import { Fn } from "#compiler/public/compute.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { v as typedVars } from "#compiler/public/query.ts"
 import { fn } from "#compiler/public/schema.ts"
 import { type QueryValue, queryOver as query, varsOver as v } from "#compiler/query/build/query.ts"
@@ -68,33 +68,28 @@ export const stackGen: Gen<Stack> = (s) => ({
 /** A value's program, immutable, which the top computes where the case says. */
 const compile = fn("compile", {
 	calls: [],
-	args: { x: pg.integer },
-	returns: pg.integer,
+	args: { x: int4 },
+	returns: int4,
 	volatility: "immutable",
 	nullInput: "called",
 	language: "sql",
 	body: fn.body`SELECT x * 7 + 1`
 })
 
-const N = relation("N", { doc: pg.integer, at: pg.integer, v: pg.integer }, ["doc", "at"], [])
+const N = relation("N", { doc: int4, at: int4, v: int4 }, ["doc", "at"], [])
 /** T, written, which D joins to the top, and Link, written, which Linked reads the top across documents at: what
  * stand-size.fixtures.ts reads beside the stack too. */
-export const T = relation(
-	"T",
-	{ doc: pg.integer, at: pg.integer, w: pg.integer },
-	["doc", "at"],
-	[]
-)
+export const T = relation("T", { doc: int4, at: int4, w: int4 }, ["doc", "at"], [])
 export const Link = relation(
 	"Link",
-	{ doc: pg.integer, at: pg.integer, toDoc: pg.integer, toAt: pg.integer },
+	{ doc: int4, at: int4, toDoc: int4, toAt: int4 },
 	["doc", "at"],
 	[]
 )
 const base = schema(
 	"upkeep_size",
 	[N, T, Link, compile],
-	[unitBuilder("Document", { doc: pg.integer }, [])],
+	[unitBuilder("Document", { doc: int4 }, [])],
 	[]
 )
 

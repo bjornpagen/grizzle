@@ -21,7 +21,7 @@ import {
 } from "#compiler/core/function.ts"
 import { conversionOf } from "#compiler/core/identity.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
-import { date, natural, pg, uuid } from "#compiler/public/fields.ts"
+import { date, natural, uuid, bool, float8, int4, int8, numeric } from "#compiler/public/fields.ts"
 import {
 	type AnyFunction,
 	type AnyRows,
@@ -54,11 +54,11 @@ export type ValueType = (typeof valueTypes)[number]
 
 /** Each value type's field: a base type, a refined text, or the natural contract. */
 const fieldOf: { readonly [T in ValueType]: FieldBase } = {
-	integer: pg.integer,
-	bigint: pg.bigint,
-	"double precision": pg["double precision"],
-	numeric: pg.numeric(12, 2),
-	boolean: pg.boolean,
+	integer: int4,
+	bigint: int8,
+	"double precision": float8,
+	numeric: numeric(12, 2),
+	boolean: bool,
 	date,
 	uuid,
 	text: str.regex("^.*$", "su"),
@@ -527,7 +527,7 @@ export const helperOf = (): AnyFunction =>
 	fn(helperName, {
 		calls: [],
 		args: {},
-		returns: pg.integer,
+		returns: int4,
 		volatility: "immutable",
 		nullInput: "called",
 		language: "plpgsql",

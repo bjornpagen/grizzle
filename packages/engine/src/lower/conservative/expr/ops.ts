@@ -360,9 +360,9 @@ const registryForm = (
 			return args.length === 1 && first !== undefined
 				? { kind: "lowerAscii", expr: first }
 				: undefined
-		case "parseDouble":
+		case "parseFloat8":
 			return args.length === 1 && first !== undefined ? parseDoubleForm(first) : undefined
-		case "parseDecimal":
+		case "parseNumeric":
 			return args.length === 1 && first !== undefined ? cast(first, types.numeric) : undefined
 		case "utf16Length":
 			return utf16Units(args)

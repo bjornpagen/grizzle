@@ -10,7 +10,7 @@ import { isRecord } from "#compiler/core/record.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import type { Declarations, Rename } from "#compiler/deploy/diff/plan.ts"
 import { codebookOf } from "#compiler/deploy/snapshot/build.ts"
-import { closedId, pg } from "#compiler/public/fields.ts"
+import { closedId, int4 } from "#compiler/public/fields.ts"
 import {
 	closed,
 	login,
@@ -150,12 +150,12 @@ const schemaAt = (name: string, p: Plan, after: boolean) => {
 	const Kind = rosterAt(p, after)
 	const relations: Record<string, ReturnType<typeof rosterAt> | VersionRelation> = { Kind }
 	for (const [i, r] of p.relations.entries()) {
-		const fields: Record<string, FieldBase> = { id: pg.integer }
+		const fields: Record<string, FieldBase> = { id: int4 }
 		for (const [j, f] of r.fields.entries()) {
 			if (after && f.fate === "dropped") {
 				continue
 			}
-			fields[fieldName(j, after, f)] = f.kind === "code" ? closedId(Kind) : pg.integer
+			fields[fieldName(j, after, f)] = f.kind === "code" ? closedId(Kind) : int4
 		}
 		relations[relationName(i, after, r)] = relationBuilder(
 			relationName(i, after, r),

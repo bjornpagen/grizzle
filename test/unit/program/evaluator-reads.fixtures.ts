@@ -1,12 +1,12 @@
 /** What the properties of evaluator-reads.test.ts read: its spaces, models and helpers. */
 
 import { boolean, element, type Gen } from "@bjornpagen/testing/gen"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, relation, schema } from "#compiler/public/schema.ts"
 
 /** The stored relation every case reads: a key k and a payload x. */
-export const R = relation("R", { k: pg.integer, x: pg.integer }, ["k"])
+export const R = relation("R", { k: int4, x: int4 }, ["k"])
 
 const Base = schema("Base", [R], [])
 

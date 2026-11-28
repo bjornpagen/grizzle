@@ -209,11 +209,11 @@ export interface TableRelation<
 export type SpanType = Extract<ScalarType, { readonly carrier: SpanCarrier }>
 
 /** A key's span field: its relation's own handle, of a range type. */
-export interface SpanField extends LawField {
+export interface RangeField extends LawField {
 	readonly type: SpanType
 }
 
-export const isSpanField = (f: LawField): f is SpanField => isSpanCarrier(f.type.carrier)
+export const isSpanField = (f: LawField): f is RangeField => isSpanCarrier(f.type.carrier)
 
 /** The names of fields, in their order. */
 export const fieldNames = (fields: ReadonlyArray<LawField>): ReadonlyArray<string> =>
@@ -225,7 +225,7 @@ export const fieldNames = (fields: ReadonlyArray<LawField>): ReadonlyArray<strin
  */
 export interface KeyName<Named extends "primaryKey" | "key" | "derivedKey" = "primaryKey" | "key"> {
 	readonly fields: NonEmptyReadonlyArray<LawField>
-	readonly span: SpanField | undefined
+	readonly span: RangeField | undefined
 	readonly primary: boolean
 	/** A declared key's constraint, or a stored derived relation's proven key's index (identity.derivedKey). */
 	readonly named: Identity<Named>
@@ -492,7 +492,7 @@ export interface RowGuard {
  */
 export type NativeColumn = FieldColumn | { readonly kind: "law"; readonly column: ColumnIdent }
 
-/** A native column that is a field of its relation, of a field of type `F` (a span key's span column its SpanField). */
+/** A native column that is a field of its relation, of a field of type `F` (a span key's span column its RangeField). */
 export interface FieldColumn<F extends LawField = LawField> {
 	readonly kind: "field"
 	readonly field: F

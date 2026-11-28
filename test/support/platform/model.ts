@@ -24,10 +24,10 @@
  */
 import type { Option } from "effect"
 import { Array as Arr, Order } from "effect"
-import type { Span } from "#compiler/public/fields.ts"
+import type { Range } from "#compiler/public/compute.ts"
 import { type IdValue } from "#test/support/ids.ts"
 
-export type SpanV = Span<bigint>
+export type SpanV = Range<bigint>
 
 export const platformSpan = (start: bigint, end: bigint): SpanV => ({ start, end })
 

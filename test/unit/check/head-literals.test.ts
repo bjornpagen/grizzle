@@ -26,7 +26,7 @@ export const headLiteralTypingTypesAHeadLiteralByTheFieldItWritesItsUnionsTermTy
 		situations: [
 			"a plain text its rule fixes Kind to",
 			"a plain text its rule fixes Kind to by a handle",
-			"a Decimal or a Money",
+			"a Numeric or a Money",
 			"a plain literal beside a term-typed arm",
 			"a plain literal the term-typed arms' type refuses",
 			"a handle",

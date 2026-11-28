@@ -8,7 +8,7 @@ import { firstCodebook } from "#compiler/ir/codes.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
 import { login } from "#compiler/program/workload/login.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4, int8 } from "#compiler/public/fields.ts"
 import { queryOver as query, type QueryValue, varsOver as v } from "#compiler/query/build/query.ts"
 import type { FinishedValue, RuleValue } from "#compiler/query/build/rule.ts"
 import { installationsOf } from "#compiler/schema/own.ts"
@@ -24,7 +24,7 @@ import { argumentsOf } from "#test/support/list.ts"
 import { owning } from "#test/support/policy.ts"
 
 /** The field types a base relation declares: each ordered, and a key alone. */
-const fieldTypes = { int: pg.integer, bigint: pg.bigint, uuid: Id } as const
+const fieldTypes = { int: int4, bigint: int8, uuid: Id } as const
 
 type FieldType = keyof typeof fieldTypes
 

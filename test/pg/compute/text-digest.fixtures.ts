@@ -7,7 +7,7 @@ import { Array as Arr, Data, Effect, Formatter, Option, Result, String as Str } 
 import { rowEvaluator } from "#adapter/public/host.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
 import { Crypto } from "#compiler/public/compute.ts"
-import { generated, pg, sha256 } from "#compiler/public/fields.ts"
+import { generated, sha256, int4 } from "#compiler/public/fields.ts"
 import { check, key, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { sameBytes } from "#compiler/scalar/values/bytes.ts"
@@ -29,7 +29,7 @@ import { refusalOf } from "#test/support/substrate.ts"
  */
 const Body = str.regex("^.*$", "su")
 
-const Note = relation.generated("Note", { id: pg.integer, body: Body }, ["id"], (n) => ({
+const Note = relation.generated("Note", { id: int4, body: Body }, ["id"], (n) => ({
 	digest: generated(sha256, Crypto.sha256(n.body))
 }))
 

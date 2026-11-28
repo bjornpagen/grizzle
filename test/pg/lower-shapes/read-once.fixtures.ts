@@ -5,7 +5,7 @@ import { boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Order, Struct } from "effect"
 import { type PlanNode, rowsRead } from "#bench/harness/explain.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { bool, int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, relation, schema } from "#compiler/public/schema.ts"
 import {
@@ -31,30 +31,24 @@ import type { PgConnection } from "#test/support/pg.ts"
 const Node = relation(
 	"Node",
 	{
-		pkg: pg.integer,
-		path: pg.integer,
-		at: pg.integer,
-		parent: pg.integer,
-		kind: pg.integer,
-		value: pg.integer
+		pkg: int4,
+		path: int4,
+		at: int4,
+		parent: int4,
+		kind: int4,
+		value: int4
 	},
 	["pkg", "path", "at"]
 )
 
 /** A stored package, by its name. */
-const Pkg = relation("Pkg", { pkg: pg.integer }, ["pkg"])
+const Pkg = relation("Pkg", { pkg: int4 }, ["pkg"])
 
 /** A document of a package, by its path, and whether it is an item. */
-const Doc = relation("Doc", { pkg: pg.integer, path: pg.integer, item: pg.boolean }, [
-	"pkg",
-	"path"
-])
+const Doc = relation("Doc", { pkg: int4, path: int4, item: bool }, ["pkg", "path"])
 
 /** An item document's identifier. */
-const Item = relation("Item", { pkg: pg.integer, path: pg.integer, name: pg.integer }, [
-	"pkg",
-	"path"
-])
+const Item = relation("Item", { pkg: int4, path: int4, name: int4 }, ["pkg", "path"])
 
 /** The kinds of the manifest's elements, and of a document body's. */
 const kind = {

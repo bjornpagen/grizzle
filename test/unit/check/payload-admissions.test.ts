@@ -23,7 +23,7 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { checkedSchema } from "#compiler/analysis/schema.ts"
 import { Text } from "#compiler/public/compute.ts"
-import { closedId, pg } from "#compiler/public/fields.ts"
+import { closedId, int4 } from "#compiler/public/fields.ts"
 import { check, closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -55,7 +55,7 @@ const schemaOf = (patterns: Arr.NonEmptyReadonlyArray<string>) => {
 	)
 	const Value = relation(
 		"Value",
-		{ id: pg.integer, domain: closedId(Domain), lexical: str.regex("^.*$", "su") },
+		{ id: int4, domain: closedId(Domain), lexical: str.regex("^.*$", "su") },
 		["id"]
 	)
 	const lexical = check("Lexical", Value, (v) =>

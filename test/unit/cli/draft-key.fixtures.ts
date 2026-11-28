@@ -61,7 +61,6 @@ const schemaText = (version: 1 | 2): string => `import {
 	contract,
 	login,
 	on,
-	pg,
 	query,
 	relation,
 	role,
@@ -71,17 +70,19 @@ const schemaText = (version: 1 | 2): string => `import {
 	v,
 	wholeEntriesOf,
 	wholeWritesOf,
-	workload
+	workload,
+	int4,
+	int8
 } from "@bjornpagen/grizzle"
 
 const idKey = Symbol("Id")
 const Id = contract<typeof idKey>()("Id", uuid)
 const Customer = relation(
 	"Customer",
-	{ id: Id, name: str.regex("^[a-z]{1,40}$")${version === 2 ? ", tier: pg.integer" : ""} },
+	{ id: Id, name: str.regex("^[a-z]{1,40}$")${version === 2 ? ", tier: int4" : ""} },
 	["id"]
 )
-const Order = relation("Order", { id: Id, customer: Id, cents: pg.bigint }, ["id"])
+const Order = relation("Order", { id: Id, customer: Id, cents: int8 }, ["id"])
 const shop = schema(${jsonText(schemaName)}, [Customer, Order], [contained(on(Order, "customer"), on(Customer, "id"))])
 const reader = role(shop, "reader", wholeEntriesOf(shop))
 const writer = role(shop, "writer", wholeEntriesOf(shop), wholeWritesOf(shop))

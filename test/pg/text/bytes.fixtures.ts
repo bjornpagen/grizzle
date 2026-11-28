@@ -7,7 +7,7 @@ import { Array as Arr, Effect, Formatter, Record as Rec, String as Str } from "e
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { textInfoBounds, textOf } from "#compiler/ir/scalar.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { ProgramPatterns } from "#compiler/scalar/regex/patterns.ts"
@@ -158,7 +158,7 @@ export const checkBatch = (
 	Effect.gen(function* () {
 		const fields = Arr.map(batch, fieldOf)
 		const relations = Arr.map(fields, (t, i) =>
-			relationBuilder(relationName(i), { id: pg.integer, t }, ["id"], [])
+			relationBuilder(relationName(i), { id: int4, t }, ["id"], [])
 		)
 		const installed = yield* install(
 			schema(

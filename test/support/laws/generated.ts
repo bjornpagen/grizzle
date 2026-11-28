@@ -4,7 +4,7 @@ import type { OpenError } from "#adapter/errors/execution.ts"
 import { identity } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
-import { closedId, Decimal, Money, pg, span } from "#compiler/public/fields.ts"
+import { closedId, Numeric, Money, range, bool, int2, int4, int8 } from "#compiler/public/fields.ts"
 import {
 	type AnyRelation,
 	type AnySchema,
@@ -52,7 +52,7 @@ import type { Openable } from "#test/support/open.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
- * How a field's host number is given to grizzle and read back: as itself, a bigint, a Decimal, or a Money of whole
+ * How a field's host number is given to grizzle and read back: as itself, a bigint, a Numeric, or a Money of whole
  * units; any other value as itself. An identity column is given as itself, and a direct writer's plain INSERT cannot
  * list it.
  */
@@ -91,7 +91,7 @@ const encode = (encoding: Encoding, x: HostValue): unknown => {
 		case "bigint":
 			return BigInt(x)
 		case "decimal":
-			return Decimal.of(BigInt(x))
+			return Numeric.of(BigInt(x))
 		case "money":
 			return Money.of(BigInt(x) * 100n)
 	}
@@ -118,61 +118,49 @@ const longSelector = "flaggedForReviewByTheAuditTeamDuringTheQuarterlyClose"
 const stages = ["draft", "paid", "void"] as const
 const Stage = closed.ordered("Stage", stages)
 
-const label = pg.integer
+const label = int4
 const lang = str.regex("^[a-z]{2}$")
 const parentFields = {
-	flag: pg.boolean,
-	level: pg.smallint,
+	flag: bool,
+	level: int2,
 	lang,
 	stage: closedId(Stage),
 	note: label
 } as const
 
 const childFields = {
-	id: pg.integer,
-	flag: pg.boolean,
-	level: pg.smallint,
+	id: int4,
+	flag: bool,
+	level: int2,
 	lang,
 	stage: closedId(Stage)
 } as const
 
-const ParentI2 = relation("Parent", { id: pg.smallint, ...parentFields }, ["id"])
-const ChildI2 = relation("Child", { ...childFields, parent: pg.smallint }, ["id"])
-const ParentI8 = relation("Parent", { id: pg.bigint, ...parentFields }, ["id"])
-const ChildI8 = relation("Child", { ...childFields, parent: pg.bigint }, ["id"])
-const ParentI4 = relation("Parent", { id: pg.integer, ...parentFields }, ["id"])
-const ChildI4 = relation("Child", { ...childFields, parent: pg.integer }, ["id"])
-const ParentLong = relation("Parent", { id: pg.integer, [longSelector]: pg.boolean, note: label }, [
+const ParentI2 = relation("Parent", { id: int2, ...parentFields }, ["id"])
+const ChildI2 = relation("Child", { ...childFields, parent: int2 }, ["id"])
+const ParentI8 = relation("Parent", { id: int8, ...parentFields }, ["id"])
+const ChildI8 = relation("Child", { ...childFields, parent: int8 }, ["id"])
+const ParentI4 = relation("Parent", { id: int4, ...parentFields }, ["id"])
+const ChildI4 = relation("Child", { ...childFields, parent: int4 }, ["id"])
+const ParentLong = relation("Parent", { id: int4, [longSelector]: bool, note: label }, ["id"])
+const ChildLong = relation("Child", { id: int4, parent: int4, note: label }, ["id"])
+const Run = relation("Parent", { id: int8, stage: closedId(Stage), note: label }, ["id"])
+const Paid = relation("Child", { parent: int8, note: label }, ["parent"])
+
+const RotaI2 = relation("Rota", { site: int2, during: range(int4), open: bool }, ["site", "during"])
+
+const VisitI2 = relation("Visit", { id: int4, site: int2, during: range(int4), billable: bool }, [
 	"id"
 ])
-const ChildLong = relation("Child", { id: pg.integer, parent: pg.integer, note: label }, ["id"])
-const Run = relation("Parent", { id: pg.bigint, stage: closedId(Stage), note: label }, ["id"])
-const Paid = relation("Child", { parent: pg.bigint, note: label }, ["parent"])
 
-const RotaI2 = relation("Rota", { site: pg.smallint, during: span(pg.integer), open: pg.boolean }, [
-	"site",
-	"during"
+const RotaI8 = relation("Rota", { site: int8, during: range(int4), open: bool }, ["site", "during"])
+
+const VisitI8 = relation("Visit", { id: int4, site: int8, during: range(int4), billable: bool }, [
+	"id"
 ])
 
-const VisitI2 = relation(
-	"Visit",
-	{ id: pg.integer, site: pg.smallint, during: span(pg.integer), billable: pg.boolean },
-	["id"]
-)
-
-const RotaI8 = relation("Rota", { site: pg.bigint, during: span(pg.integer), open: pg.boolean }, [
-	"site",
-	"during"
-])
-
-const VisitI8 = relation(
-	"Visit",
-	{ id: pg.integer, site: pg.bigint, during: span(pg.integer), billable: pg.boolean },
-	["id"]
-)
-
-const Left = relation("Left", { id: pg.integer, a: pg.integer, b: pg.integer }, ["id"])
-const Right = relation("Right", { id: pg.integer, a: pg.integer, b: pg.integer }, ["id"])
+const Left = relation("Left", { id: int4, a: int4, b: int4 }, ["id"])
+const Right = relation("Right", { id: int4, a: int4, b: int4 }, ["id"])
 
 /** The host's view of each relation, its fields in heading order with their encodings. */
 const enc = (
@@ -740,6 +728,6 @@ const boxOf = (
  * (test/pg/fin), and a float sum is refused by `Monoid.sum`'s carriers (fin.md §4.3).
  *
  * A value is drawn on the host as a number and given to grizzle and read back at its field's carrier: a bigint for
- * int8, a Decimal for numeric, a Money of whole units for money.
+ * int8, a Numeric for numeric, a Money of whole units for money.
  */
 export const lawBox: Family<BoxParams> = boxOf("the law-family box", points)

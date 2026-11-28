@@ -104,7 +104,7 @@ const positionsAt = (
 
 /**
  * A search document's host value, admitted exactly: the text PostgreSQL prints for a tsvector (tsvectorout), which a
- * read of one delivers and a write of a stored one (pg.tsvector) sends back as it is. tsvectorin reads more texts than
+ * read of one delivers and a write of a stored one (tsvector) sends back as it is. tsvectorin reads more texts than
  * tsvectorout prints, and stores each as the one document it prints: it sorts and merges the lexemes, sorts the
  * positions, keeps a repeated one's greatest weight, cuts a position past searchPositionMax and a lexeme's positions
  * past searchPositionsMax. So the one text admitted for a document is the one it prints, and every other is refused

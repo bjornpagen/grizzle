@@ -12,7 +12,7 @@ import { isIntegerTypmod } from "#compiler/ir/carriers.ts"
 import { handleAt, type RosterCodec } from "#compiler/ir/codes.ts"
 import { convertDate } from "#compiler/ir/date.ts"
 import type { Carrier } from "#compiler/ir/scalar.ts"
-import { Decimal, type NumericTypmod } from "#compiler/scalar/values/decimal.ts"
+import { Numeric, type NumericTypmod } from "#compiler/scalar/values/decimal.ts"
 import { numericOwnBound } from "#compiler/scalar/values/fault.ts"
 import { convertComponent, convertDouble, convertReal } from "#compiler/scalar/values/float.ts"
 import type {
@@ -57,7 +57,7 @@ const convertSpan =
 /**
  * vector_out text, "[c1,...,cn]": the components converted straight into a Float32Array of the column's dimensions, one
  * comma at a time, with no intermediate array or substring. The vector is of the column's N dimensions, the tag a
- * pg.vector(N) descriptor's column carries (scalar/vector.ts).
+ * vector(N) descriptor's column carries (scalar/vector.ts).
  */
 const convertVector =
 	<N extends number>(dimensions: N) =>
@@ -118,7 +118,7 @@ const attributeConversion = (spec: CarrierSpec): ((text: OutputText) => unknown)
 		case "sha256":
 			return (text) => sha256FromText(text)
 		case "bytes":
-			defect("no variant arm holds bytes")
+			defect("no variant arm holds bytea")
 		case "bits":
 		case "bool":
 		case "cidr":
@@ -204,7 +204,7 @@ const convertVariant = (spec: SpecOf<"variant">): Converter<"variant"> => {
  * | --- | --- | --- |
  * | int2, int4 | int2out, int4out | Number |
  * | int8 | int8out | BigInt |
- * | numeric | numeric_out, at any display scale | Decimal.fromOutput, the one form: trailing fractional zeros dropped |
+ * | numeric | numeric_out, at any display scale | Numeric.fromOutput, the one form: trailing fractional zeros dropped |
  * | float8 | float8out | Number, -0 its own |
  * | float4 | float4out, shortest binary32 text | the binary32 value exactly (float.ts convertReal), -0 its own |
  * | money | money::numeric | Money.fromOutput, the minor-unit count |
@@ -232,7 +232,7 @@ export const convertByCarrier: {
 	int2: () => Number,
 	int4: () => Number,
 	int8: () => BigInt,
-	numeric: () => (text) => Decimal.fromOutput(text),
+	numeric: () => (text) => Numeric.fromOutput(text),
 	float4: () => convertReal,
 	float8: () => convertDouble,
 	money: () => (text) => Money.fromOutput(text),
@@ -325,18 +325,18 @@ export const carrierColumn = <C extends ConvertedCarrier>(carrier: C): Column<Ca
 
 /**
  * The host type of numeric(p, s) at a scale S, which follows its values: a bigint at a literal scale 0, whose values
- * are integers and never NaN, a Decimal at any other literal scale, and either at a scale only a number states, which
+ * are integers and never NaN, a Numeric at any other literal scale, and either at a scale only a number states, which
  * no type tells apart. types/fields (NumericTypmodField) states it to a caller.
  */
 export type NumericHostOf<S extends number> = number extends S
-	? Decimal | bigint
+	? Numeric | bigint
 	: `${S}` extends "0"
 		? bigint
-		: Decimal
+		: Numeric
 
 /**
  * numeric(p, s)'s column at its scale S: at scale 0 (ir/carriers.ts isIntegerTypmod) the exact integer's conversion, BigInt
- * reading numeric_out's digits, since its values are integers and never NaN; at any other numeric's, a Decimal. Its host type is the scale's (types/fields NumericHostOf), which a literal scale states.
+ * reading numeric_out's digits, since its values are integers and never NaN; at any other numeric's, a Numeric. Its host type is the scale's (types/fields NumericHostOf), which a literal scale states.
  */
 export const numericColumn = <S extends number>(
 	typmod: NumericTypmod & { readonly scale: S }

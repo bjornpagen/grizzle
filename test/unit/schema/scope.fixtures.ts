@@ -1,7 +1,7 @@
 /** What scope.test.ts reads: a base with a Learner unit, its owners by every rule they keep or break, and the roles. */
 
 import { element, type Gen } from "@bjornpagen/testing/gen"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { context, relation, role, schema, unit, wholeEntriesOf } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -18,7 +18,7 @@ const Child = str.regex("^c[a-z]{0,7}$")
 
 const ClerkAccount = relation("ClerkAccount", { clerk: Name, child: Child }, ["clerk"])
 const CoachOf = relation("CoachOf", { coach: Name, child: Child }, ["coach", "child"])
-const Alias = relation("Alias", { clerk: Name, child: pg.integer }, ["clerk"])
+const Alias = relation("Alias", { clerk: Name, child: int4 }, ["clerk"])
 const Assignment = relation("Assignment", { child: Child, number: Name }, ["child", "number"])
 const Session = context("Session", { sub: Name })
 const LearnerClaim = context("LearnerClaim", { child: Child })

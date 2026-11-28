@@ -1,13 +1,21 @@
 import { Logic, Type } from "#compiler/public/compute.ts"
 import {
-	bits,
+	bit,
 	closedId,
 	contract,
 	date,
-	Decimal,
+	Numeric,
 	mintOf,
-	pg,
-	span
+	range,
+	bool,
+	float4,
+	float8,
+	int2,
+	int4,
+	int8,
+	money,
+	numeric,
+	vector
 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
@@ -19,15 +27,15 @@ const Shade = closed.ordered("Shade", ["low", "dark"])
 /** Tone's handles in a roster whose order means nothing: a closed id of it has no order, which no ordered operation reads. */
 export const Hue = closed.unordered("Hue", ["low", "high"])
 export const centsKey = Symbol("Cents")
-const Cents = contract<typeof centsKey>()("Cents", pg.bigint, (x) => Logic.ge(x, 0n), {
+const Cents = contract<typeof centsKey>()("Cents", int8, (x) => Logic.ge(x, 0n), {
 	proves: ["nonnegative"]
 })
 export const epochDayKey = Symbol("EpochDay")
-const EpochDay = contract<typeof epochDayKey>()("EpochDay", pg.bigint)
+const EpochDay = contract<typeof epochDayKey>()("EpochDay", int8)
 export const rateKey = Symbol("Rate")
-const Rate = contract<typeof rateKey>()("Rate", pg.numeric(7, 6), (x) => Logic.between(x, 0n, 1n))
+const Rate = contract<typeof rateKey>()("Rate", numeric(7, 6), (x) => Logic.between(x, 0n, 1n))
 export const divisorKey = Symbol("Divisor")
-const Divisor = contract<typeof divisorKey>()("Divisor", pg.integer, (x) => Logic.ne(x, 0), {
+const Divisor = contract<typeof divisorKey>()("Divisor", int4, (x) => Logic.ne(x, 0), {
 	proves: ["nonzero"]
 })
 export const bodyKey = Symbol("Body")
@@ -56,14 +64,14 @@ const cellOver = (rate: typeof Rate) =>
 		"Cell",
 		{
 			id: Id,
-			small: pg.smallint,
-			int: pg.integer,
-			big: pg.bigint,
-			real: pg.real,
-			dbl: pg["double precision"],
-			dec: pg.numeric(10, 2),
-			money: pg.money,
-			flag: pg.boolean,
+			small: int2,
+			int: int4,
+			big: int8,
+			real: float4,
+			dbl: float8,
+			dec: numeric(10, 2),
+			money: money,
+			flag: bool,
 			text: str.regex("^.*$", "su"),
 			word: str.regex("^[a-z]{1,8}$"),
 			day: date,
@@ -72,16 +80,16 @@ const cellOver = (rate: typeof Rate) =>
 			rate,
 			divisor: Divisor,
 			body: Body,
-			centsSpan: span(Cents),
-			intSpan: span(pg.integer),
-			daySpan: span(date),
-			divisorSpan: span(Divisor),
-			vec: pg.vector(3),
-			wide: pg.vector(4),
+			centsSpan: range(Cents),
+			intSpan: range(int4),
+			daySpan: range(date),
+			divisorSpan: range(Divisor),
+			vec: vector(3),
+			wide: vector(4),
 			tone: closedId(Tone),
 			hue: closedId(Hue),
-			tones: bits(Tone),
-			shades: bits(Shade)
+			tones: bit(Tone),
+			shades: bit(Shade)
 		},
 		["id"]
 	)
@@ -125,7 +133,7 @@ export const Tuning = closed.relation(
 			small: 3,
 			int: 2,
 			big: 1_000_000_000_000n,
-			dec: Decimal.of("12.50"),
+			dec: Numeric.of("12.50"),
 			cents: toCents(0n),
 			divisor: toDivisor(3)
 		},
@@ -134,7 +142,7 @@ export const Tuning = closed.relation(
 			small: -7,
 			int: -3,
 			big: -5n,
-			dec: Decimal.of("-99999999.99"),
+			dec: Numeric.of("-99999999.99"),
 			cents: toCents(42n),
 			divisor: toDivisor(-2)
 		}
@@ -176,7 +184,7 @@ export const Heads = headsOver(Cells, Cell)
  * declared facts already. Where the engine refuses a case for a contract's predicate (ContractLiteral), the population
  * judges it over this schema too: a refusal here is one the types decide, and any other is theirs to state.
  */
-const RateAsTyped = contract<typeof rateKey>()("Rate", pg.numeric(7, 6))
+const RateAsTyped = contract<typeof rateKey>()("Rate", numeric(7, 6))
 const CellAsTyped = cellOver(RateAsTyped)
 const CellsAsTyped = schema("Cells", [Tone, Shade, Hue, CellAsTyped], [])
 

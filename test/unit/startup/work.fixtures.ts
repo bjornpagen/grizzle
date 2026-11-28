@@ -11,7 +11,7 @@ import { resolveConfig } from "#cli/config.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import { login } from "#compiler/program/workload/login.ts"
 import { workload } from "#compiler/program/workload/value.ts"
-import { closedId, pg } from "#compiler/public/fields.ts"
+import { closedId, int4 } from "#compiler/public/fields.ts"
 import {
 	type AnySchema,
 	closed,
@@ -129,7 +129,7 @@ const schemaOf = (size: Size) => {
 	const B = closed.ordered("GuardB", ["b0"])
 	const Weight = closed.relation(
 		"Weight",
-		{ a: closedId(A), b: closedId(B), w: pg.integer },
+		{ a: closedId(A), b: closedId(B), w: int4 },
 		["a", "b"],
 		upTo(size.rows, (i) => ({ a: `a${i}`, b: "b0" as const, w: i }))
 	)

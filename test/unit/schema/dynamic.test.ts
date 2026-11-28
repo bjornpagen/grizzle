@@ -19,7 +19,7 @@ import {
 	derivedName as dynamicDerivedName,
 	relation as dynamicRelation
 } from "#compiler/public/dynamic.ts"
-import { closedId, generated, pg } from "#compiler/public/fields.ts"
+import { closedId, generated, int4 } from "#compiler/public/fields.ts"
 import { closed, derivedName, relation } from "#compiler/public/schema.ts"
 import { relationDescOf } from "#compiler/schema/relation.ts"
 import { Id } from "#test/support/ids.ts"
@@ -41,16 +41,16 @@ const valuesOf = (callee: DoorConstructor, runtimeName: string): readonly [unkno
 	switch (callee) {
 		case "relation":
 			return [
-				dynamicRelation(runtimeName, { id: Id, n: pg.integer }, ["id"]),
-				relation("Drawn", { id: Id, n: pg.integer }, ["id"])
+				dynamicRelation(runtimeName, { id: Id, n: int4 }, ["id"]),
+				relation("Drawn", { id: Id, n: int4 }, ["id"])
 			]
 		case "relation.generated":
 			return [
-				dynamicRelation.generated(runtimeName, { id: Id, n: pg.integer }, ["id"], (r) => ({
-					m: generated(pg.integer, r.n)
+				dynamicRelation.generated(runtimeName, { id: Id, n: int4 }, ["id"], (r) => ({
+					m: generated(int4, r.n)
 				})),
-				relation.generated("Drawn", { id: Id, n: pg.integer }, ["id"], (r) => ({
-					m: generated(pg.integer, r.n)
+				relation.generated("Drawn", { id: Id, n: int4 }, ["id"], (r) => ({
+					m: generated(int4, r.n)
 				}))
 			]
 		case "closed.ordered":
@@ -64,34 +64,24 @@ const valuesOf = (callee: DoorConstructor, runtimeName: string): readonly [unkno
 			return [
 				dynamicClosed.relation(
 					runtimeName,
-					{ kind: closedId(Kind), w: pg.integer },
+					{ kind: closedId(Kind), w: int4 },
 					["kind"],
 					[{ kind: "a", w: 1 }]
 				),
-				closed.relation(
-					"Drawn",
-					{ kind: closedId(Kind), w: pg.integer },
-					["kind"],
-					[{ kind: "a", w: 1 }]
-				)
+				closed.relation("Drawn", { kind: closedId(Kind), w: int4 }, ["kind"], [{ kind: "a", w: 1 }])
 			]
 		case "derivedName.relation":
 			return [
-				dynamicDerivedName(naming).relation(runtimeName, { id: Id, n: pg.integer }, ["id"]),
-				derivedName(naming).relation("Drawn", { id: Id, n: pg.integer }, ["id"])
+				dynamicDerivedName(naming).relation(runtimeName, { id: Id, n: int4 }, ["id"]),
+				derivedName(naming).relation("Drawn", { id: Id, n: int4 }, ["id"])
 			]
 		case "derivedName.generated":
 			return [
-				dynamicDerivedName(naming).generated(
-					runtimeName,
-					{ id: Id, n: pg.integer },
-					["id"],
-					(r) => ({
-						m: generated(pg.integer, r.n)
-					})
-				),
-				derivedName(naming).generated("Drawn", { id: Id, n: pg.integer }, ["id"], (r) => ({
-					m: generated(pg.integer, r.n)
+				dynamicDerivedName(naming).generated(runtimeName, { id: Id, n: int4 }, ["id"], (r) => ({
+					m: generated(int4, r.n)
+				})),
+				derivedName(naming).generated("Drawn", { id: Id, n: int4 }, ["id"], (r) => ({
+					m: generated(int4, r.n)
 				}))
 			]
 		case "derivedName.unordered":

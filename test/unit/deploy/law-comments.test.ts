@@ -22,7 +22,7 @@ import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import { type CompareOp, compareOps } from "#compiler/ir/desc.ts"
 import { Logic } from "#compiler/public/compute.ts"
-import { closedId, pg } from "#compiler/public/fields.ts"
+import { closedId, bool, int4 } from "#compiler/public/fields.ts"
 import { closed, contained, key, on, relation, schema, select } from "#compiler/public/schema.ts"
 import type { Comment, SqlStatement } from "#compiler/sql/ast.ts"
 import type { PredicateBase } from "#compiler/types/core/phantom.ts"
@@ -131,7 +131,7 @@ const P = closed.relation("P", { h: closedId(H) }, ["h"], [{ h: "a" }])
  * integer field named u.
  */
 const overU = (shape: Shape) => {
-	const T = relation("T", { id: Id, u: pg.integer, flag: pg.boolean, h: closedId(H) }, ["id"])
+	const T = relation("T", { id: Id, u: int4, flag: bool, h: closedId(H) }, ["id"])
 	const side = () =>
 		select(T, (t) =>
 			built(shape, t.u, t.flag, {
@@ -149,7 +149,7 @@ const overU = (shape: Shape) => {
 
 /** The same schema with u renamed v. */
 const overV = (shape: Shape) => {
-	const T = relation("T", { id: Id, v: pg.integer, flag: pg.boolean, h: closedId(H) }, ["id"])
+	const T = relation("T", { id: Id, v: int4, flag: bool, h: closedId(H) }, ["id"])
 	const side = () =>
 		select(T, (t) =>
 			built(shape, t.v, t.flag, {

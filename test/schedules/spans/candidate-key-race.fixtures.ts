@@ -10,7 +10,7 @@ import type { CompileError, TransientTag } from "#compiler/core/errors.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import type { WriteOutcome } from "#compiler/live/index.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { pg, span } from "#compiler/public/fields.ts"
+import { range, int4 } from "#compiler/public/fields.ts"
 import { key, login, mutable, on, relation, role, schema, unit } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
 import { writeAnswerOf, type WriteAnswer } from "#test/support/calls.ts"
@@ -30,11 +30,9 @@ import { threeKeys, twoKeys } from "#test/support/schedules/write/support.ts"
 import type { PsqlProcessError, TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
-const Booking = relation(
-	"Booking",
-	{ id: pg.integer, room: pg.integer, during: span(pg.integer), ref: pg.integer },
-	["id"]
-)
+const Booking = relation("Booking", { id: int4, room: int4, during: range(int4), ref: int4 }, [
+	"id"
+])
 
 const bookingSpan = key(on(Booking, "room", "during"))
 
@@ -44,7 +42,7 @@ const relations = Object.freeze({ Booking })
 const statements = Object.freeze([
 	bookingSpan,
 	bookingRef,
-	unit("Booking", { id: pg.integer }),
+	unit("Booking", { id: int4 }),
 	mutable(Booking)
 ])
 

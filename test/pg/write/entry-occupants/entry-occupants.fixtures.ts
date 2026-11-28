@@ -12,7 +12,7 @@ import {
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option } from "effect"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { bool, int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { context, key, login, on, relation, role, schema, select } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -51,11 +51,11 @@ const Subject = str.regex("^u_[a-z]{1,8}$")
 export const Seat = relation(
 	"Seat",
 	{
-		id: pg.integer,
-		code: pg.integer,
-		grp: pg.integer,
-		lead: pg.boolean,
-		team: pg.integer,
+		id: int4,
+		code: int4,
+		grp: int4,
+		lead: bool,
+		team: int4,
 		holder: Subject
 	},
 	["id"]

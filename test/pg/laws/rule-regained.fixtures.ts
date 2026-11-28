@@ -10,7 +10,7 @@ import { baselineRuleChecks } from "#compiler/deploy/snapshot/violation.ts"
 import { lawsOfConstraint } from "#compiler/ir/products.ts"
 import { countColumn } from "#compiler/physical/ddl/deltas.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
-import { instant, pg } from "#compiler/public/fields.ts"
+import { instant, int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, derived, on, relation, schema, unit } from "#compiler/public/schema.ts"
 import { printStatement } from "#compiler/sql/print.ts"
@@ -43,20 +43,11 @@ import type { RawSession } from "#test/support/substrate/session.ts"
  *   fields, as qti-pie's reads the end's own kind: an end of kind 0 under a response withdraws it, and Snap ⊆ Within reads
  *   the rows End gains.
  */
-const Test = relation("Test", { test: pg.integer, cap: pg.integer }, ["test"])
-const Session = relation("Session", { s: pg.integer, test: pg.integer }, ["s"])
-const Visit = relation("Visit", { s: pg.integer, k: pg.integer }, ["s", "k"])
-const End = relation("End", { s: pg.integer, k: pg.integer, why: pg.integer, at: instant }, [
-	"s",
-	"k",
-	"at"
-])
-const Snap = relation("Snap", { s: pg.integer, k: pg.integer, n: pg.integer, at: instant }, [
-	"s",
-	"k",
-	"n",
-	"at"
-])
+const Test = relation("Test", { test: int4, cap: int4 }, ["test"])
+const Session = relation("Session", { s: int4, test: int4 }, ["s"])
+const Visit = relation("Visit", { s: int4, k: int4 }, ["s", "k"])
+const End = relation("End", { s: int4, k: int4, why: int4, at: instant }, ["s", "k", "at"])
+const Snap = relation("Snap", { s: int4, k: int4, n: int4, at: instant }, ["s", "k", "n", "at"])
 
 const Base = schema(
 	"Regained",
@@ -66,7 +57,7 @@ const Base = schema(
 		contained(on(Visit, "s"), on(Session, "s")),
 		contained(on(End, "s", "k"), on(Visit, "s", "k")),
 		contained(on(Snap, "s", "k"), on(Visit, "s", "k")),
-		unit("Sitting", { s: pg.integer })
+		unit("Sitting", { s: int4 })
 	]
 )
 

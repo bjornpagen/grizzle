@@ -28,7 +28,7 @@ import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { noSpellings } from "#compiler/ir/pattern.ts"
-import { closedId, drawn, natural, pg } from "#compiler/public/fields.ts"
+import { closedId, drawn, natural, int8 } from "#compiler/public/fields.ts"
 import {
 	closed,
 	counted,
@@ -62,7 +62,7 @@ const Node = relation(
 	{ doc: Id, at: drawn(natural), attrs: drawn(natural), kind: closedId(Kind) },
 	["doc", "at"]
 )
-const Attr = relation("Attr", { doc: Id, at: natural, name: pg.bigint, kind: closedId(Kind) }, [
+const Attr = relation("Attr", { doc: Id, at: natural, name: int8, kind: closedId(Kind) }, [
 	"doc",
 	"at",
 	"name"

@@ -108,7 +108,7 @@ const accessShape: Readonly<Record<AccessUse, Shape>> = {
 	"prefix search": "range",
 	"take seek": "ordered",
 	"page seek": "ordered",
-	"span predicate": "overlap",
+	"range predicate": "overlap",
 	"approximate vector retrieval": "nearest",
 	"text search": "match",
 	"network containment": "contain",
@@ -139,7 +139,7 @@ export interface Judged {
 
 /**
  * A request a suite hands the engine itself, as it states it: a workload access by its use, whose access method the use
- * fixes (a span predicate is GiST's, an approximate retrieval HNSW's, every other use a B-tree's), or a law's B-tree
+ * fixes (a range predicate is GiST's, an approximate retrieval HNSW's, every other use a B-tree's), or a law's B-tree
  * probe. Each key names a field of the relation once.
  */
 export type RequestSpec =
@@ -167,7 +167,7 @@ const methodOfUse: Readonly<Record<AccessUse, AccessIndexRequest["method"]>> = {
 	"prefix search": "btree",
 	"take seek": "btree",
 	"page seek": "btree",
-	"span predicate": "gist",
+	"range predicate": "gist",
 	"approximate vector retrieval": "hnsw",
 	"text search": "gin",
 	"network containment": "gist",
@@ -176,7 +176,7 @@ const methodOfUse: Readonly<Record<AccessUse, AccessIndexRequest["method"]>> = {
 
 /**
  * How many of a spec's keys, from the first, a path of its use binds by equality (AccessPath `fixed`): every key but
- * the last of a range, a prefix search's and a span predicate's, every key of a lookup, none of a seek, which names no
+ * the last of a range, a prefix search's and a range predicate's, every key of a lookup, none of a seek, which names no
  * fixed prefix here, nor of an approximate retrieval.
  */
 const fixedOfUse = (use: AccessUse, keys: number): number => {
@@ -189,7 +189,7 @@ const fixedOfUse = (use: AccessUse, keys: number): number => {
 			return keys
 		case "range":
 		case "prefix search":
-		case "span predicate":
+		case "range predicate":
 			return keys - 1
 		case "take seek":
 		case "page seek":

@@ -1,11 +1,11 @@
 /**
- * The bounds Text.parseDecimal's value is typed with (scalar/compute/typing.ts parseDecimal, decimalBounds), over a
- * column of any text bounded by a few bytes, by about decimalTextMaxBytes, or by up to two hundred thousand.
+ * The bounds Text.parseNumeric's value is typed with (scalar/compute/typing.ts parseNumeric, decimalBounds), over a
+ * column of any text bounded by a few bytes, by about numericTextMaxBytes, or by up to two hundred thousand.
  *
- * - The parse is defined only within decimalTextMaxBytes (its lexical precondition), so its value has as many integer
- *   digits as the lesser of the operand's bound and decimalTextMaxBytes, and one fewer fraction digits: a bound within
- *   decimalTextMaxBytes types it as it did, and one past it as decimalTextMaxBytes does.
- * - The work: the exact edges a typing materializes, ±10 to its integer digits, have at most decimalTextMaxBytes + 1
+ * - The parse is defined only within numericTextMaxBytes (its lexical precondition), so its value has as many integer
+ *   digits as the lesser of the operand's bound and numericTextMaxBytes, and one fewer fraction digits: a bound within
+ *   numericTextMaxBytes types it as it did, and one past it as numericTextMaxBytes does.
+ * - The work: the exact edges a typing materializes, ±10 to its integer digits, have at most numericTextMaxBytes + 1
  *   digits whatever the operand's bound, where the operand's own bound made edges of as many digits as it has bytes
  *   (two of 268,435,455 digits for a regex-matched text, about 40 s each).
  *
@@ -17,7 +17,7 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import { type Bounds, digitsOfExact } from "#compiler/scalar/compute/bounds.ts"
-import { decimalTextMaxBytes } from "#compiler/scalar/lexical.ts"
+import { numericTextMaxBytes } from "#compiler/scalar/lexical.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { bytesGen, parsedOver } from "#test/unit/compute/parse-decimal-bounds.fixtures.ts"
 
@@ -27,7 +27,7 @@ type Situation = "within the parse's bytes" | "past them"
 const edgeDigits = (edge: Bounds["low"]): number =>
 	edge.kind === "at" ? digitsOfExact(edge.value) : 0
 
-/** Text.parseDecimal's bounds read the parse's bytes, never more than decimalTextMaxBytes, and materialize no more. */
+/** Text.parseNumeric's bounds read the parse's bytes, never more than numericTextMaxBytes, and materialize no more. */
 export const aParsedDecimalsBoundsReadTheParsesBytesNeverMoreThanDecimalTextMaxBytesAndMaterializeNoMore =
 	property.explore(bytesGen, {
 		needs: {},
@@ -40,7 +40,7 @@ export const aParsedDecimalsBoundsReadTheParsesBytesNeverMoreThanDecimalTextMaxB
 					succeeded(parsedOver(bytes)).root.bounds,
 					"a parse over a bounded text is bounded"
 				)
-				const parsed = Math.min(bytes, decimalTextMaxBytes)
+				const parsed = Math.min(bytes, numericTextMaxBytes)
 				assert.equal(bounds.digits, parsed, `the integer digits over ${bytes} bytes`)
 				assert.equal(
 					bounds.scale,
@@ -48,23 +48,23 @@ export const aParsedDecimalsBoundsReadTheParsesBytesNeverMoreThanDecimalTextMaxB
 					`the fraction digits over ${bytes} bytes`
 				)
 				assert.ok(
-					edgeDigits(bounds.low) <= decimalTextMaxBytes + 1 &&
-						edgeDigits(bounds.high) <= decimalTextMaxBytes + 1,
-					`the edges over ${bytes} bytes have ${edgeDigits(bounds.high)} digits, at most ${decimalTextMaxBytes + 1}`
+					edgeDigits(bounds.low) <= numericTextMaxBytes + 1 &&
+						edgeDigits(bounds.high) <= numericTextMaxBytes + 1,
+					`the edges over ${bytes} bytes have ${edgeDigits(bounds.high)} digits, at most ${numericTextMaxBytes + 1}`
 				)
-				c.note(bytes <= decimalTextMaxBytes ? "within the parse's bytes" : "past them")
+				c.note(bytes <= numericTextMaxBytes ? "within the parse's bytes" : "past them")
 			}),
 		oracle: {
 			kind: "specification",
-			name: "the parse's lexical precondition: a decimal text within decimalTextMaxBytes, no more than the operand's bytes"
+			name: "the parse's lexical precondition: a decimal text within numericTextMaxBytes, no more than the operand's bytes"
 		},
 		kept: [],
 		kills: [
 			{
 				file: "packages/engine/src/scalar/compute/typing.ts",
-				original: "\tconst parsed = Math.min(bytes, decimalTextMaxBytes)\n",
+				original: "\tconst parsed = Math.min(bytes, numericTextMaxBytes)\n",
 				replacement: "\tconst parsed = bytes\n",
-				why: "The parse's bounds read the operand's nominal bound, as at 28ffbfcdc: an operand past decimalTextMaxBytes makes edges of as many digits as it has bytes, past the bound, and the search fails."
+				why: "The parse's bounds read the operand's nominal bound, as at 28ffbfcdc: an operand past numericTextMaxBytes makes edges of as many digits as it has bytes, past the bound, and the search fails."
 			}
 		]
 	})

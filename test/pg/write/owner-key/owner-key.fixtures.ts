@@ -3,7 +3,7 @@
 import { array, element, type Gen, int, subset } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option } from "effect"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { accumulated, drawn as drawnField, natural, pg } from "#compiler/public/fields.ts"
+import { accumulated, drawn as drawnField, natural, int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { check, counted, fin, fold, Monoid, on, relation, schema } from "#compiler/public/schema.ts"
 import { fixtureTemplate } from "#test/support/pg/reads/support.ts"
@@ -33,15 +33,11 @@ import { pickFrom, pickGen } from "#test/support/pick.ts"
  */
 export const Owner = relation(
 	"Owner",
-	{ id: pg.integer, cap: pg.integer, n: drawnField(natural), end: accumulated(pg.integer, 0) },
+	{ id: int4, cap: int4, n: drawnField(natural), end: accumulated(int4, 0) },
 	["id"]
 )
 
-export const CountedMember = relation(
-	"Member",
-	{ member: pg.integer, g: pg.integer, x: pg.integer },
-	["member"]
-)
+export const CountedMember = relation("Member", { member: int4, g: int4, x: int4 }, ["member"])
 
 const family = counted(on(CountedMember, "g"), fin(Owner, "n"))
 

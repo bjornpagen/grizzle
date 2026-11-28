@@ -1,6 +1,6 @@
 /** What the property of row-text.test.ts reads: a query of two texts, a set and a numeric, and a box of its rows. */
 import { Array as Arr } from "effect"
-import { Bits, Decimal } from "#compiler/public/fields.ts"
+import { Bit, Numeric } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import type { HeadOf } from "#compiler/types/query/query.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -15,8 +15,8 @@ export const textQuery = query(Rec).rule((r) => {
 /** A row of the query. */
 export type TextRow = HeadOf<typeof textQuery>
 
-const decimal = (text: string): Decimal =>
-	succeeded(Decimal.fromString(text), `the Decimal ${text}`)
+const decimal = (text: string): Numeric =>
+	succeeded(Numeric.fromString(text), `the Numeric ${text}`)
 
 /**
  * The box: every row of words "a", "ab" and "b", names "", "c" and "bc", the sets {}, {Low}, {Low, Mid} and {Mid, Low}
@@ -29,10 +29,10 @@ export const textRows: Arr.NonEmptyReadonlyArray<TextRow> = Arr.flatMap(
 		Arr.flatMap(["", "c", "bc"] as const, (name) =>
 			Arr.flatMap(
 				[
-					Bits.of(Tier, []),
-					Bits.of(Tier, ["Low"]),
-					Bits.of(Tier, ["Low", "Mid"]),
-					Bits.of(Tier, ["Mid", "Low"])
+					Bit.of(Tier, []),
+					Bit.of(Tier, ["Low"]),
+					Bit.of(Tier, ["Low", "Mid"]),
+					Bit.of(Tier, ["Mid", "Low"])
 				] as const,
 				(tiers) =>
 					Arr.map([decimal("1.5"), decimal("1.50")] as const, (dec): TextRow => ({

@@ -2,7 +2,7 @@
 
 import { int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Order } from "effect"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, relation, schema, unit } from "#compiler/public/schema.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
@@ -22,9 +22,9 @@ import { fullWorld } from "#test/support/worlds.ts"
  * Kept's places and values of document `doc`.
  */
 
-const Item = relation("Item", { doc: pg.integer, at: pg.integer, n: pg.integer }, ["doc", "at"])
+const Item = relation("Item", { doc: int4, at: int4, n: int4 }, ["doc", "at"])
 
-const Document = unit("Document", { doc: pg.integer })
+const Document = unit("Document", { doc: int4 })
 
 /** The schema under `name`: Item under Document, and Kept over Item a level above it. */
 const levelsOf = (name: string) => {
@@ -45,7 +45,7 @@ export const programsOf = (name: string) => {
 	return {
 		kept: query(top).rule((r) => {
 			const { at, v: value } = v(Kept, "kept")
-			return r.match(Kept, { doc: r.param("doc", pg.integer), at, v: value }).find({ at, v: value })
+			return r.match(Kept, { doc: r.param("doc", int4), at, v: value }).find({ at, v: value })
 		})
 	}
 }

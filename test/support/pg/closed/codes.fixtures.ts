@@ -14,7 +14,7 @@ import { type DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { type Codebook } from "#compiler/ir/codes.ts"
 import { type ScalarType } from "#compiler/ir/scalar.ts"
 import { login } from "#compiler/program/workload/login.ts"
-import { bits, pg } from "#compiler/public/fields.ts"
+import { bit, int4 } from "#compiler/public/fields.ts"
 import {
 	type AnyClosed,
 	type AnyRelation,
@@ -147,7 +147,7 @@ export const serverOf = (e: MigrateError) => {
 /** A bits relation's version: roster G of `handles`, Sets of an id and a set over G, written by `writer`. */
 export const setsOf = (name: string, state: RosterState) => {
 	const roster = closedBuilder(state.closed, liveOf(state), "ordered", [])
-	const Sets = relation("Sets", { id: pg.integer, members: bits(roster) }, ["id"])
+	const Sets = relation("Sets", { id: int4, members: bit(roster) }, ["id"])
 	const declared: Record<string, AnyRelation | AnyClosed> = { [state.closed]: roster, Sets }
 	const base = schema(name, Rec.values(declared), [])
 	const writer = role(base, "writer", { Sets }, { insert: ["Sets"] })

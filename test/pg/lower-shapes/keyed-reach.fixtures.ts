@@ -6,7 +6,7 @@ import type { Case } from "@bjornpagen/testing/property"
 import { Effect, Formatter } from "effect"
 import { rowsRead } from "#bench/harness/explain.ts"
 import type { BenchSession } from "#bench/harness/session.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, relation, schema, unit } from "#compiler/public/schema.ts"
 import {
@@ -25,7 +25,7 @@ import { standUpJudge } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import type { PgConnection } from "#test/support/pg.ts"
 
-const i = pg.integer
+const i = int4
 
 /**
  * A learner's attempts as edullm's ledger holds them: an answer attempt at its own instant, a submission naming the save

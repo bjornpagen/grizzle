@@ -1,7 +1,7 @@
 import { Record as Rec } from "effect"
 import { type AttemptFailure, labelText } from "#bench/write/support/writes.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	contained,
@@ -146,7 +146,7 @@ export const settleOf = (s: MutableQueue) =>
 			const { key, resource, seat, epoch, expires } = v(Leased, "leased")
 			return r
 				.match(Leased, { key, resource, seat, epoch, expires })
-				.where(r.eq(key, r.param("key", Digest)), r.eq(epoch, r.param("epoch", pg.bigint)))
+				.where(r.eq(key, r.param("key", Digest)), r.eq(epoch, r.param("epoch", int8)))
 				.find({ key, outcome: r.param("outcome", Done.fields.outcome) })
 		})
 	)

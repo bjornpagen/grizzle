@@ -16,7 +16,7 @@ import { memberCalls } from "#adapter/db/handles.ts"
 import { plannedQueriesOf, type PlannedQueries } from "#adapter/public/compile.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int8 } from "#compiler/public/fields.ts"
 import { contained, mutable, on, schema, unit } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
@@ -96,16 +96,11 @@ interface JoinRow {
 /** The case's schema under `name`, its full world's login, whose workload holds its programs, and the programs. */
 export const builtPlan = (s: PlanSketch, name: string) => {
 	const members = Arr.map(s.members, (_, at): RelationValue =>
-		relationBuilder(
-			memberName(at),
-			{ doc: pg.bigint, k0: pg.bigint, v0: pg.bigint },
-			["doc", "k0"],
-			[]
-		)
+		relationBuilder(memberName(at), { doc: int8, k0: int8, v0: int8 }, ["doc", "k0"], [])
 	)
 	const memberAt = (at: number): RelationValue => defined(members[at], "a member value")
 	const base = schema(name, members, [
-		unit("Doc", { doc: pg.bigint }),
+		unit("Doc", { doc: int8 }),
 		...Arr.flatMap(s.members, (m, at) => (m.mutable ? [mutable(memberAt(at))] : [])),
 		...Arr.flatMap(s.members, (m, at) =>
 			m.child ? [contained(on(memberAt(at), "doc", "k0"), on(memberAt(0), "doc", "k0"))] : []
@@ -147,7 +142,7 @@ export const builtPlan = (s: PlanSketch, name: string) => {
 		queryOver(top).rule((r: RuleValue) => {
 			const x = varsOver(relation, at)
 			return r
-				.match(relation, { doc: r.param("doc", pg.bigint), k0: x["k0"], v0: x["v0"] })
+				.match(relation, { doc: r.param("doc", int8), k0: x["k0"], v0: x["v0"] })
 				.find({ k0: x["k0"], v0: x["v0"] })
 		})
 	const programs: Readonly<Record<string, unknown>> = Rec.fromEntries([

@@ -5,18 +5,18 @@ import { nonEmpty } from "@bjornpagen/testing/assert"
 import { boolean, type Gen, subset } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record as Rec } from "effect"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { pg, span } from "#compiler/public/fields.ts"
+import { range, int4, int8 } from "#compiler/public/fields.ts"
 import { query } from "#compiler/public/query.ts"
 import { contained, login, on, relation, role, schema } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
 import { changeLogin } from "#test/support/change-login.ts"
 
-const Gate = relation("Gate", { v: pg.integer }, ["v"])
-const Pub = relation("Pub", { v: pg.integer, s: pg.integer }, ["v"])
-const Seen = relation("Seen", { k: pg.integer, v: pg.integer }, ["k"])
+const Gate = relation("Gate", { v: int4 }, ["v"])
+const Pub = relation("Pub", { v: int4, s: int4 }, ["v"])
+const Seen = relation("Seen", { k: int4, v: int4 }, ["k"])
 
 /** A span primary key: its insert has no READ COMMITTED form (write/schedule/plan.ts formedAt). */
-const Room = relation("Room", { room: pg.integer, during: span(pg.bigint) }, ["room", "during"])
+const Room = relation("Room", { room: int4, during: range(int8) }, ["room", "during"])
 
 const stored = { Gate, Pub, Seen, Room } as const
 
@@ -59,7 +59,7 @@ export const fencedLoginOf = (drawn: Drawn) => {
 	const learner = role(Fenced, "learner", stored, { insert: ["Seen"] })
 	const p = publisher.relations
 	const proposed = query(publisher).rule((r) =>
-		r.find({ v: r.param("v", pg.integer), s: r.param("s", pg.integer) })
+		r.find({ v: r.param("v", int4), s: r.param("s", int4) })
 	)
 	const published = {
 		post: () => ChangeSet.empty(publisher).insert(p.Pub, proposed),
@@ -68,18 +68,18 @@ export const fencedLoginOf = (drawn: Drawn) => {
 				p.Pub,
 				query(publisher).rule((r) =>
 					r
-						.where(r.not(p.Gate, { v: r.param("v", pg.integer) }))
-						.find({ v: r.param("v", pg.integer), s: r.param("s", pg.integer) })
+						.where(r.not(p.Gate, { v: r.param("v", int4) }))
+						.find({ v: r.param("v", int4), s: r.param("s", int4) })
 				)
 			)
 	}
 	const learn = ChangeSet.empty(learner).insert(
 		learner.relations.Seen,
-		query(learner).rule((r) => r.find({ k: r.param("k", pg.integer), v: r.param("v", pg.integer) }))
+		query(learner).rule((r) => r.find({ k: r.param("k", int4), v: r.param("v", int4) }))
 	)
 	const gate = ChangeSet.empty(writer).insert(
 		writer.relations.Gate,
-		query(writer).rule((r) => r.find({ v: r.param("v", pg.integer) }))
+		query(writer).rule((r) => r.find({ v: r.param("v", int4) }))
 	)
 	const value = login(Fenced, "app", [writer, publisher, learner], {
 		workload: [

@@ -7,14 +7,14 @@
 
 import { type Gen, map, subset } from "@bjornpagen/testing/gen"
 import { Array as Arr, Order } from "effect"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, login, relation, role, schema } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 
-const Secret = relation("Secret", { k: pg.integer, v: pg.integer }, ["k"])
+const Secret = relation("Secret", { k: int4, v: int4 }, ["k"])
 
 /**
  * The schema under `name`, Secret and a derived relation of its every row, Kept; its role whose one entry reads Kept;

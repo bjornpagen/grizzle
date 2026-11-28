@@ -9,7 +9,7 @@ import { identifierOf } from "#compiler/core/identity.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Logic } from "#compiler/public/compute.ts"
-import { Bits, bits, closedId, contract, pg } from "#compiler/public/fields.ts"
+import { Bit, bit, closedId, contract, int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	closed,
@@ -51,13 +51,13 @@ const wordsKey = Symbol("Words")
  */
 const builtOf = (name: string) => {
 	const Tier = closed.ordered("Tier", ["Free", "Pro"])
-	const Words = contract<typeof wordsKey>()("Words", pg.integer, (x) => Logic.ge(x, 0))
+	const Words = contract<typeof wordsKey>()("Words", int4, (x) => Logic.ge(x, 0))
 	const Note = relation(
 		"Note",
-		{ k: pg.integer, n: Words, tier: closedId(Tier, undefined), tags: bits(Tier) },
+		{ k: int4, n: Words, tier: closedId(Tier, undefined), tags: bit(Tier) },
 		["k"]
 	)
-	const base = schema(name, [Tier, Note], [unit("Notes", { k: pg.integer }), mutable(Note)])
+	const base = schema(name, [Tier, Note], [unit("Notes", { k: int4 }), mutable(Note)])
 	const Desk = context("Desk", { tier: closedId(Tier, undefined) })
 	const writer = role(base, "writer", { Note }, { write: ["Note"], contexts: [Desk] })
 	const put = ChangeSet.empty(writer).put(
@@ -120,7 +120,7 @@ export const domainUsageCase = (call: Call, c: Case<DomainUsageFeature>) =>
 		const db = yield* openServedDb(m, at.desk.roles.writer, { tier: "Pro" })
 		const served = yield* db.serve({ put: at.put, read: at.read })
 		yield* writeOnce(member(served, "put"))({
-			params: { rows: [{ k: 1, n: 5, tier: "Pro", tags: Bits.of(at.Tier, ["Free", "Pro"]) }] },
+			params: { rows: [{ k: 1, n: 5, tier: "Pro", tags: Bit.of(at.Tier, ["Free", "Pro"]) }] },
 			facts: {}
 		})
 		if (call === "a read by refined and closed id parameters") {

@@ -243,7 +243,7 @@ ${Arr.join(
 	Arr.map(
 		indices(shape.closed),
 		(c) =>
-			`export const C${c} = closed.relation("C${c}", { k: closedId(K), weight: pg.integer }, ["k"], [{ k: "H0", weight: 0 }])\n`
+			`export const C${c} = closed.relation("C${c}", { k: closedId(K), weight: int4 }, ["k"], [{ k: "H0", weight: 0 }])\n`
 	),
 	""
 )}${Arr.join(

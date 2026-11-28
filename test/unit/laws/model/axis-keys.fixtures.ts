@@ -2,7 +2,7 @@
 
 import { constant, type Gen, int, map, oneOf } from "@bjornpagen/testing/gen"
 import type { ExprDesc, FieldDesc } from "#compiler/ir/desc.ts"
-import { accumulated, Bits, bits, drawn, natural } from "#compiler/public/fields.ts"
+import { accumulated, Bit, bit, drawn, natural } from "#compiler/public/fields.ts"
 import {
 	closed,
 	fin as finOf,
@@ -13,7 +13,7 @@ import {
 	relation as relationOf,
 	schema
 } from "#compiler/public/schema.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 import { alignUp, btreeMaxItemSize, maxAlign, typlens } from "#compiler/schema/representability.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { codebookOfStates } from "#test/support/closed/generate.ts"
@@ -169,7 +169,7 @@ export const numericGen: Gen<NumericType> = oneOf<NumericType>([
  */
 export const sumSchema = (t: NumericType): SchemaDesc => {
 	const type = t.kind === "bare" ? f.pg("numeric") : f.numeric(t.precision, t.scale)
-	const zero = Decimal.of("0")
+	const zero = Numeric.of("0")
 	return {
 		name: "Ledger",
 		relations: [
@@ -218,11 +218,11 @@ export const verdictOf = (bytes: number): Verdict => {
  */
 const Tag = closed.ordered("Tag", ["red", "blue"])
 
-const none = Bits.of(Tag, [])
+const none = Bit.of(Tag, [])
 
 const Order = relationOf(
 	"Order",
-	{ id: Id, n: drawn(natural), seen: accumulated(bits(Tag), none) },
+	{ id: Id, n: drawn(natural), seen: accumulated(bit(Tag), none) },
 	["id"]
 )
 
@@ -231,9 +231,9 @@ const Line = relationOf(
 	{
 		order: Id,
 		at: drawn(natural),
-		flags: bits(Tag),
-		before: accumulated(bits(Tag), none),
-		after: accumulated(bits(Tag), none)
+		flags: bit(Tag),
+		before: accumulated(bit(Tag), none),
+		after: accumulated(bit(Tag), none)
 	},
 	["order", "at"]
 )

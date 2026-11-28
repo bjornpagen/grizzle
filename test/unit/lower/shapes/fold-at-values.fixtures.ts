@@ -2,18 +2,18 @@
 
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, String as Str } from "effect"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
 
 /** Which component supports which pair of standards' ends, as learning-commons' Supports holds them. */
-const Supports = relation(
-	"Supports",
-	{ state: pg.integer, hub: pg.integer, component: pg.integer },
-	["state", "hub", "component"]
-)
+const Supports = relation("Supports", { state: int4, hub: int4, component: int4 }, [
+	"state",
+	"hub",
+	"component"
+])
 const Crosswalks = schema("FoldAtValues", [Supports], [])
 
 /** Every pair of ends with how many components support it: one fold of Supports by its two ends. */
@@ -43,7 +43,7 @@ const readOf = (box: Box) => {
 		const { state, hub, n } = v(crosswalk, "pair")
 		return r
 			.match(crosswalk, { state, hub, n })
-			.where(r.eq(state, r.param("end", pg.integer)))
+			.where(r.eq(state, r.param("end", int4)))
 			.find({ state, hub, n })
 	})
 	switch (box.rules) {
@@ -54,7 +54,7 @@ const readOf = (box: Box) => {
 				const { state, hub, n } = v(crosswalk, "pair")
 				return r
 					.match(crosswalk, { state, hub, n })
-					.where(r.eq(hub, r.param("end", pg.integer)))
+					.where(r.eq(hub, r.param("end", int4)))
 					.find({ state, hub, n })
 			})
 	}

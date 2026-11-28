@@ -5,7 +5,7 @@ import { Array as Arr, Effect, Order } from "effect"
 import { isRecord } from "#compiler/core/record.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { Fn } from "#compiler/public/compute.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { type FunctionBody, fn, relation, row, rows, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -26,10 +26,10 @@ import { fullWorld } from "#test/support/worlds.ts"
 const Code = str.regex("^(alpha|beta)$", "u")
 const Word = str.regex("^(gamma|delta)$", "u")
 
-const Item = relation("Item", { item: pg.integer }, ["item"])
+const Item = relation("Item", { item: int4 }, ["item"])
 
 /** A stored field of each refinement, where the case places one: the control, which compiled before. */
-const Coded = relation("Coded", { item: pg.integer, code: Code, word: Word }, ["item"])
+const Coded = relation("Coded", { item: int4, code: Code, word: Word }, ["item"])
 
 const Judged = rows({ code: Code, word: Word })
 
@@ -60,7 +60,7 @@ const valueBodies: { readonly [B in Body]: FunctionBody } = {
 const functionsOf = (body: Body) => ({
 	judge: fn("judge", {
 		calls: [],
-		args: { item: pg.integer },
+		args: { item: int4 },
 		returns: Judged,
 		volatility: "immutable",
 		nullInput: "called",
@@ -69,7 +69,7 @@ const functionsOf = (body: Body) => ({
 	}),
 	judgeRow: fn("judgerow", {
 		calls: [],
-		args: { item: pg.integer },
+		args: { item: int4 },
 		returns: row(rows({ pairs: Judged })),
 		volatility: "immutable",
 		nullInput: "called",
@@ -78,7 +78,7 @@ const functionsOf = (body: Body) => ({
 	}),
 	judgeOne: fn("judgeone", {
 		calls: [],
-		args: { item: pg.integer },
+		args: { item: int4 },
 		returns: Code,
 		volatility: "immutable",
 		nullInput: "called",
@@ -110,12 +110,12 @@ export const programsOf = (place: Place, body: Body, name: string) => {
 	const { judge, judgeRow, judgeOne } = functionsOf(body)
 	return {
 		rows: query(s).rule((r) => {
-			const run = Fn.rows(judge, { item: r.param("item", pg.integer) })
+			const run = Fn.rows(judge, { item: r.param("item", int4) })
 			const { code, word } = v(run, "run")
 			return r.match(run, { code, word }).find({ code, word })
 		}),
 		row: query(s).rule((r) => {
-			const read = Fn.row(judgeRow, { item: r.param("item", pg.integer) }).pairs
+			const read = Fn.row(judgeRow, { item: r.param("item", int4) }).pairs
 			const { code, word } = v(read, "read")
 			return r.match(read, { code, word }).find({ code, word })
 		}),
@@ -123,11 +123,11 @@ export const programsOf = (place: Place, body: Body, name: string) => {
 			const { item } = v(Item, "item")
 			return r
 				.match(Item, { item })
-				.where(r.eq(item, r.param("item", pg.integer)))
+				.where(r.eq(item, r.param("item", int4)))
 				.find({ code: Fn.call(judgeOne, { item }) })
 		}),
 		count: query(s).rule((r) => {
-			const run = Fn.rows(judge, { item: r.param("item", pg.integer) })
+			const run = Fn.rows(judge, { item: r.param("item", int4) })
 			const { code, word } = v(run, "run")
 			return r.match(run, { code, word }).find({ rows: r.count() })
 		})

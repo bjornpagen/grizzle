@@ -70,7 +70,7 @@ const carrierHost = (descriptor: ScalarType): string => {
 		case "exactInteger":
 			return "bigint"
 		case "numeric":
-			return "Decimal"
+			return "Numeric"
 		case "money":
 		case "exactMoney":
 			return "Money"
@@ -85,7 +85,7 @@ const carrierHost = (descriptor: ScalarType): string => {
 		case "range4":
 		case "range8":
 		case "rangeDate":
-			return `Span<${branded(type.span.endpoint, carrierHost(type.span.endpoint))}>`
+			return `Range<${branded(type.span.endpoint, carrierHost(type.span.endpoint))}>`
 		case "vector":
 			return `Vector<${type.typmod.dims}>`
 		case "tsvector":
@@ -267,7 +267,7 @@ const paramDomain = (descriptor: ScalarType): string => {
 		case "range4":
 		case "range8":
 		case "rangeDate":
-			return `Span<${domainOf(type.span.endpoint, carrierHost(type.span.endpoint))}>`
+			return `Range<${domainOf(type.span.endpoint, carrierHost(type.span.endpoint))}>`
 		case "variant":
 		case "int2":
 		case "int4":

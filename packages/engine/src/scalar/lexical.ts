@@ -4,7 +4,7 @@ import { integerRanges } from "#compiler/ir/carriers.ts"
 import { type CalendarDate, toCalendarDate } from "#compiler/ir/date.ts"
 import type { ParseForm } from "#compiler/ir/proof.ts"
 import type { NumericTypmod, ScalarType } from "#compiler/ir/scalar.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Numeric } from "#compiler/scalar/values/decimal.ts"
 import { numericMaxFractionDigits, numericMaxIntegerDigits } from "#compiler/scalar/values/fault.ts"
 import { greatestFinite } from "#compiler/scalar/values/float.ts"
 
@@ -70,7 +70,7 @@ export const binary64DecimalDigits = decimalDigitsOf(binary64Precision)
 export const binary64Digits = String(greatestFinite(binary64Precision, binary64MaxExponent)).length
 
 /**
- * The most UTF-8 bytes of a member of decimalText's form: every decimal text of at most this many bytes names a value
+ * The most UTF-8 bytes of a member of numericText's form: every decimal text of at most this many bytes names a value
  * plain numeric holds, its point taking a byte, so it has at most numericMaxFractionDigits digits past the point and no
  * more before it than numericMaxIntegerDigits; one byte more admits `.` and numericMaxFractionDigits + 1 digits, which
  * numeric_in refuses as "value overflows numeric format".
@@ -78,12 +78,12 @@ export const binary64Digits = String(greatestFinite(binary64Precision, binary64M
  * @limitKind derived
  * @owner grizzle's lexical forms
  * @unit UTF-8 bytes
- * @scope a decimal text Text.parseDecimal reads, the bytes of its form's every member
+ * @scope a decimal text Text.parseNumeric reads, the bytes of its form's every member
  * @derivation numericMaxFractionDigits + 1, the point and the most fraction digits numeric holds, at most
  *   numericMaxIntegerDigits so its integer digits fit as well
  * @from {@link numericMaxFractionDigits}, {@link numericMaxIntegerDigits}
  */
-export const decimalTextMaxBytes = Math.min(numericMaxFractionDigits + 1, numericMaxIntegerDigits)
+export const numericTextMaxBytes = Math.min(numericMaxFractionDigits + 1, numericMaxIntegerDigits)
 
 /**
  * The significant digits of a double precision mantissa on either side of its point: DBL_DIG, the digits every
@@ -131,16 +131,16 @@ const doubleExponentMax = binary64Digits - 1 - doubleMantissaDigits
  * - boolean: xs:boolean's `true`, `false`, `1` and `0`;
  * - date: xs:date's `YYYY-MM-DD` without a timezone, years 0001 to 9999.
  *
- * And one target no type names, the parse Text.parseDouble reads (`doubleText`): every decimal text of a double,
+ * And one target no type names, the parse Text.parseFloat8 reads (`float8Text`): every decimal text of a double,
  * `[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE][+-]?[0-9]+)?` of any digits and any exponent, and `INF`, `-INF` and `NaN`
  * (XML Schema 1.0's xs:double lexical space, which has no `+INF`, the double form's language unbounded), each member
  * the double IEEE 754-2019's conversion
  * from decimal character sequences gives it: its exact value rounded to the nearest double, ties to even, ±Infinity
  * past the greatest finite double, and a zero of the mantissa's sign below half the least subnormal.
  *
- * And one more, the parse Text.parseDecimal reads (`decimalText`): every decimal text,
+ * And one more, the parse Text.parseNumeric reads (`numericText`): every decimal text,
  * `[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)` of any digits (the grammar of XML Schema 1.1's xs:decimal lexical space), within
- * decimalTextMaxBytes UTF-8 bytes, so plain numeric holds each member's value, the one xs:decimal's lexical mapping
+ * numericTextMaxBytes UTF-8 bytes, so plain numeric holds each member's value, the one xs:decimal's lexical mapping
  * gives it, exactly. Its pattern is the grammar alone, and the byte bound cuts it beside the pattern (formOctets), as
  * str.bytes cuts a pattern: a regex counts no run past regexMaxRepeat, and numeric's limits are runs of digits.
  */
@@ -151,11 +151,11 @@ export type LexicalTarget =
 	| { readonly kind: "double" }
 	| { readonly kind: "boolean" }
 	| { readonly kind: "date" }
-	| { readonly kind: "doubleText" }
-	| { readonly kind: "decimalText" }
+	| { readonly kind: "float8Text" }
+	| { readonly kind: "numericText" }
 
 /** The value a member of a lexical form names, as the target's carrier holds it on the host. */
-export type LexicalValue = bigint | Decimal | number | boolean | CalendarDate
+export type LexicalValue = bigint | Numeric | number | boolean | CalendarDate
 
 /**
  * Whether numeric(p, s) has a decimal form: a scale from 0 to the precision, so every value is a numeral of p - s
@@ -175,10 +175,10 @@ export const parseTargetOf = (form: ParseForm, type: ScalarType): LexicalTarget 
 	switch (form) {
 		case "target":
 			return lexicalTargetOf(type)
-		case "doubleText":
-			return { kind: "doubleText" }
-		case "decimalText":
-			return { kind: "decimalText" }
+		case "float8Text":
+			return { kind: "float8Text" }
+		case "numericText":
+			return { kind: "numericText" }
 	}
 }
 
@@ -354,9 +354,9 @@ export const formSource = (target: LexicalTarget): string => {
 				return "true|false|1|0"
 			case "date":
 				return dateForm()
-			case "doubleText":
+			case "float8Text":
 				return doubleTextForm()
-			case "decimalText":
+			case "numericText":
 				return decimalTextForm()
 		}
 	})()
@@ -364,13 +364,13 @@ export const formSource = (target: LexicalTarget): string => {
 }
 
 /**
- * The byte bound a form holds its members within beside its pattern, as str.bytes holds a pattern's: decimalText's,
- * decimalTextMaxBytes; an exact integer's, its digits; none for every other form, whose pattern alone is the form.
+ * The byte bound a form holds its members within beside its pattern, as str.bytes holds a pattern's: numericText's,
+ * numericTextMaxBytes; an exact integer's, its digits; none for every other form, whose pattern alone is the form.
  */
 export const formOctets = (target: LexicalTarget): number | undefined => {
 	switch (target.kind) {
-		case "decimalText":
-			return decimalTextMaxBytes
+		case "numericText":
+			return numericTextMaxBytes
 		case "exactInteger":
 			return target.digits
 		case "integer":
@@ -378,7 +378,7 @@ export const formOctets = (target: LexicalTarget): number | undefined => {
 		case "double":
 		case "boolean":
 		case "date":
-		case "doubleText":
+		case "float8Text":
 			return undefined
 	}
 }
@@ -466,7 +466,7 @@ const exactIntegerValue = (text: string, digits: number): bigint | undefined => 
 }
 
 /** A decimal a member names, with no more significant digits on either side of its point than the typmod holds. */
-const decimalValue = (text: string, { precision, scale }: NumericTypmod): Decimal | undefined => {
+const decimalValue = (text: string, { precision, scale }: NumericTypmod): Numeric | undefined => {
 	const n = numeralOf(text)
 	if (
 		n === undefined ||
@@ -476,7 +476,7 @@ const decimalValue = (text: string, { precision, scale }: NumericTypmod): Decima
 		return undefined
 	}
 	const { units, scale: digits } = unitsOf(n)
-	const made = Decimal.fromParts(units < 0n, units < 0n ? -units : units, digits)
+	const made = Numeric.fromParts(units < 0n, units < 0n ? -units : units, digits)
 	return made.ok ? made.value : undefined
 }
 
@@ -565,16 +565,16 @@ export const doubleOfText = (text: string): number | undefined =>
 
 /**
  * The value a decimal text names (decimalTextForm), by xs:decimal's lexical mapping: its digits, signed, over ten to
- * the count of its fraction digits, exactly, in Decimal's one form; undefined for a text no member of the form, one
- * past decimalTextMaxBytes among them. A member is ASCII, so its characters are its bytes.
+ * the count of its fraction digits, exactly, in Numeric's one form; undefined for a text no member of the form, one
+ * past numericTextMaxBytes among them. A member is ASCII, so its characters are its bytes.
  */
-export const decimalOfText = (text: string): Decimal | undefined => {
+export const decimalOfText = (text: string): Numeric | undefined => {
 	const n = numeralOf(text)
-	if (n === undefined || text.length > decimalTextMaxBytes) {
+	if (n === undefined || text.length > numericTextMaxBytes) {
 		return undefined
 	}
 	const { units, scale } = unitsOf(n)
-	const made = Decimal.fromParts(units < 0n, units < 0n ? -units : units, scale)
+	const made = Numeric.fromParts(units < 0n, units < 0n ? -units : units, scale)
 	return made.ok ? made.value : undefined
 }
 
@@ -610,9 +610,9 @@ export const lexicalValue = (
 			const date = toCalendarDate(text)
 			return date.ok ? date.value : undefined
 		}
-		case "doubleText":
+		case "float8Text":
 			return doubleOfText(text)
-		case "decimalText":
+		case "numericText":
 			return decimalOfText(text)
 	}
 }

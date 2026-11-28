@@ -21,7 +21,7 @@ import { regex } from "arkregex"
 import { Array as Arr, Option, pipe, String as Str } from "effect"
 import { int4Max } from "#compiler/core/canonical.ts"
 import type { ValueFault } from "#compiler/core/errors.ts"
-import { Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
+import { Numeric, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import {
 	numericMaxFractionDigits,
 	numericMaxIntegerDigits,
@@ -86,8 +86,8 @@ const trimmed = (text: string): string => {
 export const padded = (text: string, k: number): string =>
 	k === 0 ? text : `${Str.includes(".")(text) ? text : `${text}.`}${zeros(k)}`
 
-/** Whether a Decimal's parts are its one form: no trailing zero past the point, zero unsigned at scale 0. */
-export const canonicalParts = (d: Decimal): boolean => {
+/** Whether a Numeric's parts are its one form: no trailing zero past the point, zero unsigned at scale 0. */
+export const canonicalParts = (d: Numeric): boolean => {
 	const p = d.parts
 	if (p.kind !== "finite") {
 		return true
@@ -99,7 +99,7 @@ export const canonicalParts = (d: Decimal): boolean => {
 }
 
 /** Two Decimals' parts field by field. */
-export const sameParts = (a: Decimal, b: Decimal): boolean => {
+export const sameParts = (a: Numeric, b: Numeric): boolean => {
 	const x = a.parts
 	const y = b.parts
 	return x.kind === "finite" && y.kind === "finite"
@@ -370,31 +370,31 @@ export const formatCaseGen: Gen<FormatCase> = (source) => {
 }
 
 /** The value a format case builds, through its entry. */
-export const formatValueOf = (c: FormatCase): Result.Result<Decimal, ValueFault> => {
+export const formatValueOf = (c: FormatCase): Result.Result<Numeric, ValueFault> => {
 	const sign = c.negative ? "-" : ""
 	const fraction = numericMaxFractionDigits + c.margin
 	const integer = numericMaxIntegerDigits + c.margin
 	switch (c.limit) {
 		case "fraction digits":
 			return c.entry === "text"
-				? Decimal.fromString(`${sign}0.${zeros(fraction - 1)}1`)
-				: Decimal.fromParts(c.negative, 1n, fraction)
+				? Numeric.fromString(`${sign}0.${zeros(fraction - 1)}1`)
+				: Numeric.fromParts(c.negative, 1n, fraction)
 		case "integer digits": {
 			const nines = 10n ** BigInt(integer) - 1n
 			return c.entry === "text"
-				? Decimal.fromString(`${sign}${Str.repeat(integer)("9")}`)
+				? Numeric.fromString(`${sign}${Str.repeat(integer)("9")}`)
 				: c.entry === "parts"
-					? Decimal.fromParts(c.negative, nines, 0)
-					: Decimal.fromBigInt(c.negative ? -nines : nines)
+					? Numeric.fromParts(c.negative, nines, 0)
+					: Numeric.fromBigInt(c.negative ? -nines : nines)
 		}
 		case "an exponent's integer digits":
-			return Decimal.fromString(`${sign}1e${integer - 1}`)
+			return Numeric.fromString(`${sign}1e${integer - 1}`)
 		case "an exponent's magnitude":
-			return Decimal.fromString(`0e${sign}${maxExponent + c.margin}`)
+			return Numeric.fromString(`0e${sign}${maxExponent + c.margin}`)
 		case "zeros past the fraction digits":
 			return c.entry === "text"
-				? Decimal.fromString(`${sign}1.${zeros(fraction)}`)
-				: Decimal.fromParts(c.negative, 10n ** BigInt(fraction), fraction)
+				? Numeric.fromString(`${sign}1.${zeros(fraction)}`)
+				: Numeric.fromParts(c.negative, 10n ** BigInt(fraction), fraction)
 	}
 }
 
@@ -418,19 +418,19 @@ export const formatTextOf = (c: FormatCase): string => {
 export type FormatFeature = `${FormatLimit} ${Side}` | `by ${Entry}` | "an exponent far past"
 
 /** A finite value's signed coefficient. */
-export const signedOf = (d: Decimal): bigint => {
+export const signedOf = (d: Numeric): bigint => {
 	const p = d.parts
 	return p.kind !== "finite" ? 0n : p.negative ? -p.coefficient : p.coefficient
 }
 
 /** A finite value's scale, zero for a special. */
-const scaleOf = (d: Decimal): number => (d.parts.kind === "finite" ? d.parts.minScale : 0)
+const scaleOf = (d: Numeric): number => (d.parts.kind === "finite" ? d.parts.minScale : 0)
 
 /** The order a difference states: -1, 0 or 1. */
 const signOf = (n: bigint): -1 | 0 | 1 => (n < 0n ? -1 : n > 0n ? 1 : 0)
 
 /** cmp_numerics' rank of a value's kind: -Infinity, finite, Infinity, NaN. */
-const kindRankOf = (d: Decimal): number =>
+const kindRankOf = (d: Numeric): number =>
 	d.parts.kind === "-infinity"
 		? 0
 		: d.parts.kind === "finite"
@@ -440,7 +440,7 @@ const kindRankOf = (d: Decimal): number =>
 				: 3
 
 /** cmp_numerics, modelled: kinds by rank, finite values by their signed coefficients cross-multiplied. */
-export const modelCompare = (a: Decimal, b: Decimal): -1 | 0 | 1 => {
+export const modelCompare = (a: Numeric, b: Numeric): -1 | 0 | 1 => {
 	const ranks = kindRankOf(a) - kindRankOf(b)
 	if (ranks !== 0 || !a.isFinite()) {
 		return signOf(BigInt(ranks))
@@ -456,20 +456,20 @@ export type OrderFeature =
 	| "one sign, two scales"
 
 /** A pair of values: two drawn apart, or one value and its text padded and read back, one value twice. */
-export const orderedPairGen: Gen<readonly [Decimal, Decimal]> = weighted([
+export const orderedPairGen: Gen<readonly [Numeric, Numeric]> = weighted([
 	[3, (source) => [source.draw(decimalGen), source.draw(decimalGen)] as const],
 	[
 		1,
 		(source) => {
 			const x = source.draw(decimalGen)
 			const k = source.draw(trailingZeros)
-			return [x, x.isFinite() ? succeeded(Decimal.fromString(padded(x.text, k))) : x] as const
+			return [x, x.isFinite() ? succeeded(Numeric.fromString(padded(x.text, k))) : x] as const
 		}
 	]
 ])
 
 /** The situations a pair of values is in. */
-export const orderFeatures = (a: Decimal, b: Decimal): ReadonlyArray<OrderFeature> => [
+export const orderFeatures = (a: Numeric, b: Numeric): ReadonlyArray<OrderFeature> => [
 	...(modelCompare(a, b) === 0 ? (["equal values"] as const) : []),
 	...(a.isFinite() !== b.isFinite() ? (["a special against a finite value"] as const) : []),
 	...(!a.isFinite() && !b.isFinite() ? (["two specials"] as const) : []),
@@ -541,7 +541,7 @@ interface Typmod {
  * A value and a typmod: the scale drawn free, or one digit short of the value's own scale, so the rounding cuts at the
  * value's last digit, where a tie is.
  */
-export const normalizedGen: Gen<readonly [Decimal, Typmod]> = (source) => {
+export const normalizedGen: Gen<readonly [Numeric, Typmod]> = (source) => {
 	const x = source.draw(decimalGen)
 	const precision = source.draw(int(1, 40))
 	const scale = source.draw(
@@ -574,7 +574,7 @@ const magnitudeOf = (v: bigint): bigint => (v < 0n ? -v : v)
  * rounds past p digits at scale s exactly when 2·|x|·10^s >= 2·10^p - 1, and otherwise is stored at scale s within half
  * a unit of x, a tie away from zero, idempotently.
  */
-export const normalizedVerdict = (x: Decimal, type: Typmod): NormalizeFeature => {
+export const normalizedVerdict = (x: Numeric, type: Typmod): NormalizeFeature => {
 	const result = normalizeNumeric(x, type)
 	if (x.isNaN()) {
 		if (type.scale === 0) {

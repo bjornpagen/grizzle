@@ -13,7 +13,7 @@
  *   readings' contents compared apart.
  * - Literal operands: each carrier's literal is the one its host kind states, and every other value is refused by its
  *   fault, never thrown.
- * - describeField reads every descriptor a builder made, pg.numeric among them, and refuses a look-alike, a written field
+ * - describeField reads every descriptor a builder made, numeric among them, and refuses a look-alike, a written field
  *   and every wild value as malformed, at describeField, span and closedId, never throwing.
  *
  * Features: as each search names them; for the predicate table, a bound below, at and above zero.
@@ -40,7 +40,7 @@ import {
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import type { ScalarTerm } from "#compiler/scalar/compute/term.ts"
 import { literalDescFor } from "#compiler/scalar/literal.ts"
-import { pgDescriptors } from "#compiler/scalar/pg.ts"
+import { int8 } from "#compiler/scalar/pg.ts"
 import {
 	bareEnv,
 	capabilitiesOf,
@@ -276,13 +276,11 @@ export const scalarTypeOfAFieldDescToItsScalarTypeTakesTheCheckersPredicateTable
 								? "a bound of zero"
 								: "a bound above zero"
 					)
-					const Branded = contractDescriptor(name, pgDescriptors.bigint, (v: ScalarTerm) =>
+					const Branded = contractDescriptor(name, int8, (v: ScalarTerm) =>
 						computeCore.ge(v, bound)
 					)
 					const { desc } = succeeded(describeField(Branded, SourceLoc(name, [])))
-					const base = succeeded(
-						describeField(pgDescriptors.bigint, SourceLoc("bigint", []))
-					).scalar
+					const base = succeeded(describeField(int8, SourceLoc("bigint", []))).scalar
 					const identity = defined(
 						succeeded(scalarTypeOf(desc, bareEnv, SourceLoc("field", []))).contract
 					)
@@ -442,7 +440,7 @@ export const literalDescForLiteralOperandsAdoptTheBasesHostTypeReturnsTheLiteral
 	})
 
 /**
- * DescribeField reads every descriptor a builder made, pg.numeric among them, and a written field as the descriptor its
+ * DescribeField reads every descriptor a builder made, numeric among them, and a written field as the descriptor its
  * values are of, a place as natural, and refuses a look-alike and every wild value as malformed, at describeField, span
  * and closedId.
  *

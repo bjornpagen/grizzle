@@ -14,7 +14,7 @@ import type { Source } from "@bjornpagen/testing/source"
 import { Array as Arr, Record as Rec, String as Str, Stream } from "effect"
 import { ReadFailure } from "#adapter/errors/execution.ts"
 import type { RelationColumn } from "#compiler/lower/conservative/types.ts"
-import { closedId, pg } from "#compiler/public/fields.ts"
+import { closedId, bool, int4, int8 } from "#compiler/public/fields.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { baseCheck, columnDefinition, types } from "#compiler/sql/build.ts"
@@ -70,9 +70,9 @@ export const Sample = relation(
 	{
 		id: Id,
 		color: closedId(Color),
-		whole: pg.integer,
-		big: pg.bigint,
-		flag: pg.boolean,
+		whole: int4,
+		big: int8,
+		flag: bool,
 		ref: Id,
 		label: str.regex("^.*$", "su")
 	},
@@ -89,9 +89,9 @@ export const pinnedCodes = succeeded(codebookFor(schemaInputOf(Pinned), firstCod
  * of other host types.
  */
 const parameterKinds = [
-	{ field: "whole", type: pg.integer, valid: 7, wrong: ["7", 7n, true, { wild: true }, [7]] },
-	{ field: "big", type: pg.bigint, valid: 7n, wrong: [7, "7", { wild: true }] },
-	{ field: "flag", type: pg.boolean, valid: true, wrong: ["true", 1, { wild: true }] },
+	{ field: "whole", type: int4, valid: 7, wrong: ["7", 7n, true, { wild: true }, [7]] },
+	{ field: "big", type: int8, valid: 7n, wrong: [7, "7", { wild: true }] },
+	{ field: "flag", type: bool, valid: true, wrong: ["true", 1, { wild: true }] },
 	{
 		field: "ref",
 		type: Id,

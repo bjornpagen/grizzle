@@ -31,9 +31,9 @@ export const drawnTypes = boxAgreement(finite(word(drawnTypesBox)), {
 	kills: [
 		{
 			file: "packages/engine/src/types/fields/field.ts",
-			original: '\t\t\t\t\treadonly sql: "smallint" | "integer" | "bigint"',
-			replacement: '\t\t\t\t\treadonly sql: "bigint"',
-			why: "drawn takes a contract over bigint alone: a family indexed by a contract over smallint or integer, metis's int4 test number among them, is refused at its drawn field; the program fails."
+			original: '\t\t\t\t\treadonly sql: "int2" | "int4" | "int8"',
+			replacement: '\t\t\t\t\treadonly sql: "int8"',
+			why: "drawn takes a contract over int8 alone: a family indexed by a contract over int2 or int4, metis's int4 test number among them, is refused at its drawn field; the program fails."
 		},
 		{
 			file: "packages/engine/src/types/schema/statements.ts",

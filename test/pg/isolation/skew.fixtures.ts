@@ -4,7 +4,7 @@ import { defined } from "@bjornpagen/testing/assert"
 import { type Gen, int, oneOf } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Record as Rec } from "effect"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { natural, pg } from "#compiler/public/fields.ts"
+import { natural, int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	type AnyRelation,
@@ -34,8 +34,8 @@ import { every, everyRelation, exploreEnv } from "#test/support/schedules/interl
 import { type Explained, type RaceTxn, runSerialRace } from "#test/support/schedules/serial.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
-const Booked = relation("Booked", { room: pg.integer, who: pg.integer }, ["room", "who"])
-const Blocked = relation("Blocked", { room: pg.integer, who: pg.integer }, ["room", "who"])
+const Booked = relation("Booked", { room: int4, who: int4 }, ["room", "who"])
+const Blocked = relation("Blocked", { room: int4, who: int4 }, ["room", "who"])
 
 /**
  * The exclusion shape under the name `name`: a room is booked by whoever books it while no one blocked it, and blocked by
@@ -52,16 +52,16 @@ const exclusionShape = (name: string): Shape => {
 		mine.Booked,
 		query(desk).rule((r) =>
 			r
-				.where(r.not(mine.Blocked, { room: r.param("room", pg.integer) }))
-				.find({ room: r.param("room", pg.integer), who: r.param("who", pg.integer) })
+				.where(r.not(mine.Blocked, { room: r.param("room", int4) }))
+				.find({ room: r.param("room", int4), who: r.param("who", int4) })
 		)
 	)
 	const block = ChangeSet.empty(desk).insert(
 		mine.Blocked,
 		query(desk).rule((r) =>
 			r
-				.where(r.not(mine.Booked, { room: r.param("room", pg.integer) }))
-				.find({ room: r.param("room", pg.integer), who: r.param("who", pg.integer) })
+				.where(r.not(mine.Booked, { room: r.param("room", int4) }))
+				.find({ room: r.param("room", int4), who: r.param("who", int4) })
 		)
 	)
 	return {
@@ -71,13 +71,10 @@ const exclusionShape = (name: string): Shape => {
 	}
 }
 
-const Doc = relation("Doc", { node: pg.integer }, ["node"])
-const Pool = relation("Pool", { doc: pg.integer, pool: pg.integer }, ["doc", "pool"])
-const Sitting = relation("Sitting", { id: pg.integer, doc: pg.integer, pools: natural }, ["id"])
-const Served = relation("Served", { sitting: pg.integer, doc: pg.integer, pool: pg.integer }, [
-	"sitting",
-	"pool"
-])
+const Doc = relation("Doc", { node: int4 }, ["node"])
+const Pool = relation("Pool", { doc: int4, pool: int4 }, ["doc", "pool"])
+const Sitting = relation("Sitting", { id: int4, doc: int4, pools: natural }, ["id"])
+const Served = relation("Served", { sitting: int4, doc: int4, pool: int4 }, ["sitting", "pool"])
 
 /**
  * The sitting shape under the name `name`, QTI's learner in small, its importer's extension and its learner's start one
@@ -100,24 +97,24 @@ const sittingShape = (name: string): Shape => {
 		mine.Pool,
 		query(learner).rule((r) =>
 			r
-				.match(mine.Doc, { node: r.param("doc", pg.integer) })
-				.find({ doc: r.param("doc", pg.integer), pool: r.param("pool", pg.integer) })
+				.match(mine.Doc, { node: r.param("doc", int4) })
+				.find({ doc: r.param("doc", int4), pool: r.param("pool", int4) })
 		)
 	)
 	const counted = query(learner).rule((r) => {
 		const { pool } = v(mine.Pool, "pool")
-		return r.match(mine.Pool, { doc: r.param("doc", pg.integer), pool }).find({ pools: r.count() })
+		return r.match(mine.Pool, { doc: r.param("doc", int4), pool }).find({ pools: r.count() })
 	})
 	const start = ChangeSet.sequence(
 		ChangeSet.empty(learner).insert(
 			mine.Sitting,
 			query(learner).rule((r) => {
-				const count = counted.bind({ doc: r.param("doc", pg.integer) })
+				const count = counted.bind({ doc: r.param("doc", int4) })
 				const { pools } = v(count, "count")
 				return r
-					.match(mine.Doc, { node: r.param("doc", pg.integer) })
+					.match(mine.Doc, { node: r.param("doc", int4) })
 					.match(count, { pools })
-					.find({ id: r.param("id", pg.integer), doc: r.param("doc", pg.integer), pools })
+					.find({ id: r.param("id", int4), doc: r.param("doc", int4), pools })
 			})
 		),
 		ChangeSet.empty(learner).insert(
@@ -128,7 +125,7 @@ const sittingShape = (name: string): Shape => {
 				return r
 					.match(mine.Sitting, { id, doc })
 					.match(mine.Pool, { doc, pool })
-					.where(r.eq(id, r.param("id", pg.integer)))
+					.where(r.eq(id, r.param("id", int4)))
 					.find({ sitting: id, doc, pool })
 			})
 		)
@@ -140,8 +137,8 @@ const sittingShape = (name: string): Shape => {
 	}
 }
 
-const Came = relation("Came", { who: pg.integer }, ["who"])
-const Met = relation("Met", { who: pg.integer, friend: pg.integer }, ["who", "friend"])
+const Came = relation("Came", { who: int4 }, ["who"])
+const Met = relation("Met", { who: int4, friend: int4 }, ["who", "friend"])
 
 /**
  * The meeting shape under the name `name`: the role `visitor`'s one member `arrive` records that its caller came, and that
@@ -156,14 +153,14 @@ const meetingShape = (name: string): Shape => {
 	const arrive = ChangeSet.empty(visitor)
 		.insert(
 			mine.Came,
-			query(visitor).rule((r) => r.find({ who: r.param("who", pg.integer) }))
+			query(visitor).rule((r) => r.find({ who: r.param("who", int4) }))
 		)
 		.insert(
 			mine.Met,
 			query(visitor).rule((r) =>
 				r
-					.match(mine.Came, { who: r.param("friend", pg.integer) })
-					.find({ who: r.param("who", pg.integer), friend: r.param("friend", pg.integer) })
+					.match(mine.Came, { who: r.param("friend", int4) })
+					.find({ who: r.param("who", int4), friend: r.param("friend", int4) })
 			)
 		)
 	return {

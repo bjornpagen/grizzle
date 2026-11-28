@@ -3,12 +3,12 @@
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { Fn } from "#compiler/public/compute.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { float4, int4, int8 } from "#compiler/public/fields.ts"
 import { param, query, v } from "#compiler/public/query.ts"
 import { fn, relation, row, rows, schema } from "#compiler/public/schema.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 
-const A = rows({ k: pg.bigint, v: pg.bigint })
+const A = rows({ k: int8, v: int8 })
 
 /** machine: eight rows arguments of (k, v), and one row of eight fields of rows of (k, v). */
 const machine = fn("machine", {
@@ -22,10 +22,10 @@ const machine = fn("machine", {
 })
 
 /** A session's items, and the ones done. */
-const Item = relation("Item", { session: pg.integer, k: pg.bigint, v: pg.bigint }, ["session", "k"])
-const Done = relation("Done", { session: pg.integer, k: pg.bigint }, ["session", "k"])
+const Item = relation("Item", { session: int4, k: int8, v: int8 }, ["session", "k"])
+const Done = relation("Done", { session: int4, k: int8 }, ["session", "k"])
 
-const fields = { session: pg.integer, k: pg.bigint, v: pg.bigint } as const
+const fields = { session: int4, k: int8, v: int8 } as const
 const key = ["session", "k", "v"] as const
 
 /** The relations the members write, one each, with the field of the call each reads: two fields, read alternately. */
@@ -46,14 +46,14 @@ export const Shared = schema(
 	[]
 )
 
-const session = param("session", pg.integer)
+const session = param("session", int4)
 
 /** The session's pending items: the bound query every argument reads. */
 const pending = query(Shared).rule((r) => {
 	const { k, v: x } = v(Item, "item")
 	return r
-		.match(Item, { session: r.param("session", pg.integer), k, v: x })
-		.where(r.not(Done, { session: r.param("session", pg.integer), k }))
+		.match(Item, { session: r.param("session", int4), k, v: x })
+		.where(r.not(Done, { session: r.param("session", int4), k }))
 		.find({ k, v: x })
 })
 
@@ -186,7 +186,7 @@ export const chainReadersOf = (depth: number, members: ChainReaders): unknown =>
 const latest = query(Shared)
 	.rule((r) => {
 		const { k, v: x } = v(Item, "item")
-		return r.match(Item, { session: r.param("session", pg.integer), k, v: x }).find({ k, v: x })
+		return r.match(Item, { session: r.param("session", int4), k, v: x }).find({ k, v: x })
 	})
 	.orderBy(["v", "desc"], ["k", "asc"])
 	.take(1)
@@ -213,14 +213,8 @@ export const boundTakeWriteOf = (members: 1 | 8): unknown =>
 	)
 
 /** A session's readings, each a float: a rule over them delivers a float, so its head states a merge (check/merge.ts). */
-const Reading = relation("Reading", { session: pg.integer, k: pg.bigint, x: pg.real }, [
-	"session",
-	"k"
-])
-const FloatOut = relation("FloatOut", { session: pg.integer, k: pg.bigint, x: pg.real }, [
-	"session",
-	"k"
-])
+const Reading = relation("Reading", { session: int4, k: int8, x: float4 }, ["session", "k"])
+const FloatOut = relation("FloatOut", { session: int4, k: int8, x: float4 }, ["session", "k"])
 
 export const Floats = schema("FloatImports", [Reading, FloatOut], [])
 
@@ -232,7 +226,7 @@ export const floatDepthGen: Gen<FloatDepth> = element([2, 3, 4, 6, 8] as const)
 /** The session's readings, each with its float: the query the float chain's first level reads, bound to the session. */
 const floatRoot = query(Floats).rule((r) => {
 	const { k, x } = v(Reading, "reading")
-	return r.match(Reading, { session: r.param("session", pg.integer), k, x }).find({ k, x })
+	return r.match(Reading, { session: r.param("session", int4), k, x }).find({ k, x })
 })
 
 /**

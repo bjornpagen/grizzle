@@ -24,7 +24,7 @@ const infinityBits = 0x7ff0000000000000n
 const nanBits = 0x7ff8000000000000n
 
 /**
- * Decimal exponents past which no rounding is needed: a value of at least 10^400 is above 2^1024, as 2^1024 < 10^309,
+ * Numeric exponents past which no rounding is needed: a value of at least 10^400 is above 2^1024, as 2^1024 < 10^309,
  * and one below 10^-400 is below 2^-1075, half the least subnormal, as 2^-1075 > 10^-324.
  */
 const decimalReach = 400n

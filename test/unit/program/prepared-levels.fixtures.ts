@@ -10,7 +10,7 @@ import { installBasis, unserved } from "#compiler/physical/install/plan.ts"
 import type { Variants } from "#compiler/program/workload/change.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { pg, span } from "#compiler/public/fields.ts"
+import { range, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	login,
@@ -31,10 +31,10 @@ import { Id } from "#test/support/ids.ts"
 const note = str.regex("^[a-z]{1,8}$")
 
 /** A span primary key: its insert and its put have no READ COMMITTED form (write/schedule/plan.ts readCommittedLack). */
-const Room = relation("Room", { room: Id, during: span(pg.bigint), guest: Id }, ["room", "during"])
+const Room = relation("Room", { room: Id, during: range(int8), guest: Id }, ["room", "during"])
 
 /** Room's mutable twin, whose put is the DELETE-then-insert pair, which has none either. */
-const Hold = relation("Hold", { room: Id, during: span(pg.bigint), note }, ["room", "during"])
+const Hold = relation("Hold", { room: Id, during: range(int8), note }, ["room", "during"])
 
 /** A scalar primary key: its insert and its put have a READ COMMITTED form. */
 const Plain = relation("Plain", { id: Id, note }, ["id"])

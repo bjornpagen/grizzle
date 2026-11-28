@@ -36,7 +36,7 @@ export const schemas = agreement(schemaAimed, {
 				"test/types/schema/agreement.test.ts#schemas:7fffffffffffffffffffffffffffffffffffffffffffffffffffffffff.1:1.0.1.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.2.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0"
 			),
 			reason:
-				"a contract over a numeric(7, 2) field, whose descriptor is NumericTypmodField<Decimal> since numeric's host follows its scale (4da9792ba), where the model wrote the bare NumericTypmodField, Decimal | bigint (TEST_SEED=655968417; its token drawn again at the merged tree, whose schemas agreement declares 231 requirements where the token's steering named 243, VALUECELL's deletion of the alternatives pack and probe (271ffecf2) among the twelve gone: the floor's first failure under the kill that forgets numeric's scale)",
+				"a contract over a numeric(7, 2) field, whose descriptor is NumericTypmodField<Numeric> since numeric's host follows its scale (4da9792ba), where the model wrote the bare NumericTypmodField, Numeric | bigint (TEST_SEED=655968417; its token drawn again at the merged tree, whose schemas agreement declares 231 requirements where the token's steering named 243, VALUECELL's deletion of the alternatives pack and probe (271ffecf2) among the twelve gone: the floor's first failure under the kill that forgets numeric's scale)",
 			since: "2026-11-19"
 		},
 		{
@@ -71,15 +71,15 @@ export const schemas = agreement(schemaAimed, {
 		},
 		{
 			file: "packages/engine/src/scalar/values/convert.ts",
-			original: "\t\t? bigint\n\t\t: Decimal\n",
-			replacement: "\t\t? Decimal\n\t\t: Decimal\n",
-			why: "numeric(p, 0)'s host is a Decimal again, where the engine reads a bigint (types/fields NumericHostOf); the numericAtScaleZero situation's case fails."
+			original: "\t\t? bigint\n\t\t: Numeric\n",
+			replacement: "\t\t? Numeric\n\t\t: Numeric\n",
+			why: "numeric(p, 0)'s host is a Numeric again, where the engine reads a bigint (types/fields NumericHostOf); the numericAtScaleZero situation's case fails."
 		},
 		{
 			file: "packages/engine/src/scalar/values/convert.ts",
-			original: "\t\t: Decimal\n",
-			replacement: "\t\t: Decimal | bigint\n",
-			why: "numeric(p, s)'s host forgets its scale at a literal scale other than 0, Decimal | bigint, where the engine reads a Decimal (types/fields NumericHostOf); the kept numeric(7, 2) case fails."
+			original: "\t\t: Numeric\n",
+			replacement: "\t\t: Numeric | bigint\n",
+			why: "numeric(p, s)'s host forgets its scale at a literal scale other than 0, Numeric | bigint, where the engine reads a Numeric (types/fields NumericHostOf); the kept numeric(7, 2) case fails."
 		},
 		{
 			file: "packages/engine/src/types/schema/schema.ts",

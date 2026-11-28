@@ -47,7 +47,7 @@ const moduleSource = (m: number): string => `${Arr.join(
 	Arr.map(
 		indices(modulePeriod),
 		(j) =>
-			`export const ${relationName(m, j)} = relation("${relationName(m, j)}", { id: Id, parent: Id, n: pg.integer }, ["id"])\n`
+			`export const ${relationName(m, j)} = relation("${relationName(m, j)}", { id: Id, parent: Id, n: int4 }, ["id"])\n`
 	),
 	""
 )}export const M${m} = { ${Arr.join(

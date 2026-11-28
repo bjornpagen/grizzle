@@ -201,7 +201,7 @@ export const agrees = ({ live, a, b }: Pattern, c: Case<Situation>) =>
 			assert.equal(
 				succeeded(codec.encode(single)),
 				paramText(bitText(new Set([k]))),
-				`the singleton of code ${k} as bit(${setWidth(size)}), the set Bits.of writes for its handle`
+				`the singleton of code ${k} as bit(${setWidth(size)}), the set Bit.of writes for its handle`
 			)
 			const grown = evaluated(adjoined(x, handle, "adjoin"))
 			if (!(grown instanceof Set)) {

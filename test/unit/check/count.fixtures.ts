@@ -9,7 +9,7 @@ import { checkQuery } from "#compiler/check/index.ts"
 import { type CompileError, isCompileError } from "#compiler/core/errors.ts"
 import { sameScalarType, type ScalarType } from "#compiler/ir/scalar.ts"
 import { queryInput } from "#compiler/program/input.ts"
-import { natural, pg } from "#compiler/public/fields.ts"
+import { natural, int4, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, relation, schema, sealed, unit } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
@@ -23,7 +23,7 @@ import { checking, checkOptions } from "#test/support/policy.ts"
 import { descOf } from "#test/support/unit/write/changeset/fixtures.ts"
 
 /** The two types a count meets: natural, what a count is, and the bigint behind it, another type. */
-export type Side = "natural" | "bigint"
+export type Side = "natural" | "int8"
 
 /**
  * Where a case reads its count, `n: r.count()` over Item's rows by their kind:
@@ -52,12 +52,12 @@ const readings: Arr.NonEmptyReadonlyArray<Reading> = [
 	{ kind: "head" },
 	{ kind: "derived" },
 	{ kind: "written", into: "natural" },
-	{ kind: "written", into: "bigint" },
-	...Arr.flatMap(["zero", "natural", "bigint"] as const, (beside) =>
+	{ kind: "written", into: "int8" },
+	...Arr.flatMap(["zero", "natural", "int8"] as const, (beside) =>
 		Arr.map([false, true] as const, (written) => ({ kind: "union", beside, written }) as const)
 	),
 	{ kind: "compared", against: "natural" },
-	{ kind: "compared", against: "bigint" },
+	{ kind: "compared", against: "int8" },
 	{ kind: "compared", against: "literal" }
 ]
 
@@ -109,7 +109,7 @@ const sideOf = (t: ScalarType): Side | "another" =>
 	t.contract?.name === "natural"
 		? "natural"
 		: sameScalarType(t, plainType("int8"))
-			? "bigint"
+			? "int8"
 			: "another"
 
 /** A refusal, as a case observes one. */
@@ -135,24 +135,24 @@ const observing = (observe: () => Observed): Observed => {
 }
 
 /** The field of a side's type. */
-const fieldOf = (side: Side) => (side === "natural" ? natural : pg.bigint)
+const fieldOf = (side: Side) => (side === "natural" ? natural : int8)
 
 /** What a case gives: its schema built, its count read where its reading reads it (see Reading). */
 export const observedOf = (c: CountCase): Observed =>
 	observing(() => {
 		const r = c.reading
-		const Item = relation("Item", { id: pg.integer, kind: pg.integer }, ["kind", "id"])
-		const Tally = relation("Tally", { kind: pg.integer, t: natural }, ["kind"])
+		const Item = relation("Item", { id: int4, kind: int4 }, ["kind", "id"])
+		const Tally = relation("Tally", { kind: int4, t: natural }, ["kind"])
 		const Into = relation(
 			"Into",
-			{ kind: pg.integer, n: fieldOf(r.kind === "written" ? r.into : "natural") },
+			{ kind: int4, n: fieldOf(r.kind === "written" ? r.into : "natural") },
 			["kind"]
 		)
 		const Beside = relation(
 			"Beside",
 			{
-				kind: pg.integer,
-				n: fieldOf(r.kind === "union" && r.beside === "bigint" ? "bigint" : "natural")
+				kind: int4,
+				n: fieldOf(r.kind === "union" && r.beside === "int8" ? "int8" : "natural")
 			},
 			["kind"]
 		)
@@ -164,7 +164,7 @@ export const observedOf = (c: CountCase): Observed =>
 		]
 		/** Sealed at founding, so Tallied, a count over a kind's whole unit, is stored, upkept at the founding write alone
 		 * (analysis/derived/storage.ts), and its count is read from its table's column. */
-		const Counts = schema("Counts", own, [sealed(unit("Kinds", { kind: pg.integer }))])
+		const Counts = schema("Counts", own, [sealed(unit("Kinds", { kind: int4 }))])
 		const counted = query(Counts).rule((q) => {
 			const { id, kind } = v(Item, "item")
 			return q.match(Item, { id, kind }).find({ kind, n: q.count() })
@@ -247,8 +247,8 @@ export const observedOf = (c: CountCase): Observed =>
 						type:
 							desc.kind === "contract" && desc.name === "natural"
 								? "natural"
-								: desc.kind === "pg" && desc.type === "bigint"
-									? "bigint"
+								: desc.kind === "pg" && desc.type === "int8"
+									? "int8"
 									: "another"
 					}
 				}
@@ -320,14 +320,14 @@ export const featuresOf = (c: CountCase): ReadonlyArray<CountFeature> => {
 					: r.beside === "natural"
 						? "beside a natural in a union"
 						: "beside a bigint in a union, refused",
-				...(r.written && r.beside !== "bigint" ? ["a union written into a natural" as const] : [])
+				...(r.written && r.beside !== "int8" ? ["a union written into a natural" as const] : [])
 			]
 		case "compared":
 			return [
 				...own,
 				r.against === "natural"
 					? "compared with a natural"
-					: r.against === "bigint"
+					: r.against === "int8"
 						? "compared with a bigint, refused"
 						: "compared with a literal"
 			]

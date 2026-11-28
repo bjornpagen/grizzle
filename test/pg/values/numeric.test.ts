@@ -1,5 +1,5 @@
 /**
- * Numeric against PostgreSQL 19: the host's Decimal (scalar/values/decimal.ts) is PostgreSQL's numeric, value for
+ * Numeric against PostgreSQL 19: the host's Numeric (scalar/values/decimal.ts) is PostgreSQL's numeric, value for
  * value.
  *
  * - Parse: every literal, decimal digits with a sign, a point and an exponent, its digits weighted toward the 9s, 4s,
@@ -11,8 +11,8 @@
  *   (codec/scalar.ts), the exact parse, writes the literal's own value exactly where PostgreSQL stores it unchanged,
  *   and refuses it wherever PostgreSQL would store another value or refuse it.
  * - Order: PostgreSQL's positions of a batch of numeric spellings, padded with trailing zeros and the special values
- *   among them, under ORDER BY ascending and descending (ties by position) are the host's under Decimal.compare;
- *   count(DISTINCT) and SELECT DISTINCT keep one value per host Decimal; and `<` and `=` over every value paired with
+ *   among them, under ORDER BY ascending and descending (ties by position) are the host's under Numeric.compare;
+ *   count(DISTINCT) and SELECT DISTINCT keep one value per host Numeric; and `<` and `=` over every value paired with
  *   its mirror in the batch are the host's.
  *
  * Oracle: PostgreSQL itself: numeric_in, apply_typmod through both coercion paths, and numeric's comparison.
@@ -26,7 +26,7 @@ import { array } from "@bjornpagen/testing/gen"
 import { type Case as CaseOf, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
-import { Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
+import { Numeric, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import {
 	caseBatch,
 	codecAnswer,
@@ -84,7 +84,7 @@ export const numericAgreementWithPostgreSQLParsesEveryLiteralToTheValueNumericIn
 					)
 					const mismatches = Arr.filter(
 						chunk,
-						(c, i) => rows[i]?.[1] !== succeeded(Decimal.fromString(c.v)).toString()
+						(c, i) => rows[i]?.[1] !== succeeded(Numeric.fromString(c.v)).toString()
 					)
 					assert.deepEqual(mismatches.slice(0, 5), [])
 				}),
@@ -167,7 +167,7 @@ export const numericAgreementWithPostgreSQLNormalizesLiteralsToNumericPSExactlyA
 						) {
 							mismatches.push({ ...c, host, codec, input, cast })
 						}
-						const x = succeeded(Decimal.fromString(c.v))
+						const x = succeeded(Numeric.fromString(c.v))
 						if (host === "22003" && x.isFinite()) {
 							/** The unrounded magnitude fits, so the rounding alone overflowed. */
 							const fits = normalizeNumeric(x, { precision: 1000, scale: 0 }).ok

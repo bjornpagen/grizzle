@@ -8,7 +8,7 @@ import { mismatchLine } from "#adapter/admission/drift.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import { Logic, Text } from "#compiler/public/compute.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { check, contained, derived, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -264,11 +264,11 @@ const collapsedOf = (t: string): string =>
 /** Any text, as a field holds it. */
 const Prose = str.regex("^.*$", "su")
 
-const Doc = relation("Doc", { node: pg.integer, kind: Prose }, ["node"])
+const Doc = relation("Doc", { node: int4, kind: Prose }, ["node"])
 
-const Extra = relation("Extra", { node: pg.integer }, ["node"])
+const Extra = relation("Extra", { node: int4 }, ["node"])
 
-const Use = relation("Use", { id: pg.integer, doc: pg.integer }, ["id"])
+const Use = relation("Use", { id: int4, doc: int4 }, ["id"])
 
 /**
  * The case's schema under `name`: a check per forbidden text that Doc's kind is not it, a check that its collapse is

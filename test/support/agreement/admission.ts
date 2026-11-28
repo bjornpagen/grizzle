@@ -9,7 +9,7 @@ import { jsonText } from "#compiler/core/trusted.ts"
 import { compilePage, statedOrderOf } from "#compiler/lower/shapes/page/compile.ts"
 import { type QueryTemplate } from "#compiler/program/compile.ts"
 import { queryInput } from "#compiler/program/input.ts"
-import { Decimal, Money, pg, Vector } from "#compiler/public/fields.ts"
+import { Numeric, Money, Vector, int4 } from "#compiler/public/fields.ts"
 import { schema } from "#compiler/public/schema.ts"
 import { queryOver, type QueryValue, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
@@ -116,7 +116,7 @@ import { batchOwned, caseOwned, type Program } from "#test/support/types/batch/b
  * does not compile. The positions whose verdict turns on two constants being one value (deadFilter, heteroClash,
  * threeArmsClash, attachedArmApart, attachedArmKeptApart) and the attached arms beside an arm of their heading, whose
  * verdict turns on no constant, draw only the kinds whose value the types carry, a primitive or a handle (valued): the
- * types take a Decimal, a Money and a typed Type.literal to be any value of their type, the widening they keep
+ * types take a Numeric, a Money and a typed Type.literal to be any value of their type, the widening they keep
  * (types/query/query.ts Apart).
  */
 
@@ -264,8 +264,8 @@ const constantOf = (kind: ConstantKind, pick: number): Constant => {
 		case "decimal": {
 			const v = of(["1.5", "2"])
 			return {
-				source: `Decimal.of(${jsonText(v)})`,
-				value: () => Decimal.of(v),
+				source: `Numeric.of(${jsonText(v)})`,
+				value: () => Numeric.of(v),
 				column: "numeric"
 			}
 		}
@@ -292,8 +292,8 @@ const constantOf = (kind: ConstantKind, pick: number): Constant => {
 		case "typed": {
 			const v = of([1, 2])
 			return {
-				source: `Type.literal(pg.integer, ${v})`,
-				value: () => computeCore.literal(pg.integer, v),
+				source: `Type.literal(int4, ${v})`,
+				value: () => computeCore.literal(int4, v),
 				column: "integer"
 			}
 		}

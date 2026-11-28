@@ -67,7 +67,7 @@ export interface Item {
 }
 
 /**
- * The sorts of the language's terms, each a type grizzle types a term at: an integer (pg.integer), an exact integer
+ * The sorts of the language's terms, each a type grizzle types a term at: an integer (int4), an exact integer
  * (integer arithmetic's result), a bigint, a numeric, a text, a closed id of Flag, a set of Flag, a boolean, a double
  * precision (f8) and a real (f4).
  */

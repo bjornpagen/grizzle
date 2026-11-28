@@ -4,7 +4,7 @@
  */
 export type { InsertAllRowsOf } from "#compiler/public/changeset.ts"
 export { closed as dynamicClosed, relation as dynamicRelation } from "#compiler/public/dynamic.ts"
-export { closedId, generated, pg, uuid } from "#compiler/public/fields.ts"
+export { closedId, generated, int4, uuid } from "#compiler/public/fields.ts"
 export { query, v } from "#compiler/public/query.ts"
 export {
 	closed,

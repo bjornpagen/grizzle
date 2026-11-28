@@ -5,7 +5,7 @@ import { aimed, element, type Gen, option } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, String as Str } from "effect"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { float8, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { mutable, relation, schema, unit } from "#compiler/public/schema.ts"
 import { floatBits } from "#compiler/scalar/compute/float.ts"
@@ -41,131 +41,116 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * artifacts, the optimized one generate serves and the conservative realization, the write oracle's baseline. The
  * relations a write changes sit in the unit of their `s`.
  */
-const Proj = relation(
-	"Proj",
-	{ s: pg.bigint, variable: pg.bigint, value: pg["double precision"] },
-	["s", "variable"]
-)
+const Proj = relation("Proj", { s: int8, variable: int8, value: float8 }, ["s", "variable"])
 
-const Rec = relation(
-	"Rec",
-	{ s: pg.bigint, variable: pg.bigint, field: pg.bigint, base: pg.bigint },
-	["s", "variable", "field"]
-)
-
-const U = relation("U", { s: pg.bigint, variable: pg.bigint, value: pg["double precision"] }, [
+const Rec = relation("Rec", { s: int8, variable: int8, field: int8, base: int8 }, [
 	"s",
-	"variable"
+	"variable",
+	"field"
 ])
 
-const I = relation("I", { s: pg.bigint, variable: pg.bigint, value: pg["double precision"] }, [
+const U = relation("U", { s: int8, variable: int8, value: float8 }, ["s", "variable"])
+
+const I = relation("I", { s: int8, variable: int8, value: float8 }, ["s", "variable"])
+
+const Arm = relation("Arm", { s: int8, variable: int8, field: int8, value: float8 }, [
 	"s",
-	"variable"
+	"variable",
+	"field"
 ])
 
-const Arm = relation(
-	"Arm",
-	{ s: pg.bigint, variable: pg.bigint, field: pg.bigint, value: pg["double precision"] },
-	["s", "variable", "field"]
-)
-
-const P = relation("P", { s: pg.bigint, variable: pg.bigint, value: pg["double precision"] }, [
-	"s",
-	"variable"
-])
+const P = relation("P", { s: int8, variable: int8, value: float8 }, ["s", "variable"])
 
 export const Facts = schema(
 	"Facts",
 	[Proj, Rec, U, I, Arm, P],
-	[mutable(I), mutable(Arm), mutable(P), unit("Sample", { s: pg.bigint })]
+	[mutable(I), mutable(Arm), mutable(P), unit("Sample", { s: int8 })]
 )
 
 /** A parameter relation's facts whole, each at the call's snapshot: `gone`'s, a deletion's member. */
 const goneFacts = query(Facts).rule((r) => {
 	const gone = r.relation("gone", {
-		variable: pg.bigint,
-		field: pg.bigint,
-		value: pg["double precision"]
+		variable: int8,
+		field: int8,
+		value: float8
 	})
 	const { variable, field, value } = v(gone, "gone")
 	return r
 		.match(gone, { variable, field, value })
-		.find({ s: r.param("s", pg.bigint), variable, field, value })
+		.find({ s: r.param("s", int8), variable, field, value })
 })
 
 /** `given`'s facts whole, each at the call's snapshot: an insert's member beside `gone`'s deletion. */
 const givenFacts = query(Facts).rule((r) => {
 	const given = r.relation("given", {
-		variable: pg.bigint,
-		field: pg.bigint,
-		value: pg["double precision"]
+		variable: int8,
+		field: int8,
+		value: float8
 	})
 	const { variable, field, value } = v(given, "given")
 	return r
 		.match(given, { variable, field, value })
-		.find({ s: r.param("s", pg.bigint), variable, field, value })
+		.find({ s: r.param("s", int8), variable, field, value })
 })
 
 /** `given` with its field dropped: each fact's value under its variable. */
 const projected = query(Facts).rule((r) => {
 	const given = r.relation("given", {
-		variable: pg.bigint,
-		field: pg.bigint,
-		value: pg["double precision"]
+		variable: int8,
+		field: int8,
+		value: float8
 	})
 	const { variable, field, value } = v(given, "given")
-	return r
-		.match(given, { variable, field, value })
-		.find({ s: r.param("s", pg.bigint), variable, value })
+	return r.match(given, { variable, field, value }).find({ s: r.param("s", int8), variable, value })
 })
 
 /** `given` matched without its field, each fact's value under its variable: the region itself may meet two facts. */
 const dropped = query(Facts).rule((r) => {
 	const given = r.relation("given", {
-		variable: pg.bigint,
-		field: pg.bigint,
-		value: pg["double precision"]
+		variable: int8,
+		field: int8,
+		value: float8
 	})
 	const { variable, value } = v(given, "given")
-	return r.match(given, { variable, value }).find({ s: r.param("s", pg.bigint), variable, value })
+	return r.match(given, { variable, value }).find({ s: r.param("s", int8), variable, value })
 })
 
 /** The union of two rules, each `given` with its field dropped. */
 const unioned = query(Facts)
 	.rule((r) => {
 		const given = r.relation("given", {
-			variable: pg.bigint,
-			field: pg.bigint,
-			value: pg["double precision"]
+			variable: int8,
+			field: int8,
+			value: float8
 		})
 		const { variable, field, value } = v(given, "first")
 		return r
 			.match(given, { variable, field, value })
-			.find({ s: r.param("s", pg.bigint), variable, value })
+			.find({ s: r.param("s", int8), variable, value })
 	})
 	.rule((r) => {
 		const given = r.relation("given", {
-			variable: pg.bigint,
-			field: pg.bigint,
-			value: pg["double precision"]
+			variable: int8,
+			field: int8,
+			value: float8
 		})
 		const { variable, field, value } = v(given, "second")
 		return r
 			.match(given, { variable, field, value })
-			.find({ s: r.param("s", pg.bigint), variable, value })
+			.find({ s: r.param("s", int8), variable, value })
 	})
 
 /** Each fact of `given`'s header: its variable and field, its value dropped. */
 const header = query(Facts).rule((r) => {
 	const given = r.relation("given", {
-		variable: pg.bigint,
-		field: pg.bigint,
-		value: pg["double precision"]
+		variable: int8,
+		field: int8,
+		value: float8
 	})
 	const { variable, field, value } = v(given, "given")
 	return r
 		.match(given, { variable, field, value })
-		.find({ s: r.param("s", pg.bigint), variable, field, base: 1n })
+		.find({ s: r.param("s", int8), variable, field, base: 1n })
 })
 
 /** The writes, each under its name in the workload, beside the load of Arm's and P's stored facts. P's added and removed
@@ -454,9 +439,9 @@ export const factsTemplate = fixtureTemplate(import.meta, Facts, factsInstall)
 /** A read of `given` whole, each fact its variable, field and value. */
 const readWhole = query(Facts).rule((r) => {
 	const given = r.relation("given", {
-		variable: pg.bigint,
-		field: pg.bigint,
-		value: pg["double precision"]
+		variable: int8,
+		field: int8,
+		value: float8
 	})
 	const { variable, field, value } = v(given, "given")
 	return r.match(given, { variable, field, value }).find({ variable, field, value })
@@ -465,38 +450,38 @@ const readWhole = query(Facts).rule((r) => {
 /** `given` filtered by its variable. */
 const readFiltered = query(Facts).rule((r) => {
 	const given = r.relation("given", {
-		variable: pg.bigint,
-		field: pg.bigint,
-		value: pg["double precision"]
+		variable: int8,
+		field: int8,
+		value: float8
 	})
 	const { variable, field, value } = v(given, "given")
 	return r
 		.match(given, { variable, field, value })
-		.where(r.eq(variable, r.param("variable", pg.bigint)))
+		.where(r.eq(variable, r.param("variable", int8)))
 		.find({ variable, field, value })
 })
 
 /** `given` joined to Rec's stored fact at its variable and field. */
 const readJoined = query(Facts).rule((r) => {
 	const given = r.relation("given", {
-		variable: pg.bigint,
-		field: pg.bigint,
-		value: pg["double precision"]
+		variable: int8,
+		field: int8,
+		value: float8
 	})
 	const { variable, field, value } = v(given, "given")
 	const { base } = v(Rec, "rec")
 	return r
 		.match(given, { variable, field, value })
-		.match(Rec, { s: r.param("s", pg.bigint), variable, field, base })
+		.match(Rec, { s: r.param("s", int8), variable, field, base })
 		.find({ variable, field, value, base })
 })
 
 /** `given` with its field dropped: a merge, which takes each float's canonical zero. */
 const readProjected = query(Facts).rule((r) => {
 	const given = r.relation("given", {
-		variable: pg.bigint,
-		field: pg.bigint,
-		value: pg["double precision"]
+		variable: int8,
+		field: int8,
+		value: float8
 	})
 	const { variable, field, value } = v(given, "given")
 	return r.match(given, { variable, field, value }).find({ variable, value })

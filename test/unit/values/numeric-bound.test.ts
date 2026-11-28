@@ -1,5 +1,5 @@
 /**
- * A computed numeric's bound as a stored field holds it (pg.numeric.within, ir/scalar.ts NumericBound), at the codec's
+ * A computed numeric's bound as a stored field holds it (numeric.within, ir/scalar.ts NumericBound), at the codec's
  * door (values/identity.ts parseValue, values/decimal.ts withinBound): numeric of no typmod within the bound.
  *
  * - Admission: over drawn bounds, below one among them, and values at and about their edges, of a fraction digit more or
@@ -9,7 +9,7 @@
  *   exact rational arithmetic, c / 10^m within it where m is at most its scale and c < 10^(digits + m), apart from the
  *   digit count withinBound reads (numeric-bound.fixtures.ts modelWithin).
  *
- * - Casts: over drawn numeric(p, s) operands and bounds about them, Type.cast into pg.numeric.within(digits, scale)
+ * - Casts: over drawn numeric(p, s) operands and bounds about them, Type.cast into numeric.within(digits, scale)
  *   stands exactly where the operand's values are proved within the bound, p - s at most its digits and s at most its
  *   scale, and is refused otherwise, since nothing rounds into it. Oracle: numeric(p, s)'s values, as its typmod bounds
  *   them.
@@ -23,7 +23,7 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import { Type } from "#compiler/public/compute.ts"
-import { generated, pg } from "#compiler/public/fields.ts"
+import { generated, int4, numeric } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { parseValue } from "#compiler/scalar/values/identity.ts"
 import { faulted, succeeded, throwsRefused } from "#test/support/assert.ts"
@@ -89,7 +89,7 @@ export const aNumericWithinItsComputedBoundIsAdmittedAsItselfNaNAndTheInfinities
 				file: "packages/engine/src/scalar/values/identity.ts",
 				original: "\t\t\t\t? withinBound(value, spec.bound)",
 				replacement: "\t\t\t\t? Result.ok(value)",
-				why: "The codec's door admits every Decimal at a computed numeric's bound, sending one its column refuses."
+				why: "The codec's door admits every Numeric at a computed numeric's bound, sending one its column refuses."
 			}
 		]
 	})
@@ -109,14 +109,14 @@ export const aCastIntoAComputedNumericsBoundStandsExactlyWhereItsOperandsBoundsP
 				Effect.sync(() => {
 					const within = precision - scale <= target.digits && scale <= target.scale
 					c.note(within ? "a cast proved within admitted" : "a cast past the bound refused")
-					const bounded = pg.numeric.within(target.digits, target.scale)
+					const bounded = numeric.within(target.digits, target.scale)
 					const casts = () =>
 						schema(
 							"Casts",
 							[
 								relation.generated(
 									"T",
-									{ id: pg.integer, x: pg.numeric(precision, scale) },
+									{ id: int4, x: numeric(precision, scale) },
 									["id"],
 									(r) => ({ g: generated(bounded, Type.cast(r.x, bounded)) })
 								)

@@ -5,12 +5,12 @@ import { preludeAt, preludeFrom, preludeModule } from "#test/support/prelude.ts"
 import { batchOwned, caseOwned, type Entry, type Program } from "#test/support/types/batch/batch.ts"
 
 /**
- * The stored kinds program: every way a caller writes or states a stored search document (pg.tsvector) or a stored
- * computed numeric (pg.numeric.within), each a statement over Lesson, whose search is a generated document of its title
+ * The stored kinds program: every way a caller writes or states a stored search document (tsvector) or a stored
+ * computed numeric (numeric.within), each a statement over Lesson, whose search is a generated document of its title
  * under english, Note, whose body's is under simple, Kept, which stores an english document, Line, of amounts, and
  * Total, which stores a computed numeric, under the directive the type-test batch disarms exactly where the rule refuses
  * it. The rule, the oracle: a stored document is a SearchDocument, which only a read delivers, and no string, parameter
- * or contract is of it; a stored computed numeric is a Decimal,
+ * or contract is of it; a stored computed numeric is a Numeric,
  * a read's sum among them, and never a bigint. Each statement is a cell of the box.
  */
 
@@ -50,23 +50,23 @@ const boxCases: ReadonlyArray<StoredKindsCase> = [
 	},
 	{
 		what: "a parameter of a search document",
-		statement: 'query(S).rule((r) => r.find({ x: r.param("x", pg.tsvector("english")) }))',
+		statement: 'query(S).rule((r) => r.find({ x: r.param("x", tsvector("english")) }))',
 		verdict: { kind: "refusal", refusal: searchRefusal }
 	},
 	{
 		what: "a relation parameter's search document column",
 		statement:
-			'query(S).rule((r) => { const p = r.relation("p", { doc: pg.tsvector("english") }); const { doc } = v(p, "p"); return r.match(p, { doc }).find({ doc }) })',
+			'query(S).rule((r) => { const p = r.relation("p", { doc: tsvector("english") }); const { doc } = v(p, "p"); return r.match(p, { doc }).find({ doc }) })',
 		verdict: { kind: "refusal", refusal: searchRefusal }
 	},
 	{
 		what: "a contract over a search document",
-		statement: 'contract<typeof probeKey>()("Doc", pg.tsvector("english"))',
+		statement: 'contract<typeof probeKey>()("Doc", tsvector("english"))',
 		verdict: { kind: "refusal", refusal: searchRefusal }
 	},
 	{
-		what: "a stored computed numeric stated from a Decimal",
-		statement: 'ChangeSet.empty(S).insert(Total, [{ id: 1, total: Decimal.of("1.5") }])',
+		what: "a stored computed numeric stated from a Numeric",
+		statement: 'ChangeSet.empty(S).insert(Total, [{ id: 1, total: Numeric.of("1.5") }])',
 		verdict: admitted
 	},
 	{
@@ -83,7 +83,7 @@ const boxCases: ReadonlyArray<StoredKindsCase> = [
 	{
 		what: "a stored computed numeric compared with a numeric",
 		statement:
-			'query(S).rule((r) => { const { id, total } = v(Total, "t"); return r.match(Total, { id, total }).where(r.lt(total, Decimal.of("2"))).find({ id, total }) })',
+			'query(S).rule((r) => { const { id, total } = v(Total, "t"); return r.match(Total, { id, total }).where(r.lt(total, Numeric.of("2"))).find({ id, total }) })',
 		verdict: admitted
 	}
 ]
@@ -119,11 +119,11 @@ const prelude = await Effect.runPromise(preludeAt("test/support/programs/stored-
 /** Lesson and Note, each with a generated document, Kept and Total, which store one and a computed numeric. */
 const storedKindsHeader = `export const probeKey = Symbol("Probe")
 const Title = str.bytes(200, str.regex("^.*$", "su"))
-export const Lesson = relation.generated("Lesson", { id: pg.integer, title: Title }, ["id"], (r) => ({ search: searchDocument("english", ["A", r.title]) }))
-export const Note = relation.generated("Note", { id: pg.integer, body: Title }, ["id"], (r) => ({ search: searchDocument("simple", ["B", r.body]) }))
-export const Kept = relation("Kept", { id: pg.integer, doc: pg.tsvector("english") }, ["id"])
-export const Line = relation("Line", { id: pg.integer, n: pg.integer, amount: pg.numeric(6, 2) }, ["id", "n"])
-export const Total = relation("Total", { id: pg.integer, total: pg.numeric.within(9, 2) }, ["id"])
+export const Lesson = relation.generated("Lesson", { id: int4, title: Title }, ["id"], (r) => ({ search: searchDocument("english", ["A", r.title]) }))
+export const Note = relation.generated("Note", { id: int4, body: Title }, ["id"], (r) => ({ search: searchDocument("simple", ["B", r.body]) }))
+export const Kept = relation("Kept", { id: int4, doc: tsvector("english") }, ["id"])
+export const Line = relation("Line", { id: int4, n: int4, amount: numeric(6, 2) }, ["id", "n"])
+export const Total = relation("Total", { id: int4, total: numeric.within(9, 2) }, ["id"])
 export const S = schema("S", [Lesson, Note, Kept, Line, Total], [])
 export const lessons = query(S).rule((r) => { const { id, search } = v(Lesson, "l"); return r.match(Lesson, { id, search }).find({ id, search }) })
 export const notes = query(S).rule((r) => { const { id, search } = v(Note, "n"); return r.match(Note, { id, search }).find({ id, search }) })

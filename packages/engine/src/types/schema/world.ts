@@ -50,7 +50,7 @@ import type { Mutable, Statement } from "#compiler/types/schema/statements.ts"
  */
 export type ContextField = Field<
 	unknown,
-	"text" | "uuid" | "boolean" | "smallint" | "integer" | "bigint" | "inet" | "cidr" | "code"
+	"text" | "uuid" | "bool" | "int2" | "int4" | "int8" | "inet" | "cidr" | "code"
 > &
 	NoWriting
 

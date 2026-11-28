@@ -87,7 +87,7 @@ const cellLines = (cell: Cell, index: number): ReadonlyArray<string> => {
 		"id: f.id",
 		...Arr.flatMap(fields, ({ field, delivered }) => (delivered ? [`${field}: c.${field}`] : []))
 	])
-	const pin = cell.pinned ? '.where(r.eq(f.id, r.param("id", pg.integer)))' : ""
+	const pin = cell.pinned ? '.where(r.eq(f.id, r.param("id", int4)))' : ""
 	return [
 		`// ${cell.call}, the row's id ${cell.pinned ? "pinned" : "unpinned"}${cell.place === undefined ? "" : `, its place ${cell.place}`}`,
 		`export const q${index} = query(CallKeys).rule((r) => {`,
@@ -108,16 +108,16 @@ const prelude = await Effect.runPromise(preludeAt("test/support/programs/call-ke
 const callKeysHeader = `export const Text = str.bytes(512, str.regex("^.*$", "su"))
 export const Name = str.bytes(40, str.regex("^.*$", "su"))
 export const Kind = closed.unordered("Kind", ["flag", "name"])
-export const Value = variant("Value", Kind, { flag: { value: pg.boolean }, name: { text: Name } })
+export const Value = variant("Value", Kind, { flag: { value: bool }, name: { text: Name } })
 export const Row = relation(
 	"Row",
-	{ id: pg.integer, cell: Value, list: Text, base: Text, lo: pg.integer, hi: pg.integer },
+	{ id: int4, cell: Value, list: Text, base: Text, lo: int4, hi: int4 },
 	["id"]
 )
 export const pieces = fn("pieces", {
 	calls: [],
 	args: { t: Text },
-	returns: rows({ at: pg.integer, piece: Name }),
+	returns: rows({ at: int4, piece: Name }),
 	volatility: "immutable",
 	nullInput: "strict",
 	language: "sql",
@@ -126,7 +126,7 @@ export const pieces = fn("pieces", {
 export const parted = fn("parted", {
 	calls: [],
 	args: { t: Text },
-	returns: row(rows({ parts: rows({ at: pg.integer, piece: Name }) })),
+	returns: row(rows({ parts: rows({ at: int4, piece: Name }) })),
 	volatility: "immutable",
 	nullInput: "strict",
 	language: "sql",

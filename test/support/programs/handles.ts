@@ -5,7 +5,7 @@
 export type { Effect } from "effect"
 export type { CallError, Db, MemberHandle } from "#adapter/public/db.ts"
 export { ChangeSet } from "#compiler/public/changeset.ts"
-export { pg, uuid } from "#compiler/public/fields.ts"
+export { int4, int8, uuid } from "#compiler/public/fields.ts"
 export { query, v } from "#compiler/public/query.ts"
 export { relation, role, schema, wholeEntriesOf } from "#compiler/public/schema.ts"
 export { answered, paged, workload } from "#compiler/public/workload.ts"

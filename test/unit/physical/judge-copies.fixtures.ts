@@ -5,7 +5,7 @@ import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Formatter, String as Str } from "effect"
 import { installOptions } from "#compiler/physical/install/compile.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, type Rule, v } from "#compiler/public/query.ts"
 import { check, derived, relation, schema } from "#compiler/public/schema.ts"
 import type { FromItem, FromSource, OperandSelect } from "#compiler/sql/ast.ts"
@@ -43,7 +43,7 @@ export type Reached =
 	| "limits of three arms"
 	| "read at two columns' names"
 
-const i = pg.integer
+const i = int4
 const Assignment = relation("Assignment", { number: i, child: i, test: i }, ["number"])
 const Limit = relation("Limit", { test: i, kind: i, seconds: i }, ["test", "kind"])
 const Budget = relation("Budget", { child: i, stage: i, resumed: i, remaining: i }, [

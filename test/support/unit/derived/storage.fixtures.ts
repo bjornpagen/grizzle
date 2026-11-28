@@ -14,7 +14,7 @@ import { servedQuery } from "#compiler/ir/derived.ts"
 import type { InferredQuery } from "#compiler/ir/desc.ts"
 import type { SchemaArtifacts } from "#compiler/program/schema.ts"
 import { Fn, Logic, Num, Type } from "#compiler/public/compute.ts"
-import { natural, pg } from "#compiler/public/fields.ts"
+import { natural, int4, int8 } from "#compiler/public/fields.ts"
 import { query, type SelfSource, v } from "#compiler/public/query.ts"
 import {
 	closed,
@@ -36,32 +36,24 @@ import { decodedQuery } from "#test/support/fixtures/ir/desc.ts"
  * natural, and a note at a place, whose text has no byte bound: the document is the unit a stored relation over them
  * stands in, (document, place) the widest one.
  */
-const Doc = relation("Doc", { doc: pg.integer, at: pg.integer, v: pg.integer }, ["doc", "at"])
-const Link = relation(
-	"Link",
-	{ doc: pg.integer, at: pg.integer, toDoc: pg.integer, toAt: pg.integer, rank: natural },
-	["doc", "at"]
-)
-const Note = relation("Note", { doc: pg.integer, at: pg.integer, body: str.regex("^.*$", "su") }, [
+const Doc = relation("Doc", { doc: int4, at: int4, v: int4 }, ["doc", "at"])
+const Link = relation("Link", { doc: int4, at: int4, toDoc: int4, toAt: int4, rank: natural }, [
 	"doc",
 	"at"
 ])
+const Note = relation("Note", { doc: int4, at: int4, body: str.regex("^.*$", "su") }, ["doc", "at"])
 /**
  * A place's marks, each by its number under the place, keyed by the document, the place and the number: a relation
  * the unit of the place reads at a prefix of its key, as ledger's TestMoment is read at its sitting.
  */
-const Mark = relation("Mark", { doc: pg.integer, at: pg.integer, n: pg.integer, v: pg.integer }, [
-	"doc",
-	"at",
-	"n"
-])
+const Mark = relation("Mark", { doc: int4, at: int4, n: int4, v: int4 }, ["doc", "at", "n"])
 const Kind = closed.ordered("Kind", ["first", "second"])
 
 /** An immutable function, a stable one, and an immutable one whose body calls the stable one. */
 const pure = fn("pure", {
 	calls: [],
-	args: { x: pg.integer },
-	returns: pg.integer,
+	args: { x: int4 },
+	returns: int4,
 	volatility: "immutable",
 	nullInput: "strict",
 	language: "sql",
@@ -69,8 +61,8 @@ const pure = fn("pure", {
 })
 const drifting = fn("drifting", {
 	calls: [],
-	args: { x: pg.integer },
-	returns: pg.integer,
+	args: { x: int4 },
+	returns: int4,
 	volatility: "stable",
 	nullInput: "strict",
 	language: "sql",
@@ -78,8 +70,8 @@ const drifting = fn("drifting", {
 })
 const wrapped = fn("wrapped", {
 	calls: [drifting],
-	args: { x: pg.integer },
-	returns: pg.integer,
+	args: { x: int4 },
+	returns: int4,
 	volatility: "immutable",
 	nullInput: "strict",
 	language: "sql",
@@ -630,9 +622,7 @@ const derivedOf = (shape: Shape, base: ReturnType<typeof baseOf>) => {
 				derivedName,
 				query(base).rule((r) => {
 					const { doc, at, v: x } = v(Doc, "d")
-					return r
-						.match(Doc, { doc, at, v: x })
-						.find({ doc, at, identifier: Type.cast(x, pg.bigint) })
+					return r.match(Doc, { doc, at, v: x }).find({ doc, at, identifier: Type.cast(x, int8) })
 				})
 			)
 		case "interior count":
@@ -764,7 +754,7 @@ const derivedOf = (shape: Shape, base: ReturnType<typeof baseOf>) => {
 				})
 			)
 		case "reachable places": {
-			const reached = { doc: pg.integer, at: pg.integer }
+			const reached = { doc: int4, at: int4 }
 			return derived(
 				derivedName,
 				query(base).recursive("Reached", {
@@ -829,8 +819,8 @@ const derivedOf = (shape: Shape, base: ReturnType<typeof baseOf>) => {
 }
 
 /** The unit of the document, and the unit of the document and its place. */
-const documentUnit = unit("Document", { doc: pg.integer })
-const placeUnit = unit("Place", { doc: pg.integer, at: pg.integer })
+const documentUnit = unit("Document", { doc: int4 })
+const placeUnit = unit("Place", { doc: int4, at: int4 })
 
 /** Each declared unit's statement. */
 const unitStatements = { document: documentUnit, place: placeUnit } as const

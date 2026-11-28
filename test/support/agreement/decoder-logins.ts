@@ -1,6 +1,6 @@
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Logic, Type } from "#compiler/public/compute.ts"
-import { contract, mintOf, pg } from "#compiler/public/fields.ts"
+import { contract, mintOf, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { login, relation, role, schema, wholeEntriesOf } from "#compiler/public/schema.ts"
 import { answered, clocked, paged, workload } from "#compiler/public/workload.ts"
@@ -23,7 +23,7 @@ const instantKey = Symbol("Instant")
  * A clocked read's instant: a checked contract over bigint, milliseconds, never negative, whose domain the clocked
  * read's statement casts the clock's reading to; a field of Due types by it, so Shelf installs that domain.
  */
-const Instant = contract<typeof instantKey>()("Instant", pg.bigint, (m) => Logic.ge(m, 0n))
+const Instant = contract<typeof instantKey>()("Instant", int8, (m) => Logic.ge(m, 0n))
 const toInstant = mintOf(instantKey)
 
 const Item = relation("Item", { id: Id }, ["id"])

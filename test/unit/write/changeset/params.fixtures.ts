@@ -2,7 +2,7 @@
 
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Order, Record as Rec } from "effect"
-import { pg } from "#compiler/public/fields.ts"
+import { int4, int8 } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { queryOver as query, varsOver as v } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
@@ -12,10 +12,10 @@ import { describedDesc } from "#compiler/schema/protocol.ts"
 type Declared = "b, c, d" | "b, c" | "c, b, d" | "b, c, d as a bigint"
 
 const headingOf = {
-	"b, c, d": { b: pg.integer, c: pg.integer, d: pg.integer },
-	"b, c": { b: pg.integer, c: pg.integer },
-	"c, b, d": { c: pg.integer, b: pg.integer, d: pg.integer },
-	"b, c, d as a bigint": { b: pg.integer, c: pg.integer, d: pg.bigint }
+	"b, c, d": { b: int4, c: int4, d: int4 },
+	"b, c": { b: int4, c: int4 },
+	"c, b, d": { c: int4, b: int4, d: int4 },
+	"b, c, d as a bigint": { b: int4, c: int4, d: int8 }
 } as const
 
 /** The fields a heading declares, each with the FieldDesc its builder recorded, in name order. */
@@ -30,9 +30,9 @@ export const fieldsOf = (declared: Declared) => {
 	)
 }
 
-export const R = relation("R", { b: pg.integer, c: pg.integer, d: pg.integer }, ["b", "c"])
+export const R = relation("R", { b: int4, c: int4, d: int4 }, ["b", "c"])
 
-export const S = relation("S", { b: pg.integer, c: pg.integer, d: pg.integer }, ["b", "c"])
+export const S = relation("S", { b: int4, c: int4, d: int4 }, ["b", "c"])
 
 export const Pair = schema("Pair", [R, S], [])
 

@@ -6,7 +6,7 @@ import type { Case } from "@bjornpagen/testing/property"
 import { Effect, Formatter } from "effect"
 import { type PlanNode, rowsRead } from "#bench/harness/explain.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, relation, schema, sealed, unit } from "#compiler/public/schema.ts"
 import { pgClassStates, standIn } from "#test/support/advice.ts"
@@ -17,7 +17,7 @@ import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
 
-const i = pg.integer
+const i = int4
 
 /**
  * A package's document tree as pantry's node relation holds it: each element by its place, its kind and its parent's

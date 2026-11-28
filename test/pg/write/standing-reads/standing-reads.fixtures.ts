@@ -2,7 +2,7 @@
 
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Order } from "effect"
-import { closedId, pg } from "#compiler/public/fields.ts"
+import { closedId, int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, derived, relation, schema } from "#compiler/public/schema.ts"
 import { queryOver } from "#compiler/query/build/query.ts"
@@ -20,39 +20,36 @@ const EventKind = closed.unordered("EventKind", ["start", "submit", "abandon"])
 export const Assignment = relation(
 	"Assignment",
 	{
-		child: pg.integer,
-		number: pg.integer,
-		user: pg.integer,
-		test: pg.integer,
-		subject: pg.integer
+		child: int4,
+		number: int4,
+		user: int4,
+		test: int4,
+		subject: int4
 	},
 	["child", "number"]
 )
-export const AssignmentGrade = relation(
-	"AssignmentGrade",
-	{ number: pg.integer, gradeRank: pg.integer },
-	["number"]
-)
-export const Invalidation = relation(
-	"Invalidation",
-	{ child: pg.integer, number: pg.integer, change: pg.integer },
-	["child", "number", "change"]
-)
+export const AssignmentGrade = relation("AssignmentGrade", { number: int4, gradeRank: int4 }, [
+	"number"
+])
+export const Invalidation = relation("Invalidation", { child: int4, number: int4, change: int4 }, [
+	"child",
+	"number",
+	"change"
+])
 export const Reinstatement = relation(
 	"Reinstatement",
-	{ child: pg.integer, number: pg.integer, change: pg.integer },
+	{ child: int4, number: int4, change: int4 },
 	["child", "number", "change"]
 )
 const SittingEvent = relation(
 	"SittingEvent",
-	{ child: pg.integer, number: pg.integer, step: pg.integer, kind: closedId(EventKind) },
+	{ child: int4, number: int4, step: int4, kind: closedId(EventKind) },
 	["child", "number", "step"]
 )
-export const Origin = relation(
-	"Origin",
-	{ child: pg.integer, number: pg.integer, origin: pg.integer },
-	["child", "number"]
-)
+export const Origin = relation("Origin", { child: int4, number: int4, origin: int4 }, [
+	"child",
+	"number"
+])
 
 const base = (name: string) =>
 	schema(
@@ -145,11 +142,11 @@ export const changeOf = (b: Built): ChangeSetValue => {
 	const s = b.schema
 	const admitted = (r: RuleValue) =>
 		r.where(
-			r.not(b.Active, { user: r.param("user", pg.integer), test: r.param("test", pg.integer) }),
+			r.not(b.Active, { user: r.param("user", int4), test: r.param("test", int4) }),
 			r.not(b.ActiveSlot, {
-				user: r.param("user", pg.integer),
-				subject: r.param("subject", pg.integer),
-				gradeRank: r.param("grade", pg.integer)
+				user: r.param("user", int4),
+				subject: r.param("subject", int4),
+				gradeRank: r.param("grade", int4)
 			})
 		)
 	return ChangeSet.empty(s)
@@ -157,11 +154,11 @@ export const changeOf = (b: Built): ChangeSetValue => {
 			Assignment,
 			queryOver(s).rule((r: RuleValue) =>
 				admitted(r).find({
-					child: r.param("child", pg.integer),
-					number: r.param("number", pg.integer),
-					user: r.param("user", pg.integer),
-					test: r.param("test", pg.integer),
-					subject: r.param("subject", pg.integer)
+					child: r.param("child", int4),
+					number: r.param("number", int4),
+					user: r.param("user", int4),
+					test: r.param("test", int4),
+					subject: r.param("subject", int4)
 				})
 			)
 		)
@@ -169,9 +166,9 @@ export const changeOf = (b: Built): ChangeSetValue => {
 			Origin,
 			queryOver(s).rule((r: RuleValue) =>
 				admitted(r).find({
-					child: r.param("child", pg.integer),
-					number: r.param("number", pg.integer),
-					origin: r.param("origin", pg.integer)
+					child: r.param("child", int4),
+					number: r.param("number", int4),
+					origin: r.param("origin", int4)
 				})
 			)
 		)
