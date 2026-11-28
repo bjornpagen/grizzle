@@ -13,9 +13,10 @@
  * The schema: T's facts by document and place, in a unit of the document; Ones and Twos, T's facts of `a` one and of
  * `a` two, at level 1; Fives, Ones' facts of `b` five, at level 2.
  *
- * Property: the first version drafted from no installation creates and fills every stored table, each of Ones' and
- * Twos' fills reading T at its constant `a` through T's index on `a`, which the draft creates before them (its files'
- * advice names it, deploy/render/advise.ts), and the second, over
+ * Property: the first version drafted from no installation, serving one read of T at a given `a`, creates and fills
+ * every stored table, each of Ones' and Twos' fills reading T at its constant `a` through T's index on `a`, which that
+ * read asks (a data step asks no index of its own, physical/ddl/recheck.ts) and the draft creates before them (its
+ * files' advice names it, deploy/render/advise.ts), and the second, over
  * it, which changes nothing, Ones' lowering alone, Ones' installed definition to one calling a function the target no
  * longer holds, T's key of `b`, or Ones', Twos' or Fives' definition, creates again and fills exactly the tables whose
  * meaning or primary key the change changes or whose installed definition reads what is gone, and those above them (a
@@ -30,7 +31,7 @@
 import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
-import { type Case, property } from "@bjornpagen/testing/property"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, String as Str } from "effect"
 import {
 	type Change,
@@ -127,7 +128,16 @@ export const aChangeOfAViewsMeaningCreatesExactlyThatViewAgainAndPopulatesIt = p
 			name: "the schema's own reads: each stored relation reads its own definition, so a change creates again exactly the tables over what it changes"
 		},
 		box: "the schema of Ones and Twos over T and Fives over Ones, stored, its second version changing nothing, Ones' lowering alone, Ones' installed definition to one calling a function no longer held, T's key of b, or Ones', Twos' or Fives' definition",
-		kept: [],
+		kept: [
+			{
+				token: ReplayToken(
+					"test/unit/deploy/view-identity.test.ts#aChangeOfAViewsMeaningCreatesExactlyThatViewAgainAndPopulatesIt@small-stack:-:1"
+				),
+				reason:
+					"a lowering alone, with the served read beside it: Ones' installed definition an earlier lowering's of the same meaning, its table kept, and the second draft dropped the full world's role's view of Ones and created it again with its grant (3 steps), where the view's own statement and its table were unchanged: every grizzle upgrade that lowered a stored relation anew would take every role's view over it away and back under an exclusive lock",
+				since: "2026-11-28"
+			}
+		],
 		kills: [
 			{
 				file: "packages/engine/src/ir/dag.ts",
@@ -180,6 +190,13 @@ export const aChangeOfAViewsMeaningCreatesExactlyThatViewAgainAndPopulatesIt = p
 				why: "A canonical form holds the keys of the relations it reads, so T's key of b names Ones', Twos' and Fives' tables anew and a key added creates and fills every stored table over T again, where it re-indexes them."
 			},
 			{
+				file: "packages/engine/src/deploy/diff/diff.ts",
+				original:
+					'\tif (samePrinted(was, now) || (was.kind === "storedTable" && now.kind === "storedTable")) {\n',
+				replacement: "\tif (samePrinted(was, now)) {\n",
+				why: "A role's view is created again whenever a stored table it reads is lowered anew: the lowering alone drops the full world's view of Ones and creates it again with its grant, three steps where its table stands."
+			},
+			{
 				file: "packages/engine/src/deploy/render/generate.ts",
 				original:
 					"withAttnums(withInstalledViews(state, plan), applied.previous, plan, tableMaxColumns)",
@@ -191,12 +208,6 @@ export const aChangeOfAViewsMeaningCreatesExactlyThatViewAgainAndPopulatesIt = p
 				original: "\tconst steps = [...plan.steps]\n",
 				replacement: "\tconst steps = [...plan.steps]\n\treturn plan\n",
 				why: "The drafter leaves each index where the diff drafted it, after the data steps: Ones' fill reads T through the index on a its draft creates, which stands only once a later statement creates it, so its file's advice names an index the database does not hold yet, the in-force internal compiler error."
-			},
-			{
-				file: "packages/engine/src/physical/indexes/engine.ts",
-				original: '\t\treturn landing.kind === "served" ? landing.index : undefined\n',
-				replacement: "\t\treturn undefined\n",
-				why: "A data step finds no index serving its read at a constant (servingOf), so Ones' and Twos' fills read T whole beside their filter on a, every row of it, where its index on a reaches the rows of their constant alone: their files' advice names no index of T."
 			}
 		]
 	}

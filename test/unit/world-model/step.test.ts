@@ -217,7 +217,7 @@ export const theWorldsModelsMigrationFoldersDraftsAFoldersFilesInTheOrderAndNumb
 				{
 					file: "packages/engine/src/deploy/diff/diff.ts",
 					original:
-						"\tif (samePrinted(was, now)) {\n\t\treturn true\n\t}\n\tconst [before] = was.ddl",
+						'\tif (samePrinted(was, now) || (was.kind === "storedTable" && now.kind === "storedTable")) {\n\t\treturn true\n\t}\n\tconst [before] = was.ddl',
 					replacement:
 						"\tif (sameRecord(was, now)) {\n\t\treturn true\n\t}\n\tconst [before] = was.ddl",
 					why: "A world object whose compile states a proof of its rows that prints nothing reads as changed (diff.ts sameRead by the record): the kept case's view, printing the same statement, is dropped and created again in Structure; this property fails."

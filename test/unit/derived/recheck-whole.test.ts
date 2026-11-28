@@ -85,6 +85,12 @@ export const aDataStepsRecheckAsksNoIndexOfItsOwn = property.exhaust(shapeGen, {
 	],
 	kills: [
 		{
+			file: "packages/engine/src/physical/indexes/engine.ts",
+			original: '\t\treturn landing.kind === "served" ? landing.index : undefined\n',
+			replacement: "\t\treturn undefined\n",
+			why: "A whole read finds no index serving it (servingOf): the re-check reads Snap whole beside a partner that binds its sitting, every row of it, where Snap's key's index, which stands for its key, reaches the partner's rows alone."
+		},
+		{
 			file: "packages/engine/src/physical/install/compile.ts",
 			original: "\t\t\t\tconst bound = asked.readsWhole\n",
 			replacement: "\t\t\t\tconst bound = false\n",

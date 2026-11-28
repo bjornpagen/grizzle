@@ -14,8 +14,10 @@ import { derived, key, on, relation, schema, unit } from "#compiler/public/schem
 import type { CreateIndex, CreateStoredTable, Expr } from "#compiler/sql/ast.ts"
 import { lit, types } from "#compiler/sql/build.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { servedOver } from "#test/support/compiled-served.ts"
 import {
 	asDrafted,
+	type CompileOver,
 	compile,
 	draftChain,
 	fromEmpty,
@@ -91,9 +93,11 @@ export const recreatedBy = (change: Change): ReadonlyArray<View> => {
  * The schema at `version`: T's facts by document and place, in the unit Document, keyed by the document; Ones, those
  * of T whose `a` is one, and Twos, whose `a` is two, each stored at level 1; Fives, those of Ones whose `b` is five,
  * stored at level 2. The second version holds the change of a definition, Ones' `a` three, Twos' four or Fives' `b`
- * six, or T's key of `b`.
+ * six, or T's key of `b`. And the one served read of it, of T's facts at an `a` the call gives (`byA`), which asks the
+ * installation for T's index on `a`: a data step asks no index of its own (physical/ddl/recheck.ts), so Ones' and Twos'
+ * fills read T through that one, which the draft creates before them.
  */
-const schemaOf = (change: Change, version: "first" | "second") => {
+const versionOf = (change: Change, version: "first" | "second") => {
 	const changed = (c: Change): boolean => version === "second" && change === c
 	const T = relation("T", { doc: int4, at: int4, a: int4, b: int4 }, ["doc", "at"])
 	const Document = unit("Document", { doc: int4 })
@@ -102,6 +106,13 @@ const schemaOf = (change: Change, version: "first" | "second") => {
 		[T],
 		changed("key") ? [Document, key(on(T, "b"))] : [Document]
 	)
+	const byA = query(Base).rule((r) => {
+		const { doc, at, a, b } = v(T, "t")
+		return r
+			.match(T, { doc, at, a, b })
+			.where(r.eq(a, r.param("a", int4)))
+			.find({ doc, at, b })
+	})
 	const selected = (a: number) =>
 		query(Base).rule((r) => {
 			const { doc, at, b } = v(T, "t")
@@ -117,8 +128,20 @@ const schemaOf = (change: Change, version: "first" | "second") => {
 			return r.match(Ones, { doc, at, b: changed("Fives") ? 6 : 5 }).find({ doc, at })
 		})
 	)
-	return schema.extend([Level1], "view_identity_2", [Fives], [])
+	return { schema: schema.extend([Level1], "view_identity_2", [Fives], []), programs: { byA } }
 }
+
+/** The schema at `version` (versionOf). */
+const schemaOf = (change: Change, version: "first" | "second") => versionOf(change, version).schema
+
+/**
+ * What a version's draft is compiled under: as generate drafts its schema serving its one read (versionOf `byA`),
+ * through its full world's login (test/support/compiled-served.ts servedOver).
+ */
+const servingOf = (at: ReturnType<typeof versionOf>): CompileOver => ({
+	...asDrafted,
+	...servedOver(at.schema, at.programs)
+})
 
 /** The stored relation a stored table's name names, by the identifier its derived relation's record gives it. */
 const viewNamed = (snapshot: DeploySnapshot, name: string): View =>
@@ -212,7 +235,8 @@ export interface ViewDraft {
 
 /**
  * The name of the index `snapshot` installs on T whose first key is `a`, the column each of Ones' and Twos' fills binds
- * at a constant: what such a fill reads T through.
+ * at a constant: the index the served read asks (versionOf `byA`), which such a fill reads T through, a data step asking
+ * none of its own.
  */
 export const indexOfA = (snapshot: DeploySnapshot): string =>
 	defined(
@@ -271,8 +295,9 @@ const identitiesOf = (desc: ReturnType<typeof schemaOf>): ReadonlyMap<View, Iden
 export const viewDrafts = (
 	change: Change
 ): { readonly first: ViewDraft; readonly second: ViewDraft } => {
+	const firstVersion = versionOf(change, "first")
 	const [first] = draftChain(
-		[{ desc: schemaOf(change, "first"), options: asDrafted, declared: noDeclarations }],
+		[{ desc: firstVersion.schema, options: servingOf(firstVersion), declared: noDeclarations }],
 		fromEmpty
 	)
 	const one = defined(first, "the first migration")
@@ -282,8 +307,9 @@ export const viewDrafts = (
 		change === "lowering" || change === "gone"
 			? relowered(committed.snapshot, change)
 			: committed.snapshot
+	const secondVersion = versionOf(change, "second")
 	const [second] = draftChain(
-		[{ desc: schemaOf(change, "second"), options: asDrafted, declared: noDeclarations }],
+		[{ desc: secondVersion.schema, options: servingOf(secondVersion), declared: noDeclarations }],
 		fromSnapshot(previous)
 	)
 	const two = defined(second, "the second migration")

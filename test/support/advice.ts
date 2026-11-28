@@ -1985,17 +1985,14 @@ export const autovacuumIdle = (
 		(w) =>
 			Effect.map(
 				session.values(
-					"WITH o AS (SELECT r.option_name, r.option_value FROM pg_catalog.pg_class AS c " +
-						"CROSS JOIN LATERAL pg_catalog.pg_options_to_table(c.reloptions) AS r " +
-						"WHERE c.oid = $1::pg_catalog.text::pg_catalog.regclass) SELECT " +
-						Arr.join(
-							Arr.map(
-								autovacuumSettings,
-								(setting) =>
-									`COALESCE((SELECT o.option_value FROM o WHERE o.option_name = '${setting}'), pg_catalog.current_setting('${setting}'))::pg_catalog.float8::pg_catalog.text`
-							),
-							", "
-						) +
+					`WITH o AS (SELECT r.option_name, r.option_value FROM pg_catalog.pg_class AS c CROSS JOIN LATERAL pg_catalog.pg_options_to_table(c.reloptions) AS r WHERE c.oid = $1::pg_catalog.text::pg_catalog.regclass) SELECT ${Arr.join(
+						Arr.map(
+							autovacuumSettings,
+							(setting) =>
+								`COALESCE((SELECT o.option_value FROM o WHERE o.option_name = '${setting}'), pg_catalog.current_setting('${setting}'))::pg_catalog.float8::pg_catalog.text`
+						),
+						", "
+					)}` +
 						", GREATEST(c.reltuples, 0::pg_catalog.float4)::pg_catalog.text, c.relpages::pg_catalog.text, c.relallfrozen::pg_catalog.text, " +
 						"COALESCE(s.n_dead_tup, 0)::pg_catalog.text, COALESCE(s.n_ins_since_vacuum, 0)::pg_catalog.text, " +
 						"COALESCE(s.n_mod_since_analyze, 0)::pg_catalog.text " +

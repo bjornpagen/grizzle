@@ -4875,13 +4875,15 @@ const worldKinds: ReadonlySet<PhysicalKind> = new Set(["view", "worldFunction", 
 /**
  * Whether a role's object reads a previous object as it reads the target's: one whose statements print alike, what
  * PostgreSQL holds of it (recorded.ts samePrinted), so a world object whose compile states a proof of its rows where it
- * stated none is the same object; or a table whose columns keep their names, types and collations, whose generations
- * and constraints alone change. PostgreSQL keeps every view, function and policy over a column a SET EXPRESSION
- * re-expresses and a table whose CHECK is replaced, and a column a migration converts or rebuilds takes the table
- * beneath (worldChangesOf's `beneath`).
+ * stated none is the same object; a stored table, which the migration keeps as it was installed while its meaning
+ * stands (Differ.keptViews), however grizzle lowers its definition now, and takes away where its meaning changes
+ * (Differ.viewDropsOf, worldChangesOf's `beneath`), so a view over one is created again with its table alone; or a table
+ * whose columns keep their names, types and collations, whose generations and constraints alone change. PostgreSQL
+ * keeps every view, function and policy over a column a SET EXPRESSION re-expresses and a table whose CHECK is
+ * replaced, and a column a migration converts or rebuilds takes the table beneath (worldChangesOf's `beneath`).
  */
 const sameRead = (was: RecordedObject, now: ManifestObject): boolean => {
-	if (samePrinted(was, now)) {
+	if (samePrinted(was, now) || (was.kind === "storedTable" && now.kind === "storedTable")) {
 		return true
 	}
 	const [before] = was.ddl
