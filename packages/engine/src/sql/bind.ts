@@ -25,7 +25,8 @@
  * it beside values its place fixes, and that its query takes, pushed into it first, which binds its reads where it
  * fixes their columns; a conjunct joining it to an earlier item of its level is pushed only where it keys a stored
  * read of the table's query, the table then read per row at that key, and otherwise stays the level's, a set join's, so
- * the table is derived once and joined by a hash, never derived again for each row before it. Every sublink and every set operation's arm reads its relations through one item of its own, its
+ * the table is derived once and joined by a hash where PostgreSQL keeps a clause to hash on, never derived again for
+ * each row before it. Every sublink and every set operation's arm reads its relations through one item of its own, its
  * whole query a derived table fenced the same way, so no target names a level PostgreSQL names itself (`exists_N`,
  * `expr_N`, `array_N`, `any_N`, `setop_N`). Every alias is minted again from the advice scope (sql/naming.ts
  * AdviceScope). A statement that reads what it reads whole, once (a stored relation's fill, a data step's re-check),
@@ -73,6 +74,7 @@ import {
 	type OrderItem,
 	overRowsOf,
 	type RangeUse,
+	readConditions,
 	type PlBlock,
 	type PlStatement,
 	type ObjectName,
@@ -418,6 +420,26 @@ const qualifiersOf = (e: Expr): ReadonlySet<string> => {
 	return out
 }
 
+/** Whether an expression holds a VOLATILE call, at its level or in its sublinks: each evaluation of it may differ. */
+const volatile = (e: Expr): boolean => {
+	let found = false
+	new (class extends Transform {
+		override readonly expr = (x: Expr): Expr => {
+			if (
+				x.kind === "call" &&
+				!x.star &&
+				(x.fn.kind === "qualified"
+					? x.fn.volatility === "VOLATILE"
+					: builtinFunctions[x.fn.name].volatility === "VOLATILE")
+			) {
+				found = true
+			}
+			return this.exprChildren(x)
+		}
+	})(identityHooks).expr(e)
+	return found
+}
+
 /** Whether an expression holds a sublink or a VOLATILE call, which no binding or pushed conjunct carries. */
 const opaque = (e: Expr): boolean => {
 	let found = false
@@ -432,19 +454,10 @@ const opaque = (e: Expr): boolean => {
 				found = true
 				return x
 			}
-			if (
-				x.kind === "call" &&
-				!x.star &&
-				(x.fn.kind === "qualified"
-					? x.fn.volatility === "VOLATILE"
-					: builtinFunctions[x.fn.name].volatility === "VOLATILE")
-			) {
-				found = true
-			}
 			return this.exprChildren(x)
 		}
 	})(identityHooks).expr(e)
-	return found
+	return found || volatile(e)
 }
 
 /**
@@ -921,12 +934,20 @@ const stepEntry = (step: JoinStep): Entry =>
 /** How a bound entry joins the entries before it, in the join chain of its level: crosswise, or on its ON. */
 type Step = { readonly join: "cross" } | { readonly join: "on" | "left"; readonly on: Expr }
 
-/** A bound entry: its source, its step, and its plan item and the method that joins it inner. */
+/**
+ * How a bound entry joins what its level joins before it: by a nested loop, read again per row before it (a probe, a
+ * LATERAL item, a function's or arrays' rows, a write's target at tuple ids); by a hash, hashed whole (a MERGE's source,
+ * on the ON its outer join keeps); or as a set join (`set`), whose method its level decides once every entry of it is
+ * bound (`levelJoins`), from the join clauses PostgreSQL keeps of the level's printed conditions.
+ */
+type Joining = JoinMethod | "set"
+
+/** A bound entry: its source, its step, and its plan item and how it joins what its level joins before it. */
 interface BoundEntry {
 	readonly source: FromSource
 	readonly step: Step
 	readonly item: PlanItem<AccessIndexRequest>
-	readonly method: JoinMethod
+	readonly method: Joining
 	/**
 	 * The members of the UNION ALL the item reads, which PostgreSQL flattens into the item's append relation at its level
 	 * (prepjointree.c pull_up_simple_union_all), each its arm's one item: none for any other item.
@@ -947,6 +968,166 @@ const fromOf = (entries: ReadonlyArray<BoundEntry>): ReadonlyArray<FromItem> => 
 			: { kind: step.join, source: e.source, on: step.on }
 	})
 	return isNonEmpty(steps) ? [{ kind: "joins", first: first.source, steps }] : [first.source]
+}
+
+/**
+ * A level's equivalence classes, as PostgreSQL makes them of the equalities its level states (equivclass.c
+ * process_equivalence): each `=` of two sides, neither holding a VOLATILE call, unites them; a side is a column of an
+ * item of the level, by its alias and name, or a member of its own where it reads an item of the level otherwise, or a
+ * value the level fixes where it reads none (a parameter, a literal, a PL variable, an enclosing level's column, which
+ * PostgreSQL plans as a parameter of the level). `reads` holds each member's items, `fixed` the roots of the classes
+ * holding a fixed value (ec_has_const).
+ */
+interface LevelClasses {
+	readonly root: (member: string) => string
+	readonly reads: ReadonlyMap<string, ReadonlySet<string>>
+	readonly fixed: ReadonlySet<string>
+}
+
+const levelClasses = (
+	equalities: ReadonlyArray<Expr>,
+	items: ReadonlySet<string>
+): LevelClasses => {
+	const parent = new Map<string, string>()
+	const reads = new Map<string, ReadonlySet<string>>()
+	const fixed = new Set<string>()
+	const root = (member: string): string => {
+		const up = parent.get(member)
+		if (up === undefined) {
+			return member
+		}
+		const top = root(up)
+		parent.set(member, top)
+		return top
+	}
+	/** A side's member, none for a value the level fixes. */
+	const member = (side: Expr, own: string): string | undefined => {
+		const read = new Set([...qualifiersOf(side)].filter((a) => items.has(a)))
+		if (read.size === 0) {
+			return undefined
+		}
+		const column = columnOf(side)
+		const key = column === undefined ? own : `${column.table}.${column.column}`
+		reads.set(key, read)
+		return key
+	}
+	for (const [at, c] of equalities.entries()) {
+		if (c.kind !== "binary" || c.op !== "=" || volatile(c)) {
+			continue
+		}
+		const left = member(c.left, `${at}<`)
+		const right = member(c.right, `${at}>`)
+		if (left === undefined || right === undefined) {
+			const one = left ?? right
+			if (one !== undefined) {
+				fixed.add(root(one))
+			}
+			continue
+		}
+		const [l, r] = [root(left), root(right)]
+		if (l !== r) {
+			parent.set(l, r)
+			if (fixed.delete(l)) {
+				fixed.add(r)
+			}
+		}
+	}
+	return { root, reads, fixed }
+}
+
+/** Whether every item a member reads is among `among`, and it reads one at least. */
+const readsWithin = (read: ReadonlySet<string> | undefined, among: ReadonlySet<string>): boolean =>
+	read !== undefined && read.size > 0 && [...read].every((a) => among.has(a))
+
+/**
+ * Whether PostgreSQL keeps a join clause pairing `inner`'s items with `outer`'s, one a hash join is keyed by: two members
+ * of one class of no fixed value, one reading `outer`'s items alone and one `inner`'s (equivclass.c
+ * generate_join_implied_equalities, which draws no clause from a class holding a fixed value, stating each member's
+ * equality with the value instead, generate_base_implied_equalities_const); or an equality of an outer join's ON
+ * (`kept`) of those two sides, which PostgreSQL keeps as the join's clause whatever its classes (equivclass.c
+ * reconsider_outer_join_clauses).
+ */
+const keysJoin = (
+	classes: LevelClasses,
+	kept: ReadonlyArray<Expr>,
+	inner: ReadonlySet<string>,
+	outer: ReadonlySet<string>
+): boolean => {
+	const sides = new Map<string, { inner: boolean; outer: boolean }>()
+	for (const [m, read] of classes.reads) {
+		const r = classes.root(m)
+		if (classes.fixed.has(r)) {
+			continue
+		}
+		const side = sides.getOrInsertComputed(r, () => ({ inner: false, outer: false }))
+		side.inner ||= readsWithin(read, inner)
+		side.outer ||= readsWithin(read, outer)
+	}
+	const read = (e: Expr) =>
+		new Set([...qualifiersOf(e)].filter((a) => inner.has(a) || outer.has(a)))
+	return (
+		[...sides.values()].some((s) => s.inner && s.outer) ||
+		kept.some(
+			(c) =>
+				c.kind === "binary" &&
+				c.op === "=" &&
+				!volatile(c) &&
+				((readsWithin(read(c.left), inner) && readsWithin(read(c.right), outer)) ||
+					(readsWithin(read(c.left), outer) && readsWithin(read(c.right), inner)))
+		)
+	)
+}
+
+/**
+ * A level's join problem in its plan's order, its first entry driving and every other joined to the entries before it,
+ * each by its method: a set join's (`set`) a hash where PostgreSQL keeps a join clause pairing the entry with the
+ * entries before it (`keysJoin`), else a nested loop. Its clauses are the level's printed conditions (sql/print.ts
+ * levelWhere, stepCondition): its WHERE `where`, every bound read's conditions and every inner join's ON, one
+ * conjunction PostgreSQL makes its equivalence classes of, and each LEFT JOIN's ON, its entry's alone.
+ */
+const levelJoins = (
+	bound: NonEmptyReadonlyArray<BoundEntry>,
+	where: Expr | undefined
+): {
+	readonly first: PlanItem<AccessIndexRequest>
+	readonly joined: ReadonlyArray<JoinedItem<AccessIndexRequest>>
+} => {
+	const aliases = bound.map((b) => writtenOf(b.source))
+	const items = new Set(aliases.filter((a) => a !== undefined))
+	const ownConditions = (b: BoundEntry): ReadonlyArray<Expr> => [
+		...readConditions(b.source),
+		...(b.step.join === "cross" ? [] : conjunctsOf(b.step.on))
+	]
+	const classes = levelClasses(
+		[
+			...conjunctsOf(where),
+			...bound.flatMap((b) => (b.step.join === "left" ? [] : ownConditions(b)))
+		],
+		items
+	)
+	const [first, ...rest] = bound
+	return {
+		first: first.item,
+		joined: rest.map((b, at): JoinedItem<AccessIndexRequest> => {
+			const alias = aliases[at + 1]
+			const before = new Set(aliases.slice(0, at + 1).filter((a) => a !== undefined))
+			return {
+				item: b.item,
+				join:
+					b.method !== "set"
+						? b.method
+						: alias !== undefined &&
+							  keysJoin(
+									classes,
+									b.step.join === "left" ? ownConditions(b) : [],
+									new Set([alias]),
+									before
+							  )
+							? "hash"
+							: "nestedLoop"
+			}
+		})
+	}
 }
 
 /** A query's ORDER BY, LIMIT and OFFSET, which read its body's FROM. */
@@ -1661,7 +1842,6 @@ class Binder {
 			antis.push(anti.joined)
 			return anti.conjunct
 		})
-		this.#level(name, bound, antis)
 		const frame = {
 			kind: "core",
 			from: fromOf(bound),
@@ -1669,6 +1849,7 @@ class Binder {
 			groupBy: rename.exprs(c.groupBy),
 			having: c.having === undefined ? undefined : rename.expr(c.having)
 		} as const
+		this.#level(name, bound, frame.where, antis)
 		const items = bound.map((b) => b.item)
 		if (c.distinct === false) {
 			return {
@@ -1686,26 +1867,25 @@ class Binder {
 	}
 
 	/**
-	 * A level's plan, its first entry driving and the rest joined in order, then the items of the anti joins PostgreSQL
-	 * makes of its NOT EXISTS conjuncts (`#anti`), where the scope names it.
+	 * A level's plan, where the scope names it: its join problem over its bound entries (`levelJoins`), under `where`,
+	 * the conditions its WHERE states beside its bound reads', then the items of the anti joins PostgreSQL makes of its
+	 * NOT EXISTS conjuncts (`#anti`).
 	 */
 	#level(
 		name: PlanName | undefined,
 		bound: ReadonlyArray<BoundEntry>,
+		where: Expr | undefined,
 		antis: ReadonlyArray<JoinedItem<AccessIndexRequest>>
 	): void {
-		const [first, ...joined] = bound
-		if (name === undefined || first === undefined) {
+		if (name === undefined || !isNonEmpty(bound)) {
 			return
 		}
+		const level = levelJoins(bound, where)
 		this.#levels.push({
 			kind: "joins",
 			name,
-			first: first.item,
-			joined: [
-				...joined.map((j): JoinedItem<AccessIndexRequest> => ({ item: j.item, join: j.method })),
-				...antis
-			],
+			first: level.first,
+			joined: [...level.joined, ...antis],
 			appended: bound.flatMap((b) => b.appended)
 		})
 	}
@@ -1810,7 +1990,7 @@ class Binder {
 			entry.join === "on" || entry.join === "left"
 				? { join: entry.join, on: this.expr(entry.on, self) }
 				: { join: "cross" }
-		const rows = (s: FromSource, method: JoinMethod): BoundEntry => ({
+		const rows = (s: FromSource, method: Joining): BoundEntry => ({
 			source: s,
 			step: step(),
 			item: { alias, scan: { kind: "rows" } },
@@ -1823,9 +2003,9 @@ class Binder {
 				switch (view?.kind) {
 					case "world":
 						this.#world(entry, source.alias, where, outer, alias, view.view)
-						return rows({ ...source, alias }, this.#method(entry, source.alias, where, here, place))
+						return rows({ ...source, alias }, "set")
 					case "apart":
-						return rows({ ...source, alias }, this.#method(entry, source.alias, where, here, place))
+						return rows({ ...source, alias }, "set")
 					case "whole":
 					case undefined:
 						return this.tableEntry(entry, source, place, where, here, alias, order)
@@ -1837,10 +2017,7 @@ class Binder {
 				const name = here.ctes.get(source.name)
 				return name === undefined
 					? defect(`a CTE ${source.name} a WITH in reach binds`)
-					: rows(
-							{ kind: "cte", name, alias },
-							this.#method(entry, source.alias ?? source.name, where, here, place)
-						)
+					: rows({ kind: "cte", name, alias }, "set")
 			}
 			case "probe":
 				return this.statedProbe(source, here, alias, step())
@@ -1874,7 +2051,7 @@ class Binder {
 						marked,
 						alias
 					},
-					this.#method(entry, source.alias, where, here, place)
+					"set"
 				)
 				return { ...read, item: { alias: marked, scan: { kind: "rows" } } }
 			}
@@ -1892,7 +2069,7 @@ class Binder {
 					"nestedLoop"
 				)
 			case "transition":
-				return rows({ ...source, alias }, this.#method(entry, source.alias, where, here, place))
+				return rows({ ...source, alias }, "set")
 			case "context": {
 				const inner = this.#alias(source.inner)
 				this.#levels.push({
@@ -1902,10 +2079,7 @@ class Binder {
 					joined: [],
 					appended: []
 				})
-				return rows(
-					{ ...source, inner, alias },
-					this.#method(entry, source.alias, where, here, place)
-				)
+				return rows({ ...source, inner, alias }, "set")
 			}
 			case "function":
 				return rows(
@@ -1940,7 +2114,7 @@ class Binder {
 			case "values":
 				return rows(
 					{ ...source, alias, rows: mapNonEmpty(source.rows, (r) => this.renamer(outer).exprs(r)) },
-					this.#method(entry, source.alias, where, here, place)
+					"set"
 				)
 		}
 	}
@@ -2071,34 +2245,6 @@ class Binder {
 			method: "nestedLoop",
 			appended: []
 		}
-	}
-
-	/**
-	 * How an item no index binds joins the items before it: by a hash where an equality of its WHERE or ON pairs one of
-	 * its columns with a column of an earlier item of its level, a set join's; else by a nested loop.
-	 */
-	#method(
-		entry: Entry,
-		written: string,
-		where: ReadonlyArray<Expr>,
-		here: Env,
-		place: number
-	): JoinMethod {
-		if (place === 0) {
-			return "nestedLoop"
-		}
-		const pool =
-			entry.join === "on" || entry.join === "left" ? [...where, ...conjunctsOf(entry.on)] : where
-		const earlier = (a: string) => {
-			const d = here.relations.get(a)
-			return d?.depth === here.depth && d.place < place
-		}
-		return pool.some((c) => {
-			const b = bindingOf(c, written)
-			return b?.op === "=" && [...qualifiersOf(b.value)].some(earlier)
-		})
-			? "hash"
-			: "nestedLoop"
 	}
 
 	/** A stored table's entry (see the header): a probe where an earlier item binds it, a seek, or a whole read. */
@@ -2285,7 +2431,7 @@ class Binder {
 			source: bound.source,
 			step,
 			item: { alias: stored === undefined ? alias : itemAlias(stored, alias), scan: bound.scan },
-			method: this.#method(entry, written, where, here, place),
+			method: "set",
 			appended: []
 		}
 	}
@@ -2571,8 +2717,8 @@ class Binder {
 	 * query bound as a level its alias names, fenced where PostgreSQL would pull it up. A conjunct that also reads an
 	 * earlier item of its level is pushed only where it binds a stored read of the table's query (`#keyedBy`), the table
 	 * then LATERAL, read per row before it at the key, as a probe is; any other stays the level's, a set join's
-	 * condition, so the table is derived once and joined by a hash (`#method`), never derived again for each row before
-	 * it, a CTE's scan or a fold over every row read once; one the lowering wrote LATERAL takes those too.
+	 * condition, so the table is derived once and joined as a set (`levelJoins`), never derived again for each row
+	 * before it, a CTE's scan or a fold over every row read once; one the lowering wrote LATERAL takes those too.
 	 */
 	derivedEntry(
 		entry: Entry,
@@ -2631,7 +2777,7 @@ class Binder {
 			source: { kind: "derived", query: bound.query, alias, lateral },
 			step,
 			item: { alias, scan: { kind: "rows" } },
-			method: lateral ? "nestedLoop" : this.#method(entry, written, where, here, place),
+			method: lateral ? "nestedLoop" : "set",
 			appended: bound.items
 		}
 	}
@@ -2731,18 +2877,15 @@ class Binder {
 				appended: []
 			}
 			here = withRelation(here, written, alias, depth, place)
+			const rename = this.renamer(here)
+			const tidWhere = conjunction(where.map((x) => rename.expr(x)))
 			this.#level(
 				name,
 				[...qualifiersOf(atTid.value)].some(earlier) ? [...bound, tidRead] : [tidRead, ...bound],
+				tidWhere,
 				[]
 			)
-			const rename = this.renamer(here)
-			return {
-				alias,
-				items: fromOf(bound),
-				where: conjunction(where.map((x) => rename.expr(x))),
-				env: here
-			}
+			return { alias, items: fromOf(bound), where: tidWhere, env: here }
 		}
 		const bindings =
 			catalogTable === undefined
@@ -2773,30 +2916,27 @@ class Binder {
 			)
 			bound.push(probed)
 			here = withRelation(here, written, alias, depth, place + 1)
+			const rename = this.renamer(here)
+			const probedWhere = conjunction([
+				eq(col(alias, tupleId), col(probeAlias, tupleId)),
+				...where.map((x) => rename.expr(x))
+			])
 			this.#level(
 				name,
 				[
 					...bound,
 					{
-						source: probed.source,
+						source: { kind: "read", table, alias, access: { kind: "whole" } },
 						step: { join: "cross" },
 						item: { alias, scan: { kind: "tid" } },
 						method: "nestedLoop",
 						appended: []
 					}
 				],
+				probedWhere,
 				[]
 			)
-			const rename = this.renamer(here)
-			return {
-				alias,
-				items: fromOf(bound),
-				where: conjunction([
-					eq(col(alias, tupleId), col(probeAlias, tupleId)),
-					...where.map((x) => rename.expr(x))
-				]),
-				env: here
-			}
+			return { alias, items: fromOf(bound), where: probedWhere, env: here }
 		}
 		const many =
 			catalogTable !== undefined &&
@@ -2833,6 +2973,8 @@ class Binder {
 							}
 						}
 		here = withRelation(here, written, alias, depth, place)
+		const rename = this.renamer(here)
+		const targetWhere = conjunction(where.map((x) => rename.expr(x)))
 		this.#level(
 			name,
 			[
@@ -2845,15 +2987,10 @@ class Binder {
 				},
 				...bound
 			],
+			targetWhere,
 			[]
 		)
-		const rename = this.renamer(here)
-		return {
-			alias,
-			items: fromOf(bound),
-			where: conjunction(where.map((x) => rename.expr(x))),
-			env: here
-		}
+		return { alias, items: fromOf(bound), where: targetWhere, env: here }
 	}
 
 	update(s: Update, env: Env, name: PlanName): Update {
@@ -2938,6 +3075,7 @@ class Binder {
 				},
 				{ ...source, method: "hash" }
 			],
+			undefined,
 			[]
 		)
 		const [using] = fromOf([source])

@@ -307,6 +307,12 @@ export const aNodeReadTwiceUnderARowSiteAtOneKeyIsReadAtTheKeyAtBoth = stageProp
 				"\t\t\tr.readers.filter((reader) => lowered.has(reader)).length > 1 &&\n\t\t\touterOf(r.node).every((c) => !within.has(c.node))\n",
 			replacement: "\t\t\tfalse\n",
 			why: "A node read twice under a row site is lowered at each read: the fold is derived at both reads of the pair, the stage's sessions and their attempts read twice for the sitting's one key (two runs of each relation's scans, where held it is one), the second derivation read again for each row of the first from a sort PostgreSQL keeps of it, within three times the stage's rows."
+		},
+		{
+			file: "packages/engine/src/sql/bind.ts",
+			original: "\t\tif (classes.fixed.has(r)) {\n\t\t\tcontinue\n\t\t}\n",
+			replacement: "",
+			why: "A class of the level's equalities holding a value the level fixes keys a hash: the pair's second read of the held fold, equal to the first at the child and the stage, each equal to the sitting's, is carried HASH_JOIN, which PostgreSQL cannot plan, the class's join clauses stated as each member's equality with the sitting's columns, a parameter of the level, so the plan laws find the hash failed and the nested loop it planned disabled."
 		}
 	]
 )

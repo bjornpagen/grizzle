@@ -24,7 +24,10 @@ import type { Alias } from "#compiler/sql/naming.ts"
  * How an item after a level's first joins the items before it: a nested loop, the item inner and read again per row
  * before it, a probe's and a LATERAL item's, whose reads PostgreSQL plans per driving row with its values as
  * parameters, and a cross product's; or a hash join, the item hashed whole, a set join's of an item no index binds (a
- * CTE's scan, a fenced derived table, a function's or arrays' rows) to the items before it by an equality.
+ * CTE's scan, a fenced derived table, a function's or arrays' rows) to the items before it by an equality PostgreSQL
+ * keeps as a join clause, one of a class of the level's equalities that holds no value the level fixes (sql/bind.ts
+ * keysJoin): of a class that holds one, PostgreSQL states each member's equality with the value and pairs no two items,
+ * so the join is a nested loop.
  */
 export type JoinMethod = "nestedLoop" | "hash"
 
