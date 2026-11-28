@@ -54,7 +54,7 @@ const pastRange: Readonly<Record<16 | 32 | 64, string>> = {
 }
 
 /**
- * Texts a field's type refuses as a context source casts a hand-set claim to it (README "Direct SQL access"), one per
+ * Texts a field's type refuses as a context source casts a hand-set claim to it (docs/access.md "Direct SQL access"), one per
  * way its cast refuses: no uuid (22P02); no integer (22P02), one past the type's range (22003); no boolean (22P02); a
  * handle's name where its code belongs (22P02), a code no live handle holds (23514), one past a smallint (22003); a
  * value past a contract's bounds (23514); a text its pattern refuses (23514), the first of its edge strings it does.
@@ -169,7 +169,7 @@ export const claimsArms = (
 	)
 	/**
 	 * A real user's facts, every context the role reads, or half the time only some of them: a writer may set any of its
-	 * contexts, and a context its setting leaves out holds no fact (README "Security model").
+	 * contexts, and a context its setting leaves out holds no fact (docs/access.md "Security model").
 	 */
 	const live: Gen<ClaimsSetting> = (source) => {
 		const facts = source.draw(liveFactsGen(state, read))

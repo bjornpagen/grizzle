@@ -25,7 +25,7 @@
  * not; two trees, a root alone, a node of several children, a grandchild; and each fate of a vector key. Each pending situation is aimed at by a case constructed to reach it (a leading owner of a
  * drawn size, keys written from the highest down, a fixed tree shape, a fixed fate), never by filtering draws.
  *
- * A stored index is data: an ordered family whose owner is re-keyed keeps each member's stored index (README "A stored
+ * A stored index is data: an ordered family whose owner is re-keyed keeps each member's stored index (docs/operations.md "A stored
  * index is data"). A case stores one or two ordered families over one owner, keyed by an int4 id, each family's
  * members in a drawn stored order (keys drawn apart, so mostly out of the stored order), the first folded by sum of x
  * into named accumulators, the second folded or not; then migrates to an owner keyed by one to three fields of drawn

@@ -270,7 +270,7 @@ const integerValue = (text: string): HostValue => {
 }
 
 /**
- * A hand-set claim cast to its field's type (README "Direct SQL access"): its base type's input first, 22P02 for a
+ * A hand-set claim cast to its field's type (docs/access.md "Direct SQL access"): its base type's input first, 22P02 for a
  * text that is no value of it (not a uuid, not an integer, not a boolean) and 22003 for an integer past its range;
  * then its refinement, its law domain's CHECK for a value its contract or pattern refuses, a bare 23514 where that
  * CHECK states no law (a pattern only context fields carry, which types no stored field). A closed id's claim is its
@@ -654,7 +654,7 @@ export const startedBranches = (
 }
 
 /**
- * A direct SQL writer's statements (README "Direct SQL access", "Security model"), each meeting PostgreSQL in
+ * A direct SQL writer's statements (docs/access.md "Direct SQL access", "Security model"), each meeting PostgreSQL in
  * the order it checks: privileges at executor start, then a table's below-SERIALIZABLE guard (a BEFORE statement
  * trigger), then the CHECK of each law domain as a row's values are cast (an UPDATE's for each row it changes), then
  * row security's check of each row, then the constraints as the row enters. A refused statement aborts the
@@ -948,7 +948,7 @@ export const directBranches = (
 					]
 		)
 	/**
-	 * What a plan that reads no faulty claim makes of a query entry's arms, under the facts the claims hold (README "The
+	 * What a plan that reads no faulty claim makes of a query entry's arms, under the facts the claims hold (docs/access.md "The
 	 * claims setting": a plan's judgment of a row is what it reads of it): the rows it returns, and whether every plan
 	 * reads a faulty claim, so the view answers only with its refusal. An arm reading a faulty context in a match, a
 	 * comparison or its head (boundContexts) returns no row: every row it returns reads the claim, and a plan reaches
@@ -1030,7 +1030,7 @@ export const directBranches = (
 			: { kind: "view", entry, readable: holdsWhole(state.install, role, entry.relation) }
 	}
 	/**
-	 * A read of a role's view (README "Security model"): only the role itself reads its query entries' views, in its own
+	 * A read of a role's view (docs/access.md "Security model"): only the role itself reads its query entries' views, in its own
 	 * schema, and every role holding a relation whole reads its whole view (viewNamed); a closed whole entry has no view;
 	 * a predicate naming a field the view lacks is refused as the statement is analyzed, before the read is judged. The view
 	 * reads faulty claims as its judgment says (viewJudgment); a plan that reads none returns the rows its arms admit
@@ -1483,7 +1483,7 @@ const readsAsIdentifier = (named: Named): boolean =>
 	named.kind === "owner" || (named.name !== "" && !Str.includes("\u0000")(named.name))
 
 /**
- * What SET ROLE or SET SESSION AUTHORIZATION meets naming a role it may not take on (README "Direct SQL access"): 42501
+ * What SET ROLE or SET SESSION AUTHORIZATION meets naming a role it may not take on (docs/access.md "Direct SQL access"): 42501
  * for a role that exists; 22023 for a name no role holds; and an error of its own for a name no identifier spells,
  * which the statement's text refuses before any role is looked up.
  */
@@ -1595,7 +1595,7 @@ const literalFault = (domain: FieldDomain, text: string): "22P02" | "22003" | un
 }
 
 /**
- * A call of a function the installation defines (README "Direct SQL access", "Security model"): a role executes exactly its own
+ * A call of a function the installation defines (docs/access.md "Direct SQL access", "Security model"): a role executes exactly its own
  * filter functions and key probes. A function
  * the installation does not define, or called with another number of arguments, is an error of its
  * own, before any privilege is checked.
@@ -1793,7 +1793,7 @@ const nativeKeys = (law: HostLaw, view: HostState): ReadonlyArray<KeyOf> => {
  * A direct writer's law refusal, its witness as PostgreSQL's message shows it. A native constraint's DETAIL names the
  * keys nativeKeys finds that PostgreSQL shows the role (catalog.ts keyShown), and none of any other: it omits key detail
  * where row security is on and where the role holds SELECT neither on the table nor on every key column. It is judged
- * as the identity in force where the law is checked (README "Direct SQL access", Direct SQL writers): the role the
+ * as the identity in force where the law is checked (docs/access.md "Direct SQL access", Direct SQL writers): the role the
  * transaction took on, or else its login, which holds nothing, a login after RESET ROLE too, so it is shown no key.
  * Every law is native (fin.md §7), so no witness is a law function's.
  */
@@ -1820,7 +1820,7 @@ const lawWitness = (
 }
 
 /**
- * An interruption of a direct writer's session (README "Transactions and concurrency": interruption is the only cancellation; treat an
+ * An interruption of a direct writer's session (docs/errors-and-concurrency.md "Transactions and concurrency": interruption is the only cancellation; treat an
  * interrupted write like CommitUnknown). With no call in flight nothing changes. A COMMIT the interruption meets may
  * have finished first, with its own outcome; or it is lost, the caller seeing the interruption or CommitUnknown, and the
  * change committed or not, committed only when COMMIT would have succeeded.

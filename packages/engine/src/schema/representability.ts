@@ -1242,7 +1242,7 @@ export const textBytesBeside = (
  *   text analysis's bound), by a contract's charLength predicate, utf8EncodingMaxBytes per code point, and by a
  *   contract's octetLength predicate, exactly; the wildcard pattern has none, and a key over a text of no byte bound is
  *   refused (`unboundedText`). grizzle holds no key column by a digest of its own: a key that can outgrow its entry is
- *   refused, and its author bounds the field or keys by a digest the schema declares (README "Keys and indexes"). A
+ *   refused, and its author bounds the field or keys by a digest the schema declares (docs/limits.md "Keys and indexes"). A
  *   vector(n) is its header and n reals (vectorHeaderBytes, pgvector's Vector struct), a
  *   key field like any other: every vector has one form, its components finite (pgvector refuses NaN and infinity)
  *   and its zero 0, so pgvector's equality is identity. A range is its header, its two bounds and its flags byte

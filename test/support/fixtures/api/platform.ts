@@ -1540,7 +1540,7 @@ const capsGiven = {
  * A workspace's caps for the months given, read from a relation parameter: each given month's cap set, or the month
  * added, and every other month left as it is. The platform removes no month's cap: WorkspaceLimit owns its month's
  * charges and is no family's member, so a delete of it removes each month whole with every row nested under it
- * (README "Families", a group is deleted whole, through its owner), the charges' debits among them, and a debit is a
+ * (docs/schema.md "Families", a group is deleted whole, through its owner), the charges' debits among them, and a debit is a
  * member of its grant's family too, which no such delete removes. grizzle refuses that delete when the ChangeSet
  * compiles, since it would leave the grant's group partial.
  */

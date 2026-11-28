@@ -44,7 +44,7 @@
  * 64-bit id, where a row's xmin, 32 bits, is a savepoint's own inside one and repeats past a wraparound that froze the
  * row (physical/ddl/seal.ts, which records its founder alike).
  *
- * Why a key's stamps follow its calls' commits, at every level (README "Instants"): the function's INSERT ... ON
+ * Why a key's stamps follow its calls' commits, at every level (docs/reads-and-writes.md "Instants"): the function's INSERT ... ON
  * CONFLICT DO UPDATE either inserts the key's row or locks the row it meets and assigns from that row's latest
  * committed version, waiting for a writer of it still in progress, whatever the calling statement's snapshot holds
  * (PostgreSQL 19, src/backend/executor/nodeModifyTable.c ExecOnConflictUpdate, heap_lock_tuple, the conflicting row
@@ -55,7 +55,7 @@
  * carries it past. An aborted call's advance is rolled back with it, so a place stays gapless. Under a transaction
  * snapshot, REPEATABLE READ or SERIALIZABLE, a row the snapshot cannot see raises 40001 (ExecCheckTupleVisible), so a
  * SERIALIZABLE call never stamps after a head it did not see. A unit's every write holds the unit's borrow exclusively
- * at its key before its first statement (README "Units"), so its head's lock is one no other call of the key could have
+ * at its key before its first statement (docs/schema.md "Units"), so its head's lock is one no other call of the key could have
  * met: it adds no wait. Calls that stamp different keys lock different rows and wait on nothing of each other's. Its
  * rows are taken in key order, so two calls that stamp several keys of one head never wait on each other in a cycle.
  *

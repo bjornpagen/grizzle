@@ -450,7 +450,7 @@ export const aDeleteOfAPlacesWholeGroupsDeletesTheirHeadsSoEachClearedGroupStamp
 				),
 		oracle: {
 			kind: "specification",
-			name: "README's Places: a delete of a place's relation removes whole groups and their heads, so a cleared group's next place is 0, as a group never stamped's"
+			name: `docs/reads-and-writes.md "Places": a delete of a place's relation removes whole groups and their heads, so a cleared group's next place is 0, as a group never stamped's`
 		},
 		box: "Session, an owner of its marks, or Note, which owns no family: items 1 and 2 of child 1, each over one or two stored places, one or both cleared by deleteWhere at the place's group, then one row stamped at each",
 		kept: [],

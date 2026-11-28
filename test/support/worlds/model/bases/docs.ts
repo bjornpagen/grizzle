@@ -150,7 +150,7 @@ const docsLevelBase: BaseSpec = {
 const badge: FieldDomain = textDomain("^[a-z]\\w{0,3}.$", "u")
 
 /**
- * The context Profile, read from the token's `p` claim object: a field of every type a context field takes (README
+ * The context Profile, read from the token's `p` claim object: a field of every type a context field takes (docs/access.md
  * "Permissions"), a uuid, a text of a pattern, an integer of each width, a boolean, a closed id of the roster Tier and
  * the contract Plan.
  */
@@ -221,7 +221,7 @@ const subjectClaim = claim("Session", "sub")
  * of organizations on a plan of at least one, without their owners (a read-only query entry), and the roster Tier
  * whole. The signed-in `member` reads Session and Tenant: the tenant's documents, written with `org` filled from the
  * claim; the shares of the tenant's documents; its own shares, written with `user` filled from the claim; its notes on
- * the tenant's documents, with `author` in its head bound to `Session.sub` (README "Writing through a role": a claim-fixed head
+ * the tenant's documents, with `author` in its head bound to `Session.sub` (docs/access.md "Writing through a role": a claim-fixed head
  * field, which no role may UPDATE, beside `doc`, bound to the claim only through Doc's join, which it may); the
  * tenant's documents it holds no share of (a negation reading a claim); the tenant's organization; and Tier whole. Both
  * are in the login `web`. The nightly `job`, in the login `ops`, writes Org whole and reads documents only as their
@@ -323,7 +323,7 @@ export const docsInstall: InstallSpec = {
 /**
  * The documents base's README-shaped worlds with the nightly `job` reading DocLinks beside its entries: every document's
  * id and organization, by two rules, one over every document and one over those of no negative word count, so the role
- * reads a union of rules, which a recursive read of it may not read in its step (README "A recursive rule joins
+ * reads a union of rules, which a recursive read of it may not read in its step (docs/reads-and-writes.md "A recursive rule joins
  * `self`": RecursionRefused, cause unionStep), its two uuid fields a pair a recursive read chains.
  */
 export const docsUnionInstall: InstallSpec = {

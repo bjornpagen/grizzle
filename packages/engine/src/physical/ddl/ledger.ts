@@ -113,7 +113,7 @@ const one = target(lit.int(1n, types.integer))
 /**
  * The library PostgreSQL 19 plans every statement grizzle sends by: contrib's planner module, which enforces the advice
  * in force where a statement is planned or replanned (pg_plan_advice.advice), by the name its module magic gives it.
- * Every session grizzle serves loads it (README "Install"), by shared_preload_libraries or by the database's
+ * Every session grizzle serves loads it (docs/operations.md "Plan advice"), by shared_preload_libraries or by the database's
  * session_preload_libraries; without it PostgreSQL plans every statement by its own costs.
  *
  * @formatConstant pg_plan_advice's module name, PG_MODULE_MAGIC_EXT(.name = "pg_plan_advice")

@@ -1,6 +1,6 @@
 /**
  * The host claims decoder (packages/grizzle/src/adapter/db/claims.ts tokenFacts, then claimsOf) decodes a verified payload exactly as
- * README "Permissions" and "Security model" say, over the shapes a `verify` can return that JSON cannot: a claim or a
+ * docs/access.md "Permissions" and "Security model" say, over the shapes a `verify` can return that JSON cannot: a claim or a
  * field on the payload's prototype chain rather than its own, a getter, a getter whose read throws, a non-object claim.
  * The worlds model's host decoder (test/support/worlds/model/session/claims.ts payloadFacts) is the specification,
  * written apart from the implementation; a payload whose reading does not throw must decode through grizzle to exactly

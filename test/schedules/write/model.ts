@@ -316,7 +316,7 @@ const applyStratum = (state: State, members: ReadonlyArray<Member>): State => {
  * A grizzle write at a state: applied, with whether it changed the state, or refused by these laws. Keys are checked at
  * each stratum's end, the deferred containment at the end of the last. A deletion names its fact exactly, so two facts
  * one stratum deletes at one key are no refusal: at most one of them is stored, and deleting the other changes nothing
- * (README "A relation's rows are a set").
+ * (docs/reads-and-writes.md "A relation's rows are a set").
  */
 type GrizzleMeaning =
 	| { readonly kind: "applied"; readonly changed: boolean; readonly state: State }

@@ -137,7 +137,7 @@ const combinedOf = (s: Schema, c: MergedRead): ChangeSetValue => {
 /**
  * The case's ChangeSet, built by the builder's view for a caller whose ChangeSets are known only at run time (one
  * builder, write/changeset/value.ts changeSetOver): the members combined (`combinedOf`), a bound standing's relation
- * parameter then bound once on the whole to a query of Item's facts, evaluated before its first stratum (README
+ * parameter then bound once on the whole to a query of Item's facts, evaluated before its first stratum (docs/reads-and-writes.md
  * "Writes").
  */
 export const changeOf = (s: Schema, c: MergedRead): ChangeSetValue => {

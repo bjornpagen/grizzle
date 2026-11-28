@@ -50,7 +50,7 @@ const columnsOf = (r: Reference): Arr.NonEmptyReadonlyArray<Column> =>
 	r.kind === "superkey" ? r.order : Arr.append(r.order, r.fixed)
 
 /**
- * The columns of T a fixed target's own UNIQUE holds, a side over its selection (README "Sides"): its guarded term, the
+ * The columns of T a fixed target's own UNIQUE holds, a side over its selection (docs/schema.md "Sides"): its guarded term, the
  * one over T's earliest field, its primary key `k` first and every other field after it in declared order
  * (columnsInOrder), generated under its selection, as the seat names a column generated from a field
  * (test/support/pg/fin/installed.ts), and each other term its field's own column. One guarded column holds the side apart:

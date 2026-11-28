@@ -34,7 +34,7 @@ import type { BuiltRole } from "#test/support/worlds/execute/build.ts"
  * is refused when it is declared, `filterReadsFamily` naming the field; every other role is declared, and a write
  * through its entry is admitted exactly when its fact states no family field, which no fact of the entry states. A
  * delete through the entry is refused when its ChangeSet compiles, whatever its fact: Store owns a family and is no
- * family's member, so a delete of it removes each store whole with its Items (README "Families"), which no write
+ * family's member, so a delete of it removes each store whole with its Items (docs/schema.md "Families"), which no write
  * through a query entry may (write/frontend/compile.ts, a whole delete through a query entry).
  */
 

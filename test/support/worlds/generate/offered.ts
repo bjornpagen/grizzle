@@ -69,7 +69,7 @@ const refusedClaims = (state: ModelState, session: number): boolean => {
  * The sessions an action of a kind may name in a state: every session for a close or a direct statement; every one
  * but a Db with claims PostgreSQL refuses for a read (refusedClaims); the quiet ones of those otherwise. A Db whose
  * snapshot a migration moved past, or met while one is unfinished, or opened at a snapshot no migration lands, is named
- * like any other: its calls are refused by their prologue (README "Deploying").
+ * like any other: its calls are refused by their prologue (docs/operations.md "Deploying").
  */
 export const allowedFor =
 	(state: ModelState, kind: SessionKind): ((session: number) => boolean) =>

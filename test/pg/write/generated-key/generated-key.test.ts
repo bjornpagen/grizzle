@@ -7,7 +7,7 @@
  * `refused` on the key, its witness the key's values as PostgreSQL stores them; a deletion compares only at
  * keys whose fields it states; a new owner's nested members meet such a key at its index, refused on the key with an
  * `unreported` witness, and a member a put appends to a stored owner meets it at its gate's probe of the stored members
- * (write/family/statements.ts candidateGate), refused on the key, witnessed by the appended row's key (README "Errors
+ * (write/family/statements.ts candidateGate), refused on the key, witnessed by the appended row's key (docs/errors-and-concurrency.md "Errors
  * and outcomes", Witness).
  *
  * Keys holds a typed map key, MapKey (mapping, text), mutable, primary key both, whose `value` and `negative`
@@ -30,10 +30,10 @@
  *
  * The oracle is the law model (test/support/laws/model.ts): the add-wins transition of the stratum over the stored
  * state, its facts' generated values computed from their texts apart from grizzle, an append's rows at keys its
- * mapping does not store at its slots after the stored ones in key order, put with the mapping's new count (README
+ * mapping does not store at its slots after the stored ones in key order, put with the mapping's new count (docs/schema.md
  * "Writing a family": an append takes the slots after the last; write/family/additions.ts), and every law's violation
  * over the result, a key's naming its violators by the key's own fields; two facts a stratum deletes at one key are no
- * refusal, since a deletion names its fact exactly (README "A relation's rows are a set"), so at most one of them is
+ * refusal, since a deletion names its fact exactly (docs/reads-and-writes.md "A relation's rows are a set"), so at most one of them is
  * stored and the other changes nothing (model.ts expect). A refused write names a violated law, every immediate one
  * before a deferred one, with a witness naming one of its violators, or `unreported` for a containment and for the
  * entry key where a new mapping's nested entries break it, and changes nothing; any other write stores exactly the

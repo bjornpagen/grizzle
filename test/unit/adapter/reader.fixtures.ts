@@ -34,7 +34,7 @@ import { upTo } from "#test/support/up-to.ts"
  * key delivers, and whose answers the reference evaluator judges column by column.
  *
  * A read's refusal as the contract states it: a codec's refusal at encode with the slot its EncodingFailure names, the
- * parameter or `parameter.field` (README "Errors and outcomes": as a write's names it), or any other refusal by its stage.
+ * parameter or `parameter.field` (docs/errors-and-concurrency.md "Errors and outcomes": as a write's names it), or any other refusal by its stage.
  *
  * Oracles: the read boundary's contract, every declared parameter admitted whether or not a statement binds it; the
  * relation input's arrays restated from the caller's value; and each refusal's documented stage and slot.

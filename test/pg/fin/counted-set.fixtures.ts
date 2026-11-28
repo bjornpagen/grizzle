@@ -43,17 +43,17 @@ import { int4, setOf, Tag } from "#test/support/pg/fin/folds.ts"
  * A case is up to five ChangeSets, each drawn from the model's state under a swarm of their kinds: owners inserted
  * with their members; members appended to stored owners; an owner inserted again with a subset of its members or with
  * a new one; members deleted (a counted member's removal moves the last member into the freed slot and refills from
- * there, README "Families"); a member moved to another owner, a delete and an insert in one ChangeSet; a member's
+ * there, docs/schema.md "Families"); a member moved to another owner, a delete and an insert in one ChangeSet; a member's
  * steps put; an owner's label put; and now and then a member naming no owner, or a member at a stored key with other
  * steps.
  *
  * The oracle is the fold model (test/support/families/fold.ts foldStoredOf, the reference fold folds.ts judges the
  * fold natives by, over its carriers int4 and setOf(5)): after each write every owner's count is its members' and each
- * end its members' fold, and the members are the model's set (README "Writes": a row already present is no change, a
+ * end its members' fold, and the members are the model's set (docs/reads-and-writes.md "Writes": a row already present is no change, a
  * counted owner's count and ends are drawn, never written, so an owner stated again with a subset of its members
  * changes nothing and one with a new member appends it). A refused write names only laws it breaks, a key's refusal
  * witnessed by that key's values in a stated row, the family's (a member naming no owner) by such a member's key, its
- * owner axis's holding reference being deferred (README "Errors and outcomes": a deferred foreign key's second
+ * owner axis's holding reference being deferred (docs/errors-and-concurrency.md "Errors and outcomes": a deferred foreign key's second
  * flight), or by none, `every` law it names broken, or, where the family's foreign key carries other containments
  * merged into it, `some` of them, and changes nothing.
  *

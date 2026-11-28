@@ -7,7 +7,7 @@
  *    heading and parameters. A refused query raises exactly its directive's refusal, so a claimed key the engine does
  *    not prove, a cardinality the engine does not state, or a record or parameter the engine does not deliver, fails
  *    its assertion. One class is declared, the one the types cannot decide: a closed relation's column of distinct
- *    constant values, which the engine keys the relation by (README "Closed relations") and the types cannot see, as
+ *    constant values, which the engine keys the relation by (docs/schema.md "Closed relations") and the types cannot see, as
  *    a value no literal types (ToneWeight's weight, a Cents bigint). A query over ToneWeight whose cardinality its
  *    rows prove more of than its declared key does is of the class, and is stated under its declared key's reading,
  *    the types' (test/support/agreement/queries.ts closedDistinct); a query its rows prove less of is no class, and

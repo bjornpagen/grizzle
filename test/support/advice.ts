@@ -1,5 +1,5 @@
 /**
- * The plan laws' one harness (README "Plan advice"): every statement grizzle emits carries the plan its compiler
+ * The plan laws' one harness (docs/operations.md "Plan advice"): every statement grizzle emits carries the plan its compiler
  * proved to PostgreSQL 19 as plan advice (contrib/pg_plan_advice, sql/advice.ts printAdvice), and these are the laws
  * that hold it, each read off PostgreSQL itself.
  *
@@ -990,7 +990,7 @@ export const draftPlanned = (
 }
 
 /**
- * The scope of a migration file's data steps (README "Plan advice"): each as PostgreSQL plans it (`draftPlanned`), with
+ * The scope of a migration file's data steps (docs/operations.md "Plan advice"): each as PostgreSQL plans it (`draftPlanned`), with
  * its bound plan (AdvisedFile `drafts`), each plan's reads resolved by the installation (`resolve`); its advice what those
  * plans carry, and its vehicle the advice the runner sets (`set`), its transaction's first statement. A file of no data
  * step carries no advice, and has no scope.

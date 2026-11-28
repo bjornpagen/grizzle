@@ -945,7 +945,7 @@ interface KeyedRow {
  * placements, each assembly whose group it leaves partial and each placement of it the write keeps; of an instance's,
  * each such instance and each placement of it the write keeps. The family's deferred foreign keys leave one of them
  * unmatched, a kept member whose predecessor went or an owner whose last member went, and its refusal at COMMIT is
- * witnessed by that row's key (README "Errors and outcomes", Witness).
+ * witnessed by that row's key (docs/errors-and-concurrency.md "Errors and outcomes", Witness).
  */
 export const partialRows = (m: Model, w: Write) => {
 	const placements = placementsOf(m)

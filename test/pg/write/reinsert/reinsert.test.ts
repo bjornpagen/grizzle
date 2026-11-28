@@ -179,7 +179,7 @@ export const aStoredInstanceInsertedAgainAnswersNoChangeWhereEveryStatedRowIsSto
 										unorderedEqual(
 											physicalAfter,
 											physicalBefore,
-											`${label}: an identical replace writes no row, every row's ctid and xmin kept (README "Families", replace)`
+											`${label}: an identical replace writes no row, every row's ctid and xmin kept (docs/schema.md "Families", replace)`
 										)
 									}
 									if (outcome.kind === "accepted" && !Arr.isReadonlyArrayNonEmpty(step.units)) {

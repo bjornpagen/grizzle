@@ -2684,7 +2684,7 @@ const insertOf = (
  * - no stored row at its primary key, so it met a counted family's slot key, its group and hidden index, over a column
  *   the host drew from 0 for a group whose owner the stratum restates (FreshGroups `drawn`, scan.ts GroupState `base`):
  *   the group holds a stored member, a member joining a stored closed owner's family, which is refused on that family's
- *   own law, witnessed by the member's key (README "A closed owner's family is fixed when the owner is inserted"), the
+ *   own law, witnessed by the member's key (docs/schema.md "A closed owner's family is fixed when the owner is inserted"), the
  *   first such family in the member's order of its families (statements.ts memberFamilies), each read by one probe of
  *   the group for that row; or
  * - none of these: the statement's defect, as an insert's arbitration of every object raises it (write/refusal.ts

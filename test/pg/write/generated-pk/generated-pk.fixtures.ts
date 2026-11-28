@@ -330,7 +330,7 @@ export interface FlatWrites {
 export type FlatState = ReadonlyMap<string, RefRow>
 
 /**
- * What one stratum does to a flat relation (README "A relation's rows are a set"; GENPK-B's host semantics): its
+ * What one stratum does to a flat relation (docs/reads-and-writes.md "A relation's rows are a set"; GENPK-B's host semantics): its
  * deletions remove the stored facts they name exactly, each puts' key displaces its stored occupant, and its additions,
  * inserts and puts, identical facts collapsed into one, join the state that leaves; two facts left at one key are the
  * primary key's violation, the write refused, its witness the key. A deletion names its fact by every field, so one
@@ -570,7 +570,7 @@ const sameDoc = (a: DocRow, b: DocRow): boolean =>
  * What a family stratum does (familyCaseGen): its deletions first, then its inserts. An insert at a stored or another
  * inserted owner's key that differs from it is refused on the owner's primary key, and a member whose path's digest is
  * not its owner's on its family's law, and two lines at one key on Line's (FamilyBreach). An insert that repeats a stored document exactly, its title and
- * its groups, the lines and notes it nests, changes nothing and meets it (README "Rows an insertion met"). The stratum
+ * its groups, the lines and notes it nests, changes nothing and meets it (docs/reads-and-writes.md "Rows an insertion met"). The stratum
  * changes a row where it inserts a fresh document or a tree, or deletes a stored document or tree.
  */
 export const familyAfter = (before: FamilyState, w: FamilyWrites): FamilyOutcome => {
@@ -851,7 +851,7 @@ export type SetOutcome =
 	| { readonly kind: "applied"; readonly state: SetState; readonly changed: boolean }
 
 /**
- * What a ledger step does (README "A relation's rows are a set"): a stratum as the flat model's, its deletions exact,
+ * What a ledger step does (docs/reads-and-writes.md "A relation's rows are a set"): a stratum as the flat model's, its deletions exact,
  * its puts displacing at the key, two facts left at one key refused; a whole child's delete removes every row of the
  * child; a reweigh puts every row of the child back at the weight it states, a described put of the relation's own
  * facts, which proves each row stored and updates it in place.

@@ -1,5 +1,5 @@
 /**
- * A call's borrow statement (README "Units"): one statement of its last flight, before every statement that reads or
+ * A call's borrow statement (docs/schema.md "Units"): one statement of its last flight, before every statement that reads or
  * writes a borrowed unit's rows takes its snapshot, that takes locks the call borrows in flight (core/certificate.ts
  * Borrow `flight`), each once at the strongest mode its borrows name, in the order of their ids (write/borrow/lock.ts
  * lockId), by the installation's borrow function (write/borrow/function.ts):

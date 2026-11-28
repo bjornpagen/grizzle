@@ -350,7 +350,7 @@ const judged = (
 const ownTree = (f: FillSpec["families"][number]): boolean => f.kind === "tree"
 
 /**
- * The relations a whole delete of relation `r` removes below its rows (README "Families", a group is deleted whole,
+ * The relations a whole delete of relation `r` removes below its rows (docs/schema.md "Families", a group is deleted whole,
  * through its owner): where `r` owns a family and is no family's member but its own tree's, every relation nested under
  * its rows through every family but a tree's own, to any depth; none where a delete of `r` is no whole delete. A cycle
  * below `r` is the schema's refusal (`unitCycleRoots`), which no admitted schema holds.

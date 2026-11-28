@@ -1,6 +1,6 @@
 /**
  * A read that binds a text of no byte bound by equality seeks by the text's declared digest and rechecks the text, on
- * PostgreSQL 19, whatever way the text reaches its equality (README "Keys and indexes"): T(k, g, t, t2) keyed by k, its
+ * PostgreSQL 19, whatever way the text reaches its equality (docs/limits.md "Keys and indexes"): T(k, g, t, t2) keyed by k, its
  * two texts of no byte bound each declaring its SHA-256, `h` and `h2`, and S(s, u) keyed by s, read by fifteen reads
  * that state a text of T equal to a value: a match's literal or parameter, a where's equality with a parameter of T's
  * text type or of another, a membership, an equality with S's text and one variable S's text and T's bind, a negation's

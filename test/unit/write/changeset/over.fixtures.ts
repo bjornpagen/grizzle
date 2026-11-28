@@ -52,7 +52,7 @@ const programs: { readonly [L in ProgramLevel]: ChangeSetValue } = {
 }
 
 /**
- * The engine's level rule for a role, as the specification states it (README "A program over whatever role it is
+ * The engine's level rule for a role, as the specification states it (docs/schema.md "A program over whatever role it is
  * given"): each role's levels among the programs', a full role's base and every level below it, a role holding a lower
  * level whole that level and every level below it; none for a schema, which is no role.
  */

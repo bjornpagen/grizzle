@@ -98,7 +98,7 @@ const openedOrRefused = (
 const noFactsVerdict: TokenVerdict = { kind: "decoded", facts: {}, refinedRefused: false }
 
 /**
- * Whether a name keeps the declared-name rule a role's name is served by (README "Names come from your code"): ASCII
+ * Whether a name keeps the declared-name rule a role's name is served by (docs/operations.md "Names come from your code"): ASCII
  * letters, digits and underscores, a letter first, at most 63 bytes, PostgreSQL's identifier bound. Every name the model
  * draws is ASCII, so its length in characters is its length in bytes.
  */
@@ -107,7 +107,7 @@ const declaredNamePattern = regex("^[A-Za-z][A-Za-z0-9_]*$")
 const declaredName = (name: string): boolean => declaredNamePattern.test(name) && name.length <= 63
 
 /**
- * Db.open(Web.roles.member, { token }) on the layer of the role's login, given `snapshot` (README "Deploying",
+ * Db.open(Web.roles.member, { token }) on the layer of the role's login, given `snapshot` (docs/operations.md "Deploying",
  * "Permissions", "Security model"): a reference that is no installed role of a login meets no layer of its login, refused at
  * `role` whatever the snapshot, but for one whose name breaks the declared-name rule (declaredName), which no served
  * file can hold: the served compile of its login refuses it, so no application holds a role token of it to hand Db.open,

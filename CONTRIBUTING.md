@@ -114,8 +114,8 @@ own process, each verdict with the HEAD and clean status it ran at).
   mode, a peer dependency of the shell that the application passes in as each connection's `driver`, and
   `pnpm install --frozen-lockfile` installs everything.
 - **`pnpm pg:build`** builds the pinned PostgreSQL, the official 19.0 release, unpatched, as hosted providers build it.
-  grizzle carries no patch to PostgreSQL (the owner, 2026-11-20): a cost or defect of PostgreSQL's own is a README known
-  issue that grizzle's representation answers, and a fix for PostgreSQL goes upstream (`upstream/`). The pin is in
+  grizzle carries no patch to PostgreSQL (the owner, 2026-11-20): a cost or defect of PostgreSQL's own is a known issue
+  (docs/operations.md "PostgreSQL known issues") that grizzle's representation answers, and a fix for PostgreSQL goes upstream (`upstream/`). The pin is in
   `scripts/pg/pin.env`, which every script reads: the release's version, its tarball's address and the SHA-256
   postgresql.org publishes beside it, and the tag and commit the tarball is made from. The build takes its source from
   `pnpm pg:source`, runs PostgreSQL's own regression suites, and builds pgvector at its pinned tag. The installation
@@ -479,7 +479,7 @@ holds this section to, member by member:
   compile as `UnrepresentableKey`, naming the relation, the key, the field and the fix. A drafted lookup leaves a bounded
   column that cannot fit out of its index, a filter beside it; one that binds a text of no byte bound by equality seeks
   by the digest its relation declares, or is refused as `UnrepresentableKey` (`undigestedText`) unless its other
-  equalities bind a key. The rule is README "Keys and indexes". A schema sizes its keys
+  equalities bind a key. The rule is docs/limits.md "Keys and indexes". A schema sizes its keys
   from its data:
   - **Key texts are bounded at PostgreSQL's natural limits.** A key's text takes the byte bound its key's B-tree entry
     leaves it (`str.bytes(keyTextBytes(fields))`), checked against the longest value the real data holds, so almost
@@ -753,7 +753,7 @@ text match. A type agreement's requirements are its property's situations, which
   suites: programs over a documents base, each suite's aimed at what its area must reach (isolation, rules, least
   privilege), and inductive single steps from drawn states (`test/pg/world-model`); concurrent races (`test/schedules/worlds`); and the school system's
   installation (`test/pg/education`). The rules suite (`test/pg/world-model/rules.test.ts`) meets every law family the
-  README's Rules lists with writes through partial worlds, and holds every shown witness to values the writer
+  docs/schema.md "Rules" lists with writes through partial worlds, and holds every shown witness to values the writer
   submitted or holds whole.
 - **The protocol tap** (`test/support/wire-tap.ts`): a session whose every message, both ways, a test reads off the
   wire, on grizzle's public transport: its sockets are in memory, its server end answers the SSLRequest and terminates

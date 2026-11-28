@@ -19,7 +19,7 @@ export type IdKey = typeof idKey
 export type IdValue = Marked<Uuid, IdKey>
 
 /**
- * A test's entity id: no column is a bare uuid (README "Identity: natural keys"), so a test relation keyed by a uuid
+ * A test's entity id: no column is a bare uuid (docs/schema.md "Identity: natural keys"), so a test relation keyed by a uuid
  * names it by this contract, one type every such test relation shares, its values `toId(uuid)`.
  */
 export const Id = contract<typeof idKey>()(idName, uuid)

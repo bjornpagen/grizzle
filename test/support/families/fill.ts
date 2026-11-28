@@ -898,7 +898,7 @@ const refusalsOf = (
  * The units' roots, of `families`, that families nest relations below in a cycle: each relation that owns a family and
  * is a member of none but its own tree, from which a walk down the families that nest one relation under another, a
  * tree's own aside, comes back to a relation it has already passed. A unit's delete removes every row nested under its
- * rows (README "Families", a group is deleted whole), which such a cycle leaves no set of whole groups.
+ * rows (docs/schema.md "Families", a group is deleted whole), which such a cycle leaves no set of whole groups.
  */
 export const unitCycleRoots = (families: ReadonlyArray<FamilySpec>): ReadonlySet<number> => {
 	const nesting = Arr.filter(families, (f) => f.kind !== "tree")

@@ -16,7 +16,7 @@ import type { WorldFeature } from "#test/support/worlds/model/types.ts"
  *
  * The isolation suites are four files, isolation-reads, isolation-writes, isolation-claims and isolation-hand-set, each
  * a worker of its own, so they run at once. Realities hold facts outside every world (the owner loads them), so the
- * model's answers over them are README "Security model"'s promise: a role reads exactly its own view, whatever lies
+ * model's answers over them are docs/access.md "Security model"'s promise: a role reads exactly its own view, whatever lies
  * outside it.
  */
 export const reads: Focus = [

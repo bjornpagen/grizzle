@@ -118,7 +118,7 @@ export default defineConfig({
   Rows an array or a Stream inserts take such a field from the call: `insertAllComputed({ Claim: [] }, { until:
   Type.cast(Num.add(Type.base(param("now", Instant)), Type.base(param("budget", Budget))), Instant, instantKey) })`, its rows
   leaving `until` out, the record evaluated once per call in the statement that writes the rows, a nested owner's
-  members carrying a computed key field holding the owner's one value (README "Writes"). A
+  members carrying a computed key field holding the owner's one value (docs/reads-and-writes.md "Writes"). A
   reading is a value, a `bigint`, never an `instant`: a row records when it was written
   by a field of type `instant`, which no caller states. Key the row by its natural fields and the instant after them,
   `relation("SignIn", { user, at: instant, ... }, ["user", "at"])`: its `at` is a clock of child `user`, which an
@@ -130,12 +130,12 @@ export default defineConfig({
   clock otherwise: a direct SQL writer, the owner and a migration's data step call the scope's stamp function first and
   state the instant it returns, or the insert is refused (23514, `__clocked`). An instant a
   containment carries into another relation's instant is a reference, stamped beside an insert of its clock or stated
-  from a stored instant (README "Instants"). A read delivers an instant as an `Instant`, a bigint only a read mints;
+  from a stored instant (docs/reads-and-writes.md "Instants"). A read delivers an instant as an `Instant`, a bigint only a read mints;
   `instant.stored` is a field of instant's type its caller writes as it read it, the database drawing nothing, so a
   read's rows can be kept with their instants: a bare bigint at it is a type error. Kept beside it, a read's search
   document is `pg.tsvector(configuration)`, its `SearchDocument` written back as PostgreSQL printed it (any other text
   `searchDocumentForm`), and a read's sum or mean is `pg.numeric.within(digits, scale)`, numeric of no typmod checked to
-  the bound its query proves, a `Decimal` past it `numericBound`; numeric's own limits are `pg.numeric` (README "Tables
+  the bound its query proves, a `Decimal` past it `numericBound`; numeric's own limits are `pg.numeric` (docs/schema.md "Tables
   and types"). A row's place in its group is `place`, last in its primary key after the
   group: an insert leaving it out stamps one past the group's greatest, 0 first, so a group's places are gapless from 0
   in commit order; no put writes its relation, and a delete only whole groups, its rows stating fields of the group
@@ -145,7 +145,7 @@ export default defineConfig({
   reading one is refused (`UnfillableField`, `stamped`), and two owners of one call in one group meet at the owner's
   key. A migration adding `place` to stored rows gives each place 0
   where the new key holds the old one, and is refused elsewhere; `place.by(field)`, beside a key within the group and
-  the field, numbers the stored rows by the field (README "Places"). A read runs SERIALIZABLE READ ONLY, one statement:
+  the field, numbers the stored rows by the field (docs/reads-and-writes.md "Places"). A read runs SERIALIZABLE READ ONLY, one statement:
   it answers at once and may fail retryably. Nothing refreshes a stored derived relation: the rule judge keeps its table
   equal to its definition at every COMMIT that writes what it reads. Two programs of one name across a login's workloads
   are refused when the login is built. A ChangeSet member
@@ -166,7 +166,7 @@ export default defineConfig({
   that level). A gapless number, one past the greatest, is `series(R)` over a relation keyed by one field of a type
   grizzle draws, `natural` or a contract over an integer (an int4 number keeps its `contract<typeof key>()(…, pg.integer, …)`, whose
   CHECK refuses one past its bound): it states the predecessor law itself and every write of R holds its one lock, the
-  only lock no key splits (README "Units").
+  only lock no key splits (docs/schema.md "Units").
 - A relation is closed or open. Closed, the default: its facts are inserted, never changed or deleted; a role that
   writes it holds SELECT and INSERT on its table and no UPDATE or DELETE, and a ChangeSet's put or delete of it is
   refused when it compiles and as a type error, `Refusal<"a put of a closed relation: ...">` (or "a delete of"); record
@@ -174,11 +174,11 @@ export default defineConfig({
   whose heading R's primary key leads with, its rows changed in place and deleted under the unit's exclusive borrow
   (`&mut`); `mutable(R)` over a relation in no unit is refused when the schema is built and as a type error,
   `Refusal<"mutable over a relation under a unit, ...">`. A delete of an open owner or tree removes its family whole,
-  so every relation nested under it is open too (README "Units").
+  so every relation nested under it is open too (docs/schema.md "Units").
 - Remove a family of rows (a finished run, a removed package, a superseded load) by a ChangeSet of deletes of its
   relations under their unit, which the call borrows exclusively, and keep what must never come back, a run's
   idempotency key, a package's name, a release's attempt numbers, in a relation no ChangeSet deletes; a foreign key into
-  a row refuses its delete while a reference remains (README "Removing a unit's rows").
+  a row refuses its delete while a reference remains (docs/schema.md "Removing a unit's rows").
 - A delete of a tree names trees by their root value (`delete(Node, [{ package, path }])`), and a delete of a relation
   that owns a family and is no family's member names its rows; each removes every row nested under them through every
   family, so a group goes whole. A replace is `delete(...)` and `insertAll(...)` in one stratum: the delete runs first,
@@ -192,7 +192,7 @@ export default defineConfig({
   `open`, which returns a new socket, `ca` and `servername`; TLS is always verify-full, the server certificate chaining
   to `ca` and naming `servername`), `database`, `role`, `password` (a Redacted, or an Effect yielding one, evaluated for
   each connection attempt: an RDS IAM token, a secret manager's lookup). grizzle bounds no connection attempt: it
-  waits for the server's answer or the operating system's failure. README's Deploying shows the RDS IAM password with `@aws-sdk/rds-signer`.
+  waits for the server's answer or the operating system's failure. README "Logins, connecting and RDS IAM" shows the RDS IAM password with `@aws-sdk/rds-signer`.
 - Never write a credential into the config file: read it where the config runs, as the password Effect does.
 - `connection` is a function: only `migrate` and `drift` call it, so `generate`, `check` and `names` read no cluster
   setting and no CA file, and `check` runs in CI where no cluster is reachable. `migrate` and `drift` refuse a process environment that
@@ -258,7 +258,7 @@ commit and `migrate`.
 Commands: `grizzle generate <config> [--name <name>] [--schema <schema>] [--rename <old>=<new>]... [--drop <old>]...`,
 `grizzle generate <config> --custom --name <name> [--schema <schema>]`, `grizzle draft-key <config> [generate's flags]`
 (the key of the draft generate makes with those flags: the SHA-256 of every input it reads, which a cache of its
-output keys by; README "A draft is a function of its inputs"), `grizzle check <config>`, `grizzle migrate
+output keys by; CONTRIBUTING "Drafts and their key"), `grizzle check <config>`, `grizzle migrate
 <config>`, `grizzle drift <config>`, `grizzle names <config>`, `grizzle roles <config>` (the installation's roles in
 the cluster), `grizzle uninstall <config>` (drops the installation's schemas, every row they hold, and its roles, in
 one transaction). Flags come anywhere after the command, as `--flag value`
@@ -339,9 +339,8 @@ breaking change may briefly break older application instances that are still run
   new type, and once every placeholder column holds its value the table's fill sets it to the value you write at its
   placeholder (a `USING` reads its own row alone, so it could not join a re-pointed reference's target), drops the old
   column and renames the set-aside one into the field's name. Either way it runs after the
-  constraints and indexes over it are dropped; they are built again as on any table with rows, and its table's
-  declared statistics declared again, which the conversion clears, but a key
-  over it, which is added again right after the conversion in the same transaction, so it holds throughout. A domain is
+  constraints and indexes over it are dropped; they are built again as on any table with rows, but a key over it,
+  which is added again right after the conversion in the same transaction, so it holds throughout. A domain is
   named by its whole definition, so a contract's changed predicate, like a changed pattern, is another domain: each
   field it types is converted to it by its cast, which refuses a stored value the new definition doesn't admit (23514).
   Every world object an existing role relies on (a view, a policy, a filter function, a
@@ -349,10 +348,9 @@ breaking change may briefly break older application instances that are still run
   type, a stored derived relation's table, a function), is dropped at the start of this transaction and created again, with its
   grants, at its end, so no committed state lacks it.
 - **indexes**: `CREATE INDEX CONCURRENTLY` on tables that may hold rows, in a no-transaction file, so writes keep
-  flowing. A table this migration creates gets an ordinary build. Each table's declared statistics are set here too,
-  a stored derived relation's among them, where they are new or changed, or a column under them was converted: every
-  column's statistics target set to 0 and its declared number of distinct values restored, each restore checked (README
-  "Declared statistics"). No migration runs `ANALYZE`, and none is needed: ANALYZE samples nothing of a declared column.
+  flowing. A table this migration creates gets an ordinary build. No migration runs `ANALYZE`: grizzle carries each
+  statement's plan to PostgreSQL as plan advice (docs/operations.md "Plan advice"), so no estimate chooses its access
+  path.
 - **validate**: `VALIDATE CONSTRAINT`, and the rules over queries, in one transaction that takes no lock that blocks a
   read, so the application reads every table while its checks read every row; writes to the tables a rule reads wait
   for it. A roster domain's VALIDATE refuses every row that still holds a removed handle's code, naming the table and
@@ -456,7 +454,7 @@ What a declaration drafts:
   with fields removed from the roster or the subset or taken into it below an arm's code would rewrite every stored
   value: the draft refuses it, and the change is a custom migration.
 - **`alternatives` and `arm(field, handle)` are gone.** A sum of values, a state and the data each state carries, is a
-  variant field (README "Variants"); a sum of relations, arms other relations refer to, is a tagged header with one
+  variant field (docs/schema.md "Variants"); a sum of relations, arms other relations refer to, is a tagged header with one
   mirrors per arm relation, selecting its handle or handles: `mirrors(on(Arm, ...key), on(select(Header, (h) =>
   h.eq(h.tag, "arm")), ...key))`, or `h.in(h.tag, ["a", "b"])` for an arm relation two handles share, which states
   the same containments `alternatives` stood for. A query attaches an arm relation plainly at the header's key,
@@ -582,7 +580,7 @@ schema or workload that does not compile) are `check`'s alone.
 | the login has no OpenAPI document beside snapshot.json (an ungenerated change) | run grizzle generate, which writes the OpenAPI document |
 | the OpenAPI document is of a login the configuration does not list over the schema | run grizzle generate, which removes the OpenAPI document |
 | the schema or a login's workload does not compile | fix the schema or workload it names, then run grizzle generate |
-| grizzle mints no ids (a `pg.serial` or `pg.uuidv7` field) | key the relation by what identifies its fact: its parent's key and its own name or place, `sha256` of its content, a published name and version, or an outside system's id under a contract of its own (README "Identity: natural keys") |
+| grizzle mints no ids (a `pg.serial` or `pg.uuidv7` field) | key the relation by what identifies its fact: its parent's key and its own name or place, `sha256` of its content, a published name and version, or an outside system's id under a contract of its own (docs/schema.md "Identity: natural keys") |
 | a variant's arms changed otherwise than in place: an arm of a code past every arm's (appended to its roster or taken into its subset), an arm of no field taken in or left out, or a field appended to the arm of its greatest code migrate in place; an arm with fields left out of the subset or taken in below an arm's code, and a field removed, retyped or added to another arm, rewrite every stored value: a custom migration | write a custom migration (`generate --custom`) that converts the stored values, or append the change as a new arm |
 | say whose id this is (a bare `uuid` column) | `contract<typeof clerkUserKey>()("ClerkUserId", uuid)`: name the system the id is of, so two systems' ids are two types; its values are the key's mint's, `mintOf(clerkUserKey)` |
 | a plain value, or another contract's, where a contract's value is written (a fact, a parameter, a closed row, `Type.literal`, a conditional's arm; a type error) | make it with the contract's key's mint, `mintOf(key)`, in the module that holds the key; a value compared with a contract's term is its base's |
@@ -645,7 +643,7 @@ them, most often DROP ROLE with 2BP01 while a role holds a privilege or an objec
 that database; nothing was dropped. A refusal
 the server raised carries its SQLSTATE, the constraint it names, and PostgreSQL's message, DETAIL and HINT as given.
 
-A direct SQL writer, psql included, meets these refusals of its own, among the others README's Direct SQL access lists:
+A direct SQL writer, psql included, meets these refusals of its own, among the others docs/access.md "Direct SQL access" lists:
 
 | Refusal | Fix |
 | --- | --- |
@@ -974,7 +972,7 @@ to fix, or the compiler's refusal of a schema or login with its fix, and no line
   (`insert`) when it compiles; a closed member, written by `insert` alone, recounts its mutable owner. A full role is `role(S, name, wholeEntriesOf(S), wholeWritesOf(S))`: every closed table under
   `insert`, every open one under `write`.
 - A role's writes run READ COMMITTED only where `grizzle generate` certifies it from the statements its ChangeSets
-  send, against every other writer (README's READ COMMITTED writes); every other role runs SERIALIZABLE, and reads are
+  send, against every other writer (docs/errors-and-concurrency.md "READ COMMITTED writes"); every other role runs SERIALIZABLE, and reads are
   always SERIALIZABLE READ ONLY. generate prints each role's level, a SERIALIZABLE one with the count of each condition
   it fails: `form` (a ChangeSet with no READ COMMITTED form), `members` (no ChangeSet), `privileges` (it states
   `write`, or some role updates or deletes what it writes),
@@ -1009,12 +1007,12 @@ to fix, or the compiler's refusal of a schema or login with its fix, and no line
   whose `reason` is `Deadlock`.
   `compileServed` of other programs than the committed workload serves every role SERIALIZABLE.
 - A claim of work races a key: `race(R)` among the rules makes R's primary key first come, first held, so an insertion
-  at a held key meets the holder's row in `delta.met(R)` and is never refused for differing from it (README's Races).
+  at a held key meets the holder's row in `delta.met(R)` and is never refused for differing from it (docs/errors-and-concurrency.md "Races").
   The claimer names the key and a fresh holder; a member for the winner alone reads R back at that key with its own
   holder in a later statement; a reclaim inserts the next attempt from the expired one, read by its whole key. Each is
   certified READ COMMITTED; a claim that searches for its work (the next due item, a count of holders, a claimed
   item's absence) runs SERIALIZABLE. Two raced tables in two statements can be won one and met the other.
-- A role's `write` lists a query entry only when the entry is writable (README's Writing through a role); otherwise
+- A role's `write` lists a query entry only when the entry is writable (docs/access.md "Writing through a role"); otherwise
   `role(...)` is refused as `RoleRefused`, its rule `writeUnwritable` naming the `entry` and the `why`. An entry over a
   family's owner writes the owner as a write of its table does: grizzle draws the owner's counts and ends, so no row
   states them, and a put leaves the family as it is. Its filter reads no field its family draws (a count, an end, an

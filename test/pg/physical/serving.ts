@@ -1,6 +1,6 @@
 import * as EngineResult from "@bjornpagen/grizzle-text/base/result"
 /**
- * Index serving judged by the plan laws (test/support/advice.ts, README "Plan advice"): every request an installation
+ * Index serving judged by the plan laws (test/support/advice.ts, docs/operations.md "Plan advice"): every request an installation
  * plans resolves to an index that serves it, and every index the engine creates is needed (physical/indexes/engine.ts
  * planIndexes, resolverOf).
  *

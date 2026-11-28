@@ -8,7 +8,7 @@
  * An IndexRef is minted only by the index engine (physical/indexes/engine.ts planIndexes), for each index the
  * installation holds, a key's, a stored derived relation's unique index or one it created, and a read resolves to the one
  * the coverage rule lands it on (engine.ts resolverOf), so no plan can name an index the installation does not hold. A
- * read no index serves is a missed index, the internal compiler error of whatever compile asked it (README "Keys and
+ * read no index serves is a missed index, the internal compiler error of whatever compile asked it (docs/limits.md "Keys and
  * indexes").
  */
 import { nominal } from "#compiler/core/brand.ts"

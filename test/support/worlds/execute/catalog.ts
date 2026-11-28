@@ -1041,7 +1041,7 @@ interface FolderList {
 /**
  * The folders a migration hands the runner, its new folder whole after the directory's (applied, then pending): as
  * written, or, edited by hand, with the last applied folder's first file a person edited after it ran, which the runner
- * refuses before it runs anything (an edit to a folder not yet applied is legal, README "Migrations", so a pending
+ * refuses before it runs anything (an edit to a folder not yet applied is legal, docs/operations.md "Migrations", so a pending
  * folder is never the one edited).
  */
 export const landedFolders = (

@@ -1,8 +1,8 @@
 # Multi-schema: one installation, several PostgreSQL schemas
 
 **2026-11-14:** This design was built on main on 2026-11-08 (999facc6), so "Nothing here is built" no longer holds:
-Decisions 1, 5, 6 and 8 stand as recommended (a level-name clash is `IdentifierCollision`), while README's "Levels"
-section, which states what is true, departs from the others: the root's schema holds the installation's contract and
+Decisions 1, 5, 6 and 8 stand as recommended (a level-name clash is `IdentifierCollision`), while docs/schema.md "Levels",
+which states what is true, departs from the others: the root's schema holds the installation's contract and
 text domains, constants and grizzle's functions (Decision 2); a level reaches a relation below it only by a
 containment of plain fields into a declared key, a rule over a query or a row check, and anything else is
 `LevelRefused` (Decision 3); an `above` law is `refused.laws[0]` of a refusal whose `refused.kind` is `above`
@@ -109,7 +109,7 @@ rule `levelNameTaken`, naming both levels. A chain of any length works: `schema.
 `reports`.
 
 **What changes:** derived relations can still be declared only in an extension, since their queries need the schema
-value first, so every schema with a derived relation becomes two PostgreSQL schemas. README's
+value first, so every schema with a derived relation becomes two PostgreSQL schemas. The usage example's
 `Reporting = schema.extend(Usage, { ModelSpend }, [])` becomes `schema.extend(Usage, "Reporting", { ModelSpend }, [])`:
 the materialized view `model_spend` moves to `reporting`, and `Analyst` and `UsageApi` become `reporting__analyst` and
 `reporting__usage_api`. The type `Schema<Name, …, Base>` carries the extension's own name. grizzle's own tree mentions
@@ -176,7 +176,7 @@ whenever a level's use of a definition changes.
 `schema.extend(Qti, "Ledger", …, [ordered(on(LedgerStep, …), fin(Package, "steps"))])` would make `Package.steps` a
 field grizzle draws in EduLLM's installation, while Author still writes it as its caller's. Author's import would then
 write a wrong count. Under A, that statement and `mutable(Package)` stated at Ledger are refused when `Ledger` is built.
-README's Billing example, `contained(on(Post, "org"), on(Subscription, "org"))`, stays legal under A: a level above
+The billing example, `contained(on(Post, "org"), on(Subscription, "org"))`, stays legal under A: a level above
 constrains a lower level's rows without filling them. Under B it is refused.
 
 **Recommendation: A.** It refuses exactly what would make a lower level's compiled writes depend on the levels above

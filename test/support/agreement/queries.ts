@@ -3587,7 +3587,7 @@ const provesMore = (a: Cardinality, b: Cardinality): boolean =>
 	cardRank[a.card] > cardRank[b.card] || cardRank[a.readings] > cardRank[b.readings]
 
 /**
- * The declared class (README "Closed relations"): the engine keys a closed relation by every column whose constant
+ * The declared class (docs/schema.md "Closed relations"): the engine keys a closed relation by every column whose constant
  * values are distinct, a fact of its rows, where the types read its declared key alone, which cannot see a value no
  * literal types (ToneWeight's weights are Cents, a branded bigint). A case whose query reads ToneWeight by its rows
  * proves more than it does read by its declared key (ClosedReading) is of the class: the program states the declared

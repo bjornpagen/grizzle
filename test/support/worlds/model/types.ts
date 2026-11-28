@@ -82,7 +82,7 @@ export type RowPredicate =
 
 export type ComparisonOp = "<" | "<=" | "=" | "<>" | ">=" | ">"
 
-/** A law as the base declares it, one arm per law family README "Rules" lists. */
+/** A law as the base declares it, one arm per law family docs/schema.md "Rules" lists. */
 export type LawSpec =
 	| {
 			readonly kind: "key"
@@ -253,7 +253,7 @@ export interface InstalledNames {
 export type HandleCodes = Readonly<Record<string, ReadonlyArray<string>>>
 
 /**
- * Why a query entry cannot be written, restating the writable-entry rule of README "Writing through a role" clause by clause: a field of the
+ * Why a query entry cannot be written, restating the writable-entry rule of docs/access.md "Writing through a role" clause by clause: a field of the
  * target outside the head and outside its primary key that is not fixed is `field-not-fixed`; a primary-key field
  * neither in the head nor fixed is `key-not-determined`. Every other match, negation and comparison of a rule only
  * filters under set semantics, so no refusal names it.
@@ -608,7 +608,7 @@ export type ReadVia =
 /**
  * The snapshot the opening role's login layer is given (DbConfig): the installation's own, an older version's, or
  * another schema's. The layer compares nothing with it and Db.open contacts nothing, so a Db opens on either of the
- * others too, and every one of its calls that sends SQL meets the snapshot guard (README "Deploying").
+ * others too, and every one of its calls that sends SQL meets the snapshot guard (docs/operations.md "Deploying").
  */
 export type SnapshotRef = "current" | "stale" | "foreign"
 
@@ -687,7 +687,7 @@ export type SqlState =
 	| "other"
 
 /**
- * What refuses a token (README "Errors and outcomes"): Db.open's own parse, a token that is no token68, a
+ * What refuses a token (docs/errors-and-concurrency.md "Errors and outcomes"): Db.open's own parse, a token that is no token68, a
  * TokenMalformed, before verify runs; verify, its refusal or throw a TokenRefused; or the claims, a ClaimRefused.
  */
 export type TokenRefuser = "malformed" | "verify" | "claims"
@@ -901,7 +901,7 @@ export interface DirectSessionState {
 	readonly prepared: Readonly<Record<string, PreparedRead>>
 	/**
 	 * Every statement its direct actions sent the transaction, in order (BEGIN's own take on a role and set claims, which
-	 * the session's world shows): what a refusal at COMMIT, which judges them, may quote (README "Errors and outcomes": the
+	 * the session's world shows): what a refusal at COMMIT, which judges them, may quote (docs/errors-and-concurrency.md "Errors and outcomes": the
 	 * values a statement was given), and what the transaction sends again when it is begun again (drive/index.ts
 	 * answered).
 	 */
@@ -928,7 +928,7 @@ export interface ConnectionState {
  * runner records with the folder's first committed file, or, when that first file runs outside a transaction (new enum
  * labels, concurrent indexes), in a transaction of its own before the file's statements; `untouched` while it holds no
  * row of it, a first file that runs in a transaction having failed or been killed before it committed, so the catalog
- * is exactly the installation's. While a folder is unfinished every Db call and every Db.open is refused (README
+ * is exactly the installation's. While a folder is unfinished every Db call and every Db.open is refused (docs/operations.md
  * "Deploying").
  */
 export type LedgerStanding = "untouched" | "unfinished"
@@ -1132,7 +1132,7 @@ export type WorldFeature =
 export type PageKey = "proven-key" | "heading-key"
 
 /**
- * How a read-back's delta stands to the change, by README "Writes"' rule (session/apply.ts deltaOf): `untouched`, the
+ * How a read-back's delta stands to the change, by docs/reads-and-writes.md "Writes"' rule (session/apply.ts deltaOf): `untouched`, the
  * change writes nothing the relation's definition reads, so its delta is empty; `written`, the relation is written and
  * the change writes nothing else its definition reads, so its delta is its target's; `beside`, a whole entry over a
  * target the change writes through another entry, whose delta is the target's own; `undetermined`, any other, whose
@@ -1141,7 +1141,7 @@ export type PageKey = "proven-key" | "heading-key"
 export type ReadBackClass = "untouched" | "written" | "beside" | "undetermined"
 
 /**
- * The family of the law a refusal names (README "Rules"): a key or a no-overlap key (a primary or a candidate one), a
+ * The family of the law a refusal names (docs/schema.md "Rules"): a key or a no-overlap key (a primary or a candidate one), a
  * row check, a contract's or a pattern's domain CHECK, a containment, or a coverage.
  */
 export type LawFamily = "key" | "span-key" | "check" | "domain" | "contained" | "covered"
@@ -1158,11 +1158,11 @@ export type LawPath = "entry" | "whole" | "direct"
  */
 export type WriteShape = "span-key" | "pure-set"
 
-/** The domain kinds a context field takes (README "Permissions"): never a span. */
+/** The domain kinds a context field takes (docs/access.md "Permissions"): never a span. */
 type ClaimDomain = Exclude<FieldDomain["kind"], "span">
 
 /**
- * The SQLSTATEs a hand-set claim its field refuses meets where a statement reads it (README "Direct SQL access"): no
+ * The SQLSTATEs a hand-set claim its field refuses meets where a statement reads it (docs/access.md "Direct SQL access"): no
  * value of its type, an integer past its range, a value its contract, pattern or roster refuses.
  */
 export type ClaimRefusal = Extract<SqlState, "22P02" | "22003" | "23514">
@@ -1173,7 +1173,7 @@ export type RefinedClaim = Extract<ClaimDomain, "contract" | "text" | "handle">
 /** Where a statement reads a claim: delivered into an output column, or only in a filter. */
 export type ClaimReadAt = "output" | "filter"
 
-/** An applied insertion, by the role relation it goes through: a whole entry or a query entry (README "Writes"). */
+/** An applied insertion, by the role relation it goes through: a whole entry or a query entry (docs/reads-and-writes.md "Writes"). */
 export type AdditionFeature = `addition:${"whole" | "entry"}`
 
 /**

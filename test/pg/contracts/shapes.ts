@@ -244,7 +244,7 @@ export const contentRead = "readSightings"
  * a package, and a document's sightings. The carried write gives the first member's facts, then, in a stratum sequenced
  * after them, writes a member's rows from `held`, a relation parameter the call binds to the first member's rows at a
  * document before the call, which the second stratum reads past the first's writes, so the installation carries it
- * (README "Writes").
+ * (docs/reads-and-writes.md "Writes").
  */
 const wholeWrite = "writeWhole"
 export const strataWrite = "writeStrata"

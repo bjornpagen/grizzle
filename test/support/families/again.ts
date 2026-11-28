@@ -15,7 +15,7 @@
  *   keyOfRelation), where `id` is one more field it states;
  * - a stated row at a key no stored row holds is added, a counted member under a stored mutable owner joining its
  *   family; a counted member there under a stored closed owner is refused `every` on its family's rule alone, witnessed
- *   by its key (`joined`), since a closed owner's family is fixed when the owner is inserted (README "A closed owner's
+ *   by its key (`joined`), since a closed owner's family is fixed when the owner is inserted (docs/schema.md "A closed owner's
  *   family is fixed when the owner is inserted", the owner restated as the insert again states every relation);
  * - a stated row equal to the stored row at its key, at every field it states, is no change;
  * - a stated row that differs there, in its `v`, its id, or its place in a family as written (its group, a counted
@@ -169,7 +169,7 @@ const without = (rows: ReadonlyArray<InstanceRow>, id: number): ReadonlyArray<In
 }
 
 /**
- * The relations a ChangeSet may delete whole (README "Families": "A group is deleted whole, through its owner"), as
+ * The relations a ChangeSet may delete whole (docs/schema.md "Families": "A group is deleted whole, through its owner"), as
  * the generator draws them: each that owns a family and is no family's member but its own tree's, whose nested
  * relations, through every family, are members only of families owned within the unit, so its delete is one the README
  * admits (a delete whose nested rows include a member of a family whose owner it does not remove is refused when the
@@ -227,7 +227,7 @@ export interface UnitDelete {
 /**
  * The delete of the units `ids` of `rows` whole, each with its component: every unit a row nested under it is nested
  * under too, transitively. A row nested under two units, a member of one's counted family and of the other's ordered
- * family, goes with either (README "Families": a unit "removes its rows and every row nested under them, through
+ * family, goes with either (docs/schema.md "Families": a unit "removes its rows and every row nested under them, through
  * every family"), and the other's group would be left partial, which its family's own law refuses, as WHOLEDEL's suite
  * (test/pg/write/whole) judges. So a unit names its component, the delete removes components whole, and the rows it
  * leaves are a valid instance whose every group is as stored.

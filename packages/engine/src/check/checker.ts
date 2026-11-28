@@ -5143,7 +5143,7 @@ class RuleCheck {
 	}
 
 	/**
-	 * The equalities the region's declared digests owe (README "Keys and indexes"): wherever the rule states a text equal
+	 * The equalities the region's declared digests owe (docs/limits.md "Keys and indexes"): wherever the rule states a text equal
 	 * to a value, `T = X`, and T's relation declares a digest D of it, the rule states `D = sha256(X)` too, which the
 	 * generation of D makes true of every row that holds `T = X`, so a lookup that binds T by equality binds its digest,
 	 * which its index holds, and rechecks T on the rows of that digest. A constant that fixes T fixes D at its digest; a

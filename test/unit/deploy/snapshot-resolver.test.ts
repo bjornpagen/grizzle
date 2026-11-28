@@ -10,7 +10,7 @@
  * - the snapshot's resolver resolves every access request to the IndexRef the installation's own resolver does, by its
  *   name, method, stored columns and whether it returns them;
  * - every lookup, an equality on each of its columns, resolves to an index of its relation that leads with exactly its
- *   columns or is unique with every key among them, by the specification of coverage (README "Keys and indexes"), apart
+ *   columns or is unique with every key among them, by the specification of coverage (docs/limits.md "Keys and indexes"), apart
  *   from the rule both resolvers read, so a mutation of that rule breaks the two together and is caught;
  * - a read by a key no request asked resolves through the snapshot to that key's index (the kept case: a put compiled
  *   against an installation whose workload never held it, its probe of the facts it displaces by the key, which the

@@ -190,7 +190,7 @@ export const draftedFrom = (state: ModelState): InstallSpec =>
 	state.migrations.kind === "pending" ? Arr.lastNonEmpty(state.migrations.folders) : state.install
 
 /**
- * Why a Db's call that sends SQL is refused by its transaction's prologue (README "Deploying"), the ledger's
+ * Why a Db's call that sends SQL is refused by its transaction's prologue (docs/operations.md "Deploying"), the ledger's
  * lock and the snapshot guard, both run as the login: `migrating` while a folder is unfinished, `migrated` once a
  * migration to another installation completed past its snapshot, or always for a snapshot no migration lands (an older
  * version's, another schema's); none for a Db its snapshot describes.

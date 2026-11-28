@@ -64,7 +64,7 @@ const reader = (c: Case): ReadonlyArray<RaceSession> =>
  * refused by that law, or the deletion lands and the note is outside ann's world; a third member may read MyNote
  * meanwhile. ann's write reads nothing back: Note's `no` is serial, so an array of MyNote is two insertions, of the
  * notes that state it and of those that leave it out, whose delta no one statement makes, and a read-back of it is
- * refused when the ChangeSet compiles (README "Where a read-back runs"; model/session/apply.ts sideCrosses), which would
+ * refused when the ChangeSet compiles (docs/reads-and-writes.md "Where a read-back runs"; model/session/apply.ts sideCrosses), which would
  * leave ann's note out of the race. Every order of the moves is explored, with reduction.
  */
 export const race = (c: Case): WorldRace => {

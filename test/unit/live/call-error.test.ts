@@ -10,7 +10,7 @@
  *   transaction's work, 40001 or 40P01, so nothing committed and the same call may succeed; every other refusal of a
  *   statement is the statement's own, and retry `never`; its message carries the failure's own. Oracle: PostgreSQL's
  *   documentation of serialization_failure and deadlock_detected.
- * - A pattern's refusal is `paramRejected`, its `param` the refused place as data (README "Errors and outcomes"), and
+ * - A pattern's refusal is `paramRejected`, its `param` the refused place as data (docs/errors-and-concurrency.md "Errors and outcomes"), and
  *   the wire carries every error unchanged (decode after encode, live/codec.ts slotEncoders and slotDecoders).
  *
  * Features: a serialization refusal, another refusal and a pattern's refusal, each on a read and on a write.
@@ -48,7 +48,7 @@
  *   PostgreSQL 19's errcodes.txt (class 28, Invalid Authorization Specification, is the login's refusal and 28P01,
  *   invalid_password, the password's; 53300 too_many_connections; 57P01 admin_shutdown, 57P02 crash_shutdown and 57P03
  *   cannot_connect_now; any other SQLSTATE its own code), a session ended by the server or a statement refused by its
- *   SQLSTATE alike, and from README "Errors and outcomes" for the socket's codes, a session the transport lost
+ *   SQLSTATE alike, and from docs/errors-and-concurrency.md "Errors and outcomes" for the socket's codes, a session the transport lost
  *   (`sessionLost`) and every other end; its retry is `never` unless it is `unavailable`; its message carries the
  *   failure's own; and
  *   the wire carries it unchanged (decode after encode, live/codec.ts slotEncoders and slotDecoders).
@@ -329,7 +329,7 @@ export const aSessionNeverHadReadsAsTheOracleTablesKindAndReasonByItsSQLSTATEOrI
 				}),
 		oracle: {
 			kind: "specification",
-			name: 'PostgreSQL 19\'s errcodes.txt and README "Errors and outcomes", as a table of kinds and reasons'
+			name: 'PostgreSQL 19\'s errcodes.txt and docs/errors-and-concurrency.md "Errors and outcomes", as a table of kinds and reasons'
 		},
 		budget: { runs: 400, steered: 16 },
 		kept: [],

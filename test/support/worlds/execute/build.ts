@@ -182,7 +182,7 @@ const contractsOf = (base: BaseSpec): Effect.Effect<Readonly<Record<string, Fiel
 	})
 
 /**
- * A context field's value: a field of the domains a context admits (README "Permissions": text, uuid, boolean, the integer
+ * A context field's value: a field of the domains a context admits (docs/access.md "Permissions": text, uuid, boolean, the integer
  * types, contracts over them and closed handles). A contract is built on the contract builder's runtime path, whose
  * value is no `ContextField` by its type, so a context is built as a JavaScript caller builds one (contextOf).
  */
@@ -281,7 +281,7 @@ const sideOf = (space: Space, side: SideSpec) =>
 
 /**
  * The statement of one law spec. A coverage is a containment between two sides each ending in its span field, the
- * spec's sides holding their scalars alone (README "Rules": `contained` between two `span` fields).
+ * spec's sides holding their scalars alone (docs/schema.md "Rules": `contained` between two `span` fields).
  */
 const lawOf = (space: Space, law: LawSpec): Effect.Effect<Statement, RealizeRefused> =>
 	Effect.gen(function* () {

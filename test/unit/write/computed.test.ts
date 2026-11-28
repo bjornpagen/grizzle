@@ -13,7 +13,7 @@
  * Property, per case: the write compiles, served clocked in millis; a nested one's owner is written by one family
  * statement with every member carrying a computed field; and each build of the statements that write the rows builds
  * the record's CTE once, a plain insert's each insert statement it builds and a nested one's each family program (a
- * work count, test/support/kernel/calls.ts callCounts). Oracle: README's Writes, the record evaluated once per call by
+ * work count, test/support/kernel/calls.ts callCounts). Oracle: docs/reads-and-writes.md "Writes", the record evaluated once per call by
  * the one statement that writes every row carrying it. Kills: the members' additions a statement of their own, which
  * evaluates the record again; and a record's CTE built for each source of the statement's rows.
  */
@@ -103,7 +103,7 @@ export const anInsertsComputedRecordIsEvaluatedOnceByOneCteOfTheStatementWriting
 			}),
 		oracle: {
 			kind: "specification",
-			name: "README's Writes: an insert's computed record is evaluated once per call, by the one statement that writes every row carrying one of its fields"
+			name: `docs/reads-and-writes.md "Writes": an insert's computed record is evaluated once per call, by the one statement that writes every row carrying one of its fields`
 		},
 		box: "an owner of no family, of one sequence, or of members two deep, each member carrying its owner's key; its insert computing a payload field, or a key field beside it",
 		kept: [],

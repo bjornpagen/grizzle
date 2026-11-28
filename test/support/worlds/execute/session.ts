@@ -297,7 +297,7 @@ export const readProgramOf = (
 	attempt(`the read of ${relation}`, () => relationRead(session, relation, itself, {}))
 
 /**
- * A role relation read whole with another attached to each row as an array (README "Queries": nest): the child's rows
+ * A role relation read whole with another attached to each row as an array (docs/reads-and-writes.md "Queries": nest): the child's rows
  * whose field `child` equals the parent row's field `parent`, delivered without that field. The builder throws its
  * refusal.
  */
@@ -352,7 +352,7 @@ export const rowField = (domain: FieldDomain): Option.Option<unknown> => {
 
 /**
  * Every pair a role relation's rows chain from field `from` to field `to`, read by a recursive query over the role
- * (README "Queries": recursion): its base each row's pair, its step a pair's origin with the value a row starting at
+ * (docs/reads-and-writes.md "Queries": recursion): its base each row's pair, its step a pair's origin with the value a row starting at
  * its reached value reaches. `field` is the row's type of both. The builder throws its refusal.
  */
 const reachRead = (

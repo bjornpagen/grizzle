@@ -48,7 +48,7 @@ import { batchOwned, caseOwned, type Program } from "#test/support/types/batch/b
 
 /**
  * The admission agreement: types against the engine, over every position a constant may stand in and every kind of
- * constant (README "A constant is a JavaScript value or a typed term"). The class it closes is a program the types and
+ * constant (docs/reads-and-writes.md "Differences from SQL"). The class it closes is a program the types and
  * the engine disagree on: a position the types refuse though the engine admits it, or admit though it refuses.
  *
  * For each position and each constant kind, the program states one statement over Cell for every value of the kind

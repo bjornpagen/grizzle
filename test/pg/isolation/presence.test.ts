@@ -1,5 +1,5 @@
 /**
- * Presence's beacon against PostgreSQL 19 under real concurrency (README "A window a put extends"): one put of the
+ * Presence's beacon against PostgreSQL 19 under real concurrency (docs/reads-and-writes.md "A window a put extends"): one put of the
  * window from the earliest start to the latest end of the call's clock reading and every window of its child's stage
  * within 3 s of it (r.span), which displaces each window it overlaps at the span key (write/delete/exact.ts
  * collidingAtKey), at the level the learner's put runs at, SERIALIZABLE, its span key having no READ COMMITTED form yet
@@ -76,7 +76,7 @@ export const eachChildsWindowsAreTheStretchesOfItsStoredWindowsAndItsCommittedRe
 				}),
 		oracle: {
 			kind: "specification",
-			name: 'the 3 s stretches of each child\'s stored windows and committed readings (README "A window a put extends")'
+			name: 'the 3 s stretches of each child\'s stored windows and committed readings (docs/reads-and-writes.md "A window a put extends")'
 		},
 		kept: [
 			{

@@ -38,7 +38,7 @@ const side = (relation: string, fields: Arr.NonEmptyReadonlyArray<string>): Side
 const talks: SideSpec = { relation: "Event", fields: ["id"], where: { kind: "Talk" } }
 
 /**
- * The rooms base, one relation per shape a write through a world meets and a law of every family README "Rules" lists:
+ * The rooms base, one relation per shape a write through a world meets and a law of every family docs/schema.md "Rules" lists:
  * rooms, whose seats are a contract (a domain CHECK) and at least one (a row check); each room's opening hours, a
  * mutable pure set keyed WITHOUT OVERLAPS, so a room's openings never share an hour, and each in a room (a containment,
  * deferred, since a room has a field outside its id); bookings, a mutable relation keyed WITHOUT OVERLAPS by room and

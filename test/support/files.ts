@@ -19,6 +19,13 @@ const { files, paths } = await ManagedRuntime.make(
 export const fileText = (path: string): Effect.Effect<string> =>
 	Effect.orDie(files.readFileString(path))
 
+/**
+ * Every entry under the directory at `path`, at any depth, by its path from it, read through Effect's FileSystem: a
+ * listing a run needs and cannot read is a defect of the run, as fileText's is.
+ */
+export const directoryEntries = (path: string): Effect.Effect<ReadonlyArray<string>> =>
+	Effect.orDie(files.readDirectory(path, { recursive: true }))
+
 /** `segments` joined into one normalized path, as Effect's Path joins them. */
 export const joinPath = (...segments: ReadonlyArray<string>): string =>
 	Arr.reduce(segments, "", (path, segment) => paths.join(path, segment))

@@ -255,7 +255,7 @@ type Typing = ReadonlyMap<string, FieldDomain>
 const anyText: FieldDomain = textDomain("^.*$", "su")
 
 /**
- * The type grizzle gives a head literal no term types, by its JavaScript value (README "Queries"): a string is text, a
+ * The type grizzle gives a head literal no term types, by its JavaScript value (docs/reads-and-writes.md "Queries"): a string is text, a
  * safe integer an integer, a boolean a boolean; a span has none.
  */
 export const literalDefault = (value: HostValue): FieldDomain | undefined => {

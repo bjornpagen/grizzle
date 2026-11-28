@@ -106,7 +106,7 @@ export interface WorldRace {
 }
 
 /**
- * How a race transaction ended, by README "Transactions and concurrency": committed, refused (a law, the world or the
+ * How a race transaction ended, by docs/errors-and-concurrency.md "Transactions and concurrency": committed, refused (a law, the world or the
  * server refused it, and it committed nothing), failed with a typed transient failure while another session's
  * transaction contended it (Lives), or interrupted.
  */
@@ -275,7 +275,7 @@ interface Lifetime {
  * run's begins and ends counted in the order they happen, so two overlap exactly when each began before the other ended.
  * A transaction is contended when a transaction of another session overlapped it on a relation it touches: only such a
  * transaction can be the other half of the conflict SSI refused it for, so a transient refusal of an uncontended one
- * is the cluster's load (README "Transactions and concurrency": SSI refuses a lone transaction once it summarizes old
+ * is the cluster's load (docs/errors-and-concurrency.md "Transactions and concurrency": SSI refuses a lone transaction once it summarizes old
  * ones), and a contended one's is the race's, which the serial-order judgment takes as it comes, load or not: no
  * answer of PostgreSQL's tells the two apart there.
  */
@@ -749,7 +749,7 @@ interface Recording {
 
 /**
  * The tokens of `hidden` that none of `submitted` holds: what a refusal may not quote, since it may quote what its
- * statement, or its transaction, was given (README "Security model").
+ * statement, or its transaction, was given (docs/access.md "Security model").
  */
 const unsubmitted = (
 	hidden: ReadonlySet<string>,

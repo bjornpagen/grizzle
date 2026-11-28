@@ -1525,7 +1525,7 @@ const defaultAclProblems = (j: Judging): ReadonlyArray<ErasureProblem> => [
  * - the only triggers are the isolation guard and PostgreSQL's internal foreign-key triggers, enabled;
  * - every table the installation expects, the authored relations' and the migrations ledger, carries exactly one
  *   isolation guard trigger, BEFORE INSERT OR UPDATE OR DELETE OR TRUNCATE FOR EACH STATEMENT, running the isolation
- *   guard function, so a write below SERIALIZABLE on a grizzle table is refused (README "Transactions and
+ *   guard function, so a write below SERIALIZABLE on a grizzle table is refused (docs/errors-and-concurrency.md "Transactions and
  *   concurrency"). A table it does not expect is drift in itself, reported once as such, never judged as a grizzle
  *   table;
  * - the grant shape: PUBLIC holds nothing on any schema object; a login holds exactly USAGE on the schema, SELECT on the

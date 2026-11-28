@@ -2,7 +2,7 @@
  * Composing relations into a schema (schema/schema.ts): relations are a list, so concatenating two libraries' lists
  * drops nothing, and the build holds every name to one meaning: within a level, against every level below, and for
  * every relation a statement was built over. Ownership then holds each level to the levels below it (schema/own.ts
- * #checkLevels, README "A level reaches the levels below it only where their writes need nothing of it"): a statement
+ * #checkLevels, docs/schema.md "A level reaches the levels below it only where their writes need nothing of it"): a statement
  * that changes how a lower level's relation is written, such as `mutable`, is LevelRefused.
  *
  * Oracle: a model of the declarations by name, variant and level, written apart from the builder. A drawn composition is

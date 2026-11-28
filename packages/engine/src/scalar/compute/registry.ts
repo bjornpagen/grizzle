@@ -1265,7 +1265,7 @@ const floatBitsOf = (carrier: "float4" | "float8"): FixedOverload =>
  * A text's SHA-256 digest, the digest of its UTF-8 bytes, as Crypto.sha256 reads a bytes value's: a call of the
  * installation's library function (physical/ddl/library.ts textDigest, `sha256(convert_to(x, 'UTF8'))`),
  * `<schema>.<textDigest>(x)`, IMMUTABLE, STRICT and defined on every text, so it stands in a query, a CHECK and a
- * generated field alike, and a generated field of it is a digest a key may be declared over (README "Keys and
+ * generated field alike, and a generated field of it is a digest a key may be declared over (docs/limits.md "Keys and
  * indexes"). It reads no catalog object a scalar operation is, so it uses no entry here.
  */
 const textSha256: FixedOverload = frozen({

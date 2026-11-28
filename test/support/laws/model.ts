@@ -269,7 +269,7 @@ export const lawRelations = (law: HostLaw): ReadonlyArray<string> => {
 }
 
 /**
- * Relation name to its facts, each relation's a set by identity (README "A relation's rows are a set"): no two of its
+ * Relation name to its facts, each relation's a set by identity (docs/reads-and-writes.md "A relation's rows are a set"): no two of its
  * facts hold one value at every field. A state the laws admit is one, every relation keyed by a law (keyedSchema), and
  * a transition keeps it one.
  */
@@ -296,7 +296,7 @@ export interface Violation {
 	/**
 	 * A deferred containment's or coverage's source facts its target leaves unmatched, by the source's primary key: the
 	 * rows its refusal at COMMIT may be witnessed by, which the diagnosis flight reads where the role writes the source
-	 * and the target whole and the write changes the source (README "Errors and outcomes", Witness), or none of them;
+	 * and the target whole and the write changes the source (docs/errors-and-concurrency.md "Errors and outcomes", Witness), or none of them;
 	 * empty for every other law.
 	 */
 	readonly unmatched: ReadonlyArray<Violator>
@@ -854,7 +854,7 @@ const judgedOps = (schema: HostSchema, state: HostState, ops: ReadonlyArray<Host
  * cycle is refused when it compiles, before any SQL or host normalization. Every relation's primary key is one of the
  * schema's laws (keyedSchema), so a state holding one fact twice is always that key's violation, never an outcome the
  * laws pass. Two facts a stratum deletes at one key are no refusal: a deletion names its fact exactly, so at most one
- * of them is stored and deleting the other changes nothing (README "A relation's rows are a set"), as the transition
+ * of them is stored and deleting the other changes nothing (docs/reads-and-writes.md "A relation's rows are a set"), as the transition
  * removes facts by identity.
  */
 export const expect = (

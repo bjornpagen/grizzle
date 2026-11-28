@@ -499,7 +499,7 @@ const ownTree = (f: FillSpec["families"][number], r: number): boolean =>
 
 /**
  * Whether a stratum deleting `deleted` is refused when the ChangeSet compiles because it leaves a family's groups
- * partial, as the README's Writing a family states it: a delete of a relation that owns a family and is no other
+ * partial, as docs/schema.md "Writing a family" states it: a delete of a relation that owns a family and is no other
  * family's member removes its rows and every row nested under them, through every family, to any depth, and "a delete
  * whose nested rows include a member of a family whose owner it does not remove" is refused. Its whole deletes are
  * judged together: a relation nested under them is a member of a family one of them or a relation nested under them
@@ -780,7 +780,7 @@ const callerColumns = (spec: SwarmSpec): ReadonlyMap<string, ReadonlyArray<strin
  * installation installs NOT DEFERRABLE, as the compile defers its keys and no second statement of that rule here can
  * disagree with it: a family axis its family defers (a counted predecessor and every last axis, an owner axis a cascade
  * feeds or a refill writes around), every key on a cycle of the keys that order a write's statements, and every key into
- * a target it does not reference whole are deferred, and so absent (README "Deferred foreign keys"). A key reads its
+ * a target it does not reference whole are deferred, and so absent (docs/access.md "Deferred foreign keys"). A key reads its
  * source's caller fields alone where each column it references from is one of them, and drawn columns otherwise.
  */
 export const immediateKeysOf = (

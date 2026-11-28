@@ -1,5 +1,5 @@
 /**
- * The write front end over its small box, every point of it (README "Writes", "Writing through a role"): a relation of
+ * The write front end over its small box, every point of it (docs/reads-and-writes.md "Writes", "Writing through a role"): a relation of
  * one to three fields, each in the key or not (the key never empty); written whole, or through a query entry of one
  * rule over it, each field carried in the head, carried and read by a comparison of the filter, fixed by a literal, or
  * unnamed, the head never empty. Every point is built as an application builds it and compiled as db.apply compiles an

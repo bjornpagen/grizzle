@@ -1450,7 +1450,7 @@ const readsOf = (
 }
 
 /**
- * The SQLSTATE a direct writer's statement met reading a hand-set claim its field's type refuses (README "Direct SQL
+ * The SQLSTATE a direct writer's statement met reading a hand-set claim its field's type refuses (docs/access.md "Direct SQL
  * access"), by the field's domain: each fault of the session's hand-set claims (model/session/direct.ts handSetFaults)
  * the statement's refusal is, a refinement's 23514 on its law domain's CHECK law where it has one; none for any other
  * action or answer.
@@ -1634,7 +1634,7 @@ const claimFeature = (domain: FieldDomain): Option.Option<WorldFeature> => {
 
 /**
  * How each read-back of a ChangeSet through a Db stood to the change (ReadBackClass, by the model's restatement of
- * README "Writes", session/apply.ts readBackClasses): of an applied ChangeSet, each read-back's class; of one refused
+ * docs/reads-and-writes.md "Writes", session/apply.ts readBackClasses): of an applied ChangeSet, each read-back's class; of one refused
  * when it compiled for a read-back alone, an undetermined one.
  */
 const readBacksOf = (
@@ -1887,7 +1887,7 @@ const connectionsOf = (
 	})
 }
 
-/** The law family a declared law states (README "Rules"). */
+/** The law family a declared law states (docs/schema.md "Rules"). */
 const familyOfSpec = (law: LawSpec): LawFamily => {
 	switch (law.kind) {
 		case "key":
@@ -1942,7 +1942,7 @@ const lawFamilyOf = (state: ModelState, law: string): Option.Option<LawFamily> =
 /**
  * The law a refused write met, by its family, the path it took (LawPath: a Db's ChangeSet through a query entry or
  * through whole entries alone, or a direct writer's statement as the role it took on) and what its witness showed,
- * which the model's restatement of README "Errors and outcomes" holds the real witness to.
+ * which the model's restatement of docs/errors-and-concurrency.md "Errors and outcomes" holds the real witness to.
  */
 const lawsOf = (
 	state: ModelState,

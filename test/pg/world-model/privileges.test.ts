@@ -11,7 +11,7 @@ import {
  * leaves, or, where its folder drops or creates again an object the tamper removed, or drops a role the tamper granted a
  * privilege to, stops at that statement with its file rolled back and a report saying the installation may have
  * drifted, for each perturbation kind of the catalog
- * (README "Migrations": the run ends with the drift check): never an `ok` over a catalog that still departs from the
+ * (docs/operations.md "Migrations": the run ends with the drift check): never an `ok` over a catalog that still departs from the
  * contract, a PUBLIC grant or an extra grant among them.
  */
 export const privilegesTamperMigrated = programProperty({

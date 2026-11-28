@@ -62,7 +62,7 @@ type Schema = ReturnType<typeof build>
 
 /**
  * The family an append writes: a sequence's, its member a line another doc held, put at its new doc, which joins it
- * past the last (README "A change rewrites what it shifts"), since a sequence's members are inserted only nested under
+ * past the last (docs/schema.md "A change rewrites what it shifts"), since a sequence's members are inserted only nested under
  * an owner the write inserts; or a counted family's, its member inserted naming its stored owner.
  */
 export const kinds = ["a sequence", "a counted family"] as const

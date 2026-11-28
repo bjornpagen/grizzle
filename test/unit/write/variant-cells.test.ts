@@ -1,5 +1,5 @@
 /**
- * QTI's values held as one variant cell per cardinality (README "Variants") are written by a statement of one table's
+ * QTI's values held as one variant cell per cardinality (docs/schema.md "Variants") are written by a statement of one table's
  * size, where the typed form, one table per cardinality and base type, writes eleven: a hot path's planning bytes, held
  * to their bound. PostgreSQL plans a statement in time and memory that grow with its text (edullm's start: 44 typed
  * tables, 2.29 MB, 2.5 s of cold planning), so the four cells replace the 44 tables.

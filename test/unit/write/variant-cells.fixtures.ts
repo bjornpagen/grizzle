@@ -98,7 +98,7 @@ const typedTable = (cardinality: Cardinality, base: string) => {
 	}
 }
 
-/** The cell: one value of any base type (README "Variants"). */
+/** The cell: one value of any base type (docs/schema.md "Variants"). */
 const QtiValue = variant("QtiValue", BaseType, leaf, { pair: (a) => a.le(a.least, a.greatest) })
 
 /** The cell form's table of `cardinality`: its key's fields and one cell, its tag a generated closed id. */

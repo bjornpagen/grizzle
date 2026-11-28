@@ -657,7 +657,7 @@ const fateOf = (begin: Answer, statements: ReadonlyArray<Answer>, end: Answer): 
 /**
  * Why the fence refused a prologue step, by the SQLSTATE it answered: the lock's 55P03 and the guard's 55Z02, a
  * migration running; the guard's 55Z01, another snapshot; undefined for any other refusal, and for a fenced write's
- * lock, which no fence refuses (README "Deploying").
+ * lock, which no fence refuses (docs/operations.md "Deploying").
  */
 const fenceOf = (step: FenceStep, sqlstate: string): FenceFault | undefined => {
 	switch (step) {
@@ -863,7 +863,7 @@ export type FlightFeature =
 	| "statement refused"
 
 /**
- * Flights as values, and the contract they keep (packages/grizzle/src/adapter/wire/batch.ts; README "Errors and outcomes" and "Transactions and concurrency"), as a
+ * Flights as values, and the contract they keep (packages/grizzle/src/adapter/wire/batch.ts; docs/errors-and-concurrency.md "Errors and outcomes" and "Transactions and concurrency"), as a
  * model the unit fuzzer (test/unit/adapter/batch.test.ts) and the server check (test/pg/adapter/flight.test.ts) share.
  *
  * A case is a call and what the server does with each statement of it: a Db's flight framed as a read, a write or an

@@ -15,7 +15,7 @@ import type {
 } from "#test/support/worlds/model/types.ts"
 
 /**
- * The shapes of the reads that deliver more than a relation's own rows (README "Queries": nest, recursion), as the model
+ * The shapes of the reads that deliver more than a relation's own rows (docs/reads-and-writes.md "Queries": nest, recursion), as the model
  * predicts them and the executor reads them back: an attachment's rows flattened, and a recursive read's pairs.
  */
 
@@ -122,7 +122,7 @@ export const flattened = (
 	})
 
 /**
- * The rows of a relation with another attached (README "Queries": `.attach(name, (parent) => child, "array")`): each
+ * The rows of a relation with another attached (docs/reads-and-writes.md "Queries": `.attach(name, (parent) => child, "array")`): each
  * parent row with the child rows whose field `child` equals its field `parent`, delivered without that field, flattened.
  */
 export const attachedRows = (
@@ -163,14 +163,14 @@ export const steppedPairs = (
 
 /**
  * Whether a role reads `entry` as a union: a query entry of more than one rule, which a recursion's step may not read
- * (README "A recursive rule joins `self`": RecursionRefused, cause unionStep), so a recursive read of it is refused when
+ * (docs/reads-and-writes.md "A recursive rule joins `self`": RecursionRefused, cause unionStep), so a recursive read of it is refused when
  * it compiles.
  */
 export const readsAsUnion = (entry: EntrySpec | undefined): boolean =>
 	entry?.kind === "query" && entry.rules.length > 1
 
 /**
- * Every pair a relation's rows chain from field `from` to field `to` (README "Queries": recursion): each step's pair
+ * Every pair a relation's rows chain from field `from` to field `to` (docs/reads-and-writes.md "Queries": recursion): each step's pair
  * (steppedPairs), and a pair's origin with each value a step starting at its reached value reaches, to a fixed point. A
  * recursive query's result is a set, so a cycle ends the walk.
  */

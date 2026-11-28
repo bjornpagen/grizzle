@@ -29,7 +29,7 @@ import type { SubstrateTemplate } from "#test/support/substrate/substrate.ts"
 /**
  * edullm's test-variable resolution in small (pantry's readings.ts, the qualified name `ITEMREF.VAR`): each reference
  * of a document, keyed by its element, holds an `identifier`, a text bounded at 256 bytes, which a lookup's index holds
- * as itself (one of no byte bound is a filter beside the index, README "Keys and indexes"); each variable a scope declares,
+ * as itself (one of no byte bound is a filter beside the index, docs/limits.md "Keys and indexes"); each variable a scope declares,
  * keyed by the scope and its name; and Resolved, the join of each variable with the references whose identifier is
  * the scope's name, a dot and the variable's, `identifier = scope || '.' || variable`, a computed text no row stores.
  * Every variable is held to a reference by a containment into that query, so the judge's probe of a written variable

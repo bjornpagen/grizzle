@@ -20,8 +20,7 @@ import { namedSpelling } from "#compiler/plan/migration.ts"
 /**
  * What a draft is a function of: every input `grizzle generate` reads that can reach what it writes, named once, as
  * data (draftInputs), and read and digested by one code (draftKey, the key `grizzle draft-key` prints), so the inputs
- * CONTRIBUTING.md names (its section "Drafts and their key", which draft-key.test.ts holds to each member's
- * `documented`), the inputs the
+ * CONTRIBUTING "Drafts and their key" names, which draft-key.test.ts holds to each member's `documented`, the inputs the
  * key digests and the inputs a traced generate reads are one roster (test/unit/cli/draft-key.test.ts).
  *
  * A draft is grizzle's compile of its configuration over its committed migrations directory, under its command line's
@@ -185,9 +184,9 @@ export const nodeVariables: ReadonlyArray<string> = [
 ]
 
 /**
- * The roster of a draft's inputs, in the order the key digests them. Each member's `documented` is CONTRIBUTING.md's
- * text of it, word for word (its section "Drafts and their key"), and its `gather` reads exactly what that text names, by what names it there:
- * never an absolute path, so one input at two paths is one input.
+ * The roster of a draft's inputs, in the order the key digests them. Each member's `documented` is its text in
+ * CONTRIBUTING "Drafts and their key", word for word, and its `gather` reads exactly what that text names, by what
+ * names it there: never an absolute path, so one input at two paths is one input.
  */
 export const draftInputs = {
 	flags: {

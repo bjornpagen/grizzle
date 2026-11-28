@@ -468,7 +468,7 @@ export const recursionRefusalText = (cause: RecursionRefusal): string => {
 }
 
 /**
- * The fix a key past its index entry takes (README "Keys and indexes"): grizzle never holds a key's column by a digest of
+ * The fix a key past its index entry takes (docs/limits.md "Keys and indexes"): grizzle never holds a key's column by a digest of
  * its own, so the author bounds the field or keys by a digest the schema declares.
  */
 const keyFix =

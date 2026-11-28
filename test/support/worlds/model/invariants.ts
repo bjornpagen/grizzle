@@ -27,7 +27,7 @@ const heldRole = (
 }
 
 /**
- * The invariants a state keeps, restating README "Permissions", "Security model", "Deploying" and "Rules":
+ * The invariants a state keeps, restating docs/access.md "Permissions", "Security model", "Deploying" and "Rules":
  *
  * - laws-hold: reality breaks no law, whoever wrote it;
  * - claims-end-with-transaction and role-ends-with-transaction: a pooled connection carries neither claims nor a role

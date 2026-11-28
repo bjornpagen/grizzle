@@ -26,7 +26,7 @@ import { Id } from "#test/support/ids.ts"
  * The public boundary: every value a JavaScript caller can hand a paged member's input or a schema door is parsed once,
  * and a value the types refuse is a typed refusal from the vocabulary, never a defect.
  *
- * The oracle is the contract README "Reading" states, restated here: a paged member's input is exactly
+ * The oracle is the contract docs/reads-and-writes.md "Reading" states, restated here: a paged member's input is exactly
  * `{ params, facts, window }`, its window exactly `{ anchor, size }`, its size a safe integer of at least 1 with no upper
  * bound, its anchor exactly `{ kind: "start" }`, `{ kind: "end" }`, `{ kind: "after", key }` or
  * `{ kind: "before", key }`, and an anchored kind's key a list of one value per comparator of the page's completed

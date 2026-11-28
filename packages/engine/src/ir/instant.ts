@@ -28,7 +28,7 @@ import type { ScalarType } from "#compiler/ir/scalar.ts"
  * the scope held there before it. The head is a row of its own, the key's row of the scope's head table, which only the
  * stamp advances, locking it until its call ends (physical/ddl/stamps.ts), so two calls that stamp one key take turns at
  * every level, and a scope's instants increase in the order its calls commit, across every clock it holds, whatever the
- * clock reads (README "Instants", scopeOrder).
+ * clock reads (docs/reads-and-writes.md "Instants", scopeOrder).
  */
 
 /**
@@ -318,7 +318,7 @@ export const sameClockStamp = (a: ClockStamp, b: ClockStamp): boolean =>
 	a.child.every((f, i) => b.child[i]?.name === f.name)
 
 /**
- * The scope's order, the fact the clock gives every prover (README "Instants"): a scope's instants are commit-ordered
+ * The scope's order, the fact the clock gives every prover (docs/reads-and-writes.md "Instants"): a scope's instants are commit-ordered
  * across the clocks it holds. For two clocks of one head (sameHead), a row `a` of the one and a row `b` of the other
  * whose fields holding the head's key (`key` below) agree:
  *

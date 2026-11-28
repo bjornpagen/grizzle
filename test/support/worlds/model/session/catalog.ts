@@ -40,7 +40,7 @@ import type {
 } from "#test/support/worlds/model/types.ts"
 
 /**
- * Whether one perturbation changes the catalog, so that `grizzle drift` finds it (README "Deploying"), or leaves it as
+ * Whether one perturbation changes the catalog, so that `grizzle drift` finds it (docs/operations.md "Deploying"), or leaves it as
  * it was or as the contract allows. A change that confers nothing (a membership with SET FALSE that passes on no
  * privilege, a database setting of the owner's) is no drift; a change that leaves the catalog as it was (a grant
  * already held, a revoke of one never held) is no change at all. A role's extra member is tolerated only WITH INHERIT

@@ -93,7 +93,7 @@ import { installationTypes } from "#compiler/sql/type-schemas.ts"
  * `chr(1) || reverse(column)` (sql/suffix.ts suffixKeyOf), which a law's probe seeks a suffix it holds fixed through as a
  * range of the key (sql/bind.ts, ir/products.ts AccessKeyTerm), every judged read of a stored text stating the range in
  * place of its suffix test (seekingSuffixes), a key past its request's equalities that only an index holding the same field's
- * suffix key serves. No key holds a column by an image: an index holds a column as itself or not at all (README "Keys
+ * suffix key serves. No key holds a column by an image: an index holds a column as itself or not at all (docs/limits.md "Keys
  * and indexes").
  *
  * The suffix key's coordinates are code points: its range is code point order, which comparing two texts collated

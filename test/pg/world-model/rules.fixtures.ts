@@ -8,7 +8,7 @@ import { roomsBase, roomsInstall } from "#test/support/worlds/model/bases/rooms.
 import type { InstallSpec, WorldFeature } from "#test/support/worlds/model/types.ts"
 
 /**
- * Every law family README "Rules" lists meets a write through a world, over the rooms base (model/bases/rooms.ts): a
+ * Every law family docs/schema.md "Rules" lists meets a write through a world, over the rooms base (model/bases/rooms.ts): a
  * primary and a candidate key, a no-overlap key, a row check, a contract's domain CHECK, a containment, a selected one
  * between the talks and the events of kind Talk, and a coverage, each refusing a Db's ChangeSet through a query entry
  * of a partial role (the booker's own bookings, events and talks, the keeper's rooms, big rooms' openings and talk

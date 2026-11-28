@@ -1,6 +1,6 @@
 /**
  * A lookup that binds a text of no byte bound by equality seeks by the text's declared digest, and one that binds no
- * digest of it is refused (README "Keys and indexes"). Over a relation T(k, g, t) keyed by k, its text `t` of no byte
+ * digest of it is refused (docs/limits.md "Keys and indexes"). Over a relation T(k, g, t) keyed by k, its text `t` of no byte
  * bound, which declares `h = Crypto.sha256(t)` where a case draws it, and a served read of T that states `t` equal to a
  * value in a drawn form (a literal or a parameter its match binds, an equality, with a value of t's type or of another
  * text type, or a membership its where states, an equality with another match's text, one variable another match's

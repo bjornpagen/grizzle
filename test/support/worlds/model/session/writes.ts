@@ -14,7 +14,7 @@ import type {
 } from "#test/support/worlds/model/types.ts"
 
 /**
- * A role relation in the role's write list, as README "Writing through a role" defines it: a whole entry, written as
+ * A role relation in the role's write list, as docs/access.md "Writing through a role" defines it: a whole entry, written as
  * its relation itself, or a writable query entry, whose one rule's supplier carries the head fields and whose fixed
  * fields are filled from literals and claims. An entry the writable-entry rule refuses writes nothing.
  */
@@ -109,7 +109,7 @@ export const installedWrite = (
 	)
 
 /**
- * Whether grizzle refuses to build an installation (README "Writing through a role"): a role's write list names a
+ * Whether grizzle refuses to build an installation (docs/access.md "Writing through a role"): a role's write list names a
  * relation the role does not hold, a whole entry over no ordinary relation, an entry the writable-entry rule refuses, or
  * two entries over one relation. The role's definition throws as it is built, before anything reaches the database.
  */

@@ -14,7 +14,7 @@
  *   writes the child's awaiting items scored by the operator where Admin holds them, and grades them. The app's
  *   decision of a stage sequenced before the ledger's take bound to the guard (`decideTake`, `child` one parameter of
  *   the app's member and of the guard's) is two statements, the take reading the guard after the decision, a part of
- *   its own statement: a visit of each of the child's sittings, the decided one among them (README "Writes": a
+ *   its own statement: a visit of each of the child's sittings, the decided one among them (docs/reads-and-writes.md "Writes": a
  *   relation parameter bound to a query is evaluated once before the first stratum of the part it is bound on).
  * - **Oracle:** second implementation: today's form, the ledger's own programs fed the guard's rows, and its writes as
  *   their specification states them (`suspendedOf`, `evaluatedOf`).
@@ -87,7 +87,7 @@ const evaluatedOf = (c: BoundCase) => {
 
 /** What the app's decision and the ledger's take leave: the decided stage the child's, and a visit of each of its
  * sittings, the decided one among them, beside the visits the case held: the take's `taken` is bound on the take, the
- * guard read once before the take's stratum, after the decision (README "Writes"). */
+ * guard read once before the take's stratum, after the decision (docs/reads-and-writes.md "Writes"). */
 const tookOf = (c: BoundCase) => {
 	const stages = Arr.dedupeWith(
 		[...c.stages, { child: c.child, key: c.decided }],

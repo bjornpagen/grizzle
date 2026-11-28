@@ -1002,7 +1002,7 @@ const directClaims = (
 	const facts = Arr.map(Option.match(box, { onNone: () => [], onSome: (b) => b.facts }), factsOf)
 	/**
 	 * Each context the role reads alone, at each choice of its fields' values, but the one context the box's facts
-	 * already claim alone: a setting that leaves out the other contexts, as a writer may (README "Security model"), so a
+	 * already claim alone: a setting that leaves out the other contexts, as a writer may (docs/access.md "Security model"), so a
 	 * write entry reading a left-out context holds nothing while another entry, reading only this one, holds its facts.
 	 */
 	const claimedAlone = contexts.length === 1 ? contexts : []

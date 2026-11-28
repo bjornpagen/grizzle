@@ -48,7 +48,7 @@ import { Id } from "#test/support/ids.ts"
  *
  * ToneWeight is a closed relation, a weight of Cents for two of Tone's three members, keyed by its tone: a rule matches
  * it as any relation, and every role reads its rows, so it is no role's entry. Its weights are distinct, so the engine
- * keys it by its weight too, a fact of its rows the types do not read (README "Closed relations"); ToneWeightTyped, a
+ * keys it by its weight too, a fact of its rows the types do not read (docs/schema.md "Closed relations"); ToneWeightTyped, a
  * relation of its heading keyed by its tone alone, is ToneWeight as the types read it, which the evidence agreement
  * reads a query over in its place to tell that class apart (queries.ts ClosedReading), and which no drawn rule names.
  * Tone itself, a roster, is a source of its one field, id. byOwner names Item's candidate key, which a keyed get reads

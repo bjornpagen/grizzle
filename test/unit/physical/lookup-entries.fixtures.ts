@@ -178,7 +178,7 @@ const rolesOf = (s: LookupSketch): ReadonlyArray<EntryRole> =>
  * The model's verdict on the request's created index, restated from PostgreSQL's B-tree item limit (BTMaxItemSize,
  * 2,704 bytes) and pg_type's sizes, every key as itself in any order (`btreeTupleBytes`): a request that binds a text of
  * no byte bound by equality is refused naming each such text, since no entry holds one and R declares no digest of it to
- * seek by (README "Keys and indexes"; KeyFault `undigestedText`), and it binds none of R's keys; where its keys fit an entry,
+ * seek by (docs/limits.md "Keys and indexes"; KeyFault `undigestedText`), and it binds none of R's keys; where its keys fit an entry,
  * every key; otherwise each key it binds by equality left out, the widest first (a key of no byte bound widest of all),
  * the first of two as wide, until the rest fit, each left out a filter beside the index. One it reads in its order or
  * matches a prefix of stays: one of no byte bound is refused as unbounded, and an entry those still overfill is

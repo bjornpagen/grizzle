@@ -577,7 +577,7 @@ const worldOver = (
 
 		/**
 		 * A login's layer over its served file `file`, as an application serves the file it imports: verify is given
-		 * exactly when a role of the login reads a context, as README "Permissions" requires it, so a login whose roles
+		 * exactly when a role of the login reads a context, as docs/access.md "Permissions" requires it, so a login whose roles
 		 * read none turns no token into claims.
 		 */
 		const layerOver = (
@@ -973,7 +973,7 @@ const worldOver = (
 				})
 			)
 
-		/** How often verify ran since `before`: once at most per open, as README "Permissions" says: verify runs once per Db. */
+		/** How often verify ran since `before`: once at most per open, as docs/access.md "Permissions" says: verify runs once per Db. */
 		const verifyCallsSince = (before: number): Effect.Effect<0 | 1> => {
 			const calls = verified.calls - before
 			return calls === 0

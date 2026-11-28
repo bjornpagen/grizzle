@@ -26,7 +26,7 @@
  *   the values it drew; a field kept with its old filler's values fails the fold's CHECK or the axis's foreign key, and
  *   a fold over a tree is drawn in the tree's stored sibling order.
  * - **A stored index is data.** An ordered family whose group changes from g to h keeps every member's stored index
- *   (README "A stored index is data"); a data step between the second and third versions, a SERIALIZABLE writer's,
+ *   (docs/operations.md "A stored index is data"); a data step between the second and third versions, a SERIALIZABLE writer's,
  *   writes each member's h by a fate the case's swarm weighs. Mapping each owner's members onto one owner, a
  *   permutation of the owners, keeps each new group's indices 0 … n − 1: the migration commits with every member's
  *   index as the second version left it. Moving the first member of an owner's family of several to another owner breaks

@@ -17,7 +17,7 @@
  * it waits on ended.
  *
  * Oracle: specification, the serial run of the committed calls in the order they committed (stamps.fixtures.ts
- * problemsOf), the certifier's claim of a READ COMMITTED stamp (analysis/isolation/certify.ts, README "Instants"):
+ * problemsOf), the certifier's claim of a READ COMMITTED stamp (analysis/isolation/certify.ts, docs/reads-and-writes.md "Instants"):
  * every relation's rows are exactly the committed calls', each instant the greater of its call's clock reading and one
  * past the instant before it at its key, whichever clock and child of the key's scope stamped that one, one instant for
  * every row a call stamps there, each place one past the place before it from 0, so no instant repeats, none is lost and

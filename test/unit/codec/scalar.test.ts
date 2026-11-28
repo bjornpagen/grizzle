@@ -6,7 +6,7 @@
  * Each carrier's output form is restated here as an oracle from PostgreSQL's output functions (int2out/int4out/int8out,
  * numeric_out at a typmod's display scale, money::numeric at scale 2, boolout, range_out's half-open form), each text's
  * cell text the canonical text of the value it spells, which the encoder writes, and each refusal
- * the codec vocabulary names for a value it meets (README "Errors and outcomes") is planted per carrier, beside the null ban every
+ * the codec vocabulary names for a value it meets (docs/errors-and-concurrency.md "Errors and outcomes") is planted per carrier, beside the null ban every
  * encoder holds.
  *
  * A Live value and the text PostgreSQL's output function writes for it.

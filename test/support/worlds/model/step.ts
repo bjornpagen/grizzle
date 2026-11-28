@@ -111,13 +111,13 @@ const snapshotView = (state: ModelState, s: DbSessionState): ModelState =>
 /**
  * A grizzle call through a Db session: refused as a stale handle when the id names no open Db. grizzle answers it on
  * the host first, by the Db's own snapshot, and a refusal there sends nothing and changes nothing. A call that sends SQL
- * then meets its transaction's prologue, run as the login (README "Deploying"): the ledger's lock, which the
+ * then meets its transaction's prologue, run as the login (docs/operations.md "Deploying"): the ledger's lock, which the
  * connection of a login a migration dropped since the open (loginGone), even one created again, holds no SELECT for
  * (42501, the server's refusal); then the snapshot guard, refusing as
  * `migrating` while a folder is unfinished and as `migrated` once a migration completed past the Db's snapshot. Either
  * refusal runs nothing, retires nothing and leaves the connection clean; past them the call runs on the live state, the
  * one its snapshot describes. Past the lock, any call that sends SQL may also fail with TransientFailure
- * SerializationFailure, changing nothing (README "Transactions and concurrency"): once SSI summarizes old committed transactions under
+ * SerializationFailure, changing nothing (docs/errors-and-concurrency.md "Transactions and concurrency"): once SSI summarizes old committed transactions under
  * load, it refuses a transaction with no other session beside it in the case.
  */
 const dbCall = (
@@ -181,7 +181,7 @@ const meetsRelations = (statement: DirectStatement): boolean => {
 }
 
 /**
- * Whether PostgreSQL's SSI may refuse a direct writer's statement, or its COMMIT, with 40001 (README "Transactions and concurrency"): its
+ * Whether PostgreSQL's SSI may refuse a direct writer's statement, or its COMMIT, with 40001 (docs/errors-and-concurrency.md "Transactions and concurrency"): its
  * transaction is open and SERIALIZABLE, and it meets a relation, the statement itself or, for its COMMIT, one statement
  * it ran. Once SSI summarizes old committed transactions under load it treats their reads and writes as concurrent with
  * any transaction whose snapshot the cluster's oldest transaction holds back, so a transaction with no other session
@@ -203,26 +203,26 @@ const atKey = (row: HostFact, key: HostFact): boolean =>
 	Arr.every(Rec.toEntries(key), ([f, v]) => Rec.has(row, f) && sameValue(row[f], v))
 
 /**
- * A window's size a paged member's call takes: a safe integer of at least 1, with no upper bound (README "A window's
+ * A window's size a paged member's call takes: a safe integer of at least 1, with no upper bound (docs/limits.md "A window's
  * size is any safe integer of at least 1"); the call's input refuses any other before any SQL (adapter/errors/failures.ts
  * CallInputRefused, `size`).
  */
 export const isPageSize = (size: number): boolean => Number.isSafeInteger(size) && size >= 1
 
 /**
- * A read through a Db's role relation (README "Reading": a Db runs its login's served workload, every call a member):
+ * A read through a Db's role relation (docs/reads-and-writes.md "Reading": a Db runs its login's served workload, every call a member):
  * `execute`, `compile` and every page together deliver its rows under the Db's facts; `get` every row that agrees with
  * it at each field it names, a read of the relation with those fields fixed to its values (execute/session.ts readVia,
  * relationRead), the one row at a key, or none, where the fields hold a key, and any rows where they do not, since
  * grizzle serves no lookup by a field set a caller picks: a key member reads by a stored relation's primary key or a
- * declared Key alone (program/workload/value.ts workloadProgram, query/build/key.ts keyTarget; README "`once(input)`");
+ * declared Key alone (program/workload/value.ts workloadProgram, query/build/key.ts keyTarget; docs/reads-and-writes.md "`once(input)`");
  * an attachment each row with the attached relation's rows whose field equals its own (model/reads.ts attachedRows); a
  * recursive read every pair its rows chain (reachedPairs). Refused on the host when it compiles: a relation the role does
  * not hold, a get naming a field its relation's heading lacks or holding a value of another type than its field's,
  * which the builder refuses as a literal of that field, a page ordered by a field its relation's heading lacks, an
  * attachment or a recursive read naming a field its relation's heading lacks, and a recursive read of a relation the
  * role reads as a union, a query entry of more than one rule, since a recursion's step reads no union of rules
- * (README "A recursive rule joins `self`": `RecursionRefused`, cause `unionStep`). A page of a compiled member whose size is
+ * (docs/reads-and-writes.md "A recursive rule joins `self`": `RecursionRefused`, cause `unionStep`). A page of a compiled member whose size is
  * no window's size (isPageSize) is refused at its call's input, before the encoder sends anything.
  */
 const readCall = (
@@ -418,7 +418,7 @@ const readBackMeets = (e: ReadBack, o: ReadBack): boolean =>
 
 /**
  * Whether an observed outcome is the expected one. Rows compare as keyed sets: a delivery that repeats a row agrees with nothing. A witness agrees
- * when every key it shows is one the expected witness allows, each a key of its own: the model predicts the most README
+ * when every key it shows is one the expected witness allows, each a key of its own: the model predicts the most docs/errors-and-concurrency.md
  * "Errors and outcomes" lets a refusal show, and a refusal may name fewer of the violating facts, never another; a
  * withheld witness shows none; a refusal's object agrees where it is the one the model names (refusedByMeets).
  * Read-backs agree relation by relation, rows and delta as keyed sets. The drift check's
@@ -508,7 +508,7 @@ const installedRole = (names: Readonly<Record<string, string>>, name: string): s
 }
 
 /**
- * What a session's connection shows (README "Deploying": every transaction a Db sends takes on its role and
+ * What a session's connection shows (docs/operations.md "Deploying": every transaction a Db sends takes on its role and
  * claims for that transaction only). A Db's connection between calls is its login's, with no claims, outside any
  * transaction. A direct writer is inside its transaction: as the role it took on, or its login, with the claims it set;
  * an aborted transaction shows only that. A closed session has no connection to probe.

@@ -1,7 +1,7 @@
 /**
  * A role generate certifies SERIALIZABLE by its own conditions runs, at that level, as a serial order of its calls, and
  * each shape here is one whose race at READ COMMITTED no serial order explains, so a certificate of READ COMMITTED given
- * by mistake is a real anomaly the race shows, against PostgreSQL 19 (analysis/isolation/certify.ts, README "READ
+ * by mistake is a real anomaly the race shows, against PostgreSQL 19 (analysis/isolation/certify.ts, docs/errors-and-concurrency.md "READ
  * COMMITTED writes"). Each shape installs as `grizzle generate` drafts and serves it (race.ts shapeTemplate), one role
  * of one login, whose calls race at the level generate certifies it at, each sending the statements its served write
  * sends (race.ts callStatements) after the BEGIN its served writes send (race.ts writeBegin):

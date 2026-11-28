@@ -50,7 +50,7 @@ const only = (list: ReadonlyArray<{ readonly loc: SourceLoc }>, fallback: Source
 /**
  * How a recursion's step reads a relation it names (RelationReads): in a role's world, a query entry of the role, read
  * through its view, whose definition PostgreSQL reads in its place, is a union where its definition holds several rules
- * (README "A recursive rule joins `self`": RecursionRefused, cause unionStep), as a query of them the step imports is;
+ * (docs/reads-and-writes.md "A recursive rule joins `self`": RecursionRefused, cause unionStep), as a query of them the step imports is;
  * nothing else a name reads is.
  */
 const worldReads =

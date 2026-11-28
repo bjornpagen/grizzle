@@ -48,7 +48,7 @@ const Reading = contract<typeof readingKey>()("Reading", pg.bigint, (t) =>
 	Num.within(t, 0n, 2n ** 62n - 1n)
 )
 
-/** A learner's presence in a stage: one window per stretch of readings no more than 3 s apart (README "A window a put
+/** A learner's presence in a stage: one window per stretch of readings no more than 3 s apart (docs/reads-and-writes.md "A window a put
  * extends"). */
 const Presence = relation("Presence", { child: LearnerId, stage: natural, during: span(Moment) }, [
 	"child",

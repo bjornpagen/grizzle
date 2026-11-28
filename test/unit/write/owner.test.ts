@@ -9,7 +9,7 @@
  * by facts is inserted at its final count and end with its members, which the families swarm
  * (test/pg/write/swarm/families.test.ts) runs.
  *
- * A deletion of ledgers, from a query or stated, removes each ledger with its entries whole (README "Families", a group
+ * A deletion of ledgers, from a query or stated, removes each ledger with its entries whole (docs/schema.md "Families", a group
  * is deleted whole through its owner), so a stratum that also puts an entry is refused when it compiles, at the
  * entry's put, by the named Refusal "a stratum puts no row its deletes remove whole" (core/refusals.ts, since
  * ee93f32d); beside an entry's insert or removal it compiles.

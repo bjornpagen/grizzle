@@ -138,7 +138,7 @@ const pick = (fact: HostFact, fields: ReadonlyArray<string>): HostFact =>
 	)
 
 /**
- * The key a stated fact names itself by (README "Errors and outcomes"): the first of its relation's declared keys, in
+ * The key a stated fact names itself by (docs/errors-and-concurrency.md "Errors and outcomes"): the first of its relation's declared keys, in
  * the engine's order (InstalledNames keys: the primary key first), whose every field it states; none where it states
  * no key whole.
  */
@@ -171,7 +171,7 @@ const writtenKey = (
 	)
 
 /**
- * A row check's witness (README "Errors and outcomes"): grizzle judges the facts the ChangeSet states at the check's
+ * A row check's witness (docs/errors-and-concurrency.md "Errors and outcomes"): grizzle judges the facts the ChangeSet states at the check's
  * relation by the check, on the host, and names the first that breaks it by its stated key (statedKey), in the fields
  * the caller wrote it in; any violating fact may be the first. One that states no key whole, its primary key drawn and
  * no other key stated, names none, and neither does a check no stated fact breaks.
@@ -192,7 +192,7 @@ const checkWitness = (
 }
 
 /**
- * The most a refusal's witness may show (README "Errors and outcomes"): the key values of the violating facts, never a payload
+ * The most a refusal's witness may show (docs/errors-and-concurrency.md "Errors and outcomes"): the key values of the violating facts, never a payload
  * column; of those, only the keys the caller submitted, in the fields it wrote them in, and the keys of relations its
  * role holds whole. A row check's names a stated fact that breaks it (checkWitness); a containment or coverage
  * PostgreSQL refuses at COMMIT shows a source fact it leaves unmatched by its primary key, read by the diagnosis flight,

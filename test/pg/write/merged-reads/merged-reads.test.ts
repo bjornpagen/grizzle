@@ -18,7 +18,7 @@
  * rows over Item are the model's state after the whole ChangeSet (merged-reads.fixtures.ts modelOf: each stratum's
  * meaning over the state before it, S' = (S \ D) ∪ A), each fact once, and over the bound relation parameter Item's
  * facts in the call's starting state, the stored ones: a relation parameter bound to a query on the whole call is
- * evaluated once before its first stratum (README "Writes"); the stored state after the call is the model's. Oracle: specification, the model. Kill: the read-backs' statements
+ * evaluated once before its first stratum (docs/reads-and-writes.md "Writes"); the stored state after the call is the model's. Oracle: specification, the model. Kill: the read-backs' statements
  * sent before the writes in the applying transaction (adapter/apply/run.ts), so standing reads the stored state.
  *
  * Features: each composition, each insert and delete, each standing.

@@ -11,7 +11,7 @@
  * call's borrow statement in a drawn order while every call before it holds what it was granted and waits for the rest;
  * and ends the sessions in a drawn order, each committing or rolling back as drawn.
  *
- * Oracle: specification, the lock plan's claim (README "READ COMMITTED writes"): two borrows take one lock exactly where
+ * Oracle: specification, the lock plan's claim (docs/errors-and-concurrency.md "READ COMMITTED writes"): two borrows take one lock exactly where
  * their kinds and key values under equality are one, a lower rank's every id is below a higher one's, and a call takes
  * its locks in id order, so where it waits it holds exactly its locks below the first that conflicts with a lock another
  * session holds or waits for, at their strongest modes, and once through it holds all of them; no call ever deadlocks.

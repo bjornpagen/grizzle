@@ -1,6 +1,6 @@
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 /**
- * The bound of the pg_stat_statements entries one call of a served program makes (README "A call's planned queries are
+ * The bound of the pg_stat_statements entries one call of a served program makes (docs/reads-and-writes.md "A call's planned queries are
  * bounded"): every statement the call sends, by the user it runs as, and every query PostgreSQL plans behind them, which the
  * installation's planned queries record (physical/planned/graph.ts PlannedGraph) and a walk from the call's own
  * statements reaches: the functions they call, the views and policies they read, the domains they cast to, the

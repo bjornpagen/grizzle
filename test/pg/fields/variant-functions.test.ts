@@ -1,5 +1,5 @@
 /**
- * A declared function at a library level names a variant of that level in its body (README "Variants": V.of, V.code,
+ * A declared function at a library level names a variant of that level in its body (docs/schema.md "Variants": V.of, V.code,
  * V.attribute), and every application over the library installs it under its own codes, as a column of the variant is
  * (physical/ddl/functions.ts spellingText): the body spells the variant's composite and domain alone, and the function's
  * pinned search_path finds them in the installation's types schema after its own level's (sql/ast.ts

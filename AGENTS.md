@@ -13,7 +13,7 @@ reopen)" are closed questions. Do not propose, prototype or reintroduce a settle
   compile as `UnrepresentableKey`, naming the relation, the key, the field and the fix. A drafted lookup leaves a bounded
   column that cannot fit out of its index, a filter beside it; one that binds a text of no byte bound by equality seeks
   by the digest its relation declares, or is refused as `UnrepresentableKey` (`undigestedText`) unless its other
-  equalities bind a key. The rule is README "Keys and indexes". A schema sizes its keys
+  equalities bind a key. The rule is docs/limits.md "Keys and indexes". A schema sizes its keys
   from its data:
   - **Key texts are bounded at PostgreSQL's natural limits.** A key's text takes the byte bound its key's B-tree entry
     leaves it (`str.bytes(keyTextBytes(fields))`), checked against the longest value the real data holds, so almost

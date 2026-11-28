@@ -35,7 +35,7 @@ import type {
 } from "#test/support/worlds/model/types.ts"
 
 /**
- * The fence (README "Deploying"): a Db never waits on a migration, and a migration waits only for the
+ * The fence (docs/operations.md "Deploying"): a Db never waits on a migration, and a migration waits only for the
  * transactions in flight. While a migration runs, every transaction a Db sends is refused at once with StaleSnapshot
  * `migrating`, and a Db.open, which contacts nothing, opens a Db whose calls meet the fence in turn; once the
  * transaction it waits behind ends, the migration completes or is refused as its data decides, and the calls after it
@@ -177,7 +177,7 @@ const after: ReadonlyArray<Call> = ["read", "open-db", "read"]
 
 /**
  * The state a Db and Db.open meet while a migration to `to` runs, from its first file until its last commits: the
- * state a run stopped part-way leaves, its folder unfinished (README "Deploying").
+ * state a run stopped part-way leaves, its folder unfinished (docs/operations.md "Deploying").
  */
 const running = (state: ModelState, to: InstallSpec): ModelState => ({
 	...state,

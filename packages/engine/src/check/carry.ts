@@ -12,7 +12,7 @@ import { compareStrings } from "#compiler/core/order.ts"
 import { deepFreeze } from "#compiler/core/record.ts"
 
 /**
- * Digests by lineage (README "Keys and indexes"). A query whose head delivers a copy of a text its stored relation
+ * Digests by lineage (docs/limits.md "Keys and indexes"). A query whose head delivers a copy of a text its stored relation
  * declares the SHA-256 of, and not that digest, carries the digest beside it wherever a reader equates the text, so the
  * reader states the digest's equality where it states the text's (check/checker.ts RuleCheck `#stateDigests`) and its
  * read seeks the digest's rows, the text rechecked on them. Only a declared digest is carried, never one grizzle

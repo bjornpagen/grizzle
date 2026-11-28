@@ -1,7 +1,7 @@
 /**
  * A relation parameter a ChangeSet binds to a query is an input of the call scoped to the ChangeSet it was bound on, as a
  * let is to its body: evaluated once in the state before that ChangeSet's first stratum, and every member and read-back
- * of it that reads it reads that one evaluation (README "Writes", ChangeSetDesc `boundRows`, ir/write.ts BoundInput),
+ * of it that reads it reads that one evaluation (docs/reads-and-writes.md "Writes", ChangeSetDesc `boundRows`, ir/write.ts BoundInput),
  * on PostgreSQL 19: bound on the whole call, a later stratum and a read-back read the rows the bound query had before
  * the change, never the query evaluated again over the state they run in; bound on a part sequenced after another, its
  * rows are the query's after the earlier part's writes.

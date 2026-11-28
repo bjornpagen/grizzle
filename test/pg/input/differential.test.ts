@@ -16,7 +16,7 @@
  *   contract's law, `every` of it. A value inside its rule matches exactly its rows.
  *
  * The one refusal the host made that PostgreSQL never makes is deleted on purpose and stated here, not searched: two
- * facts one stratum deletes at one key (README "A relation's rows are a set").
+ * facts one stratum deletes at one key (docs/reads-and-writes.md "A relation's rows are a set").
  *
  * Oracle: the old host check, run beside the new path; PostgreSQL's report and the classifier's reading of it.
  *

@@ -591,7 +591,7 @@ function uninstalledFunction(fn: LibraryFn): never {
  * rosters, of the rosters `owned` declares, its level's and those below it, in the codebook's order. A level below the
  * installation's top declares none of the rosters of the levels above it, and its names name no domain of theirs, so
  * every roster the names hold codes for is one whose domains they name (rosterDomain, bitsDomain), and nothing that
- * reads a level's names meets a roster above it (README "Levels").
+ * reads a level's names meets a roster above it (docs/schema.md "Levels").
  */
 const levelCodes = (codes: Codebook, owned: Owned): Codebook => {
 	const declared = new Set(rostersOf(owned).map((r) => r.closed))

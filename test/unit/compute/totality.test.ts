@@ -1,6 +1,6 @@
 /**
  * No read raises an evaluation error: every partial operation compilation admits stands where its precondition holds,
- * and it refuses one exactly where its operands' values leave it undefined (README "No read fails on a value").
+ * and it refuses one exactly where its operands' values leave it undefined (docs/reads-and-writes.md "No read fails on a value").
  *
  * Two oracles judge the lowering's proofs. Over literal operands, whose interval is their point, the operation's
  * definedness is read off the values themselves, independently of the bound domain: a divisor is zero or not, a

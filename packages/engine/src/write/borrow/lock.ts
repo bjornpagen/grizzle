@@ -1,5 +1,5 @@
 /**
- * A borrow's lock (README "Units"): one PostgreSQL advisory lock, transaction-scoped, of the int8 its
+ * A borrow's lock (docs/schema.md "Units"): one PostgreSQL advisory lock, transaction-scoped, of the int8 its
  * unit's name and its key's values name, `lockId`, the one spelling every lock grizzle takes reads: a call's borrow
  * statement (write/borrow/statement.ts), a judge's borrows at COMMIT, and a series' lock, a unit of no key.
  *

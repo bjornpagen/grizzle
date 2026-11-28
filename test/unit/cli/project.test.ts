@@ -6,7 +6,7 @@
  * The project is generated: one or two declared schemas, each a roster Kind and relations keyed by `id` whose fields
  * are integers, booleans, uuids or Kind's codes, read whole by the role `reader` of the login `server`. Its edits add,
  * drop and rename relations and fields, append, drop and move a roster's handles, and add, remove and rename a declared
- * schema, every new name a fresh one. The model is the documented loop (README "Migrations", SKILL.md "The loop" and
+ * schema, every new name a fresh one. The model is the documented loop (docs/operations.md "Migrations", SKILL "The loop" and
  * "Refusals"):
  *
  * - `generate` drafts a folder for each selected schema whose code differs from what its snapshot.json was generated

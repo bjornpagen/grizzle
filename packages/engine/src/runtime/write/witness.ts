@@ -303,7 +303,7 @@ export type StatementAt =
 	| { readonly kind: "unstated" }
 
 /**
- * Which laws a refusal names, as the host decides them (README "Errors and outcomes"):
+ * Which laws a refusal names, as the host decides them (docs/errors-and-concurrency.md "Errors and outcomes"):
  * - every: a table CHECK's refusal of a row the ChangeSet states, every one of whose table's law-stating CHECKs the host
  *   judges: every law of them the row breaks, each once, whichever of them PostgreSQL tried first; or a domain's
  *   refusal of a row the ChangeSet states, every one of whose columns the domain types the host judges: the law of

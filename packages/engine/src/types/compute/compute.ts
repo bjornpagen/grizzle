@@ -1612,7 +1612,7 @@ export interface BitsApi {
 /**
  * The Time namespace: a zone's wall clock at an instant by PostgreSQL's tzdata, and a date's epoch day and the date of
  * one, the integers a calendar's arithmetic is written over: a local day of the week is (epochDay + 4) mod 7, 1970-01-01
- * a Thursday, and a local wall clock's instant is a guess less the zone's offset at it (README "Time zones").
+ * a Thursday, and a local wall clock's instant is a guess less the zone's offset at it (docs/reads-and-writes.md "Time zones").
  */
 export interface TimeApi {
 	/**

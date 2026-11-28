@@ -1959,7 +1959,7 @@ const usersOf = (clocked: boolean) =>
 /**
  * What the joined case's migration must do: every stored sign-in takes the migration's instant (modelInstant), and the
  * unit's head stands, at each user, at the greatest instant the unit holds there, of its visits and its sign-ins
- * alike, so every later stamp of the unit is above every row it holds (README "Instants"); and the catalog is the one
+ * alike, so every later stamp of the unit is above every row it holds (docs/reads-and-writes.md "Instants"); and the catalog is the one
  * the target installs from nothing.
  */
 export const judgeJoined = (j: Joined): void => {

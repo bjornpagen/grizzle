@@ -2025,7 +2025,7 @@ export type KeyHost =
  * - `key`: one violating fact's relation and its key values, never a payload column. A write statement's refusal names
  *   the key you submitted, in the fields you wrote it in, a collision with a fact outside the written entry included. A
  *   deferred foreign key's refusal at COMMIT names the primary key of the least row it leaves unmatched, which the
- *   write's statements sent again in a transaction that rolls back leave (README "Errors and outcomes", Witness).
+ *   write's statements sent again in a transaction that rolls back leave (docs/errors-and-concurrency.md "Errors and outcomes", Witness).
  * - `drawn`: one violating fact's relation and its key, where the database draws a field of that key as its statement
  *   writes the row, which no host value holds: `values` the key's other fields, as `key` names them, and `drawn` each
  *   drawn field by what draws it (DrawnBy), never a value guessed for it. A field the call computes is in `values`
@@ -2057,9 +2057,9 @@ export type Witness =
 
 /**
  * What supplies a key field the database writes and no host value holds (Witness `drawn`): `clock`, the database's
- * clock, an instant it stamps as the insert adds its row (README "Instants") or a field the call computes from its
+ * clock, an instant it stamps as the insert adds its row (docs/reads-and-writes.md "Instants") or a field the call computes from its
  * reading of the clock, transaction_timestamp, one value a call; `place`, a place its insert stamps, one past its
- * group's greatest (README "Places"); `call`, a field the call computes by a term over its parameters the host does not
+ * group's greatest (docs/reads-and-writes.md "Places"); `call`, a field the call computes by a term over its parameters the host does not
  * evaluate, which the statement evaluates.
  */
 export type DrawnBy = "clock" | "place" | "call"

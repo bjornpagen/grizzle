@@ -6,7 +6,7 @@
  *
  * - **What a call sends** is read off the wire: each statement it executes, by the name it is prepared under on the
  *   session and the text the session parsed under that name, with the parameters it bound; a write is called twice,
- *   its first call standing the write up on the session (README "A session's first call of a write stands the write
+ *   its first call standing the write up on the session (docs/reads-and-writes.md "A session's first call of a write stands the write
  *   up"), its second the call the contracts judge.
  * - **Its scope** is its transaction's as the role compiles it (advice.ts callScope): a read's plan as a served Db of
  *   the role compiles the read (servedRead), a write's as it compiles its ChangeSet at the role's isolation

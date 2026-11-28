@@ -345,7 +345,7 @@ const terminationWaitMaxMillis = 2 ** 31 - 1
  * PostgreSQL lets a role end a backend whose session user, the login, it holds the privileges of, or any backend of a
  * role not superuser where it holds pg_signal_backend's (signalfuncs.c pg_signal_backend); a role's own membership is
  * not enough, since a session's user is its login, not the role it took on. Uninstall adopts the installation's roles,
- * its logins among them, first; a migration's identity holds pg_signal_backend (README "A migration role").
+ * its logins among them, first; a migration's identity holds pg_signal_backend (docs/operations.md "A migration role that owns the database").
  */
 const writeEndHolders = (out: Lines, names: NonEmptyReadonlyArray<string>): void => {
 	const backend = `${inCatalog("pg_stat_get_backend_pid")}("b"."proc")`

@@ -179,7 +179,7 @@ interface Checked {
 	readonly checks: ReadonlyArray<LawId>
 }
 
-/** One op through its written relation, its facts split as README "Writing through a role" judges them. */
+/** One op through its written relation, its facts split as docs/access.md "Writing through a role" judges them. */
 interface Judged {
 	readonly op: EntryOp
 	readonly written: Written
@@ -313,7 +313,7 @@ const collisionsOf = (
 }
 
 /**
- * The witness of a law domain's CHECK refusing a judged op's statement (README "Errors and outcomes"): grizzle judges
+ * The witness of a law domain's CHECK refusing a judged op's statement (docs/errors-and-concurrency.md "Errors and outcomes"): grizzle judges
  * the facts the op states, each a target fact with its fills, on the host, and names the first that breaks a law
  * domain by its stated key (laws.ts statedKey), in the terms its role relation wrote it in; any violating fact may be
  * the first. A delete states no fact, and a fact that states no key whole names none.
@@ -528,7 +528,7 @@ type DeltaOf =
 	| { readonly kind: "undetermined" }
 
 /**
- * A read-back's delta (README "Writes": `read` delivers a query over the post-change state and the change's own
+ * A read-back's delta (docs/reads-and-writes.md "Writes": `read` delivers a query over the post-change state and the change's own
  * delta): empty when the ChangeSet writes nothing the relation's definition reads; the target's delta, in the
  * relation's terms, when the relation is written and the ChangeSet writes nothing else its definition reads, or when
  * the relation is a whole entry over a target the ChangeSet writes through another entry, whose delta is the target's
@@ -651,7 +651,7 @@ const sideMakers = (
 }
 
 /**
- * Whether a read-back of one side of `target`'s delta crosses statements (README "Where a read-back runs",
+ * Whether a read-back of one side of `target`'s delta crosses statements (docs/reads-and-writes.md "Where a read-back runs",
  * ReadBackCrossesStatements): the side is made by more than one statement, or its one maker's rows may be cancelled by
  * a statement making the other side in another stratum.
  */
@@ -666,7 +666,7 @@ const sideCrosses = (makers: ReadonlyArray<SideMaker>, side: SideMaker["side"]):
 
 /**
  * Whether grizzle refuses a ChangeSet of these strata and read-backs through a role when it compiles into a served
- * member (README "Writing through a role", "Writes", "db.workload"): a relation outside the role's write list, a stratum
+ * member (docs/access.md "Writing through a role", "Writes", "db.workload"): a relation outside the role's write list, a stratum
  * that writes a query entry and also a relation its filter reads, two strata that write one relation by one op, whose
  * array members a call's facts cannot tell apart, a read-back of a relation the role does not hold or whose delta the
  * change does not determine, or one of the added or removed side of a written target's delta that no one statement
@@ -732,7 +732,7 @@ export const compileRefused = (
 const onHost = (refusal: ActionOutcome): Called => ({ kind: "host", refusals: [refusal] })
 
 /**
- * A ChangeSet through a Db's role relations (README "Writing through a role", "Writes", "Errors and outcomes"): its strata in
+ * A ChangeSet through a Db's role relations (docs/access.md "Writing through a role", "Writes", "Errors and outcomes"): its strata in
  * `ChangeSet.sequence` order, each the union of its writes and judged against the state the strata before it left,
  * then the read-backs over the post-change state. The refusals before any SQL are the host's, judged by the Db's
  * snapshot (step.ts dbCall); the rest is the call's SQL phase:
@@ -750,10 +750,10 @@ const onHost = (refusal: ActionOutcome): Called => ({ kind: "host", refusals: [r
  *   `outside-world`, a deleted one a no-op; an inserted or put fact whose key a fact outside the entry holds, or that
  *   collides with one at another key's unique index (an at-most-one over a side), is `invariant-rejected` on that
  *   key's law. Which of these refusals, and a law another op of the stratum breaks meanwhile, on the same target or another,
- *   comes first is the order of the stratum's statements, which the model leaves open, as README "Writing through a
+ *   comes first is the order of the stratum's statements, which the model leaves open, as docs/access.md "Writing through a
  *   role" leaves which refusal a ChangeSet meets first: an op's own refusal stops its statement before it writes;
  * - each stratum's S' = (S \ D) ∪ A meets the laws PostgreSQL checks at a statement, and the final state the laws it
- *   checks at COMMIT, each refusal's witness the most README "Errors and outcomes" allows; else `accepted`, or `no-change` when the
+ *   checks at COMMIT, each refusal's witness the most docs/errors-and-concurrency.md "Errors and outcomes" allows; else `accepted`, or `no-change` when the
  *   final state is the first. Nothing is written on any refusal.
  */
 export const applyCall = (

@@ -242,7 +242,7 @@ export const schemaOf = (
 export const builds = (c: UnitCase): boolean => c.kind !== "series" || drawnKey(c.key)
 
 /**
- * The oracle: how a sealed case's schema owns, by the rules of README "Units" restated: owned, its unit sealed over the
+ * The oracle: how a sealed case's schema owns, by the rules of docs/schema.md "Units" restated: owned, its unit sealed over the
  * relations its key leads; refused (Refused) for a relation mutable under a sealed unit; or MalformedDescription for one
  * unit stated both sealed and not.
  */
@@ -280,7 +280,7 @@ const drawnKey = (key: (typeof seriesKeys)[number]): boolean => {
 	}
 }
 
-/** The oracle: whether a case's schema owns, by the rules of README "Units" restated. */
+/** The oracle: whether a case's schema owns, by the rules of docs/schema.md "Units" restated. */
 export const owns = (c: UnitCase): boolean => {
 	switch (c.kind) {
 		case "member":

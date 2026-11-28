@@ -499,7 +499,7 @@ const pendingFolders = (state: ModelState): ReadonlyArray<InstallSpec> =>
 	state.migrations.kind === "pending" ? state.migrations.folders : []
 
 /**
- * A migration (README "Migrations"). An installation grizzle refuses to build (refusedAtBuild), or one that declares a
+ * A migration (docs/operations.md "Migrations"). An installation grizzle refuses to build (refusedAtBuild), or one that declares a
  * roster out of its codes' order against the installation its folder is drafted from (reorderedRoster), is refused as
  * it is built, before any migration is drafted. A folder already applied that a person edited is refused before any file
  * runs; the new folder is discarded, the migrations as they were. Otherwise the new folder is drafted after the
@@ -602,7 +602,7 @@ export const migrateBranches = (
 }
 
 /**
- * `grizzle drift` (README "Migrations"): with every folder applied, the catalog's departures from the contract. With
+ * `grizzle drift` (docs/operations.md "Migrations"): with every folder applied, the catalog's departures from the contract. With
  * folders pending it resumes them first, oldest first: stopped at a law a folder's data breaks, it is refused with that
  * SQLSTATE, the folders before it landed and the rest pending; every one applied, the last one's installation is
  * current (landedOn) and its drift is checked.

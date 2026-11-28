@@ -104,6 +104,7 @@ const DICTIONARY_MINTS = [
 	"test/unit/core/identity.dictionary.ts",
 	"test/unit/core/limits.dictionary.ts",
 	"test/unit/deps/deps.dictionary.ts",
+	"test/unit/dev/references.dictionary.ts",
 	"test/unit/live/call-error.dictionary.ts",
 	"test/unit/live/values.dictionary.ts",
 	"test/pg/migrate/custom-guard.dictionary.ts",

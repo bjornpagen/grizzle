@@ -51,7 +51,7 @@ export const readme = boxAgreement(statedRefusals, {
 				'\t\t\tHasOrder<A>,\n\t\t\t"a closed id of a closed.unordered roster has no order: declare its roster closed.ordered to compare or order by its handles"',
 			replacement:
 				'\t\t\ttrue,\n\t\t\t"a closed id of a closed.unordered roster has no order: declare its roster closed.ordered to compare or order by its handles"',
-			why: "A row check's comparison of a field of an unordered roster compares by its codes (types/compute/compute.ts Ordered requires nothing of it), so the README's PaidOrLater check compiles: armed, its directive is unused, and disarmed, the refusal is missing."
+			why: "A row check's comparison of a field of an unordered roster compares by its codes (types/compute/compute.ts Ordered requires nothing of it), so PaidOrLater, the README's row check, compiles: armed, its directive is unused, and disarmed, the refusal is missing."
 		}
 	]
 })

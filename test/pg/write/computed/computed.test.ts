@@ -237,7 +237,7 @@ export const everyRowOfACallHoldsItsOneValueOfEachComputedFieldTheOwnerAndEveryM
 				),
 		oracle: {
 			kind: "specification",
-			name: "README's Writes: every row of a call holds the call's one value of each field its insert computes"
+			name: `docs/reads-and-writes.md "Writes": every row of a call holds the call's one value of each field its insert computes`
 		},
 		kept: [
 			{

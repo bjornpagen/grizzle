@@ -139,7 +139,7 @@ const firstReads = (c: OnceCase): boolean =>
 /**
  * The case's ChangeSet: the first stratum's mark and its log there or none; then, sequenced after it, the second
  * stratum's log, where the case logs there; the read-back declared by the last part. `target` is bound once on the
- * whole, or by each part that reads it to the one query, each such binding scoped to its part (README "Writes").
+ * whole, or by each part that reads it to the one query, each such binding scoped to its part (docs/reads-and-writes.md "Writes").
  */
 export const changeOf = (c: OnceCase): ChangeSetValue => {
 	const marks = ChangeSet.empty(Once).insert(
@@ -204,7 +204,7 @@ const laterTarget = (c: OnceCase): ReadonlyArray<number> =>
 		: targetBefore(c)
 
 /**
- * The model: each binding of `target` evaluated once, before its part's first stratum (README "Writes": a relation
+ * The model: each binding of `target` evaluated once, before its part's first stratum (docs/reads-and-writes.md "Writes": a relation
  * parameter bound to a query is scoped to the ChangeSet it was bound on). The first part's reads T0, the items no
  * stored mark holds; the second part's, on each part, T1, the items no mark holds after the first stratum, and on the
  * whole the one T0. The first stratum marks T0 or the drawn ids and logs T0 where it logs there; the second logs its

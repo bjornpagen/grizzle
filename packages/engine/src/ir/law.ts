@@ -120,7 +120,7 @@ export const generationOf = (field: Pick<LawField, "writing">): ScalarExpr | und
 }
 
 /**
- * A relation's declared text digests, each text field by its name with the field that is its SHA-256 (README "Keys and
+ * A relation's declared text digests, each text field by its name with the field that is its SHA-256 (docs/limits.md "Keys and
  * indexes"): a field generated, or key-generated, as sha256 of a text field, or of the very term another text field is
  * generated as (pantry's Attribute.valueDigest, `Crypto.sha256(value)` over the term its field `value` is generated
  * from), the term compared by its identity without source locations (ir/desc.ts descIdentity). The one reading of a

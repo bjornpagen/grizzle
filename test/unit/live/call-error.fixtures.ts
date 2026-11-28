@@ -302,7 +302,7 @@ const expectedOfSqlstate = (code: string): Expected =>
 		: { kind: "unavailable", reason: { kind: "otherSqlstate", sqlstate: code } })
 
 /**
- * The oracle's table of socket codes, written from README "Errors and outcomes": each code a reason names; any other
+ * The oracle's table of socket codes, written from docs/errors-and-concurrency.md "Errors and outcomes": each code a reason names; any other
  * code is `otherSocketCode`, carrying it.
  */
 const socketTable: Arr.NonEmptyReadonlyArray<readonly [string, Expected]> = [
@@ -336,7 +336,7 @@ const errnoNames: Arr.NonEmptyReadonlyArray<string> = Arr.dedupe(
 )
 
 /**
- * What a TLS handshake that failed with `code` reads as, by README "Errors and outcomes": a system error's code is the
+ * What a TLS handshake that failed with `code` reads as, by docs/errors-and-concurrency.md "Errors and outcomes": a system error's code is the
  * socket's (expectedOfSocket); any other, a certificate's or a negotiation's, `tlsUnverified`.
  */
 const expectedOfHandshake = (code: string): Expected =>
@@ -351,7 +351,7 @@ type Ended =
 	| "no TLS offered"
 	| "TLS answered neither"
 
-/** What each other end reads as, by README "Errors and outcomes". */
+/** What each other end reads as, by docs/errors-and-concurrency.md "Errors and outcomes". */
 const endedOracle: { readonly [E in Ended]: Expected } = {
 	"the password Effect failed": credential("passwordFailed"),
 	"closed before ready": unavailable("connectionClosed"),

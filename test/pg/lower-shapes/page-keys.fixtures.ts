@@ -1496,7 +1496,7 @@ export const runPage = (clone: RolledBack<Generated>, c: PageCase, k: Case<PageF
 		 * The windows a driver drives, and those it must not (`Window`): the rule's verdict, which each refusal's kill
 		 * turns. A driven window's scans read at most 60 rows for each row it holds and 200 more, and each skipped row of
 		 * an offset its driver's index entry; it reads the operator's account once, the guard read at the claims' key. A
-		 * position is a rank, the count of rows of the order before the window (README "A key or a position"), which no
+		 * position is a rank, the count of rows of the order before the window (docs/reads-and-writes.md "A key or a position"), which no
 		 * stored fact holds, every row written before another moving its rank, and no B-tree of PostgreSQL's counts: its
 		 * window reads the driver's index in order from its first entry, o + k entries, then D at its k keys, at most
 		 * twice the position past a keyset window's bound.

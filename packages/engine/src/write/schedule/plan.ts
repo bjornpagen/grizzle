@@ -904,8 +904,7 @@ const stepSides = (step: PlanStep): ReadonlyArray<SideWrite> => {
  * `maker` makes (runtime/write/net.ts). A met fact is no met one where any addition of the write made it, one of its own
  * stratum too. An addition and a removal cancel across strata, and in one stratum only where a family statement makes
  * either, whose fact may be one the stratum deletes, which the stratum's change nets (net.ts stratumChange). No other
- * write of a stratum removes a fact another of its writes adds (README "A row one stratum both
- * adds and deletes stays"): an exact deletion excepts the stratum's complete additions (`exceptsOf`, the host netting
+ * write of a stratum removes a fact another of its writes adds (docs/reads-and-writes.md "A relation's rows are a set"): an exact deletion excepts the stratum's complete additions (`exceptsOf`, the host netting
  * two enumerated sides) and removes only a stored fact, a put's displacing deletion removes only an occupant other than
  * the fact the put names at its key (write/delete/exact.ts buildDisplacingDelete), and a complete addition makes present
  * only a fact its stratum did not hold.

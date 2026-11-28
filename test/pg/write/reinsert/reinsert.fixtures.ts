@@ -72,7 +72,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * (test/support/families/again.ts): a row's payload changed, a member added to, removed from or moved within a tree,
  * an ordered family or a counted family, a top row left out, a row renamed, another instance beside it; now and then
  * every fact stated twice in the one call; and, one insert again in three where the stored instance holds a unit, a
- * replace (README "Families": "A replace is a delete and an insert in one stratum"), the same stratum first deleting
+ * replace (docs/schema.md "Families": "A replace is a delete and an insert in one stratum"), the same stratum first deleting
  * some stored units whole: tree roots by their root fields, and top rows of a relation that owns a family and is no
  * family's member, by their facts. The generator draws only units the README admits, whose nested relations are
  * members only of families owned within the unit (again.ts unitRelations), and a unit names its component, every unit
@@ -93,9 +93,9 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  *   among them, answers `invariant-rejected` naming only the primary keys of such rows and the keys of the families a
  *   stated row takes another stored row's place in, and stores what it stored before;
  * - an insert stating a new counted member under a stored closed owner, which it restates, answers `invariant-rejected`
- *   `every` on that family's rule alone, witnessed by the member's key (README "A closed owner's family is fixed when
+ *   `every` on that family's rule alone, witnessed by the member's key (docs/schema.md "A closed owner's family is fixed when
  *   the owner is inserted"), and stores what it stored before. Its witness is the key of a
- *   stated row breaking a law it names, in the fields that row was written in (README "Errors and outcomes",
+ *   stated row breaking a law it names, in the fields that row was written in (docs/errors-and-concurrency.md "Errors and outcomes",
  *   Witness: "A key … that grizzle's own write statement finds broken, by two rows you submitted or by a stored row
  *   …, is witnessed by the key you submitted"; it is `unreported` only "for a foreign key, and where no row you
  *   stated breaks the rule"), never `unreported`: every row these keys judge is one the insert states.
@@ -116,7 +116,7 @@ interface Again {
 	readonly twice: boolean
 	/**
 	 * The stored units the same stratum deletes whole first, each with its component (again.ts unitDelete), a replace
-	 * where any (README "Families", replace).
+	 * where any (docs/schema.md "Families", replace).
 	 */
 	readonly units: ReadonlyArray<number>
 }
@@ -644,7 +644,7 @@ const familyKey = (spec: FillSpec, f: number): ReadonlyArray<string> => [
 /**
  * A refusal judged against the set rule's refused verdict: invariant-rejected, deciding its one law, each law a key
  * a stated row breaks, a row's primary key or a family's own key; its witness the key of a stated row breaking a law it
- * names, at that law's fields, as the row was written (README "Errors and outcomes", Witness).
+ * names, at that law's fields, as the row was written (docs/errors-and-concurrency.md "Errors and outcomes", Witness).
  */
 export const judgeRefused = (
 	label: string,

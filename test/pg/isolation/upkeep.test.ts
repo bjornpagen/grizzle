@@ -1,5 +1,5 @@
 /**
- * A stored derived relation's upkeep against PostgreSQL 19 under real concurrency (README "Derived tables"): the judge
+ * A stored derived relation's upkeep against PostgreSQL 19 under real concurrency (docs/schema.md "Derived tables"): the judge
  * keeps each stored relation equal to its definition at every COMMIT for every writer, each upkeep rewriting the stored
  * rows at the units its transaction wrote from its definition there. The shape (upkeep.fixtures.ts upkeepShape): Answer
  * and Key, closed, in the unit Learner(child), and three stored relations over them, none distributive over two
@@ -14,7 +14,7 @@
  * fiber of its own, since the judge it runs may wait: each in turn, or every session whose statements are through at
  * once, so served writes' COMMITs, and the judges they run, overlap.
  *
- * Oracle: specification, the stored relations' law (README "Derived tables"): after the race each stored relation's
+ * Oracle: specification, the stored relations' law (docs/schema.md "Derived tables"): after the race each stored relation's
  * rows are exactly its definition's over the answers and keys it left, whatever order the calls committed in and
  * wherever their judges ran; every call succeeds, as READ COMMITTED promises; and a call waits only on a call of its own
  * child, since an upkeep borrows the units it rewrites and no other.
@@ -27,7 +27,7 @@
  * which states `write` on Key, open in its unit, and so runs SERIALIZABLE, inserts Key. Both keep Matched and Unkeyed,
  * whose upkeep a SERIALIZABLE judge runs at its transaction's snapshot, which the judge's borrow orders after a READ
  * COMMITTED writer's commit but never moves past it, and SSI never sees a READ COMMITTED write: so certification runs
- * the learner SERIALIZABLE too (README "READ COMMITTED writes" `writers`), and every call succeeds or is refused with
+ * the learner SERIALIZABLE too (docs/errors-and-concurrency.md "READ COMMITTED writes" `writers`), and every call succeeds or is refused with
  * 40001. Oracle: the same law over the committed rows.
  */
 
@@ -149,7 +149,7 @@ export const aSerializableKeeperOfAStoredRelationMakesEveryWriterThatKeepsItSeri
 				}),
 		oracle: {
 			kind: "specification",
-			name: 'each stored relation\'s rows its definition\'s over the committed rows at every COMMIT (README "Derived tables"), its writers certified as README "READ COMMITTED writes" `writers` states'
+			name: 'each stored relation\'s rows its definition\'s over the committed rows at every COMMIT (docs/schema.md "Derived tables"), its writers certified as docs/errors-and-concurrency.md "READ COMMITTED writes" `writers` states'
 		},
 		kept: [],
 		kills: [

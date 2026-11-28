@@ -117,7 +117,7 @@ const submittedBy = ({ seen, earlier }: Checked): ReadonlySet<string> => {
 
 /**
  * A refusal's shown witness carries only keys the writer submitted (in its transaction, or through its claims) and keys
- * of relations its role holds whole (README "Errors and outcomes").
+ * of relations its role holds whole (docs/errors-and-concurrency.md "Errors and outcomes").
  */
 export const witnessesShowTheirOwn: StepCheck = (checked) => {
 	const { seen } = checked
@@ -207,7 +207,7 @@ const reachesPast = (state: ModelState, session: number, statement: DirectStatem
 /**
  * A direct writer never crosses into what its login does not hold: a statement that reaches for another login's role
  * or its query entries' views, a whole view of a relation its role does not hold, another identity or another role's
- * functions is refused, whatever the claims (README "Security model").
+ * functions is refused, whatever the claims (docs/access.md "Security model").
  */
 export const reachingPastRefused: StepCheck = ({ seen }) => {
 	if (

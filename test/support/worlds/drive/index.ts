@@ -190,7 +190,7 @@ export const serial = (state: ModelState, action: Action): boolean =>
 /**
  * Whether a program may go on with `action` in `state`: a serial driver can perform it (`serial`), and the catalog's
  * contract admits it (generate/offered.ts withinTamper). A tamper that changed what a world can do (a policy, a grant,
- * row security, a membership, an attribute, a setting: one drift reports) puts every later call outside the README's
+ * row security, a membership, an attribute, a setting: one drift reports) puts every later call outside grizzle's
  * contract, so a program goes on only by opening a Db, whose calls it then draws none of, by asking drift, or by
  * migrating, which rewrites what was tampered with or ends refusing the drift it leaves.
  */
@@ -574,7 +574,7 @@ export const judged = (
  * call again, for a Db call's TransientFailure, which changed nothing; or its transaction again, for a direct writer's
  * 40001 at a statement or its COMMIT, with what that transaction had sent. While a direct writer's transaction is open a
  * serial program commits no other write (`serial`), so none of its sessions is the other half of a conflict, and a
- * refusal is the cluster's load deciding: SSI refuses a lone transaction once it has summarized old ones (README
+ * refusal is the cluster's load deciding: SSI refuses a lone transaction once it has summarized old ones (docs/errors-and-concurrency.md
  * "Transactions and concurrency").
  */
 type Rerun =

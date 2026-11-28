@@ -881,7 +881,7 @@ const brokenLaws = (laws: FolderLaws): ((failure: StatementFailure) => ReadonlyA
 }
 
 /**
- * A step of a file's transaction past its opening, as the runner stages its plan advice (README "Plan advice",
+ * A step of a file's transaction past its opening, as the runner stages its plan advice (docs/operations.md "Plan advice",
  * deploy/render/folder.ts StatedAdvice): the advice set (`advise`), or the file's statement at `index`.
  */
 export type AdvisedStep =

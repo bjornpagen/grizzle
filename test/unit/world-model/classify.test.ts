@@ -1,5 +1,5 @@
 /**
- * classifyEntry, the writable-entry rule of README "Writing through a role" restated clause by clause over the model's
+ * classifyEntry, the writable-entry rule of docs/access.md "Writing through a role" restated clause by clause over the model's
  * entries, held to grizzle's own analysis (packages/engine/src/schema/entry.ts writableEntry) over every entry of a
  * small space.
  *

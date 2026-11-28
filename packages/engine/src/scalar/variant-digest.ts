@@ -22,7 +22,7 @@
  * of it is one value under its image, the equality of a bag's members (a QTI multiple's): two texts one where their
  * UTF-8 is, two floats where their bits are, -0 apart from 0 and every NaN one, where the variant's own equality, a
  * record's, holds -0 equal to 0. The image reads handles, never codes, so the host computes it with no installation's
- * codes, and a generated field of it (README "Keys and indexes") is a key whatever text an arm holds: a value's image is
+ * codes, and a generated field of it (docs/limits.md "Keys and indexes") is a key whatever text an arm holds: a value's image is
  * 32 bytes, which no text's length bounds.
  *
  * PostgreSQL computes it as `sha256(CASE (x)."tag" WHEN <code> THEN '\x<the handle's digest>'::bytea || <each field's

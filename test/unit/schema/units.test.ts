@@ -135,7 +135,7 @@ export const aUnitHoldsExactlyTheRelationsWhoseKeyLeadsWithItsHeadingOneUnitARel
 			}),
 		oracle: {
 			kind: "specification",
-			name: 'README "Units" restated per case: membership by a key leading with the heading by name and type, no nesting, one name one heading, a unit at or below its members, a sealed unit over closed relations stated one way and stating its seal, a series over an immutable relation keyed by one natural or contract over an integer, stating each number\'s predecessor'
+			name: 'docs/schema.md "Units" restated per case: membership by a key leading with the heading by name and type, no nesting, one name one heading, a unit at or below its members, a sealed unit over closed relations stated one way and stating its seal, a series over an immutable relation keyed by one natural or contract over an integer, stating each number\'s predecessor'
 		},
 		box: "R keyed leading with a unit's field, with its name at another type, with it second, or by another name; two units nested, over one heading, of one name, or apart; a unit at its member's level or above; a series keyed by one natural, by an int4 contract, wide, by a bigint or by a uuid contract, mutable or not; a sealed unit founded, with a mutable member, over two relations keyed by its key alone, or stated both ways",
 		kept: [],

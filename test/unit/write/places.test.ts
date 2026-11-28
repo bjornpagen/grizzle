@@ -98,7 +98,7 @@ export const aPlaceStandsLastInItsPrimaryKeyAfterItsGroupUnorderedOrOrderedByAno
 			}),
 		oracle: {
 			kind: "specification",
-			name: "the rules of how a schema declares a place, README's Places (places.fixtures.ts refusalOf)"
+			name: `the rules of how a schema declares a place, docs/reads-and-writes.md "Places" (places.fixtures.ts refusalOf)`
 		},
 		box: "Session's place n, unordered or by stage, when or n, keyed (child, item, n), (child, item, note), (n, child, item) or (child, n, item), beside keys within or outside its group and stage or none",
 		kept: [],
@@ -160,7 +160,7 @@ export const aPlaceThatStatesNoOrderCompilesAndStampsExactlyAsOneOrderedByAField
 			}),
 		oracle: {
 			kind: "specification",
-			name: "README's Places: a place's order is read by the migration that adds it to stored rows alone, so its twin ordered by a field installs and writes alike"
+			name: `docs/reads-and-writes.md "Places": a place's order is read by the migration that adds it to stored rows alone, so its twin ordered by a field installs and writes alike`
 		},
 		box: "a relation of a group of one or two fields, its place and an ordering field, keyed by the group and the field or by the group alone, unordered beside ordered",
 		kept: [],
@@ -320,7 +320,7 @@ export const aStampedNestingIsOneStatementWritingItsOwnerAndEveryMemberItsHeadSt
 			}),
 		oracle: {
 			kind: "specification",
-			name: "README's Places: a nesting's stamp is computed once, by the one statement that writes every row carrying it"
+			name: `docs/reads-and-writes.md "Places": a nesting's stamp is computed once, by the one statement that writes every row carrying it`
 		},
 		box: "an owner keyed by its group and a place, its one sequence of members, or members two deep and a second sequence, each member carrying the owner's stamp in its group",
 		kept: [],

@@ -1,6 +1,6 @@
 /**
  * A login over any level of an installation compiles as `grizzle generate` compiles it, under the installation's
- * snapshot: every level is served (README "Levels"), and a login over a level below the top reads that level and those
+ * snapshot: every level is served (docs/schema.md "Levels"), and a login over a level below the top reads that level and those
  * below it alone, though the installation's codes hold every level's rosters, whatever the levels between install.
  *
  * Over installations of four levels (levels.fixtures.ts installationOf): a generated public schema, its law level, a
@@ -9,7 +9,7 @@
  * installation (adapter/served/compile.ts snapshotCompiled, then servedEntryOf): each is served, or refused with a
  * ServedRefusal, never a defect.
  *
- * Oracle: the specification, README "Levels": a login's compile over a level of the installation ends in a served file
+ * Oracle: the specification, docs/schema.md "Levels": a login's compile over a level of the installation ends in a served file
  * or a refusal.
  */
 
@@ -63,7 +63,7 @@ export const aLoginOverAnyLevelOfAnInstallationCompilesUnderItsSnapshotServedOrR
 					}),
 			oracle: {
 				kind: "specification",
-				name: 'README "Levels": a login\'s compile over any level of the installation ends in a served file or a refusal'
+				name: 'docs/schema.md "Levels": a login\'s compile over any level of the installation ends in a served file or a refusal'
 			},
 			kept: [],
 			kills: [

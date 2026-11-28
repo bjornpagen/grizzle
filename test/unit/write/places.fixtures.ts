@@ -269,7 +269,7 @@ const keyFields = (keys: Keys): ReadonlyArray<ReadonlyArray<SessionField>> => {
 }
 
 /**
- * The rule that refuses a case's place, or none where it is a place, as the README's Places states it: last in its
+ * The rule that refuses a case's place, or none where it is a place, as docs/reads-and-writes.md "Places" states it: last in its
  * primary key after its group, and, ordered by a field, by another field of the relation under a key within the group and
  * that field.
  */

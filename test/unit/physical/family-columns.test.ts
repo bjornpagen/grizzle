@@ -11,7 +11,7 @@
  *
  * - a role declared with a query entry over a tree's relation is refused, `writeUnwritable` at its first such entry with
  *   `keyHoldsFamily` naming `start`, first by name whichever of the role's lists names it (ir/desc.ts writtenNames): a tree's relation is keyed by its root fields and its drawn start (fill.ts
- *   keyOfRelation), which no fact through an entry states (README "Writing through a role"); a role whose entries
+ *   keyOfRelation), which no fact through an entry states (docs/access.md "Writing through a role"); a role whose entries
  *   write no tree's relation is declared, and the installation's clerk writes exactly the drawn relations of no tree;
  * - every installed statement keeps the emission discipline (oracle/verify checkedStatements), a decoding query entry's
  *   view included;

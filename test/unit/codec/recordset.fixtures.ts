@@ -51,7 +51,7 @@ const reading: RelationSpec = {
 }
 
 /**
- * A member planted among valid ones, and the refusal README "Errors and outcomes" gives it: an EncodingFailure naming the slot, and
+ * A member planted among valid ones, and the refusal docs/errors-and-concurrency.md "Errors and outcomes" gives it: an EncodingFailure naming the slot, and
  * the field where there is one, never the value.
  */
 /** A scaled fact: a key and a numeric whose display scale varies. */

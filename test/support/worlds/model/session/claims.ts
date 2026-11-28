@@ -17,7 +17,7 @@ import type {
 import { regex } from "arkregex"
 import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
 /**
- * The claims rules of README "Permissions" and "Security model", restated over a verified payload: a context reads its fields
+ * The claims rules of docs/access.md "Permissions" and "Security model", restated over a verified payload: a context reads its fields
  * from the payload's own top level or from the nested claim object its `claim` names; an absent claim object is no
  * fact; a claim object that is no object, a field missing from it, or a value its field's encoder refuses is refused at
  * stage token (ClaimRefused); keys no context names are ignored. The host decides every type but a refinement: a text
@@ -200,7 +200,7 @@ const notAnObject = 42
 export const handedMalformed = (token: Token): boolean => token.kind === "wild" && token.text === ""
 
 /**
- * What Db.open makes of a token for a role (README "Permissions", "Security model"): a token that is no token68
+ * What Db.open makes of a token for a role (docs/access.md "Permissions", "Security model"): a token that is no token68
  * (handedMalformed) is refused by its parse, whether or not the login verifies; none, or a login whose layer has no
  * verify (no role of the login reads a context), is no context fact; otherwise verify runs once on it, for a role that
  * reads no context too. The test verify decodes the token's JSON text, so a wild text that holds no JSON, or a verify

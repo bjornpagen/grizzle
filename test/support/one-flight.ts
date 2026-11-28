@@ -15,10 +15,10 @@ import {
 
 /**
  * The one-round-trip property of a write, judged on the wire: a call's BEGIN, every statement and its end go in one
- * pipelined flight, so the session writes once and reads every answer after (README "Transactions and concurrency").
+ * pipelined flight, so the session writes once and reads every answer after (docs/errors-and-concurrency.md "Transactions and concurrency").
  * A write whose COMMIT PostgreSQL refused by a deferred foreign key, 23503 at COMMIT, takes one more: its diagnosis
  * (packages/grizzle/src/adapter/apply/run.ts unmatchedWitness), the write's statements again and the key's witness
- * query in a transaction of the same frame that ends ROLLBACK, sent whole as the first was (README "Errors and
+ * query in a transaction of the same frame that ends ROLLBACK, sent whole as the first was (docs/errors-and-concurrency.md "Errors and
  * outcomes", Witness). A session's first call of a write stands the write up first, in a transaction of its own
  * (adapter/apply/stand-up.ts): one more round trip, before the call's, binding the stand-ups the session records by
  * name, and never again. No other call takes more.
