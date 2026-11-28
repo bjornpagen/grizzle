@@ -78,6 +78,7 @@ const chain: ReadonlyArray<DeploySnapshot> = Arr.map(
 				desc,
 				options: {
 					schema: atName("proof_digests"),
+					logins: [],
 					extensions: [],
 					codes: firstCodes
 				},
@@ -205,7 +206,7 @@ const records: ReadonlyArray<DeploySnapshot> = [
 			[
 				{
 					desc: setsSchema("first"),
-					options: { schema: atName("proof_sets"), extensions: [], codes: firstCodes },
+					options: { schema: atName("proof_sets"), logins: [], extensions: [], codes: firstCodes },
 					declared: noDeclarations
 				}
 			],

@@ -182,7 +182,7 @@ const editable: Arr.NonEmptyReadonlyArray<readonly [HandEdit, Arr.NonEmptyReadon
 		const drafted = draftChain(
 			Arr.map(versions, ([desc, declared]) => ({
 				desc,
-				options: { schema: atName("proofs"), extensions: [], codes: firstCodes },
+				options: { schema: atName("proofs"), logins: [], extensions: [], codes: firstCodes },
 				declared
 			})),
 			fromEmpty

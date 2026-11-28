@@ -82,6 +82,7 @@ export const flights = property.exhaust(finite(historyGen), {
 					})
 					const over = {
 						schema: atName(allocated),
+						logins: [],
 						extensions: [],
 						codes: firstCodes
 					}

@@ -21,7 +21,7 @@ import { servedWorkloadExtension } from "#compiler/physical/access/extension.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { namedLogin } from "#compiler/physical/ddl/names.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
-import { installBasis, unserved } from "#compiler/physical/install/plan.ts"
+import { type InstallBasis, installBasis, unserved } from "#compiler/physical/install/plan.ts"
 import { installationOver } from "#compiler/program/install.ts"
 import {
 	planWorkload,
@@ -29,22 +29,29 @@ import {
 	type ServedWorkloadPlan,
 	servedWorkload
 } from "#compiler/program/workload/compile.ts"
-import { installationsOf, type Owned, rostersOf } from "#compiler/schema/own.ts"
+import { installationsOf, type Owned, type OwnedLogin, rostersOf } from "#compiler/schema/own.ts"
 import type { AnyLogin } from "#compiler/types/schema/world.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { jsonOf } from "#test/support/chunked.ts"
+import type { CompileOver } from "#test/support/migrate/kit.ts"
 import { fullWorld } from "#test/support/worlds.ts"
 
 /**
- * The installation `grizzle generate` drafts for `owned`, `login`'s base, serving `login`, under the codes `codes`, with
- * no database, beside the plan of the login's workload it serves (compiledSnapshot, which writes its snapshot.json).
+ * The served workload `grizzle generate` plans for `owned`, `login`'s base, serving `login`, under the codes `codes`, with
+ * no database (cli/generate.ts plannedLogins): the login owned over its base, the basis the installation compiles over,
+ * and the plan of the login's workload, whose extension (physical/access/extension.ts servedWorkloadExtension) asks the
+ * installation an index for every read its programs' bound statements make.
  */
-export const compiledInstallation = (
+const servedPlan = (
 	login: BuiltLogin,
 	owned: Owned,
 	codes: Codebook
 ): Effect.Effect<
-	{ readonly installation: Installation; readonly plan: ServedWorkloadPlan },
+	{
+		readonly ownedLogin: OwnedLogin
+		readonly basis: InstallBasis
+		readonly plan: ServedWorkloadPlan
+	},
 	ServedRefusal
 > =>
 	Effect.gen(function* () {
@@ -92,6 +99,23 @@ export const compiledInstallation = (
 			),
 			(refused) => (refused.kind === "workload" ? atLogin(refused.error) : atRole(refused.refused))
 		)
+		return { ownedLogin, basis, plan }
+	})
+
+/**
+ * The installation `grizzle generate` drafts for `owned`, `login`'s base, serving `login`, under the codes `codes`, with
+ * no database, beside the plan of the login's workload it serves (compiledSnapshot, which writes its snapshot.json).
+ */
+export const compiledInstallation = (
+	login: BuiltLogin,
+	owned: Owned,
+	codes: Codebook
+): Effect.Effect<
+	{ readonly installation: Installation; readonly plan: ServedWorkloadPlan },
+	ServedRefusal
+> =>
+	Effect.gen(function* () {
+		const { ownedLogin, basis, plan } = yield* servedPlan(login, owned, codes)
 		const installation = yield* Effect.mapError(
 			fromEngine(
 				installationOver(
@@ -203,4 +227,21 @@ export const servedInstallation = (
 				Result.ok({ installation, ...servedAccess(installation) })
 		})
 	)
+}
+
+/**
+ * What a draft's compile serves for one workload of `programs` over `base` (migrate/kit.ts CompileOver): its full world's
+ * login, `server`, and its served workload's extension, planned as generate plans it under a fresh installation's codes
+ * (`servedInstallation`), so the draft asks an index for every read its programs' bound statements make.
+ */
+export const servedOver = (
+	base: Parameters<typeof fullWorld>[0],
+	programs: Readonly<Record<string, unknown>>
+): Pick<CompileOver, "logins" | "extensions"> => {
+	const built = defined(builtLogin(fullWorld(base, programs, []).server), "the full world's login")
+	const owned = succeeded(built.base.content.owned(), "the served workload's base")
+	const { ownedLogin, plan } = Effect.runSync(
+		servedPlan(built, owned, firstCodebook(rostersOf(owned)))
+	)
+	return { logins: [ownedLogin], extensions: [servedWorkloadExtension(plan)] }
 }

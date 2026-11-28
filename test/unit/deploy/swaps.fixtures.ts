@@ -8,9 +8,7 @@ import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import { type SqlStatement, tableConstraints } from "#compiler/sql/ast.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { firstCodes } from "#test/support/compile.ts"
 import { f, key, on, relation, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
-import { atDeclaredName } from "#test/support/kernel/naming.ts"
 import {
 	asDrafted,
 	compile,
@@ -131,11 +129,7 @@ export type Feature = (typeof featureNames)[number]
 
 /** The draft of `to` from the snapshot `from` drafts. */
 const draftTo = (from: SwapCase, to: Successor) => {
-	const before = compile(desc(from, "drawn"), {
-		schema: atDeclaredName,
-		extensions: [],
-		codes: firstCodes
-	})
+	const before = compile(desc(from, "drawn"), asDrafted)
 	const first = succeeded(
 		generate({
 			installation: before,
@@ -179,11 +173,7 @@ const strays = (
  * Live when the draft runs: a key whose suffix-spelled swap name it would be. */
 export const swaps = (c: Case<Feature>, value: SwapCase): void => {
 	for (const version of ["drawn", "retyped", "moved"] as const) {
-		const installation = compile(desc(value, version), {
-			schema: atDeclaredName,
-			extensions: [],
-			codes: firstCodes
-		})
+		const installation = compile(desc(value, version), asDrafted)
 		const names = registered(installation.statements)
 		const taken = new Set(names)
 		assert.deepEqual(

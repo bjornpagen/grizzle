@@ -320,6 +320,7 @@ const draftOf = (
 ): { readonly g: GenerateResult; readonly installation: Installation } => {
 	const options = {
 		schema: atName(allocated),
+		logins: [],
 		extensions: [],
 		codes: firstCodes
 	}

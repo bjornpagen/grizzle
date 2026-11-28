@@ -116,6 +116,7 @@ export const driftProofs = property.explore(caseGen, {
 							const proofs = succeeded(proofStatements(schema))
 							const over = {
 								schema: atName(allocated),
+								logins: [],
 								extensions: [],
 								codes: firstCodes
 							}
@@ -217,7 +218,12 @@ export const driftReplaysTheDomainAnUnprovenTablesCastNames = property.exhaust(
 								const schema = identifierOf(identity.schema(parsedSchemaName(allocated)))
 								const ledger = succeeded(statementsFor(schema))
 								const proofs = succeeded(proofStatements(schema))
-								const over = { schema: atName(allocated), extensions: [], codes: firstCodes }
+								const over = {
+									schema: atName(allocated),
+									logins: [],
+									extensions: [],
+									codes: firstCodes
+								}
 								const folders = draftChain(
 									Arr.map([setsSchema("first"), setsSchema(change)], (desc) => ({
 										desc,
@@ -304,7 +310,12 @@ export const aMigrateRecordsOneProofOfEachObjectThoughItsLawReadsARelationTwice 
 										[
 											{
 												desc: readSchema(law),
-												options: { schema: atName(allocated), extensions: [], codes: firstCodes },
+												options: {
+													schema: atName(allocated),
+													logins: [],
+													extensions: [],
+													codes: firstCodes
+												},
 												declared: noDeclarations
 											}
 										],

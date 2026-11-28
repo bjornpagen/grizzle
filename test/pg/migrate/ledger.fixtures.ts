@@ -1232,6 +1232,7 @@ const chainOf = (allocated: string): ReadonlyArray<GenerateResult> =>
 				desc,
 				options: {
 					schema: atName(allocated),
+					logins: [],
 					extensions: [],
 					codes: firstCodes
 				},
@@ -1262,6 +1263,7 @@ export const runOn = (shape: ChainShape) => (steps: LedgerProgram, c: Case<Featu
 						desc: books1,
 						options: {
 							schema: atName(foreignSchema),
+							logins: [],
 							extensions: [],
 							codes: firstCodes
 						},

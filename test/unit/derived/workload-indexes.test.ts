@@ -9,7 +9,9 @@
  * Each case draws a workload of programs over AccountBudget (each account's entries of the books counted and their
  * budgets summed, or a redefinition over the entries above a budget of 10), each comparing a drawn column of the table,
  * its key `account`, its count `tasks` or its computed numeric `budget`, by a drawn comparison a B-tree serves to a
- * parameter. Read off the typed plan a draft states, never its SQL text.
+ * parameter, served through a login as `grizzle generate` serves it (test/support/compiled-served.ts), so the indexes
+ * the installation plans are those its programs' bound reads ask. Read off the typed plan a draft states, never its SQL
+ * text.
  *
  * - Table indexes: a program over the key lands on the key's unique index, every other column takes one created index
  *   keyed by it alone, standing on access, compared as a set. Oracle: that rule, restated over the drawn programs.
@@ -28,13 +30,8 @@ import { array } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Order } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
-import { withWorkload } from "#compiler/physical/access/extension.ts"
-import { installOptions } from "#compiler/physical/install/compile.ts"
-import { compileInstallation } from "#compiler/program/install.ts"
-import { succeeded } from "#test/support/assert.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { draftChain, fromEmpty, noDeclarations } from "#test/support/migrate/kit.ts"
-import { owning } from "#test/support/policy.ts"
 import {
 	type DraftCase,
 	draftedWith,
@@ -47,11 +44,11 @@ import {
 	keyIdent,
 	onView,
 	planned,
-	planOf,
 	programGen,
 	programsOf,
 	Redefined,
 	Reports,
+	servedOf,
 	viewIndexes
 } from "#test/unit/derived/workload-indexes.fixtures.ts"
 
@@ -78,10 +75,7 @@ export const workloadIndexesOnADerivedRelationIndexAViewColumnItsKeyOnItsKeyInde
 			] satisfies ReadonlyArray<Reached<IndexFeature>>,
 			check: (_, k: Case<IndexFeature>) => (c) =>
 				Effect.sync(() => {
-					const plan = planOf(Reports, programsOf(c.programs, false))
-					const owned = owning(Reports)
-					const options = withWorkload(installOptions(owned), plan)
-					const installation = succeeded(compileInstallation(owned, options))
+					const installation = servedOf(Reports, programsOf(c.programs, false))
 					if (c.programs.length === 0) {
 						k.note("the empty workload")
 					}
@@ -164,7 +158,7 @@ export const workloadIndexesOnADerivedRelationBuildALaterProgramsViewIndexConcur
 						const over = d.redefined ? Redefined : Reports
 						return {
 							desc: over,
-							options: draftedWith(planOf(over, programsOf(d.programs, d.redefined))),
+							options: draftedWith(over, programsOf(d.programs, d.redefined)),
 							declared: noDeclarations
 						}
 					}

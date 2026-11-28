@@ -7,11 +7,8 @@ import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { alterationStatement } from "#compiler/deploy/diff/plan.ts"
 import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
 import { compareOps } from "#compiler/ir/desc.ts"
-import { workloadExtension } from "#compiler/physical/access/extension.ts"
 import { keyTermText } from "#compiler/physical/indexes/engine.ts"
 import { type Installation } from "#compiler/physical/install/compile.ts"
-import type { WorkloadPlan } from "#compiler/program/workload/compile.ts"
-import { workload } from "#compiler/program/workload/value.ts"
 import { natural, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, relation, schema, sealed, unit } from "#compiler/public/schema.ts"
@@ -19,12 +16,8 @@ import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import type { IndexKey, SqlStatement } from "#compiler/sql/ast.ts"
 import { succeeded } from "#test/support/assert.ts"
-import {
-	compileTestWorkload,
-	type FixtureSchema,
-	testArtifacts,
-	testCompile
-} from "#test/support/compile.ts"
+import { type FixtureSchema, testArtifacts, testCompile } from "#test/support/compile.ts"
+import { servedInstallation, servedOver } from "#test/support/compiled-served.ts"
 import { Cents } from "#test/support/fixtures/api/contracts.ts"
 import { Id } from "#test/support/ids.ts"
 import { asDrafted, type CompileOver } from "#test/support/migrate/kit.ts"
@@ -115,17 +108,14 @@ export const programsOf = (
 ): Readonly<Record<string, unknown>> =>
 	Rec.fromEntries(Arr.map(programs, (p, i) => [`program${i}`, programOf(p, redefined)] as const))
 
-export const planOf = (
-	schemaValue: FixtureSchema,
+/**
+ * The installation `grizzle generate` drafts for `schemaValue` serving `programs` (test/support/compiled-served.ts
+ * servedInstallation), whose indexes its programs' bound plans ask.
+ */
+export const servedOf = (
+	schemaValue: Parameters<typeof servedInstallation>[0],
 	programs: Readonly<Record<string, unknown>>
-): WorkloadPlan =>
-	succeeded(
-		compileTestWorkload(
-			[{ login: "server", workloads: [workload(schemaValue, programs)] }],
-			schemaValue,
-			testCompile
-		)
-	)
+): Installation => succeeded(servedInstallation(schemaValue, programs)).installation
 
 /** The columns a workload's programs take indexes of their own on: every one but the key. */
 export const indexedColumns = (programs: ReadonlyArray<Program>): ReadonlyArray<ViewColumn> =>
@@ -137,10 +127,14 @@ export const indexedColumns = (programs: ReadonlyArray<Program>): ReadonlyArray<
 export const viewIndexes = (installation: Installation) =>
 	Arr.filter(installation.indexes, (i) => i.relation === "AccountBudget")
 
-/** As generate drafts the schema with the workload `plan`'s index requests. */
-export const draftedWith = (plan: WorkloadPlan): CompileOver => ({
+/** As generate drafts `schemaValue` serving `programs`: its login and its served workload, whose reads ask their
+ * indexes (test/support/compiled-served.ts servedOver). */
+export const draftedWith = (
+	schemaValue: Parameters<typeof servedOver>[0],
+	programs: Readonly<Record<string, unknown>>
+): CompileOver => ({
 	...asDrafted,
-	extensions: [workloadExtension(plan)]
+	...servedOver(schemaValue, programs)
 })
 
 /** The statements a draft's plan states, in its order, each with its slot. */

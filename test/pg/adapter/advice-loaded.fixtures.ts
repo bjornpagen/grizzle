@@ -133,7 +133,7 @@ export const runCase = (x: AdviceCase) =>
 					[
 						{
 							desc: shopV1,
-							options: { schema: atName(allocated), extensions: [], codes: firstCodes },
+							options: { schema: atName(allocated), logins: [], extensions: [], codes: firstCodes },
 							declared: noDeclarations
 						}
 					],

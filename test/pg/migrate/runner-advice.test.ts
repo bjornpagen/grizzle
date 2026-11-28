@@ -67,7 +67,12 @@ export const aMigrationFilesTransactionRunsUnderTheAdviceItsRecordHolds = proper
 					Effect.gen(function* () {
 						const s = yield* Substrate
 						const allocated = yield* s.schema({ create: false, label: "runner_advice" })
-						const options = { schema: atName(allocated), extensions: [], codes: firstCodes }
+						const options = {
+							schema: atName(allocated),
+							logins: [],
+							extensions: [],
+							codes: firstCodes
+						}
 						const migration = migrationOf(drawn)
 						const versions = migration === "a later migration" ? [false, true] : [true]
 						const chain = draftChain(

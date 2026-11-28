@@ -109,6 +109,7 @@ export const lockTable = property.explore(aimed(caseGen, [["the ledger's lock", 
 							})
 							const over = {
 								schema: atName(allocated),
+								logins: [],
 								extensions: [],
 								codes: firstCodes
 							}
@@ -269,7 +270,12 @@ export const lockTablePreflight = property.explore(preflightGen, {
 							[
 								{
 									desc: shopV1,
-									options: { schema: atName(allocated), extensions: [], codes: firstCodes },
+									options: {
+										schema: atName(allocated),
+										logins: [],
+										extensions: [],
+										codes: firstCodes
+									},
 									declared: noDeclarations
 								}
 							],

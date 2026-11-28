@@ -47,7 +47,7 @@ import type { InstallExtension } from "#compiler/physical/install/extension.ts"
 import { manifestFileName, snapshotFileName, spellingsOf } from "#compiler/plan/serve.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
 import type { AnySchema } from "#compiler/public/schema.ts"
-import { installationsOf } from "#compiler/schema/own.ts"
+import { installationsOf, type OwnedLogin } from "#compiler/schema/own.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -70,12 +70,16 @@ export type DeploySubject = AnySchema | SchemaDesc | AuthoredSchemaDesc
  * draft drafted from the snapshot it continues (draftCodes). */
 export interface CompileOver {
 	readonly schema: InstalledAt
+	/** The logins the installation serves, each its roles and the guards their certificates state (InstallOptions
+	 * `logins`): a served workload's extension (compiled-served.ts servedOver) certifies the roles of its own. */
+	readonly logins: ReadonlyArray<OwnedLogin>
 	readonly extensions: ReadonlyArray<InstallExtension>
 	readonly codes: TestCodes
 }
-/** As `grizzle generate` drafts a first installation: its declared schema, no workload, a fresh one's codes. */
+/** As `grizzle generate` drafts a first installation: its declared schema, no login, no workload, a fresh one's codes. */
 export const asDrafted: CompileOver = {
 	schema: atDeclaredName,
+	logins: [],
 	extensions: [],
 	codes: firstCodes
 }
@@ -94,7 +98,7 @@ export const compilation = (
 	const codes = over.codes.kind === "installed" ? over.codes.codes : firstCodebook(rostersOf(owned))
 	return compileInstallation(
 		owned,
-		completeInstallOptions(owned, installation, [], over.extensions, codes)
+		completeInstallOptions(owned, installation, over.logins, over.extensions, codes)
 	)
 }
 

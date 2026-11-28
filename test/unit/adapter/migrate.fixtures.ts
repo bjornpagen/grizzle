@@ -123,17 +123,17 @@ export const shopChain = draftChain(
 	[
 		{
 			desc: shopV1,
-			options: { schema: shopSchema, extensions: [], codes: firstCodes },
+			options: { schema: shopSchema, logins: [], extensions: [], codes: firstCodes },
 			declared: noDeclarations
 		},
 		{
 			desc: booked(shopV2),
-			options: { schema: shopSchema, extensions: [], codes: firstCodes },
+			options: { schema: shopSchema, logins: [], extensions: [], codes: firstCodes },
 			declared: noDeclarations
 		},
 		{
 			desc: booked(shopV3),
-			options: { schema: shopSchema, extensions: [], codes: firstCodes },
+			options: { schema: shopSchema, logins: [], extensions: [], codes: firstCodes },
 			declared: shopV3Declared
 		}
 	],
@@ -149,6 +149,7 @@ const abandoning = succeeded(
 		previous: emptySnapshot({ schemaName: "Shop", schema: shop }),
 		installation: compile(shopV1, {
 			schema: shopSchema,
+			logins: [],
 			extensions: [],
 			codes: firstCodes
 		}),

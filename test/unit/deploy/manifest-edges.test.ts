@@ -59,7 +59,7 @@ export const everyObjectAStatementNamesIsOneItsEdgesCreateItAfter = property.exp
 					[
 						{
 							desc,
-							options: { schema: atName("edges"), extensions: [], codes: firstCodes },
+							options: { schema: atName("edges"), logins: [], extensions: [], codes: firstCodes },
 							declared: noDeclarations
 						}
 					],
