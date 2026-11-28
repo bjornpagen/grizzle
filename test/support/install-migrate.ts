@@ -298,6 +298,34 @@ const leavesNoObject = (statement: string, schema: string): boolean => {
 	)
 }
 
+/** A relation alias a scope mints (sql/naming.ts Alias, `r<n>`), as a quoted identifier's text. */
+const scopeAlias = regex("^r[0-9]+$")
+
+/**
+ * `unit` with each relation alias a scope minted (scopeAlias) named by its first appearance in it, `r1` first: one
+ * statement up to the names of the aliases it binds. A migration's file binds every data step it drafts under its
+ * transaction's one advice scope (deploy/render/advise.ts), so a step mints its aliases after the file's earlier steps'
+ * (two refined constants' validations in Publish read `r1` and `r2`), where the script prints each statement under a
+ * scope of its own, every one's first alias `r1`; a statement's meaning is the same under any names of the aliases it
+ * binds. A quoted identifier is its lexeme (sql/lexer.ts), so no string or dollar-quoted body is renamed.
+ */
+const boundAliases = (unit: string): string => {
+	const named = new Map<string, string>()
+	const pieces: Array<string> = []
+	let at = 0
+	for (const t of lex(unit).tokens) {
+		if (t.kind !== "quotedIdent" || !scopeAlias.test(t.text)) {
+			continue
+		}
+		const name = named.get(t.text) ?? `r${named.size + 1}`
+		named.set(t.text, name)
+		pieces.push(Str.slice(at, t.start)(unit), quoteIdent(name))
+		at = t.start + quoteIdent(t.text).length
+	}
+	pieces.push(Str.slice(at)(unit))
+	return Arr.join(pieces, "")
+}
+
 /**
  * The statements whose order decides privileges: grants, revokes and default privileges, which apply to the objects
  * created before them.
@@ -322,7 +350,8 @@ const isPrivilege = (statement: string): boolean => {
  * (render/markers.ts splitStatements): a drafted statement may print two, as a grant on the database prints its lock
  * before it (sql/print.ts databaseWide), two on both sides. The script is spelled as a drafted file spells it
  * (deploy/render/filed.ts filed): a constant holding a control character or a line or paragraph separator is the escape
- * string of the same value, the one constant PostgreSQL reads from either spelling.
+ * string of the same value, the one constant PostgreSQL reads from either spelling. A unit is read up to the names of
+ * the relation aliases it binds (boundAliases), which a migration's file mints under its transaction's one advice scope.
  */
 export const runsInstallScript = (
 	folders: ReadonlyArray<FolderTexts>,
@@ -339,7 +368,7 @@ export const runsInstallScript = (
 			},
 			database
 		),
-		(s) => unitsOf(normalized(s))
+		(s) => Arr.map(unitsOf(normalized(s)), boundAliases)
 	)
 	const migration = Arr.flatMap(
 		filledSql(
@@ -350,7 +379,7 @@ export const runsInstallScript = (
 			},
 			database
 		),
-		(s) => unitsOf(normalized(s))
+		(s) => Arr.map(unitsOf(normalized(s)), boundAliases)
 	)
 	const pending = new Map<string, number>()
 	for (const s of script) {
