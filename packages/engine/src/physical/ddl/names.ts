@@ -216,13 +216,17 @@ interface NamesInput {
  * reads in full (schema/own.ts OwnedRole `wholeDerived`) is named a whole view too, whatever the installation infers of
  * its storage, which it creates where the relation is stored. The installation creates a whole view for a stored
  * relation and a stored derived one alone: a roster's or a closed relation's whole entry is named so, but no statement
- * reads it, every query reading a roster's handles as codes and a closed relation's rows through its constants.
+ * reads it, every query reading a roster's handles as codes and a closed relation's rows through its constants. A
+ * whole view names the relation it is, `relation`, by its name as the installation's facts are keyed (its declared
+ * name, or a stored canonical relation's), so whatever reads a role's statements back reads each whole view as that
+ * relation from the one value that names it (program/isolation/member-facts.ts extractNames).
  */
 export type RoleViewName =
 	| {
 			readonly kind: "whole"
 			readonly schema: Fitted<"wholeSchema">
 			readonly name: Identity<"wholeView">
+			readonly relation: string
 	  }
 	| {
 			readonly kind: "query"
@@ -266,7 +270,8 @@ const wholeViewName = (
 			`the whole views' schema of ${level.display}, which ${reader} reads ${relation.name} through`,
 			at
 		),
-		name: wholeViewOf(relation)
+		name: wholeViewOf(relation),
+		relation: relation.name
 	}
 }
 
@@ -690,7 +695,8 @@ export const installNames = (input: NamesInput): InstallNames => {
 				`the whole views' schema of ${level.display}, which a role reads ${relation} through`,
 				SourceLoc(`stored canonical relation ${relation}`, [])
 			),
-			name: identity.canonicalWholeView(input.canonical(relation).digest)
+			name: identity.canonicalWholeView(input.canonical(relation).digest),
+			relation
 		}
 	}
 	const names: InstallNames = {

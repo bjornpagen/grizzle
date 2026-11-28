@@ -136,9 +136,11 @@ const inputFill = (
  * - a stored relation's table and a stored derived relation's table are that relation, a table the role reads
  *   under a row policy of its own among them, a stored canonical relation of an import no declaration names
  *   (analysis/derived/canonical.ts) among them;
- * - the role's view of a whole entry is its relation, and the whole view of each canonical relation its base names
- *   nowhere that it reads (physical/ddl/roles.ts anonymousTables) is that relation; a view of a query entry is its
- *   definition (roleWorld);
+ * - each whole view the role is named (physical/ddl/names.ts NamedRole `views`, the one value its statements' view
+ *   names are read off, worldNames) is the relation it names: a whole entry's, and each stored derived relation's the
+ *   role reads in full though it holds no entry of it (schema/own.ts OwnedRole `wholeDerived`), in its level's schema
+ *   of whole views, `__<level>`; and the whole view of each canonical relation its base names nowhere that it reads
+ *   (physical/ddl/roles.ts anonymousTables) is that relation; a view of a query entry is its definition (roleWorld);
  * - a column of a stored relation's table is its field, and none of a law column;
  * - the refusal function, each closed relation's constant functions, each library function whose definition reads no
  *   table (physical/ddl/library.ts tablelessLibrary, a text's digest among them), each declared function and each head's
@@ -159,7 +161,6 @@ export const extractNames = (role: {
 	readonly artifacts: SchemaArtifacts
 }): Result.Result<ExtractNames, CompileError> => {
 	const { artifacts } = role
-	const owned = role.named.owned
 	const names = artifacts.names
 	const tabled = new Set([
 		...Object.values(artifacts.owned.relations).flatMap((r) =>
@@ -182,15 +183,14 @@ export const extractNames = (role: {
 	}
 	const { functions, policies, definitions } = read.value
 	if (world.kind === "role") {
-		for (const entry of Object.values(owned.relations)) {
-			if (entry.kind === "whole" && tabled.has(entry.relation.name)) {
-				const view = world.names.view(entry.name)
-				relations.set([view.schema, view.name], entry.relation.name)
+		for (const view of role.named.views.values()) {
+			if (view.kind === "whole" && tabled.has(view.relation)) {
+				relations.set([identifierOf(view.schema), identifierOf(view.name)], view.relation)
 			}
 		}
 		for (const { name } of anonymousTables(world.checked)) {
-			const view = world.names.view(name)
-			relations.set([view.schema, view.name], name)
+			const view = names.canonicalWholeView(name)
+			relations.set([identifierOf(view.schema), identifierOf(view.name)], view.relation)
 		}
 	}
 	const columns = new TupleMap<readonly [string, string], string>()
