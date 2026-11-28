@@ -6,6 +6,7 @@
  */
 
 import { Array as Arr, Option, Record as Rec } from "effect"
+import { SourceLoc } from "#compiler/core/loc.ts"
 import type { Called, Observed } from "#test/pg/contracts/observed.ts"
 import {
 	type ReadAsks,
@@ -14,7 +15,6 @@ import {
 	contentNames,
 	contentRead,
 	derivedName,
-	memberKey,
 	memberName,
 	ownerName,
 	publishWrite,
@@ -138,22 +138,57 @@ const columnsOf = (
 	Arr.map([...fields], (f) => o.installed.installation.names.column(relation, f))
 
 /**
- * The keys of a relation of the shape, each its columns: a member's primary key (its unit's field and its own keys) and
- * the first member's key of `k0` alone where the shape declares it; none of any other relation.
+ * Whether the columns `bound` of a relation of the shape hold one of its keys whole, closed under the dependencies its
+ * fields hold: its keys and dependencies as the checked schema holds them (CheckedSchema relation), an ordinary or closed
+ * relation's primary key, its further declared keys and the dependencies its containments give it, a derived relation's
+ * keys its rows are proven to have and the dependencies its definition draws (`analysis.read`), the stored one's by the
+ * relation it is installed as: the facts the chain's Bound reads (lower/optimize/cte-policy keyedRegionChain,
+ * closedUnder), so a read the chain proves of one row is one the law reads so, where it knew a member's keys alone and
+ * refused D0's read at `k0`, which determines `doc` in every arm of the union of the first member with itself, the first
+ * member's key of `k0` alone.
  */
-const keysOf = (
-	s: ShapeSketch,
-	o: Observed,
-	relation: string
-): ReadonlyArray<ReadonlyArray<string>> =>
-	Arr.flatMap(s.members, (m, at) =>
-		memberName(at) === relation
-			? [
-					columnsOf(o, relation, memberKey(m)),
-					...(s.globalKey && at === 0 ? [columnsOf(o, relation, ["k0"])] : [])
-				]
-			: []
+const holdsKey = (o: Observed, relation: string, bound: ReadonlyArray<string>): boolean => {
+	const r = o.installed.installation.checked.relation(
+		relation,
+		SourceLoc("the plan contracts' keys", [relation])
 	)
+	const facts = ((): {
+		readonly keys: ReadonlyArray<ReadonlyArray<string>>
+		readonly determined: ReadonlyArray<{
+			readonly by: ReadonlyArray<string>
+			readonly fields: ReadonlyArray<string>
+		}>
+	} => {
+		switch (r.kind) {
+			case "relation":
+				return { keys: [r.primaryKey, ...r.keys], determined: r.determined }
+			case "closed":
+				return {
+					keys: [r.relation.primaryKey, ...r.relation.keys],
+					determined: []
+				}
+			case "derived":
+			case "world":
+				return {
+					keys: Arr.map(r.analysis.read.keys, (k) => k.fields),
+					determined: r.analysis.read.determined
+				}
+		}
+	})()
+	const held = new Set(bound)
+	for (let grew = true; grew;) {
+		grew = false
+		for (const d of facts.determined) {
+			if (Arr.every(columnsOf(o, relation, d.by), (c) => held.has(c))) {
+				for (const c of columnsOf(o, relation, d.fields)) {
+					grew ||= !held.has(c)
+					held.add(c)
+				}
+			}
+		}
+	}
+	return Arr.some(facts.keys, (k) => Arr.every(columnsOf(o, relation, k), (c) => held.has(c)))
+}
 
 /**
  * C3, keyed reach: every scan of a keyed relation binds every key column the read binds, through every derivation
@@ -168,7 +203,7 @@ const keysOf = (
  * - A read's binding is the model's (shapes.ts askedOf): its `doc`, and its `k0` where it binds it, or its `k0` alone,
  *   reach every occurrence of a member in a live derived relation's definition, as the rule's shared variables equate
  *   them, and the stored table of a stored one; the plan binds each scan of such a relation by them (its read's bound
- *   columns, by the scan's target), or by a whole key of the relation, a read of at most one row, as a probe of a key
+ *   columns, by the scan's target), or by a whole key of the relation (`holdsKey`), a read of at most one row, as a probe of a key
  *   of `k0` alone is. A read's join inside its unit may hash the rows its binding already bounds: its own rows are the
  *   unit's at the binding, so the bound is the read's binding reaching every scan, not each join's.
  */
@@ -194,9 +229,7 @@ export const keyedReach = (s: ShapeSketch, o: Observed): ReadonlyArray<string> =
 									{ onNone: (): ReadonlyArray<string> => [], onSome: (r) => r.bound }
 								)
 						})
-						const byKey = Arr.some(keysOf(s, o, relation), (k) =>
-							Arr.every(k, (c) => bound.includes(c))
-						)
+						const byKey = holdsKey(o, relation, bound)
 						const missing = byKey ? [] : Arr.dedupe(Arr.filter(needed, (c) => !bound.includes(c)))
 						return missing.length === 0
 							? []

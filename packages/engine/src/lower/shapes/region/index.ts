@@ -427,7 +427,7 @@ const impliedBounds = (
  *
  * - It starts at the occurrence the evidence makes most selective: one whose columns fixed by values from outside the
  *   region (constants, parameters, outer correlations) determine a physical key of its source, so it delivers at most
- *   one row; else one its statement derives once (a CTE, lower/optimize/cte-policy rule 5b), which no index reads;
+ *   one row; else one its statement derives once (a CTE, lower/optimize/cte-policy), which no index reads;
  *   else one with any fixed column; else the first placed. A column is fixed by a condition of the region, or by its
  *   only reader, a filter, that equates the variable bound to it with a value read from no relation: the parameter a
  *   rule's probe holds its row at reaches PostgreSQL there, and a chain that started elsewhere would plan its first
@@ -809,9 +809,10 @@ const heldChain = (
 	 * a scan of every key's rows, no index reading it: probe-share's bulk population, each of 1,449 Budget rows written at
 	 * once scanning the scopes of all 1,449 documents their seats deliver, 2,099,601 index searches.
 	 */
-	const atRows = new Set(sites.map((site) => site.occurrence))
-	const walkedSite = (s: ChainStep): boolean =>
-		sitesAtRows(region, env.restricted.has(region)) && atRows.has(s.occurrence)
+	const atRows = sitesAtRows(region, env.restricted.has(region))
+		? new Set(sites.map((site) => site.occurrence))
+		: new Set<Occurrence>()
+	const walkedSite = (s: ChainStep): boolean => atRows.has(s.occurrence)
 	const classOf = regionVarClasses(region)
 	/** The classes fixed once for each evaluation of the region: its restriction's, its sites', the values it holds. */
 	const once = new Set(

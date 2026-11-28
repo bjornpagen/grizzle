@@ -18,7 +18,7 @@
  * read through its fact, and writes in one stratum, in two and with a carried binding.
  */
 import type { Reached } from "@bjornpagen/testing/features"
-import { type Case, property } from "@bjornpagen/testing/property"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Effect, Formatter } from "effect"
 import { keyedReach } from "#test/pg/contracts/laws.ts"
 import { type ContractFeature, contractCase } from "#test/pg/contracts/observed.ts"
@@ -55,6 +55,15 @@ export const everyScanOfAKeyedRelationBindsEveryKeyColumnTheCallBindsThroughEver
 		},
 		budget: { runs: 16, steered: 16 },
 		show: Formatter.format,
-		kept: [],
+		kept: [
+			{
+				token: ReplayToken(
+					"test/pg/contracts/keyed-reach.test.ts#everyScanOfAKeyedRelationBindsEveryKeyColumnTheCallBindsThroughEveryDerivation:ff.0:1.0.0.0.0.0.0.0.2.1.0.0.0.0.0.1.0.0.1.0.0.0.0.0.0.0.0.0.1.1.0.1"
+				),
+				reason:
+					"the stored union of the first member with itself read at k0 and at the document a row of Owner names: its chain led by its read at k0, a key, which determines doc, where the law knew members' keys alone (lane REDS7's census of main 29a4d30c)",
+				since: "2026-11-28"
+			}
+		],
 		kills: []
 	})

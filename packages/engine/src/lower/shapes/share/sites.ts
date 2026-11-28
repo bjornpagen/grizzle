@@ -147,13 +147,34 @@ export const chainSites = (
  * restriction walked into the region (`walked`), or where the region is evaluated per outer row (cte-policy
  * evaluatedPerRow), LATERAL to it as a probe's chain is to the written row, so a set its statement computes once and
  * the site joined would be scanned whole at each evaluation, no index reading it; a region evaluated once that nothing
- * walked into reads its sites from the key set its statement computes them at. The one decision the lowering
- * (lower/shapes/region heldChain) and the key analysis (share/keys.ts rowReading) read: probe-share's population,
- * 1,449 Budget rows written at once, each of their probes joined the scopes of every document the 1,449 seats deliver,
- * 2,099,601 index searches of each of Timed and Paced.
+ * walked into reads its sites from the key set its statement computes them at, but a site of one row before it read by
+ * that region alone (`oneRowBefore`, share/keys.ts rowReading). The one decision the lowering (lower/shapes/region
+ * heldChain) and the key analysis (share/keys.ts rowReading) read: probe-share's population, 1,449 Budget rows written
+ * at once, each of their probes joined the scopes of every document the 1,449 seats deliver, 2,099,601 index searches
+ * of each of Timed and Paced.
  */
 export const sitesAtRows = (region: NodeOf<"MatchRegion">, walked: boolean): boolean =>
 	walked || evaluatedPerRow(region)
+
+/**
+ * Whether the region's chain `steps` (`regionChain`) reads one row before each of its row sites `sites`
+ * (`chainSites`): every step before its last site is of rank `key` (cte-policy Rank), a whole declared key bound by the
+ * region's values or by a step before it, so the steps before each site are at most one row and the site is read at most
+ * once there. A site so read that no other reader of the statement reads is read at that row's values (share/keys.ts
+ * rowReading), derived once, where a key set of it would scan that row's relations a second time to find its one key
+ * (C1, test/pg/contracts/statement-size: Owner read by its id, then again for the key set of the fold its document
+ * keys); one another reader reads too is read from the key set its statement computes it at for all its reads, derived
+ * once for them all (test/unit/write/restricted-share: the labels two arguments of a write read by the open items, one
+ * part).
+ */
+export const oneRowBefore = (
+	steps: ReadonlyArray<ChainStep>,
+	sites: ReadonlyArray<ChainSite>
+): boolean => {
+	const at = new Set(sites.map((site) => site.occurrence))
+	const last = steps.findLastIndex((step) => at.has(step.occurrence))
+	return last > 0 && steps.slice(0, last).every((step) => step.bound.rank === "key")
+}
 
 /** Whether an expression is a value of the statement's own: it reads a parameter and no relation. */
 export const statementValue = (e: ScalarExpr): boolean =>

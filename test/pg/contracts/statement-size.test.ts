@@ -12,7 +12,7 @@
  * Space: drawn shapes (shapes.ts).
  */
 import type { Reached } from "@bjornpagen/testing/features"
-import { type Case, property } from "@bjornpagen/testing/property"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Effect, Formatter } from "effect"
 import { statementSize } from "#test/pg/contracts/laws.ts"
 import { type ContractFeature, contractCase } from "#test/pg/contracts/observed.ts"
@@ -45,8 +45,23 @@ export const aReadsStatementScansEachRelationAtMostOncePerOccurrenceItsDefinitio
 		},
 		budget: { runs: 16, steered: 16 },
 		show: Formatter.format,
-		kept: [],
+		kept: [
+			{
+				token: ReplayToken(
+					"test/pg/contracts/statement-size.test.ts#aReadsStatementScansEachRelationAtMostOncePerOccurrenceItsDefinitionReadsItAt:4.2:2.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.1.0.1.0.0.0.0.0.0.0.0.0.1.0.0"
+				),
+				reason:
+					"a fold by document over the first member, read at the document a row of Owner names: computed at the key set of Owner's documents, Owner scanned once for the key set and again for the read (lane REDS7's census of main 29a4d30c)",
+				since: "2026-11-28"
+			}
+		],
 		kills: [
+			{
+				file: "packages/engine/src/lower/shapes/share/keys.ts",
+				original: "\t\t\t\tif (atRows || (once && readers(site.occurrence.source) === 1)) {\n",
+				replacement: "\t\t\t\tif (atRows) {\n",
+				why: "A region evaluated once reads its row sites from a key set however few rows come before them: read4's fold at the document Owner's row names is computed at the key set of Owner's documents, Owner scanned for the key set and again for the read, twice where its definition reads it once."
+			},
 			{
 				file: "packages/engine/src/analysis/schema.ts",
 				original:

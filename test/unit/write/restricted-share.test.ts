@@ -66,6 +66,12 @@ export const aJoinTheStatementsPartsReadJoinedToACarriedPartIsComputedOnceAtTheK
 		kept: [],
 		kills: [
 			{
+				file: "packages/engine/src/lower/shapes/share/keys.ts",
+				original: "\t\t\t\tif (atRows || (once && readers(site.occurrence.source) === 1)) {\n",
+				replacement: "\t\t\t\tif (atRows || once) {\n",
+				why: "A site of one row before it is read at that row's values however many readers the statement holds of it: the two arguments reading the labels by the open items each read them at their own rows, two derivations where one part holds them."
+			},
+			{
 				file: "packages/engine/src/lower/shapes/share/statements.ts",
 				original: '\t\t\tcase "byKeys":\n',
 				replacement: '\t\t\tcase "byKeys":\n\t\t\t\treturn whole\n',

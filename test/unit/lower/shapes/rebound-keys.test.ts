@@ -66,6 +66,13 @@ export const aFoldReadAtAVariableEquatedWithAnotherOfAnotherRefinementIsReadAtIt
 		kept: [],
 		kills: [
 			{
+				file: "packages/engine/src/lower/shapes/share/sites.ts",
+				original:
+					'\treturn last > 0 && steps.slice(0, last).every((step) => step.bound.rank === "key")\n',
+				replacement: "\treturn last > 0\n",
+				why: "A region evaluated once reads its row sites at its rows' values whatever comes before them, many rows among them: the read's spans fold, a site of its region's chain, is read at every row, where the key analysis read it at child, package, path and stage."
+			},
+			{
 				file: "packages/engine/src/check/checker.ts",
 				original: "\t\tthis.#filters = [...this.#filters, ...owed]\n",
 				replacement:

@@ -13,7 +13,7 @@
  * Space: drawn shapes (shapes.ts whereShapeGen), each read's binding stated in its match or by a where.
  */
 import type { Reached } from "@bjornpagen/testing/features"
-import { type Case, property } from "@bjornpagen/testing/property"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Effect, Formatter } from "effect"
 import { keyedReach } from "#test/pg/contracts/laws.ts"
 import { type ContractFeature, contractCase } from "#test/pg/contracts/observed.ts"
@@ -46,16 +46,16 @@ export const aBindingStatedByAWhereCarriesEveryColumnItBindsIntoEveryScan = prop
 		},
 		budget: { runs: 48, steered: 48 },
 		show: Formatter.format,
-		kept: [],
-		kills: [
+		kept: [
 			{
-				file: "packages/engine/src/lower/optimize/existence/index.ts",
-				original:
-					"\treturn new Set(o.bindings.map((b) => classOf(b.var)).filter((c) => !read.has(c)))\n",
-				replacement:
-					"\treturn new Set(o.bindings.map((b) => b.var.id).filter((c) => !read.has(c)))\n",
-				why: "A variable a where equates to a row in hand's is bound by its own occurrence alone, as before: Owner stays a join operand, and the live derivation it reaches is the statement's CTE, its member scanned with its document unbound."
+				token: ReplayToken(
+					"test/pg/contracts/where-reach.test.ts#aBindingStatedByAWhereCarriesEveryColumnItBindsIntoEveryScan:7.1:1.0.0.0.0.0.0.0.1.0.1.0.0.1.0.1.0.0.0.0.0.0.0.0.0.1.0.0.0"
+				),
+				reason:
+					"a live join of the first member with itself and a negation, read at the document a row of Owner names: the statement's MATERIALIZED CTE, read once per row of Owner, its scans of M0 binding no doc (lane REDS7's census of main 29a4d30c)",
+				since: "2026-11-28"
 			}
-		]
+		],
+		kills: []
 	}
 )

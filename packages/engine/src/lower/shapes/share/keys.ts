@@ -30,6 +30,7 @@ import {
 	type ChainSite,
 	chainSites,
 	regionChain,
+	oneRowBefore,
 	sitesAtRows,
 	statementValue,
 	unitAtValues
@@ -1567,6 +1568,15 @@ export const rowReading = (
 	nodes: Iterable<RelNode>,
 	paged: ReadonlyArray<PagedRead>
 ): RowReading => {
+	const statement = [...nodes]
+	/** How many of the statement's nodes read each node (`inputsOf`), each read of one reader counted. */
+	const readCounts = new Map<RelNode, number>()
+	for (const node of statement) {
+		for (const input of inputsOf(node)) {
+			readCounts.set(input, (readCounts.get(input) ?? 0) + 1)
+		}
+	}
+	const readers = (node: RelNode): number => readCounts.get(node) ?? 0
 	const out = new Map<RelNode, Set<RelNode>>()
 	const restricted = new Map<NodeOf<"MatchRegion">, Array<ReadonlyArray<string>>>()
 	const heldAt = new Map<RelNode, Array<ReadonlyArray<string>>>()
@@ -1639,7 +1649,7 @@ export const rowReading = (
 			page.key.map((column) => ({ column, value: column }))
 		)
 	}
-	for (const node of nodes) {
+	for (const node of statement) {
 		const driven = node.kind === "SemiJoin" ? semiJoinDriven(node) : undefined
 		if (node.kind === "SemiJoin" && driven !== undefined) {
 			add(node, node.left)
@@ -1658,9 +1668,14 @@ export const rowReading = (
 					site.restriction.map((x) => ({ column: x.column, value: x.expr }))
 				)
 			}
-			const chain = sitesAtRows(node, false) ? regionChain(node, [], correlated) : undefined
-			for (const site of chain === undefined ? [] : chainSites(node, chain, [])) {
-				walkSite(node, site)
+			const chain = regionChain(node, [], correlated)
+			const sites = chain === undefined ? [] : chainSites(node, chain, [])
+			const atRows = sitesAtRows(node, false)
+			const once = chain !== undefined && oneRowBefore(chain, sites)
+			for (const site of sites) {
+				if (atRows || (once && readers(site.occurrence.source) === 1)) {
+					walkSite(node, site)
+				}
 			}
 			continue
 		}

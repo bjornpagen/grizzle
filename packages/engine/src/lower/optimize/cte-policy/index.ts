@@ -1912,27 +1912,17 @@ export const loosestRank = (ranks: ReadonlyArray<Rank | undefined>): Rank | unde
 		ranks.length === 0 ? undefined : "key"
 	)
 
-/** The variables of a region a value fixes: a correlation that reads no relation, a parameter or a literal. */
-const fixedByValue = (region: NodeOf<"MatchRegion">): ReadonlySet<VarDecl> =>
-	new Set(region.correlated.flatMap((c) => (c.expr.deps.nodes.length === 0 ? [c.var] : [])))
-
 /**
- * The nodes a reader reads once per row of its other input, as PostgreSQL evaluates them where they stand: the source
- * of a region's occurrence no value restricts (no constant fixes one of its columns, and no parameter or literal one of
- * the variables it binds), which the region joins to its other occurrences; the right side of a semi- or anti-join,
- * which it tests for each row of its left.
+ * The nodes a reader reads once per row of its other input, as PostgreSQL evaluates them where they stand: the right
+ * side of a semi- or anti-join, which it tests for each row of its left. A region's occurrence is none: the binding
+ * decides how a region reads each derived table it joins (sql/bind.ts Binder derivedEntry), LATERAL per row only where
+ * the join binds a key of a stored read of the table's own level, each row's read a seek at that key, and otherwise as
+ * a set derived once and joined, so the region's per-row reads are its decision alone.
  */
 const readPerRow = (order: ReadonlyArray<RelNode>): ReadonlySet<RelNode> => {
 	const out = new Set<RelNode>()
 	for (const node of order) {
-		if (node.kind === "MatchRegion") {
-			const fixed = fixedByValue(node)
-			for (const o of node.occurrences) {
-				if (o.constants.length === 0 && o.bindings.every((b) => !fixed.has(b.var))) {
-					out.add(o.source)
-				}
-			}
-		} else if (node.kind === "SemiJoin" || node.kind === "AntiJoin") {
+		if (node.kind === "SemiJoin" || node.kind === "AntiJoin") {
 			out.add(node.right)
 		}
 	}
@@ -2400,7 +2390,7 @@ const holderOf = (
  * The rules, in order:
  *
  * 1. A node read once, or never shared, is inlined: an eligible single-use stage folds, but for a node a workload's
- *    read reads once per row of another (readPerRow), which rule 5b decides.
+ *    read tests once per row of another (readPerRow), which rule 5b decides.
  * 2. A recursive relation is a WITH RECURSIVE: always a CTE, computed once per statement.
  * 3. A correlated node, a node some expression reads laterally, and a node on a recursive step are inlined: a CTE of
  *    the statement's WITH cannot read an outer row, and a recursive term admits one self-reference.
@@ -2424,16 +2414,16 @@ const holderOf = (
  *    probe the source's indexes with its own restrictions, which a shared result would hide ("sharing an unfiltered
  *    computation is not automatically preferable to two selective indexed probes").
  * 5b. In a workload's read, a node of several sources, or one that folds, sorts, bounds, deduplicates a set operation
- *    or recurses, that a reader reads once per row of another (readPerRow) is MATERIALIZED, read once or shared: the
- *    statement derives it once, whatever PostgreSQL estimates. Inlined there, PostgreSQL plans it as the inner side of
- *    a nested loop it re-derives for each outer row, with the join key a filter above it, wherever its estimates make
- *    that look as cheap as reading it once: a scan of a relation whose rows a constant picks a few of from many
- *    (one LOM element per package of a table of every XML node) is estimated at one row, so a derivation of such scans
- *    is too, and a nested loop over it costs nothing to the planner, while it reads all of it for every row it joins
- *    (2026-11-18, edullm's `sets`: Current derived once per classification term row, 579 times, and the items
- *    attachment's ItemSet once per term). Its readers then join or test each row against rows the statement holds, and
- *    read no relation again. A rule's probe and every other compilation keep rule 1: they read a unit's rows, which a
- *    once-derived relation would read all of.
+ *    or recurses, that a semi- or anti-join tests for each row of its left (readPerRow) is MATERIALIZED, read once or
+ *    shared: the statement derives it once, whatever PostgreSQL estimates, its readers testing each row against rows the
+ *    statement holds. A region's occurrence is no such read: the binding decides how a region reads each derived table
+ *    it joins (sql/bind.ts Binder derivedEntry), LATERAL per row only at a key of a stored read of the table's own
+ *    level, each row's read a seek, else a set derived once and joined, so no plan re-derives it for each row by an
+ *    estimate (2026-11-18, edullm's `sets`: Current derived once per classification term row, 579 times, before the
+ *    binding fixed every plan), and a derived table a region reads once is no CTE of the statement, which would derive
+ *    it whole where the region reads it at a key (test/pg/contracts key-reach and where-reach: a live derivation read
+ *    at the document a row of Owner names, derived for every document). A rule's probe and every other compilation keep
+ *    rule 1: they read a unit's rows, which a once-derived relation would read all of.
  * 5c. Magic sets: a union, a fold or a join a statement reads is computed at its reads' keys alone
  *    (lower/shapes/share/keys.ts KeyAnalysis), each read a site of one of two kinds. A site read once per row of a
  *    driver, an attachment's child per parent key (attachmentRead `perKey`), is lowered there at that row's values,
