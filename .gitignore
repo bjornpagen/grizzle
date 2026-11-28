@@ -4,7 +4,6 @@ bench/results/
 test/pg/cli/.ws-*/
 .probe-*/
 packages/*/types/
-test/types/**/.*-??????/
 .fallow/
 .turbo/
 /.agents/skills/local/*

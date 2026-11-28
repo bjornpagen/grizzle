@@ -390,25 +390,25 @@ export const keyedApart = (d: Changed, c: Case<Change>) =>
 		})
 	)
 
-/** The README's generate section of a draft's inputs: from its bullet on them up to the bullet after it. */
-export const readmeSection = Effect.gen(function* () {
+/** CONTRIBUTING.md's section on a draft's inputs: from its bullet on them up to the bullet after it. */
+export const documentedSection = Effect.gen(function* () {
 	const fs = yield* FileSystem.FileSystem
-	const readme = yield* fs.readFileString(`${repoRoot}README.md`)
+	const contributing = yield* fs.readFileString(`${repoRoot}CONTRIBUTING.md`)
 	const start = defined(
-		Option.getOrUndefined(Str.indexOf("- **A draft is a function of its inputs")(readme)),
-		"the README's section on a draft's inputs"
+		Option.getOrUndefined(Str.indexOf("- **A draft is a function of its inputs")(contributing)),
+		"CONTRIBUTING.md's section on a draft's inputs"
 	)
-	const rest = Str.slice(start + 1)(readme)
+	const rest = Str.slice(start + 1)(contributing)
 	const end = Option.getOrElse(Str.indexOf("\n- **")(rest), () => rest.length)
-	return Str.slice(0, end + 1)(Str.slice(start)(readme))
+	return Str.slice(0, end + 1)(Str.slice(start)(contributing))
 })
 
-/** A text with every run of whitespace one space: the README wraps a member's text across its lines. */
+/** A text with every run of whitespace one space: CONTRIBUTING.md wraps a member's text across its lines. */
 export const unwrapped = (text: string): string =>
 	Str.trim(Str.replace(regex("\\s+", "g"), " ")(text))
 
 /**
- * The numbered items of a README section, in order: each item's text, from its number to the next item or the line
+ * The numbered items of a section of a document, in order: each item's text, from its number to the next item or the line
  * that ends the list, unwrapped (unwrapped) and without the `;` or `.` that ends it.
  */
 export const numberedItems = (section: string): ReadonlyArray<string> => {

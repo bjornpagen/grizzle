@@ -647,8 +647,12 @@ export const key = <
 ): Key<S> => keyBuilder<S>(side)
 
 /**
- * Opt in to in-place change. Without it a relation is immutable: facts are added and deleted, never changed. The
- * default is pinned.
+ * mutable(R): opens R, whose rows are then inserted, updated and deleted, each change under the exclusive borrow of
+ * the unit its primary key leads with. Without it R is closed, the default: its facts are inserted, never updated or
+ * deleted, a role that writes it holds INSERT and no UPDATE or DELETE, and a ChangeSet's put or delete of it is refused
+ * as a type error and when it compiles ("a put of a closed relation: …", "a delete of a closed relation: …"); record a
+ * change as an inserted fact instead. mutable over a relation in no unit is refused the same way: declare the unit
+ * (unit(name, { …its leading key fields })) first.
  */
 export const mutable = <R extends AnyRelation>(target: R): Mutable<R> => mutableBuilder<R>(target)
 

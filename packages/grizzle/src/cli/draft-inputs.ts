@@ -20,7 +20,8 @@ import { namedSpelling } from "#compiler/plan/migration.ts"
 /**
  * What a draft is a function of: every input `grizzle generate` reads that can reach what it writes, named once, as
  * data (draftInputs), and read and digested by one code (draftKey, the key `grizzle draft-key` prints), so the inputs
- * the README names (its generate section, which the README's mirror holds to each member's `readme`), the inputs the
+ * CONTRIBUTING.md names (its section "Drafts and their key", which draft-key.test.ts holds to each member's
+ * `documented`), the inputs the
  * key digests and the inputs a traced generate reads are one roster (test/unit/cli/draft-key.test.ts).
  *
  * A draft is grizzle's compile of its configuration over its committed migrations directory, under its command line's
@@ -60,9 +61,9 @@ type Gathered = Effect.Effect<
 	FileSystem.FileSystem | Path.Path
 >
 
-/** A member of the roster: the README's text of it, word for word, and how it reads what it names. */
+/** A member of the roster: CONTRIBUTING.md's text of it, word for word, and how it reads what it names. */
 interface DraftInputMember {
-	readonly readme: string
+	readonly documented: string
 	readonly gather: (context: DraftContext) => Gathered
 }
 
@@ -184,13 +185,13 @@ export const nodeVariables: ReadonlyArray<string> = [
 ]
 
 /**
- * The roster of a draft's inputs, in the order the key digests them. Each member's `readme` is the README's text of it,
- * word for word (its generate section), and its `gather` reads exactly what that text names, by what names it there:
+ * The roster of a draft's inputs, in the order the key digests them. Each member's `documented` is CONTRIBUTING.md's
+ * text of it, word for word (its section "Drafts and their key"), and its `gather` reads exactly what that text names, by what names it there:
  * never an absolute path, so one input at two paths is one input.
  */
 export const draftInputs = {
 	flags: {
-		readme:
+		documented:
 			"the command line's flags: `--name`, `--custom`, `--schema`, and each `--rename` and `--drop` in order, as generate reads them, never the configuration file's path or `--phases`, which writes to stderr alone",
 		gather: (context) =>
 			Effect.succeed([
@@ -201,7 +202,7 @@ export const draftInputs = {
 			])
 	},
 	configuration: {
-		readme:
+		documented:
 			"the configuration: the configuration file's bytes, and every module its import loads but grizzle's and a package's, each by its path from the configuration file's directory and its bytes",
 		gather: (context) =>
 			Effect.gen(function* () {
@@ -222,7 +223,7 @@ export const draftInputs = {
 			})
 	},
 	lockfile: {
-		readme:
+		documented:
 			"the lockfile: the `pnpm-lock.yaml` nearest above the configuration file, by its bytes, which names every package a module loads through `node_modules`, grizzle's dependencies among them",
 		gather: (context) =>
 			Effect.gen(function* () {
@@ -235,7 +236,7 @@ export const draftInputs = {
 			})
 	},
 	migrations: {
-		readme:
+		documented:
 			"the committed migrations directory: every visible entry of the directory the configuration's `migrations` names, by its path there and a file's bytes; an entry whose name starts with `.`, an editor's or the scratch a write passes through, is none",
 		gather: (context) =>
 			Effect.gen(function* () {
@@ -246,7 +247,7 @@ export const draftInputs = {
 			})
 	},
 	grizzle: {
-		readme:
+		documented:
 			"grizzle: each of its packages' `package.json` and every file under its `src/` (text, engine, openapi and grizzle), by its path in the checkout and its bytes, which a commit of grizzle names",
 		gather: (context) =>
 			Effect.gen(function* () {
@@ -263,7 +264,7 @@ export const draftInputs = {
 			})
 	},
 	node: {
-		readme: `Node: the version of the Node that runs it; the variables its own code reads (${Arr.join(
+		documented: `Node: the version of the Node that runs it; the variables its own code reads (${Arr.join(
 			Arr.map(nodeVariables, (v) => `\`${v}\``),
 			", "
 		)}) configure the runtime, never what a draft holds`,
@@ -274,7 +275,7 @@ export const draftInputs = {
 /** A member of the roster, by its name. */
 export type DraftInput = keyof typeof draftInputs
 
-/** The roster's members, in the order the key digests them and the README lists them. */
+/** The roster's members, in the order the key digests them and CONTRIBUTING.md lists them. */
 export const draftInputOrder: Arr.NonEmptyReadonlyArray<DraftInput> = [
 	"flags",
 	"configuration",

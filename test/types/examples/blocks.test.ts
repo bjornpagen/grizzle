@@ -1,11 +1,12 @@
 /**
  * README.md's and packages/grizzle/skills/grizzle/SKILL.md's ```ts blocks are checked code. Each block is mirrored, line
- * for line and in order, in a fixture of test/types/examples: README.md in fixtures/readme.ts, SKILL.md in
- * fixtures/skill.ts. `pnpm typecheck` checks the fixtures as they stand and examples.test.ts the README's refusals, and
- * this property holds every block to its fixture (blocks.fixtures.ts): no # subpath import, every imported name imported
- * or bound by the fixture, every snapshot declared, and every other line found in the fixture in order. So an edit to a
- * block alone fails here, and an edit that breaks a mirrored line fails the typecheck. Oracle: the documentation's
- * fixture, the program the documented lines stand in.
+ * for line and in order, in a fixture of test/types/examples: README.md's in exactly one of fixtures/readme.ts (what
+ * grizzle compiles) and fixtures/readme.app.ts (the application), SKILL.md's in fixtures/skill.ts. `pnpm typecheck`
+ * checks the fixtures as they stand, examples.test.ts the README's refusals and generates.test.ts its programs, and this
+ * property holds every block to its fixture (blocks.fixtures.ts): its lines found in one fixture in order, no # subpath
+ * import, every imported name imported or bound by that fixture, and every served file declared. So an edit to a block
+ * alone fails here, and an edit that breaks a mirrored line fails the typecheck. Oracle: the documentation's fixtures,
+ * the programs the documented lines stand in.
  */
 import { assert } from "@bjornpagen/testing/assert"
 import { Checkout } from "@bjornpagen/testing/checkout"
@@ -34,8 +35,8 @@ export const mirrored = property.exhaust(documentedBlocks, {
 	kills: [
 		{
 			file: "README.md",
-			original: "export const postPage = query(Blog)",
-			replacement: "export const postsPage = query(Blog)",
+			original: "export const feed = query(Member).rule((r) => {",
+			replacement: "export const feeds = query(Member).rule((r) => {",
 			why: "A README block's binding renamed where its fixture keeps the old name, so the block's line is mirrored nowhere."
 		}
 	]

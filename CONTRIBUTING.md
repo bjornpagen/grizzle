@@ -262,6 +262,43 @@ so `TEST_SEED` reproduces the shrunk case on any machine. A run never writes int
 kept-case literal (`keep it: { … }`) to paste into the suite's `kept`. At the end of a run the reporter prints each
 suite's residual risk. A longer search is a fuzz run, `pnpm fuzz <suite>`.
 
+## Drafts and their key
+
+`grizzle draft-key` and the draft's determinism rest on one roster of inputs, which `test/unit/cli/draft-key.test.ts`
+holds this section to, member by member:
+
+- **A draft is a function of its inputs, and `grizzle draft-key` prints their key.** `grizzle generate <config>
+  [flags]` leaves the migrations directory byte for byte the same, folder names included, wherever and whenever it
+  runs, given the same inputs, which grizzle names in one roster (`packages/grizzle/src/cli/draft-inputs.ts`) and reads
+  and digests by one code:
+  1. the command line's flags: `--name`, `--custom`, `--schema`, and each `--rename` and `--drop` in order, as
+     generate reads them, never the configuration file's path or `--phases`, which writes to stderr alone;
+  2. the configuration: the configuration file's bytes, and every module its import loads but grizzle's and a
+     package's, each by its path from the configuration file's directory and its bytes;
+  3. the lockfile: the `pnpm-lock.yaml` nearest above the configuration file, by its bytes, which names every package
+     a module loads through `node_modules`, grizzle's dependencies among them;
+  4. the committed migrations directory: every visible entry of the directory the configuration's `migrations` names,
+     by its path there and a file's bytes; an entry whose name starts with `.`, an editor's or the scratch a write
+     passes through, is none;
+  5. grizzle: each of its packages' `package.json` and every file under its `src/` (text, engine, openapi and
+     grizzle), by its path in the checkout and its bytes, which a commit of grizzle names;
+  6. Node: the version of the Node that runs it; the variables its own code reads (`NODE_COMPILE_CACHE`,
+     `NODE_COMPILE_CACHE_PORTABLE`, `NODE_COMPILE_CACHE_READONLY`, `NODE_V8_COVERAGE`, `WATCH_REPORT_DEPENDENCIES`)
+     configure the runtime, never what a draft holds.
+
+  `grizzle draft-key <config> [generate's flags]` prints the SHA-256 of exactly these, in hex on one line, each input
+  by what names it in its member, never by an absolute path: a cache of generate's output keys by it and keeps no list
+  of its own, so a change of the roster reaches every cache in grizzle's own commit. Nothing else reaches a draft: no
+  clock, no time zone, locale or other environment variable but the ones Node reads of its own, no directory it runs
+  in, no host, CPU count or randomness, and no order a file system lists a directory in (every listing is sorted). A
+  configuration module that reads a file, a variable or a clock as it loads makes an input no key sees: keep the
+  configuration a function of its modules. `test/unit/cli/draft-determinism.test.ts` holds the draft to its inputs:
+  one source drafted from nothing and then on its committed chain by two real processes at two absolute paths, from
+  three directories, in two time zones and two locales, one after the other, writes one tree byte for byte.
+  `test/unit/cli/draft-key.test.ts` holds the key to them: twin projects give one key, a change of any one input moves
+  it while a change of nothing the roster names leaves it, and a real `generate` under a read trace loads, reads and
+  consults nothing outside the roster, and no clock.
+
 ## Code rules
 
 - **Fully type-safe.** Both packages' `src`, `test/`, `scripts/` and `bench/` follow these rules, and the dev tools
@@ -745,9 +782,12 @@ text match. A type agreement's requirements are its property's situations, which
   generator); a box of the source's own rosters is a `boxAgreement` (an exhaustion of its cells); a type cost gate is an
   exhaustion of its dimensions, each checked at three sizes under the growth law (`test/support/growth.ts`). The
   README's and `packages/grizzle/skills/grizzle/SKILL.md`'s `ts` blocks are checked code: each is mirrored line for
-  line in `test/types/examples/fixtures/readme.ts` or `skill.ts`, which `pnpm typecheck` checks, the README's refusals
-  are a box of their own, and `test/types/examples/blocks.test.ts` holds every block to its fixture, so an edit to a
-  block alone fails. Every tsgo check is under a stall guard (test/support/types/batch/compiler.ts): a check whose process tree
+  line in one fixture of `test/types/examples/fixtures`, the README's in `readme.ts` (what grizzle compiles: schemas,
+  roles, logins, workloads, programs, the configuration) or `readme.app.ts` (the application, which reads the served
+  files), SKILL.md's in `skill.ts`, which `pnpm typecheck` checks; the README's refusals are a box of their own;
+  `test/types/examples/blocks.test.ts` holds every block to its fixture, so an edit to a block alone fails; and
+  `test/types/examples/generates.test.ts` runs `grizzle generate` over every login `readme.ts` exports, each program
+  it exports served by one of them, and holds every `sql` block of the README to the SQL that run drafts. Every tsgo check is under a stall guard (test/support/types/batch/compiler.ts): a check whose process tree
   makes no CPU progress for `stallWindow` fails with CompilerStalled, carrying the goroutine dump tsgo prints on
   SIGQUIT, never hangs.
 - **The type/engine agreements** (`test/support/agreement`): drawn schemas, ChangeSets, workloads, roles' access,

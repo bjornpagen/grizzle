@@ -1,6 +1,6 @@
 /**
  * The package as a git submodule consumer takes it (consumer.ts): the README's and SKILL.md's programs, mirrored line
- * for line in test/types/examples/fixtures, typecheck as a consumer's, against the package's source reached through its
+ * for line in test/types/examples/fixtures (the README's two modules, readme.ts and readme.app.ts), typecheck as a consumer's, against the package's source reached through its
  * exports under a consumer's tsconfig: the repository's strictness and Node's types, and nothing of the repository's
  * own: no project references and no paths. A refusal the README states by `@ts-expect-error` would leave its directive
  * unused were a type `any`.
@@ -10,7 +10,8 @@
 import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Effect, FileSystem, Path, String as Str } from "effect"
+import { Array as Arr, Effect, FileSystem, Path } from "effect"
+import { outsideTheRepository } from "#test/support/readme.ts"
 import { consumerProject, exitedCleanly, runChild } from "#test/support/unit/dev/consumer.ts"
 import { type Mirror, mirrorBox, mirrors, mirrorTsconfig } from "#test/unit/dev/package.fixtures.ts"
 
@@ -21,7 +22,7 @@ import { type Mirror, mirrorBox, mirrors, mirrorTsconfig } from "#test/unit/dev/
  */
 export const thePackageAsASubmoduleConsumerTakesItTypechecksTheREADMEsAndSKILLmdsProgramsAgainstItsSourceThroughItsExports =
 	property.exhaust(mirrorBox, {
-		box: "each mirrored program, the README's and SKILL.md's, which imports the README's",
+		box: "each mirrored program, the README's two modules and SKILL.md's, which imports the README's",
 		needs: {},
 		situations: ["readme", "skill"] satisfies ReadonlyArray<Reached<Mirror>>,
 		check: (_, c: Case<Mirror>) => (mirror) =>
@@ -30,18 +31,18 @@ export const thePackageAsASubmoduleConsumerTakesItTypechecksTheREADMEsAndSKILLmd
 					const fs = yield* FileSystem.FileSystem
 					const path = yield* Path.Path
 					const { root, project } = yield* consumerProject
-					const readme = yield* fs.readFileString(path.join(root, mirrors.readme))
-					yield* fs.writeFileString(path.join(project, "readme.ts"), readme)
-					if (mirror === "skill") {
-						const skill = yield* fs.readFileString(path.join(root, mirrors.skill))
-						yield* fs.writeFileString(
-							path.join(project, "skill.ts"),
-							Str.replaceAll(`#${mirrors.readme}`, "./readme.ts")(skill)
+					const modules = mirrors[mirror]
+					yield* Effect.forEach(modules, (module) =>
+						Effect.flatMap(fs.readFileString(path.join(root, module)), (text) =>
+							fs.writeFileString(
+								path.join(project, path.basename(module)),
+								outsideTheRepository(text)
+							)
 						)
-					}
+					)
 					yield* fs.writeFileString(
 						path.join(project, "tsconfig.json"),
-						mirrorTsconfig(mirror === "skill" ? ["readme.ts", "skill.ts"] : ["readme.ts"])
+						mirrorTsconfig(Arr.map(modules, (module) => path.basename(module)))
 					)
 					const checked = yield* runChild(
 						process.execPath,

@@ -1,9 +1,9 @@
 /**
- * A draft's key is a function of its inputs, the roster of them (packages/grizzle/src/cli/draft-inputs.ts), which the
- * README names and a real generate reads alone.
+ * A draft's key is a function of its inputs, the roster of them (packages/grizzle/src/cli/draft-inputs.ts), which
+ * CONTRIBUTING.md names and a real generate reads alone.
  *
- * - **The README is the roster:** the README's generate section names each member of the roster, its text word for
- *   word as the roster states it, wrapped, and as many numbered inputs as the roster has members.
+ * - **CONTRIBUTING.md is the roster:** its section "Drafts and their key" names each member of the roster, its text
+ *   word for word as the roster states it, wrapped, and as many numbered inputs as the roster has members.
  * - **Twin projects give one key, and generate reads the roster alone:** one source at two paths, `grizzle draft-key`
  *   run in each by a process of its own, in two time zones and two locales, from two directories, its configuration
  *   file under one name or another, prints one key; and a real `grizzle generate` in the first, under a read trace
@@ -41,27 +41,27 @@ import {
 	changes,
 	keyedApart,
 	numberedItems,
-	readmeSection,
+	documentedSection,
 	twinKeysAndTrace,
 	twinsSpace,
 	unwrapped
 } from "#test/unit/cli/draft-key.fixtures.ts"
 
-/** The README's generate section names each member of the draft's roster word for word, and no input besides. */
-export const theReadmesGenerateSectionNamesEachMemberOfTheDraftsRosterWordForWordAndNoInputBesides =
+/** CONTRIBUTING.md's draft section names each member of the draft's roster word for word, and no input besides. */
+export const contributingsDraftSectionNamesEachMemberOfTheDraftsRosterWordForWordAndNoInputBesides =
 	property.exhaust(finite(word(draftInputMembers)), {
 		box: "every member of the roster of a draft's inputs (cli/draft-inputs.ts draftInputOrder)",
 		needs: {},
 		situations: [],
 		check: () => (input) =>
 			Effect.gen(function* () {
-				const section = yield* readmeSection
+				const section = yield* documentedSection
 				const items = numberedItems(section)
-				assert.equal(items.length, draftInputOrder.length, "the README's numbered inputs")
+				assert.equal(items.length, draftInputOrder.length, "CONTRIBUTING.md's numbered inputs")
 				assert.equal(
 					items[draftInputOrder.indexOf(input)],
-					unwrapped(draftInputs[input].readme),
-					`the README names ${input} as the roster does, in its place`
+					unwrapped(draftInputs[input].documented),
+					`CONTRIBUTING.md names ${input} as the roster does, in its place`
 				)
 			}),
 		oracle: { kind: "specification", name: "the roster's own texts of its members" },
@@ -71,7 +71,7 @@ export const theReadmesGenerateSectionNamesEachMemberOfTheDraftsRosterWordForWor
 				file: "packages/grizzle/src/cli/draft-inputs.ts",
 				original: "never the configuration file's path or `--phases`, which writes to stderr alone",
 				replacement: "never the configuration file's path or `--phases`",
-				why: "A member's text reworded where the README is not."
+				why: "A member's text reworded where CONTRIBUTING.md is not."
 			}
 		]
 	})

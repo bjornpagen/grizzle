@@ -1,6 +1,7 @@
 import { Array as Arr, Effect, FileSystem, Path, Record, Stream } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/process"
 import { trustedJson } from "#compiler/core/trusted.ts"
+import { repoRoot } from "#test/support/files.ts"
 
 /** What a consumer installs beside grizzle, from its package.json: its peers. */
 type Manifest = {
@@ -62,7 +63,7 @@ interface ConsumerProject {
 export const consumerProject = Effect.gen(function* () {
 	const fs = yield* FileSystem.FileSystem
 	const path = yield* Path.Path
-	const root = path.join(import.meta.dirname, "..", "..", "..")
+	const root = repoRoot
 	const shellDirectory = path.join(root, "packages", "grizzle")
 	const shellText = yield* fs.readFileString(path.join(shellDirectory, "package.json"))
 	const shell = trustedJson<Manifest>(shellText)

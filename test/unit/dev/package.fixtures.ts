@@ -2,6 +2,7 @@
 
 import { element, finite, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
+import { readmeModules } from "#test/support/readme.ts"
 
 /**
  * The compiler options a consumer of the README's programs checks `include` under: the repository's own strictness, Node's
@@ -29,10 +30,13 @@ export const mirrorTsconfig = (include: ReadonlyArray<string>): string => `{
 }
 `
 
-/** The README's and SKILL.md's mirrored programs, which the type batch holds to their blocks, by their paths. */
+/**
+ * The README's and SKILL.md's mirrored programs, which the type batch holds to their blocks, each the modules a consumer
+ * checks: the README's two, and SKILL.md's beside the README's it imports.
+ */
 export const mirrors = {
-	readme: "test/types/examples/fixtures/readme.ts",
-	skill: "test/types/examples/fixtures/skill.ts"
+	readme: readmeModules,
+	skill: [...readmeModules, "test/types/examples/fixtures/skill.ts"]
 } as const
 
 /** A mirrored program: the README's, or SKILL.md's, which imports the README's. */

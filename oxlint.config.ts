@@ -59,6 +59,7 @@ const DICTIONARY_MINTS = [
 	"test/types/evidence/parameter.dictionary.ts",
 	"test/types/examples/blocks.dictionary.ts",
 	"test/types/examples/examples.dictionary.ts",
+	"test/types/examples/generates.dictionary.ts",
 	"test/types/executor/boundary.dictionary.ts",
 	"test/types/ir/semi-join.dictionary.ts",
 	"test/types/query/budget/combinators.dictionary.ts",
@@ -448,7 +449,7 @@ const RESTRICTIONS: ReadonlyArray<Restriction> = [
 	},
 	{
 		/** The README's application decodes a foreign HTTP body with Effect Schema: the app's choice, which the README shows. */
-		paths: ["test/types/examples/fixtures/readme.ts"],
+		paths: ["test/types/examples/fixtures/readme.ts", "test/types/examples/fixtures/readme.app.ts"],
 		restrictedImports: { paths: [], patterns: tierLayering("types") },
 		restrictedGlobals: [TEXT_DECODER],
 		restrictedProperties: []
@@ -511,7 +512,6 @@ export default defineConfig(
 	lintConfig({
 		ignorePatterns: [
 			"packages/*/types/**",
-			"test/types/**/.*-??????/**",
 			"vendor/**",
 			"upstream/**",
 			"packages/cli-generator/test/fixtures/**"
@@ -999,7 +999,11 @@ export default defineConfig(
 				})
 			},
 			{
-				files: ["test/types/examples/fixtures/readme.ts", "test/types/examples/fixtures/skill.ts"],
+				files: [
+					"test/types/examples/fixtures/readme.ts",
+					"test/types/examples/fixtures/readme.app.ts",
+					"test/types/examples/fixtures/skill.ts"
+				],
 				rules: active({
 					/** The fixture mirrors README.md's code blocks line for line, and the README's app code is a reader's, written with the platform's regex literal. */
 					"devtools/no-raw-regexp": "off"
@@ -1029,7 +1033,9 @@ export default defineConfig(
 				files: ["test/types/examples/fixtures/readme.ts"],
 				rules: active({
 					/** A refusal fixture's return is refused by construction: the value is the checker's error type. */
-					"typescript/no-unsafe-return": "off"
+					"typescript/no-unsafe-return": "off",
+					/** The README's testing recipe is a reader's test, which asserts with Node's own node:assert. */
+					"devtools/import-doors": "off"
 				})
 			}
 		]
