@@ -800,6 +800,12 @@ interface Flat {
 	 */
 	readonly grouped: ReadonlyArray<Grouped>
 	readonly where: ReadonlyArray<InferredExpr>
+	/**
+	 * The conditions of `where` that `#inline` states, each an inlined import's head term equated with the term its match
+	 * binds it at: what a variable no read binds is defined by (`#defined`), the import's own term for the column, of
+	 * the column's type.
+	 */
+	readonly equations: ReadonlySet<InferredExpr>
 	readonly head: InferredRule["head"]
 }
 
@@ -1184,6 +1190,7 @@ class Navigator {
 		const reads: Array<Read> = []
 		const grouped: Array<Grouped> = []
 		const where: Array<InferredExpr> = [...rule.where]
+		const equations = new Set<InferredExpr>()
 		for (const m of rule.matches) {
 			const source = m.source
 			if (source.kind === "relation") {
@@ -1256,7 +1263,13 @@ class Navigator {
 					)
 				}))
 			)
-			appendAll(where, inner.where.map(lift))
+			for (const w of inner.where) {
+				const condition = lift(w)
+				where.push(condition)
+				if (inner.equations.has(w)) {
+					equations.add(condition)
+				}
+			}
 			const columns = this.#columns.desc(source.query)
 			for (const [field, outer] of Object.entries(m.bindings)) {
 				const head = inner.head[field]
@@ -1264,11 +1277,16 @@ class Navigator {
 					return this.#refuse(`an imported query whose head derives ${field}`)
 				}
 				if (head.kind !== "var" || outer.kind !== "var" || renamed.get(head.var) !== outer.var) {
-					where.push(equal(lift(atColumn(head, field, columns)), atColumn(outer, field, columns)))
+					const equation = equal(
+						lift(atColumn(head, field, columns)),
+						atColumn(outer, field, columns)
+					)
+					where.push(equation)
+					equations.add(equation)
 				}
 			}
 		}
-		return { vars, region, reads, grouped, where, head: rule.head }
+		return { vars, region, reads, grouped, where, equations, head: rule.head }
 	}
 
 	/**
@@ -1348,12 +1366,20 @@ class Navigator {
 
 	/**
 	 * `flat` with every variable no read binds replaced by the term an equality equates it with, and that equality
-	 * dropped: what an inlined import's head equated with a term only the import's match bound. A bare literal, which has
-	 * no type of its own and takes the type of the term it meets, defines no variable, so a condition the rule states of
-	 * a variable at a literal, `kind = 1`, stays a condition of the term that defines it; the equations `#inline` states
-	 * hold no bare literal (leaves.ts atColumn), so every such variable has a term to be defined by. A variable a read binds
-	 * stays the read's own, so every relational filter and the head still read the row the chain delivers. Every variable left is
-	 * one a read binds.
+	 * dropped: what an inlined import's head equated with a term only the import's match bound. A variable an inlined
+	 * import binds is defined by the equation `#inline` states of it (Flat `equations`), the import's own head term for
+	 * its column, of the column's type, so the variable keeps its type wherever it stands; any other equality of it
+	 * stays a condition of that term. Defined by the first equality of it instead, one with a term of another refinement
+	 * of the column's base carrier, `r.eq(stage, Type.base(number))`, or the value a reader restricted the import to
+	 * (`boundInside`), it took that term's type, and a read of the import delivered its column at the base where it
+	 * states the contract: metis's judge of a first budget met the timing limits' stage as a bigint at TestBudget's step,
+	 * refused as operands of two types. A variable no inlined import binds, one a probe's region or another condition
+	 * of the rule equates with a term, is defined by the first equality that does. A bare literal, which has no type of
+	 * its own and takes the type of the term it meets, defines no variable, so a condition the rule states of a variable
+	 * at a literal, `kind = 1`, stays a condition of the term that defines it; the equations `#inline` states hold no
+	 * bare literal (leaves.ts atColumn), so every such variable has a term to be defined by. A variable a read binds stays
+	 * the read's own, so every relational filter and the head still read the row the chain delivers. Every variable left
+	 * is one a read binds.
 	 */
 	#defined(flat: Flat): Flat {
 		const bound = new Set(
@@ -1367,27 +1393,38 @@ class Navigator {
 			}
 			return bound.has(v.var) ? undefined : v.var
 		}
-		for (const [at, w] of flat.where.entries()) {
-			if (w.kind !== "compare" || w.op !== "eq") {
-				continue
+		/** The first condition `admitted` reads that defines a variable, the variable and the term defining it. */
+		const definitionAmong = (admitted: (w: InferredExpr) => boolean) => {
+			for (const [at, w] of flat.where.entries()) {
+				if (!admitted(w) || w.kind !== "compare" || w.op !== "eq") {
+					continue
+				}
+				const left = defines(w.left, w.right)
+				const right = left === undefined ? defines(w.right, w.left) : undefined
+				const name = left ?? right
+				if (name !== undefined) {
+					return { at, name, term: left === undefined ? w.left : w.right }
+				}
 			}
-			const left = defines(w.left, w.right)
-			const right = left === undefined ? defines(w.right, w.left) : undefined
-			const name = left ?? right
-			if (name === undefined) {
-				continue
-			}
-			const term = left === undefined ? w.left : w.right
+			return undefined
+		}
+		const definition = definitionAmong((w) => flat.equations.has(w)) ?? definitionAmong(() => true)
+		if (definition !== undefined) {
+			const { at, name, term } = definition
 			const leaves = {
 				var: (id: string) => (id === name ? term : undefined),
 				field: () => undefined
 			}
+			const where = flat.where.flatMap((x, i) =>
+				i === at ? [] : [{ condition: mapLeaves(x, leaves), equation: flat.equations.has(x) }]
+			)
 			return this.#defined({
 				vars: flat.vars.filter((v) => v.id !== name),
 				region: flat.region.map((r) => ({ ...r, bindings: mapBindings(r.bindings, leaves) })),
 				reads: flat.reads.map((r) => ({ ...r, bindings: mapBindings(r.bindings, leaves) })),
 				grouped: flat.grouped.map((g) => ({ ...g, bindings: mapBindings(g.bindings, leaves) })),
-				where: flat.where.flatMap((x, i) => (i === at ? [] : [mapLeaves(x, leaves)])),
+				where: where.map((w) => w.condition),
+				equations: new Set(where.flatMap((w) => (w.equation ? [w.condition] : []))),
 				head: Object.fromEntries(
 					Object.entries(flat.head).map(([k, h]) => [
 						k,

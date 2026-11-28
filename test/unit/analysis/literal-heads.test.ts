@@ -66,8 +66,8 @@ export const aColumnARulesHeadFixesAtALiteralCompilesWhereverANavigatedRuleReads
 				{
 					file: "packages/engine/src/analysis/theory/navigate.ts",
 					original:
-						"\t\t\t\twhere.push(equal(lift(atColumn(head, field, columns)), atColumn(outer, field, columns)))\n",
-					replacement: "\t\t\t\twhere.push(equal(lift(head), atColumn(outer, field, columns)))\n",
+						"\t\t\t\t\tconst equation = equal(\n\t\t\t\t\t\tlift(atColumn(head, field, columns)),\n",
+					replacement: "\t\t\t\t\tconst equation = equal(\n\t\t\t\t\t\tlift(head),\n",
 					why: "An inlined import's head literal is equated bare with the variable its match binds, which the navigation then replaces by it, so a selection reading the variable first reads a bare literal first."
 				}
 			]
