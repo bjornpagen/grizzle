@@ -33,7 +33,7 @@
 import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
-import { type Case, property } from "@bjornpagen/testing/property"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Result } from "effect"
 import type { AnyLogin } from "#compiler/types/schema/world.ts"
 import {
@@ -189,8 +189,23 @@ export const aRoleMayExecuteExactlyTheDeclaredFunctionsItsProgramsReachThroughEv
 			kind: "specification",
 			name: "a role executes exactly the functions its readings reach, and runs every program it serves"
 		},
-		kept: [],
+		kept: [
+			{
+				token: ReplayToken(
+					"test/pg/served/reached-calls.test.ts#aRoleMayExecuteExactlyTheDeclaredFunctionsItsProgramsReachThroughEveryDefinitionTheyReadAndRunsEachOfThem:ff.1:0.0.0.0.0.0.5.1.0.0.0.0"
+				),
+				reason:
+					"a writer of Item from its query entry Entry at a document and a place: the insert's read of Entry's world view pushed its two equalities above the view body's pass-through projection, which the binding then kept as a level of its own, minting 2 names where the installation's binding minted 1, an internal compiler error at generate (lane REDS7's census of main 29a4d30c)",
+				since: "2026-11-28"
+			}
+		],
 		kills: [
+			{
+				file: "packages/engine/src/sql/bind.ts",
+				original: "\t\t\t? { ...once, body: readCore(top, once.orderBy) }\n",
+				replacement: "\t\t\t? once\n",
+				why: "A world view's body is kept as its definition stands, its top core unfolded: a reader's quals pushed into it land above its pass-through projection, which the reader's binding keeps as a level of its own, and Entry's writer is an internal compiler error at generate, its view's body minting 2 names where its installation's minted 1."
+			},
 			{
 				file: "packages/engine/src/program/workload/compile.ts",
 				original: "\t\t\t\tdefinitionsOf(loginRole(role, login.named.owned))\n",

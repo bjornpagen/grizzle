@@ -225,9 +225,11 @@ export type BindView =
 
 /**
  * A role's world view as the binding reads it (BindView `world`): its name; its definition after its logical rewrites
- * (`prepared`, sql/print-once.ts printedOnce), which its installation binds into the body it creates (`bindView`) and a
- * reader binds again with the reader's quals PostgreSQL pushes past its barrier; its place among its role's query
- * entries, whose view scope its body's aliases come from (sql/naming.ts ViewScope); how many that binding mints; its
+ * (`prepared`, sql/print-once.ts printedOnce), its top core as the binding reads it, each pass-through projection it
+ * begins with folded (`readCore`), the body its installation creates and PostgreSQL plans, which its installation binds
+ * (`bindView`) and a reader binds again with the reader's quals PostgreSQL pushes past its barrier pushed into that
+ * core, as PostgreSQL pushes them; its place among its role's query entries, whose view scope its body's aliases come
+ * from (sql/naming.ts ViewScope); how many that binding mints; its
  * columns, as the view names them, each its definition's output at its place, which a reader's qual reads; and its
  * columns whose equality PostgreSQL holds leaky (physical/access/catalog.ts leakyEquality), no qual of which passes its
  * barrier.
@@ -1509,6 +1511,14 @@ const levelJoins = (
 /** A query's ORDER BY, LIMIT and OFFSET, which read its body's FROM. */
 type Tail = Pick<OperandSelect, "orderBy" | "limit" | "offset">
 
+/**
+ * The core `b` as the binding reads it under its query's ORDER BY `orderBy` (Binder `body`): as written where the ORDER BY
+ * reads the core's own FROM by name, which a fold would take away; else each pass-through projection it begins with
+ * folded into the core it reads (sql/print.ts foldedCore), as its printer prints it and PostgreSQL plans it.
+ */
+const readCore = (b: SelectCore, orderBy: ReadonlyArray<OrderItem>): SelectCore =>
+	orderBy.length > 0 ? b : foldedCore(b, true)
+
 /** Whether an expression is the literal 0, an OFFSET that skips no row. */
 const zeroOffset = (e: Expr | undefined): boolean =>
 	e === undefined || (e.kind === "literal" && e.value.kind === "int" && e.value.value === 0n)
@@ -2106,7 +2116,7 @@ class Binder {
 		}
 		switch (b.kind) {
 			case "core": {
-				const folded = taken?.core ?? (tail.orderBy.length > 0 ? b : foldedCore(b, true))
+				const folded = taken?.core ?? readCore(b, tail.orderBy)
 				const bound = this.core(folded, env, name, order)
 				return { body: bound.core, tail: tailUnder(bound.env), items: bound.items }
 			}
@@ -3863,16 +3873,26 @@ export const costChosenSelect = (query: Select): BoundStatement<Select> =>
 
 /**
  * The body of the `ordinal`-th world view of a role, its definition `definition`, bound under its view scope over
- * `catalog` (sql/naming.ts ViewScope): what its installation creates, its definition after its logical rewrites, which
- * a reader binds again (WorldBinding), and how many aliases the binding mints. A view's own DDL carries no advice: each
- * statement that reads it carries the plan of its body (Binder `#world`).
+ * `catalog` (sql/naming.ts ViewScope): what its installation creates; its definition after its logical rewrites, its top
+ * core as the binding reads it (`readCore`), which a reader binds again (WorldBinding), so a qual a reader pushes in
+ * lands in the core the installation created, never above a projection the binding folds away, which a WHERE would keep
+ * as a level of its own, its alias one the installation never minted; and how many aliases the binding mints. A view's
+ * own DDL carries no advice: each statement that reads it carries the plan of its body (Binder `#world`).
  */
 export const bindView = (
 	definition: Select,
 	ordinal: number,
 	catalog: ReadCatalog
 ): { readonly prepared: Select; readonly bound: Select; readonly minted: number } => {
-	const prepared = selectOnce(definition)
+	const once = selectOnce(definition)
+	const top = once.body
+	const read: OperandSelect =
+		top.kind === "core" && once.limit?.kind !== "access"
+			? { ...once, body: readCore(top, once.orderBy) }
+			: once
+	const prepared = isSetQuery(read)
+		? read
+		: defect("a view's body read as its binding reads it a set still")
 	const scope = new ViewScope(ordinal)
 	const bound = new Binder(scope, catalog, keyedReads).selectOf(prepared)
 	return { prepared, bound, minted: scope.minted() }
