@@ -12,21 +12,22 @@ import { installGen } from "#test/support/worlds/generate/install.ts"
 import { realityGen } from "#test/support/worlds/generate/reality.ts"
 import { actionKinds, type Weights, weightsGen } from "#test/support/worlds/generate/weights.ts"
 import { takenIdentity } from "#test/support/worlds/invalid/migrations.ts"
-import { docsBase, docsInstall } from "#test/support/worlds/model/bases/docs.ts"
+import { docsBase, docsInstall, docsWorlds } from "#test/support/worlds/model/bases/docs.ts"
 import { hostSchemaOf } from "#test/support/worlds/model/host.ts"
 import { type FolderFile } from "#test/support/worlds/model/session/migrate.ts"
 import { observedNext } from "#test/support/worlds/model/step.ts"
-import type {
-	ActionKind,
-	ActionOutcome,
-	BaseSpec,
-	Branch,
-	HostFact,
-	HostState,
-	InstallSpec,
-	LawSpec,
-	RelationSpec,
-	Term
+import {
+	type ActionKind,
+	type ActionOutcome,
+	type BaseSpec,
+	type Branch,
+	type HostFact,
+	type HostState,
+	type InstallSpec,
+	installSpec,
+	type LawSpec,
+	type RelationSpec,
+	type Term
 } from "#test/support/worlds/model/types.ts"
 
 export type StepFeature =
@@ -192,39 +193,41 @@ export type FolderFeature =
 	| "no worlds change"
 	| "a new law"
 	| "a world object created again and no Publish file"
+	| "the stranger holds another relation"
 
 /** alpha's query view of Doc's org, its document matched by `id`, under a session or not. */
-const alphaOver = (id: Term, session: boolean): InstallSpec => ({
-	...docsInstall,
-	roles: [
-		{
-			name: "alpha",
-			entries: {
-				View0: {
-					kind: "query",
-					rules: [
-						{
-							matches: [
-								{
-									source: { kind: "ordinary", name: "Doc" },
-									fields: { org: { kind: "var", name: "v_org" }, id }
-								},
-								...(session
-									? [{ source: { kind: "context", name: "Session" }, fields: {} } as const]
-									: [])
-							],
-							negations: [],
-							comparisons: [],
-							head: { org: { kind: "var", name: "v_org" } }
-						}
-					]
-				}
-			},
-			write: []
-		}
-	],
-	logins: [{ name: "web", roles: ["alpha"] }]
-})
+const alphaOver = (id: Term, session: boolean): InstallSpec =>
+	installSpec({
+		base: docsInstall.base,
+		roles: [
+			{
+				name: "alpha",
+				entries: {
+					View0: {
+						kind: "query",
+						rules: [
+							{
+								matches: [
+									{
+										source: { kind: "ordinary", name: "Doc" },
+										fields: { org: { kind: "var", name: "v_org" }, id }
+									},
+									...(session
+										? [{ source: { kind: "context", name: "Session" }, fields: {} } as const]
+										: [])
+								],
+								negations: [],
+								comparisons: [],
+								head: { org: { kind: "var", name: "v_org" } }
+							}
+						]
+					}
+				},
+				write: []
+			}
+		],
+		logins: [{ name: "web", roles: ["alpha"] }]
+	})
 
 /**
  * A migration that creates a role's query view again and changes nothing else it grants: alpha's view of Doc reads one
@@ -235,6 +238,29 @@ const alphaOver = (id: Term, session: boolean): InstallSpec => ({
 export const viewCreatedAgain: { readonly from: InstallSpec; readonly to: InstallSpec } = {
 	from: alphaOver({ kind: "var", name: "v_doc" }, true),
 	to: alphaOver({ kind: "literal", value: "5eeda101-7c3e-4a1b-9d2f-0e5c7a9b3d1f" }, false)
+}
+
+/**
+ * A migration that moves the stranger's one entry (model/types.ts installSpec, whole over its base's first relation): the
+ * documents base's README-shaped worlds to the same worlds over the base with Doc listed first, so the stranger, an
+ * ordinary role of both, holds Doc whole where it held Org, and nothing else changes; folderFiles predicts its folder from
+ * the stranger's world objects and grants as from any role's.
+ */
+export const strangerMoved: { readonly from: InstallSpec; readonly to: InstallSpec } = {
+	from: docsInstall,
+	to: installSpec({
+		...docsWorlds,
+		base: {
+			...docsBase,
+			relations: [
+				Option.getOrThrowWith(
+					Arr.findFirst(docsBase.relations, (r) => r.name === "Doc"),
+					() => new Error("the documents base declares Doc")
+				),
+				...Arr.filter(docsBase.relations, (r) => r.name !== "Doc")
+			]
+		}
+	})
 }
 
 /**

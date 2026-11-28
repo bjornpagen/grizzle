@@ -52,7 +52,7 @@ export const aLoginsServedReadsAreCoveredByTheLiveSourceOfAnInstallationMigrated
 		kept: [
 			{
 				token: ReplayToken(
-					"test/unit/world-model/live-coverage.test.ts#aLoginsServedReadsAreCoveredByTheLiveSourceOfAnInstallationMigratedWithTheLoginsWorkload:-:0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0"
+					"test/unit/world-model/live-coverage.test.ts#aLoginsServedReadsAreCoveredByTheLiveSourceOfAnInstallationMigratedWithTheLoginsWorkload:-:0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0"
 				),
 				reason:
 					"a read through a query entry whose filter reads another relation, so the live plan must hold every footprint table of the read",

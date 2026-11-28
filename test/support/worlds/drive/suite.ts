@@ -1472,7 +1472,7 @@ export const noteNaming = (pc: ProgramCase, c: Case<WorldFeature>): void => {
 
 /**
  * The connections of a login's pool a program holds at once: it runs one action at a time, and its open of a Db leases
- * one connection at once (execute/index.ts openedDb), so every login's pool, the stranger's among them, holds one.
+ * one connection at once (execute/index.ts openedDb), so every login's pool holds one.
  */
 const serialPool = 1
 

@@ -1,14 +1,16 @@
 import { Array as Arr } from "effect"
 import { textDomain } from "#test/support/worlds/model/text.ts"
-import type {
-	BaseSpec,
-	ContextSpec,
-	EntrySpec,
-	FieldDomain,
-	InstallSpec,
-	Occurrence,
-	Rule,
-	Term
+import {
+	type BaseSpec,
+	type ContextSpec,
+	type DrawnInstall,
+	type EntrySpec,
+	type FieldDomain,
+	type InstallSpec,
+	installSpec,
+	type Occurrence,
+	type Rule,
+	type Term
 } from "#test/support/worlds/model/types.ts"
 
 /** A subject: the session's user, a document's owner, a share's user and a note's author. */
@@ -228,7 +230,7 @@ const subjectClaim = claim("Session", "sub")
  * ids: the web login never writes Org, whatever claims it sets. The `admin`, a full role in `ops`, holds every relation
  * of the base whole, so every program over the base runs on it; it writes Org, Doc, Share, Note and Visit.
  */
-export const docsInstall: InstallSpec = {
+export const docsWorlds: DrawnInstall = {
 	base: docsBase,
 	roles: [
 		{
@@ -320,15 +322,18 @@ export const docsInstall: InstallSpec = {
 	]
 }
 
+/** The documents base's README-shaped worlds (docsWorlds) installed (installSpec). */
+export const docsInstall: InstallSpec = installSpec(docsWorlds)
+
 /**
  * The documents base's README-shaped worlds with the nightly `job` reading DocLinks beside its entries: every document's
  * id and organization, by two rules, one over every document and one over those of no negative word count, so the role
  * reads a union of rules, which a recursive read of it may not read in its step (docs/reads-and-writes.md "A recursive rule joins
  * `self`": RecursionRefused, cause unionStep), its two uuid fields a pair a recursive read chains.
  */
-export const docsUnionInstall: InstallSpec = {
-	...docsInstall,
-	roles: Arr.map(docsInstall.roles, (r) =>
+export const docsUnionInstall: InstallSpec = installSpec({
+	...docsWorlds,
+	roles: Arr.map(docsWorlds.roles, (r) =>
 		r.name === "job"
 			? {
 					...r,
@@ -352,22 +357,25 @@ export const docsUnionInstall: InstallSpec = {
 				}
 			: r
 	)
-}
+})
 
 /**
  * The documents base's README-shaped worlds over its one-share variant (docsOneShareBase): the member writing its own
  * shares through MyShare meets another user's share of a document, which MyShare hides, at the key on Share's `doc`.
  */
-export const docsOneShareInstall: InstallSpec = { ...docsInstall, base: docsOneShareBase }
+export const docsOneShareInstall: InstallSpec = installSpec({
+	...docsWorlds,
+	base: docsOneShareBase
+})
 
 /**
  * The documents base's README-shaped worlds over its Level variant (docsLevelBase), the member reading PlanOrgs beside
  * its entries: the organizations on the plan its token's Level claim names, a rule matching Org's plan to a context
  * field of a contract.
  */
-export const docsLevelInstall: InstallSpec = {
+export const docsLevelInstall: InstallSpec = installSpec({
 	base: docsLevelBase,
-	roles: Arr.map(docsInstall.roles, (r) =>
+	roles: Arr.map(docsWorlds.roles, (r) =>
 		r.name === "member"
 			? {
 					...r,
@@ -380,8 +388,8 @@ export const docsLevelInstall: InstallSpec = {
 				}
 			: r
 	),
-	logins: docsInstall.logins
-}
+	logins: docsWorlds.logins
+})
 
 /** A variable of a Profile field, as the member's Profile entry binds it. */
 const profiled = (field: string): Term => variable(`p_${field}`)
@@ -393,9 +401,9 @@ const profiled = (field: string): Term => variable(`p_${field}`)
  * (ProfileFiltered), which reads the badge, tier and plan claims in its filter and delivers none of them; and every
  * organization with the plan claim delivered beside it (ProfilePlan), a contract's claim read into an output column.
  */
-export const docsProfileInstall: InstallSpec = {
+export const docsProfileInstall: InstallSpec = installSpec({
 	base: docsProfileBase,
-	roles: Arr.map(docsInstall.roles, (r) =>
+	roles: Arr.map(docsWorlds.roles, (r) =>
 		r.name === "member"
 			? {
 					...r,
@@ -463,8 +471,8 @@ export const docsProfileInstall: InstallSpec = {
 				}
 			: r
 	),
-	logins: docsInstall.logins
-}
+	logins: docsWorlds.logins
+})
 
 /**
  * The documents base's README-shaped worlds with an `editor` beside them in the login `ops`: every fact outside an
@@ -476,10 +484,10 @@ export const docsProfileInstall: InstallSpec = {
  * beside it, under its claims or under none; and another author's note is hidden from it, met at its key by a note it
  * writes. The member beside it writes its own shares.
  */
-export const docsEditorInstall: InstallSpec = {
+const docsEditorWorlds: DrawnInstall = {
 	base: docsBase,
 	roles: [
-		...docsInstall.roles,
+		...docsWorlds.roles,
 		{
 			name: "editor",
 			entries: {
@@ -515,14 +523,17 @@ export const docsEditorInstall: InstallSpec = {
 	]
 }
 
+/** The editor's worlds (docsEditorWorlds) installed (installSpec). */
+export const docsEditorInstall: InstallSpec = installSpec(docsEditorWorlds)
+
 /**
  * The editor's worlds (docsEditorInstall) over the documents base's one-share variant: the member's own shares meet a
  * hidden share at the key on Share's `doc`, as in docsOneShareInstall, beside the editor's entries.
  */
-export const docsOneShareEditorInstall: InstallSpec = {
-	...docsEditorInstall,
+export const docsOneShareEditorInstall: InstallSpec = installSpec({
+	...docsEditorWorlds,
 	base: docsOneShareBase
-}
+})
 
 /**
  * The documents base with every visit on a tier (Visit.tier, an id of the roster Tier), the one roster handle a stored
@@ -551,7 +562,7 @@ const docsTieredVisitsBase: BaseSpec = {
  * Visit and Tier whole. No role names a handle of Tier, so either may be dropped, and dropping one a
  * stored visit holds is migration:roster-removal-held. Both roles are in the login `ops`.
  */
-export const docsHeldRosterInstall: InstallSpec = {
+export const docsHeldRosterInstall: InstallSpec = installSpec({
 	base: docsTieredVisitsBase,
 	roles: [
 		{
@@ -574,4 +585,4 @@ export const docsHeldRosterInstall: InstallSpec = {
 		}
 	],
 	logins: [{ name: "ops", roles: ["counter", "keeper"] }]
-}
+})

@@ -190,3 +190,16 @@ export const standingGrants = (install: InstallSpec, role: string): ReadonlyArra
 	)
 	return Arr.sort(Arr.dedupe(held), Order.String)
 }
+
+/**
+ * The indexes an installation creates of its own (physical/indexes/engine.ts PlannedIndex, `created`), each by its
+ * relation and its name: an access index a role's read or a world object asks for, beside the key and enforcement
+ * indexes its laws install, whose name its definition hashes, so the indexes a migration builds and drops are those one
+ * installation's set holds and the other's lacks (deploy/diff/diff.ts index, buildConcurrently, removed).
+ */
+export const createdIndexes = (
+	install: InstallSpec
+): ReadonlyArray<{ readonly relation: string; readonly name: string }> =>
+	Arr.flatMap(compiledOf(install).installation.indexes, (i) =>
+		i.index.kind === "created" ? [{ relation: i.relation, name: i.index.name }] : []
+	)

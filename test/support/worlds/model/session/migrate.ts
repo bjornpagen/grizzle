@@ -5,6 +5,7 @@ import { hostSchemaOf, judgedSchemaOf } from "#test/support/worlds/model/host.ts
 import {
 	changesWorlds,
 	createsWorldFunction,
+	regrantsStandingWhole,
 	type DepartedFile,
 	departedAt,
 	driftOf,
@@ -12,7 +13,7 @@ import {
 	revokesAnew,
 	sameNames
 } from "#test/support/worlds/model/session/catalog.ts"
-import { standingGrants } from "#test/support/worlds/model/session/compiled.ts"
+import { createdIndexes, standingGrants } from "#test/support/worlds/model/session/compiled.ts"
 
 import { domainLawKey, lawDomainsOf } from "#test/support/worlds/model/session/domains.ts"
 import {
@@ -251,7 +252,7 @@ export const folderFiles = (from: InstallSpec, to: InstallSpec): ReadonlyArray<F
 	const notValid = Arr.filter(native, (law) => !uniqueIndexed(law) && onHeld(law))
 	/** The keys built concurrently on relations that may hold rows, each attached to its index in Publish. */
 	const attached = Arr.filter(native, (law) => uniqueIndexed(law) && onHeld(law))
-	const concurrent = attached.length > 0
+	const attachesKeys = attached.length > 0
 	/** A containment of every fact into a key this folder attaches: added NOT VALID in Publish once the key is, and
 	 * validated in a Validate file after it, whatever its source holds. */
 	const intoAttached = (law: LawSpec): boolean =>
@@ -288,7 +289,20 @@ export const folderFiles = (from: InstallSpec, to: InstallSpec): ReadonlyArray<F
 	 * this folder attaches, which Publish adds once the key is (intoAttached). */
 	const addedNotValid = Arr.filter(notValid, (law) => !intoAttached(law))
 	const structure = worlds || gains || addedNotValid.length > 0 || rosterChanged
-	const indexes = Arr.some(native, (law) => uniqueIndexed(law) && !onHeld(law))
+	/**
+	 * The access indexes the folder builds and drops (compiled.ts createdIndexes): one `to` creates that `from` does not,
+	 * built concurrently on a relation that may hold rows and in the Indexes file on a new one; one `from` creates that
+	 * `to` does not, dropped in Publish. A world view's read asks for them as a role's reads do, so a worlds change alone
+	 * builds one.
+	 */
+	const createdBefore = createdIndexes(from)
+	const createdAfter = createdIndexes(to)
+	const built = Arr.filter(createdAfter, (i) => !Arr.some(createdBefore, (b) => b.name === i.name))
+	const builtConcurrently = Arr.some(built, (i) => held(i.relation))
+	const dropped = Arr.some(createdBefore, (b) => !Arr.some(createdAfter, (i) => i.name === b.name))
+	const indexes =
+		Arr.some(native, (law) => uniqueIndexed(law) && !onHeld(law)) ||
+		Arr.some(built, (i) => !held(i.relation))
 	/** An index the installation holds on a containment's source fields, which a new key leading with them serves instead. */
 	const servedAnew = Arr.some(
 		native,
@@ -302,7 +316,9 @@ export const folderFiles = (from: InstallSpec, to: InstallSpec): ReadonlyArray<F
 					samePlain(law.fields.slice(0, old.source.fields.length), old.source.fields)
 			)
 	)
+	const concurrent = attachesKeys || builtConcurrently
 	const removes =
+		dropped ||
 		servedAnew ||
 		Arr.some(was.relations, (r) => !Arr.some(now.relations, (x) => x.name === r.name)) ||
 		Arr.some(was.laws, (law) => !Arr.some(now.laws, (x) => samePlain(x, law)))
@@ -320,7 +336,9 @@ export const folderFiles = (from: InstallSpec, to: InstallSpec): ReadonlyArray<F
 	 * (compiled.ts standingGrants), and the revokes from PUBLIC on what the previous installation never revoked on
 	 * (catalog.ts revokesAnew), a new view's among them. A world object of a role the installation holds that Structure
 	 * creates, again or anew, is granted right after it there (packages/engine/src/deploy/diff/diff.ts regrantWorld), so
-	 * a world change of the held roles alone, a view whose entry reads otherwise among them, publishes nothing.
+	 * a world change of the held roles alone, a view whose entry reads otherwise among them, publishes nothing; a whole
+	 * view both installations hold alike, a role holding its relation whole in one and not the other, stands, and its
+	 * grant or revoke is drafted here (catalog.ts regrantsStandingWhole).
 	 */
 	const publish =
 		createsWorldFunction(from, to) ||
@@ -336,6 +354,7 @@ export const folderFiles = (from: InstallSpec, to: InstallSpec): ReadonlyArray<F
 				!samePlain(standingGrants(from, r), standingGrants(to, r))
 		) ||
 		revokesAnew(from, to) ||
+		regrantsStandingWhole(from, to) ||
 		Arr.some(
 			[...Arr.map(from.logins, (l) => l.name), ...Arr.map(to.logins, (l) => l.name)],
 			(l) => {

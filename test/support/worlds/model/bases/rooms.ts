@@ -1,15 +1,16 @@
 import type { Array as Arr } from "effect"
 import { textDomain } from "#test/support/worlds/model/text.ts"
-import type {
-	BaseSpec,
-	ClosedSpec,
-	EntrySpec,
-	FieldDomain,
-	InstallSpec,
-	Occurrence,
-	Rule,
-	SideSpec,
-	Term
+import {
+	type BaseSpec,
+	type ClosedSpec,
+	type EntrySpec,
+	type FieldDomain,
+	type InstallSpec,
+	installSpec,
+	type Occurrence,
+	type Rule,
+	type SideSpec,
+	type Term
 } from "#test/support/worlds/model/types.ts"
 
 const uuid: FieldDomain = { kind: "uuid" }
@@ -176,7 +177,7 @@ const what = variable("kind")
  * of rooms of at least two seats and the rooms that suit talks (a pure set's entry whose kind its fill fixes), and
  * reads every booking whole without writing one. The `admin`, in `ops` too, holds every relation whole and writes each.
  */
-export const roomsInstall: InstallSpec = {
+export const roomsInstall: InstallSpec = installSpec({
 	base: roomsBase,
 	roles: [
 		{
@@ -229,4 +230,4 @@ export const roomsInstall: InstallSpec = {
 		{ name: "web", roles: ["booker"] },
 		{ name: "ops", roles: ["keeper", "admin"] }
 	]
-}
+})

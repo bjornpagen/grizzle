@@ -419,6 +419,38 @@ export const createsWorldFunction = (from: InstallSpec, to: InstallSpec): boolea
 	})
 }
 
+/** The roles of an installation that hold a relation whole, by name, in order. */
+const holdersOf = (install: InstallSpec, relation: string): ReadonlyArray<string> =>
+	Arr.sort(
+		Arr.map(
+			Arr.filter(install.roles, (r) =>
+				Arr.some(Rec.values(r.entries), (e) => e.kind === "whole" && e.relation === relation)
+			),
+			(r) => r.name
+		),
+		Order.String
+	)
+
+/**
+ * Whether a migration grants or revokes a whole view it neither creates nor drops (worldObjects, `whole <relation>`):
+ * one both installations hold alike, which a role holds whole in one and not in the other. The view stands, so its
+ * grants are no world object's granted as Structure creates it (packages/engine/src/deploy/diff/diff.ts regrantWorld):
+ * the folder drafts them in Publish.
+ */
+export const regrantsStandingWhole = (from: InstallSpec, to: InstallSpec): boolean => {
+	const before = worldObjects(from)
+	return Arr.some([...worldObjects(to)], ([identity, o]) => {
+		const was = before.get(identity)
+		return (
+			o.kind === "whole" &&
+			o.locus.kind === "view" &&
+			was !== undefined &&
+			sameObject(from, to, was, o) &&
+			!samePlain(holdersOf(from, o.locus.relation), holdersOf(to, o.locus.relation))
+		)
+	})
+}
+
 /** Whether a migration drops a world object, or creates it again under a definition of its new installation. */
 const rewritten = (from: InstallSpec, to: InstallSpec, identity: string): boolean => {
 	const before = worldObjects(from).get(identity)

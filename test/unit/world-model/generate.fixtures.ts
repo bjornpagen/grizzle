@@ -14,12 +14,13 @@ import {
 } from "#test/support/worlds/generate/enumerate.ts"
 import { docsBase, docsInstall } from "#test/support/worlds/model/bases/docs.ts"
 import { initialState } from "#test/support/worlds/model/step.ts"
-import type {
-	Action,
-	BaseSpec,
-	HostState,
-	InstalledNames,
-	ModelState
+import {
+	type Action,
+	type BaseSpec,
+	type HostState,
+	type InstalledNames,
+	installSpec,
+	type ModelState
 } from "#test/support/worlds/model/types.ts"
 
 /**
@@ -28,17 +29,19 @@ import type {
  */
 const baseNames = (base: BaseSpec): InstalledNames => {
 	const [first] = base.relations
-	return installedNames({
-		base,
-		roles: [
-			{
-				name: "alpha",
-				entries: { [first.name]: { kind: "whole", relation: first.name } },
-				write: []
-			}
-		],
-		logins: [{ name: "web", roles: ["alpha"] }]
-	})
+	return installedNames(
+		installSpec({
+			base,
+			roles: [
+				{
+					name: "alpha",
+					entries: { [first.name]: { kind: "whole", relation: first.name } },
+					write: []
+				}
+			],
+			logins: [{ name: "web", roles: ["alpha"] }]
+		})
+	)
 }
 
 /** Every uuid and text value of the pools: the values a renaming may move. */

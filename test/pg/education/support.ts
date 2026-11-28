@@ -55,24 +55,25 @@ import {
 import { entryRows, factKey, factKeySet, sameFact } from "#test/support/worlds/model/host.ts"
 import { payloadFacts } from "#test/support/worlds/model/session/claims.ts"
 import { factsIn, noFacts } from "#test/support/worlds/model/session/state.ts"
-import type {
-	Action,
-	ActionKind,
-	ActionOutcome,
-	Allowed,
-	ContextFacts,
-	DirectStatement,
-	EntryOp,
-	HostFact,
-	HostState,
-	ModelState,
-	Observation,
-	PreparedRead,
-	RoleRef,
-	ModelSession,
-	HostValue,
-	InstallSpec,
-	WorldFeature
+import {
+	type Action,
+	type ActionKind,
+	type ActionOutcome,
+	type Allowed,
+	type ContextFacts,
+	type DirectStatement,
+	type EntryOp,
+	type HostFact,
+	type HostState,
+	type HostValue,
+	type InstallSpec,
+	type ModelSession,
+	type ModelState,
+	type Observation,
+	type PreparedRead,
+	type RoleRef,
+	stranger,
+	type WorldFeature
 } from "#test/support/worlds/model/types.ts"
 
 import { regex } from "arkregex"
@@ -1372,8 +1373,8 @@ const educationCase = (
 		Effect.gen(function* () {
 			assert.deepEqual(
 				Arr.map(educationInstall.roles, (r) => r.name),
-				[...educationRoles],
-				"the suite names the fixture's roles"
+				[...educationRoles, stranger.role],
+				"the suite names the fixture's roles, and the installation holds the stranger's beside them"
 			)
 			const world = yield* realized
 			const staged = yield* stage(world, pc.install, c.draw, drawnRealities)

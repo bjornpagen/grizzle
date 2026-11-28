@@ -49,20 +49,21 @@ import { installGen } from "#test/support/worlds/generate/install.ts"
 import { docsBase, docsInstall } from "#test/support/worlds/model/bases/docs.ts"
 import { classifyEntry, evaluateRules, factKey } from "#test/support/worlds/model/host.ts"
 import { installedRoles } from "#test/support/worlds/model/session/writes.ts"
-import type {
-	Comparison,
-	ComparisonOp,
-	ContextFacts,
-	FieldSpec,
-	HostFact,
-	HostState,
-	InstallSpec,
-	ModelState,
-	Occurrence,
-	Rule,
-	Source,
-	Term,
-	HostValue
+import {
+	type Comparison,
+	type ComparisonOp,
+	type ContextFacts,
+	type FieldSpec,
+	type HostFact,
+	type HostState,
+	type HostValue,
+	type InstallSpec,
+	installSpec,
+	type ModelState,
+	type Occurrence,
+	type Rule,
+	type Source,
+	type Term
 } from "#test/support/worlds/model/types.ts"
 
 type Kind = "org" | "doc" | "sub" | "plan" | "int" | "no" | "tier"
@@ -785,19 +786,20 @@ const armGen =
  * arm, so only the whole heading's minimization keys the union, as (id, org, words) keys the union of every Doc by
  * id where words is 0 and one row per org where words is 1, though no one arm's key beside the separator is.
  */
-const unionAcrossArmsGen: Gen<InstallSpec> = (source) => ({
-	base: docsBase,
-	roles: [
-		{
-			name: "alpha",
-			entries: {
-				View0: { kind: "query", rules: [source.draw(armGen(0)), source.draw(armGen(1))] }
-			},
-			write: []
-		}
-	],
-	logins: [{ name: "web", roles: ["alpha"] }]
-})
+const unionAcrossArmsGen: Gen<InstallSpec> = (source) =>
+	installSpec({
+		base: docsBase,
+		roles: [
+			{
+				name: "alpha",
+				entries: {
+					View0: { kind: "query", rules: [source.draw(armGen(0)), source.draw(armGen(1))] }
+				},
+				write: []
+			}
+		],
+		logins: [{ name: "web", roles: ["alpha"] }]
+	})
 
 /** A drawn installation of the documents base, or a union of Doc told apart across its arms (unionAcrossArmsGen). */
 export const keysSpace: Gen<InstallSpec> = oneOf([installGen(docsBase), unionAcrossArmsGen])

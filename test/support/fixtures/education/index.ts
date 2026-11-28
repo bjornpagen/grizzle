@@ -1,22 +1,23 @@
 import type { Array as Arr } from "effect"
 import { type TextDomain, textDomain } from "#test/support/worlds/model/text.ts"
-import type {
-	BaseSpec,
-	ClosedSpec,
-	ContextSpec,
-	EntrySpec,
-	FieldDomain,
-	FieldSpec,
-	InstallSpec,
-	LawSpec,
-	LoginSpec,
-	Occurrence,
-	RelationSpec,
-	RoleSpec,
-	Rule,
-	SideSpec,
-	Term,
-	HostValue
+import {
+	type BaseSpec,
+	type ClosedSpec,
+	type ContextSpec,
+	type EntrySpec,
+	type FieldDomain,
+	type FieldSpec,
+	type HostValue,
+	type InstallSpec,
+	installSpec,
+	type LawSpec,
+	type LoginSpec,
+	type Occurrence,
+	type RelationSpec,
+	type RoleSpec,
+	type Rule,
+	type SideSpec,
+	type Term
 } from "#test/support/worlds/model/types.ts"
 
 const uuid: FieldDomain = { kind: "uuid" }
@@ -713,7 +714,7 @@ const logins: Arr.NonEmptyReadonlyArray<LoginSpec> = [
 ]
 
 /** The school system's worlds: each role and the login that holds it. */
-export const educationInstall: InstallSpec = {
+export const educationInstall: InstallSpec = installSpec({
 	base: educationBase,
 	roles: [
 		studentRole,
@@ -724,4 +725,4 @@ export const educationInstall: InstallSpec = {
 		importerRole
 	],
 	logins
-}
+})

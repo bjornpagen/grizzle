@@ -1,5 +1,5 @@
 import type { WildKind } from "@bjornpagen/testing/lsw"
-import type { Array as Arr } from "effect"
+import { Array as Arr, Brand } from "effect"
 import type { Identity } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import type { Direction } from "#compiler/core/order.ts"
@@ -192,11 +192,52 @@ export interface LoginSpec {
 	readonly roles: Arr.NonEmptyReadonlyArray<string>
 }
 
-/** A base with its worlds: every role in exactly one login. */
-export interface InstallSpec {
+/** The worlds an installation is drawn with over its base: every role in exactly one login. */
+export interface DrawnInstall {
 	readonly base: BaseSpec
 	readonly roles: Arr.NonEmptyReadonlyArray<RoleSpec>
 	readonly logins: Arr.NonEmptyReadonlyArray<LoginSpec>
+}
+
+/**
+ * A base with its worlds, every role in exactly one login, the stranger's login and role last among them (stranger):
+ * at least two logins, so a role's own login set aside leaves another whose layer an open meets (execute/index.ts
+ * besides). Built only by installSpec.
+ */
+export type InstallSpec = {
+	readonly base: BaseSpec
+	readonly roles: Arr.NonEmptyReadonlyArray<RoleSpec>
+	readonly logins: readonly [LoginSpec, LoginSpec, ...Array<LoginSpec>]
+} & Brand.Brand<"InstallSpec">
+const InstallSpec = Brand.nominal<InstallSpec>()
+
+/**
+ * The stranger every installation holds (installSpec): the login `outsider` of one role, `stranger`, which holds its
+ * base's first relation whole and writes nothing, an ordinary login and role of the installation in every way the model
+ * and the executor read one. Its names are short, so the PostgreSQL names `<schema>__outsider` and `<schema>__stranger`
+ * fit 63 bytes under any schema a test installs (core/identity.ts IdentifierTooLong).
+ */
+export const stranger = { role: "stranger", login: "outsider" } as const
+
+/**
+ * The installation of `drawn` (InstallSpec): its base, its roles and the stranger's (stranger), whole over the base's
+ * first relation, and its logins and the stranger's, in that order.
+ */
+export const installSpec = (drawn: DrawnInstall): InstallSpec => {
+	const [first] = drawn.base.relations
+	const role: RoleSpec = {
+		name: stranger.role,
+		entries: { [first.name]: { kind: "whole", relation: first.name } },
+		write: []
+	}
+	const login: LoginSpec = { name: stranger.login, roles: [stranger.role] }
+	const [drawnFirst, ...drawnRest] = drawn.logins
+	const [second, ...more] = Arr.append(drawnRest, login)
+	return InstallSpec({
+		base: drawn.base,
+		roles: Arr.append(drawn.roles, role),
+		logins: [drawnFirst, second, ...more]
+	})
 }
 
 /** The law identity the compiler gave one declared law. */

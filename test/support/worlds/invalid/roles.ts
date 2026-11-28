@@ -54,7 +54,7 @@ const rolesOf = (
 				Arr.map(install.roles, (r) => r.name),
 				"the roles"
 			)
-			return { own: all, others: install.logins.length > 1 ? all : [] }
+			return { own: all, others: all }
 		}
 		case "login": {
 			const login = Option.getOrThrowWith(

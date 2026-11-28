@@ -60,14 +60,15 @@ import {
 } from "#test/support/pg/migrate/support.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { buildInstall, type Built } from "#test/support/worlds/execute/build.ts"
-import type {
-	EntrySpec,
-	FieldDomain,
-	InstallSpec,
-	LoginSpec,
-	RelationSpec,
-	RoleSpec,
-	Rule
+import {
+	type EntrySpec,
+	type FieldDomain,
+	type InstallSpec,
+	installSpec,
+	type LoginSpec,
+	type RelationSpec,
+	type RoleSpec,
+	type Rule
 } from "#test/support/worlds/model/types.ts"
 
 const relationPool = ["Alpha", "Beta", "Gamma", "Delta"] as const
@@ -713,37 +714,38 @@ const entrySpec = (m: Model, e: EntryModel): EntrySpec => {
 }
 
 /** The worlds model's install description of a model: its base, its roles and its logins. */
-const installOf = (m: Model): InstallSpec => ({
-	base: {
-		name: declared,
-		closed: [{ name: "Tier", members: handlesOf(m) }],
-		relations: Arr.map(m.relations, (r): RelationSpec => ({
-			name: nameOf(r),
-			fields: [
-				{ name: "id", domain: wide },
-				...Arr.map(r.fields, (f) => ({ name: f.name, domain: domainOf(m, f) }))
-			],
-			key: ["id"],
-			mutability: "immutable"
+const installOf = (m: Model): InstallSpec =>
+	installSpec({
+		base: {
+			name: declared,
+			closed: [{ name: "Tier", members: handlesOf(m) }],
+			relations: Arr.map(m.relations, (r): RelationSpec => ({
+				name: nameOf(r),
+				fields: [
+					{ name: "id", domain: wide },
+					...Arr.map(r.fields, (f) => ({ name: f.name, domain: domainOf(m, f) }))
+				],
+				key: ["id"],
+				mutability: "immutable"
+			})),
+			laws: [],
+			contexts: [
+				{
+					name: m.context.name,
+					claim: { kind: "top-level" },
+					fields: Arr.map(m.context.claims, (c) => ({ name: c.name, domain: wide }))
+				}
+			]
+		},
+		roles: Arr.map(m.roles, (r): RoleSpec => ({
+			name: r.name,
+			entries: Rec.fromEntries(
+				Arr.map(r.entries, (e) => [entryName(m, e), entrySpec(m, e)] as const)
+			),
+			write: []
 		})),
-		laws: [],
-		contexts: [
-			{
-				name: m.context.name,
-				claim: { kind: "top-level" },
-				fields: Arr.map(m.context.claims, (c) => ({ name: c.name, domain: wide }))
-			}
-		]
-	},
-	roles: Arr.map(m.roles, (r): RoleSpec => ({
-		name: r.name,
-		entries: Rec.fromEntries(
-			Arr.map(r.entries, (e) => [entryName(m, e), entrySpec(m, e)] as const)
-		),
-		write: []
-	})),
-	logins: Arr.map(m.logins, (l): LoginSpec => ({ name: loginName(l), roles: l.roles }))
-})
+		logins: Arr.map(m.logins, (l): LoginSpec => ({ name: loginName(l), roles: l.roles }))
+	})
 
 /** A model's grizzle values under the allocated name `name`, built through the public builders. */
 const builtOf = (m: Model, name: string) => Effect.orDie(buildInstall(installOf(m), name))

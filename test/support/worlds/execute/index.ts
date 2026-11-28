@@ -25,6 +25,7 @@ import type { FolderTexts } from "#adapter/migrate/input.ts"
 import { compileServed, type ServedRefusal } from "#adapter/public/compile.ts"
 import { served } from "#adapter/public/layer.ts"
 import type { DbLayerOf, DbLayerService, ServedLogin, ServedRole } from "#adapter/types/layer.ts"
+import type { CompileError } from "#compiler/core/errors.ts"
 import { type Identity, identity } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
@@ -42,6 +43,7 @@ import { installedCodes, type TestCompileOptions, testCompile } from "#test/supp
 import {
 	appliedGenerated,
 	generatedDraft,
+	generatedDrafting,
 	type Installed,
 	noPlaceholders
 } from "#test/support/install-migrate.ts"
@@ -129,6 +131,7 @@ import type {
 	InstalledNames,
 	InstallSpec,
 	Isolation,
+	LoginSpec,
 	Observation,
 	Probe,
 	RoleRef,
@@ -292,12 +295,12 @@ interface Held {
 }
 
 /**
- * A role of no installed login whose login's served file the compile refuses, a role a name breaking the declared-name
- * rule names: no served file holds it, so no application holds a token of it to hand Db.open, and the compile's
- * refusal is the open's.
+ * A role of no installed login that no installation holding it compiles, a role a name breaking the declared-name rule
+ * names: no served file holds it, so no application holds a token of it to hand Db.open, and the compile's refusal is
+ * the open's.
  */
 class UnservableRole extends Data.TaggedError("UnservableRole")<{
-	readonly refusal: ServedRefusal
+	readonly refusal: CompileError
 }> {}
 
 /**
@@ -340,6 +343,22 @@ const get = <A>(record: Readonly<Record<string, A>>, key: string, what: string):
 	})
 
 /**
+ * The logins of an installation but the one `except` names, in order: one at least, since every installation holds two
+ * logins, its stranger's among them (model/types.ts installSpec), so an open of a role beside its own login's layer
+ * meets another login's, which serves no role of that login.
+ */
+export const loginsBesides = (
+	logins: InstallSpec["logins"],
+	except: Option.Option<string>
+): Arr.NonEmptyReadonlyArray<LoginSpec> => {
+	const [first, second, ...rest] = logins
+	const kept = (l: LoginSpec): boolean => !Option.exists(except, (e) => e === l.name)
+	return kept(first)
+		? [first, ...Arr.filter([second, ...rest], kept)]
+		: [second, ...Arr.filter(rest, kept)]
+}
+
+/**
  * `login`'s served file with its own workloads, compiled under `snapshot`, the JSON value of a snapshot.json, as
  * generate compiles it (adapter/public/compile.ts compileServed), and served under its name, as an application serves
  * the file it imports.
@@ -351,6 +370,54 @@ const servedOver = (
 	Effect.map(
 		Effect.suspend(() => compileServed(login, snapshot, login.workload)),
 		(json) => served<BuiltLogin>(json, login.name)
+	)
+
+/**
+ * The served file of each unheld login (unheldServed) of a planned world, by the fingerprint of the version it was
+ * drafted beside and the role's name, drafted once per plan: a template's world is planned once per worker, so every
+ * case of the worker over it reads the one draft. Keyed by the plan's identity, so an entry goes with its plan.
+ */
+const unheldFiles = new WeakMap<
+	WorldPlan,
+	Map<string, Result.Result<ServedLogin<BuiltLogin>, CompileError>>
+>()
+
+/** The unheld served files of `plan` (unheldFiles), made empty when it is first read. */
+const unheldFilesOf = (
+	plan: WorldPlan
+): Map<string, Result.Result<ServedLogin<BuiltLogin>, CompileError>> =>
+	Option.getOrElse(Option.fromUndefinedOr(unheldFiles.get(plan)), () => {
+		const files = new Map<string, Result.Result<ServedLogin<BuiltLogin>, CompileError>>()
+		unheldFiles.set(plan, files)
+		return files
+	})
+
+/**
+ * `login`'s served file as `grizzle generate` serves it in an installation of `base`, declared as `declared`, that holds
+ * `login` alone (install-migrate.ts generatedDrafting), drafted and never applied: the file an application kept of a
+ * role an installation of its base held, which the world's installation holds no more, a role a migration dropped, or
+ * holds under no login, a role no installation of the world gave. The draft refusing the login, a role whose name
+ * breaks the declared-name rule, is the refusal.
+ */
+const unheldServed = (
+	base: Built["base"],
+	declared: string,
+	login: BuiltLogin
+): Effect.Effect<ServedLogin<BuiltLogin>, CompileError> =>
+	Effect.flatMap(
+		generatedDrafting(
+			{ schema: base, logins: [login], declarations: noDeclarations },
+			{
+				installation: identity.schema(parsedSchemaName(declared)),
+				previous: fromEmpty,
+				step: 0
+			}
+		),
+		(drafted) =>
+			Option.match(Option.fromUndefinedOr(drafted.served.get(login.name)), {
+				onNone: () => missing(`served file of the unheld login ${login.name}`),
+				onSome: (json) => Effect.succeed(served<BuiltLogin>(json, login.name))
+			})
 	)
 
 /**
@@ -437,17 +504,16 @@ const releaseDraft = (
 }
 
 /**
- * A world's installation as planned, before it holds a session: its first version (VersionPlan), the snapshot.json of
- * the release before the first (the base alone, drafted for the installed schema, which the ledger has moved past) and
- * another schema's (foreign), each drafted when an open is first handed it (releaseSnapshot), and the served file of a
- * login no installed role is in (the stranger's), which serves no role. A case that installs its own world plans it
- * after its install, and a template's world (worldTemplate) is planned once per worker under the template's names.
+ * A world's installation as planned, before it holds a session: its first version (VersionPlan), and the snapshot.json
+ * of the release before the first (the base alone, drafted for the installed schema, which the ledger has moved past)
+ * and another schema's (foreign), each drafted when an open is first handed it (releaseSnapshot). A case that installs
+ * its own world plans it after its install, and a template's world (worldTemplate) is planned once per worker under
+ * the template's names.
  */
 export interface WorldPlan {
 	readonly first: VersionPlan
 	readonly earlier: Effect.Effect<Fingerprinted>
 	readonly foreign: Effect.Effect<Fingerprinted>
-	readonly stranger: ServedLogin<BuiltLogin>
 }
 
 /**
@@ -471,14 +537,6 @@ export const worldPlanOf = (
 				)
 			}
 		}
-		const [firstRelation] = spec.base.relations
-		const strangerWhole = yield* get(first.built.relations, firstRelation.name, "relation")
-		const strangerRole = yield* Effect.sync(() =>
-			roleBuilder(first.built.base, "executorStranger", { [firstRelation.name]: strangerWhole })
-		)
-		const strangerLogin: BuiltLogin = yield* Effect.sync(() =>
-			loginBuilder(first.built.base, "executorStrangerLogin", [strangerRole])
-		)
 		return {
 			first,
 			earlier: yield* releaseSnapshot(
@@ -492,8 +550,7 @@ export const worldPlanOf = (
 				identity.schema(parsedSchemaName(`${installed.declared}_foreign`)),
 				"foreign",
 				"20261013000000"
-			),
-			stranger: yield* Effect.orDie(servedOver(strangerLogin, first.snapshotJson))
+			)
 		}
 	})
 
@@ -544,8 +601,7 @@ export const draftedWorld = (install: InstallSpec, name: string) =>
 
 /**
  * The world of `plan`, installed as `installed` in the substrate's database, each login's decoder login's password
- * `decoderOf`'s, every login's pool, the stranger's among them, `poolSize` connections or the cluster pool's: see
- * RealWorld.
+ * `decoderOf`'s, every login's pool `poolSize` connections or the cluster pool's: see RealWorld.
  */
 const worldOver = (
 	plan: WorldPlan,
@@ -560,7 +616,7 @@ const worldOver = (
 		/** The verify calls of every login layer since the realization began. */
 		const verified = { calls: 0 }
 		const scope = yield* Effect.scope
-		/** Every login layer's pool, the stranger's among them: `poolSize` connections, or the cluster pool's. */
+		/** Every login layer's pool: `poolSize` connections, or the cluster pool's. */
 		const pool = Option.match(poolSize, {
 			onNone: () => clusterPool,
 			onSome: (size) => ({ ...clusterPool, max: size })
@@ -652,19 +708,6 @@ const worldOver = (
 			stale: plan.earlier,
 			directory: { applied: installed.folders, pending: [] }
 		}
-		/** The layer of a login no installed role is in: what serves no role, where no other login is left. */
-		const stranger = yield* Effect.orDie(
-			Scope.provide(
-				Layer.build(
-					servedSourcedLayer(decoderOf, {
-						...clusterConnection(substrate.cluster, substrate.database, Redacted.make("")),
-						pool,
-						login: plan.stranger
-					})
-				),
-				scope
-			)
-		)
 		const sessions = yield* Ref.make<ReadonlyArray<Session>>([])
 		/** The scope of the case that last reset the world (reset), which each direct writer it begins lives in. */
 		const caseScope = yield* Ref.make(Option.none<Scope.Scope>())
@@ -696,17 +739,19 @@ const worldOver = (
 		const setSession = (id: number, session: Session): Effect.Effect<void> =>
 			Ref.update(sessions, (all) => Arr.map(all, (s, i) => (i === id ? session : s)))
 
-		/** The layers of every login but `except`: a stranger's alone when none is left, so a role is served by none. */
-		const allLayers = (except: Option.Option<string>): Context.Context<DbLayerOf<BuiltLogin>> => {
-			const layers = Arr.map(
-				Arr.filter(Rec.toEntries(state.current.layers), ([login]) =>
-					Option.match(except, { onNone: () => true, onSome: (e) => e !== login })
+		/**
+		 * The layers of every login of the current version but `except`, merged: one at least, since every installation
+		 * holds two logins (loginsBesides).
+		 */
+		const allLayers = (
+			except: Option.Option<string>
+		): Effect.Effect<Context.Context<DbLayerOf<BuiltLogin>>> =>
+			Effect.map(
+				Effect.forEach(loginsBesides(state.current.spec.logins, except), (l) =>
+					Effect.map(get(state.current.layers, l.name, "layer of"), (layer) => layer.context)
 				),
-				([, layer]) => layer.context
+				([first, ...rest]) => Arr.reduce(rest, first, (ctx, layer) => Context.merge(ctx, layer))
 			)
-			const [firstLayer, ...rest] = layers
-			return Arr.reduce(rest, firstLayer ?? stranger, (ctx, layer) => Context.merge(ctx, layer))
-		}
 
 		/**
 		 * `value` reached through a login of its own over `base`, which no layer serves: how a role no installed login
@@ -730,10 +775,11 @@ const worldOver = (
 
 		/**
 		 * A reference that is no installed role, as Db.open is handed it: a role value of its name over the current base
-		 * that no installed login holds, reached through a login no layer serves, whose served file is compiled under the
-		 * current snapshot, and opened under every login's layer. A dropped role's is the value an application kept of a
-		 * role a migration removed, a nonexistent one's a name no installation gave, and the owner's the owner's own
-		 * PostgreSQL name; none is a role of an installed login, whatever its name.
+		 * that no installed login holds, reached through a login no layer serves, its role token the one generate serves in
+		 * an installation of the current base that holds that login (unheldServed), and opened under every login's layer.
+		 * A dropped role's is the token an application kept of a role a migration removed, a nonexistent one's a name no
+		 * installation of the world gave, and the owner's the owner's own PostgreSQL name; none is a role of an installed
+		 * login, whatever its name.
 		 */
 		const unheld = (current: Version, name: string) =>
 			Effect.gen(function* () {
@@ -743,14 +789,23 @@ const worldOver = (
 					roleBuilder(current.built.base, name, { [anyRelation.name]: whole })
 				)
 				const reached = yield* reachedUnheld(current.built.base, value)
-				const file = yield* Effect.result(servedOver(reached.login, current.snapshotJson))
+				const files = unheldFilesOf(plan)
+				const key = `${current.snapshotJson.fingerprint} ${name}`
+				const file = yield* Option.match(Option.fromUndefinedOr(files.get(key)), {
+					onSome: Effect.succeed,
+					onNone: () =>
+						Effect.tap(
+							Effect.result(unheldServed(current.built.base, installed.declared, reached.login)),
+							(drafted) => Effect.sync(() => files.set(key, drafted))
+						)
+				})
 				return {
 					value,
 					reached: reached.role,
 					held: Option.none<Held>(),
 					served: Result.map(file, (served) => servedRoleOf(served, name)),
 					snapshot: current.snapshotJson,
-					context: allLayers(Option.none())
+					context: yield* allLayers(Option.none())
 				}
 			})
 
@@ -779,7 +834,7 @@ const worldOver = (
 							held: heldOf(current.spec, ref.role, name),
 							served: Result.succeed(servedRoleOf(layer.served, ref.role)),
 							snapshot: layer.snapshot,
-							context: ref.kind === "own" ? layer.context : allLayers(Option.some(name))
+							context: ref.kind === "own" ? layer.context : yield* allLayers(Option.some(name))
 						}
 					}
 					case "dropped":
@@ -867,7 +922,7 @@ const worldOver = (
 						onFailure: (rest) => Effect.failCause(rest),
 						onSuccess: (error) =>
 							error instanceof UnservableRole
-								? Effect.succeed(refusedWith({ kind: "compile-refused" }, error.refusal.error))
+								? Effect.succeed(refusedWith({ kind: "compile-refused" }, error.refusal))
 								: "place" in error
 									? Effect.succeed(
 											refusedWith(
@@ -1234,10 +1289,12 @@ const worldOver = (
 				const value = wildValue(action.wild)
 				const at = action.at
 				switch (at.kind) {
-					case "open-role":
-						return yield* openWild(value, Option.none(), allLayers(Option.none()), () =>
+					case "open-role": {
+						const every = yield* allLayers(Option.none())
+						return yield* openWild(value, Option.none(), every, () =>
 							Effect.die(new Error("Db.open opened a Db for a wild role"))
 						)
+					}
 					case "open-token": {
 						const target = yield* roleFor({ kind: "own", role: at.role })
 						const served = yield* Effect.orDie(Effect.fromResult(target.served))
@@ -1799,8 +1856,8 @@ export const realize = (
 	realizeWith(installSpec, ambient, Option.none())
 
 /**
- * Realizes an installation under the ambient session `ambient` whose every login's pool, the stranger's among them,
- * holds `poolSize` connections at most: one for a program that runs one action at a time (drive/suite.ts
+ * Realizes an installation under the ambient session `ambient` whose every login's pool holds `poolSize` connections
+ * at most: one for a program that runs one action at a time (drive/suite.ts
  * programTests), whose open leases one (openedDb), and two for a schedule that races two sessions' calls.
  */
 export const realizeRace = (
@@ -1813,8 +1870,8 @@ export const realizeRace = (
 /**
  * The world of a planned installation already installed in the substrate's database, as a case over a clone of a
  * template's world has it (template.ts worldTemplate): every login's and decoder login's password the one the template
- * derived for it (templates.ts templatePassword), every login's pool, the stranger's among them, `poolSize`
- * connections at most, or the cluster pool's.
+ * derived for it (templates.ts templatePassword), every login's pool `poolSize` connections at most, or the cluster
+ * pool's.
  */
 export const realizeInstalled = (
 	plan: WorldPlan,

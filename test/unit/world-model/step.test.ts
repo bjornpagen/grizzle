@@ -11,9 +11,11 @@
  *
  * The installation's names are the compiler's, read once: the model's semantics, not the compiler, is under test.
  *
- * The migration folders: from an installation over the docs base to another, or to it with one native law added, the
- * files the model drafts (model/session/migrate.ts folderFiles) are the phases, in order and number, of the folder
- * grizzle's generate drafts (execute/catalog.ts draftedPhases).
+ * The migration folders: from an installation over the docs base to another, or to it with one native law added, or
+ * from the README-shaped worlds to the same over the base with Doc listed first, whose stranger (model/types.ts
+ * installSpec) holds Doc whole where it held Org, the files the model drafts (model/session/migrate.ts folderFiles) are
+ * the phases, in order and number, of the folder grizzle's generate drafts (execute/catalog.ts draftedPhases), the
+ * access indexes a world view asks for among them (compiled.ts createdIndexes).
  *
  * Oracles: the specification for the step (invariantsOf, and the model's outcome as the real system shows it, read
  * back by observedNext); a second implementation for the folders, grizzle's generate. Features: every action kind,
@@ -32,7 +34,9 @@ import { docsInstall } from "#test/support/worlds/model/bases/docs.ts"
 import { invariantsOf } from "#test/support/worlds/model/invariants.ts"
 import { changesWorlds } from "#test/support/worlds/model/session/catalog.ts"
 import { folderFiles } from "#test/support/worlds/model/session/migrate.ts"
+import { roleOf, samePlain } from "#test/support/worlds/model/session/state.ts"
 import { initialState, observedNext, settle, step } from "#test/support/worlds/model/step.ts"
+import { stranger } from "#test/support/worlds/model/types.ts"
 import {
 	checkReadBacksAsKeyedSets,
 	checkRowsAsKeyedSets,
@@ -43,6 +47,7 @@ import {
 	phaseOf,
 	type StepFeature,
 	stepFeatures,
+	strangerMoved,
 	viewCreatedAgain,
 	walkGen
 } from "#test/unit/world-model/step.fixtures.ts"
@@ -116,7 +121,8 @@ export const theWorldsModelsStepKeepsEveryInvariantOnEveryBranchAndAgreesWithIts
 export const theWorldsModelsMigrationFoldersDraftsAFoldersFilesInTheOrderAndNumberGrizzlesGenerateDraftsThem =
 	property.explore(
 		aimed(migrationGen, [
-			["a world object created again and no Publish file", constant(viewCreatedAgain)]
+			["a world object created again and no Publish file", constant(viewCreatedAgain)],
+			["the stranger holds another relation", constant(strangerMoved)]
 		]),
 		{
 			needs: {},
@@ -124,7 +130,8 @@ export const theWorldsModelsMigrationFoldersDraftsAFoldersFilesInTheOrderAndNumb
 				"worlds change",
 				"no worlds change",
 				"a new law",
-				"a world object created again and no Publish file"
+				"a world object created again and no Publish file",
+				"the stranger holds another relation"
 			] satisfies ReadonlyArray<Reached<FolderFeature>>,
 			check:
 				(_, c: Case<FolderFeature>) =>
@@ -142,6 +149,9 @@ export const theWorldsModelsMigrationFoldersDraftsAFoldersFilesInTheOrderAndNumb
 						}
 						if (changesWorlds(from, to) && !drafted.includes("publish")) {
 							c.note("a world object created again and no Publish file")
+						}
+						if (!samePlain(roleOf(from, stranger.role), roleOf(to, stranger.role))) {
+							c.note("the stranger holds another relation")
 						}
 					}),
 			oracle: {

@@ -48,16 +48,17 @@ import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import { owning } from "#test/support/policy.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { buildInstall } from "#test/support/worlds/execute/build.ts"
-import type {
-	BaseSpec,
-	ContextSpec,
-	EntrySpec,
-	FieldDomain,
-	InstallSpec,
-	Occurrence,
-	RelationSpec,
-	RoleSpec,
-	Term
+import {
+	type BaseSpec,
+	type ContextSpec,
+	type EntrySpec,
+	type FieldDomain,
+	type InstallSpec,
+	installSpec,
+	type Occurrence,
+	type RelationSpec,
+	type RoleSpec,
+	type Term
 } from "#test/support/worlds/model/types.ts"
 
 export type Dimension =
@@ -183,11 +184,12 @@ const baseOf = (
 ): BaseSpec => ({ name: "Scaled", closed: [], relations, laws: [], contexts })
 
 /** The worlds of `roles` over a base, every role in the one login `web`. */
-const worldsOf = (base: BaseSpec, roles: Arr.NonEmptyReadonlyArray<RoleSpec>): InstallSpec => ({
-	base,
-	roles,
-	logins: [{ name: "web", roles: Arr.map(roles, (r) => r.name) }]
-})
+const worldsOf = (base: BaseSpec, roles: Arr.NonEmptyReadonlyArray<RoleSpec>): InstallSpec =>
+	installSpec({
+		base,
+		roles,
+		logins: [{ name: "web", roles: Arr.map(roles, (r) => r.name) }]
+	})
 
 /** A role holding `relations` whole, writing each. */
 const fullOn = (name: string, relations: ReadonlyArray<RelationSpec>): RoleSpec => ({

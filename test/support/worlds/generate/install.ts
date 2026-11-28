@@ -12,20 +12,21 @@ import {
 	sameDomain
 } from "#test/support/worlds/generate/domain.ts"
 import { classifyEntry, literalDefault } from "#test/support/worlds/model/host.ts"
-import type {
-	BaseSpec,
-	ComparisonOp,
-	ContextSpec,
-	EntrySpec,
-	FieldDomain,
-	FieldSpec,
-	HostValue,
-	InstallSpec,
-	LoginSpec,
-	Occurrence,
-	RoleSpec,
-	Rule,
-	Term
+import {
+	type BaseSpec,
+	type ComparisonOp,
+	type ContextSpec,
+	type EntrySpec,
+	type FieldDomain,
+	type FieldSpec,
+	type HostValue,
+	type InstallSpec,
+	installSpec,
+	type LoginSpec,
+	type Occurrence,
+	type RoleSpec,
+	type Rule,
+	type Term
 } from "#test/support/worlds/model/types.ts"
 
 /**
@@ -553,7 +554,7 @@ export const installGen =
 				return [first, ...rest]
 			})
 		)
-		return { base, roles, logins: source.draw(resolveLogins(roles, drawn)) }
+		return installSpec({ base, roles, logins: source.draw(resolveLogins(roles, drawn)) })
 	}
 
 /** The write-list kinds an installation grizzle refuses at build carries. */

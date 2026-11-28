@@ -8,16 +8,17 @@ import type { UnservedMember } from "#compiler/served/unserved.ts"
 import { knownNonEmpty, pooled } from "#test/support/worlds/generate/domain.ts"
 import { relationSpecOf } from "#test/support/worlds/model/session/state.ts"
 import type { Written } from "#test/support/worlds/model/session/writes.ts"
-import type {
-	BaseSpec,
-	Comparison,
-	EntrySpec,
-	FieldSpec,
-	HostFact,
-	InstallSpec,
-	RelationSpec,
-	Rule,
-	Term
+import {
+	type BaseSpec,
+	type Comparison,
+	type EntrySpec,
+	type FieldSpec,
+	type HostFact,
+	type InstallSpec,
+	installSpec,
+	type RelationSpec,
+	type Rule,
+	type Term
 } from "#test/support/worlds/model/types.ts"
 
 /** How a query entry's head uses a field: carried, carried and read by its filter, fixed by a literal, or unnamed. */
@@ -146,11 +147,11 @@ export const installOf = (
 			? [relation.name, { kind: "whole", relation: relation.name }]
 			: ["View0", { kind: "query", rules: [ruleOf(relation, point.entry.uses)] }]
 	return {
-		install: {
+		install: installSpec({
 			base,
 			roles: [{ name: "alpha", entries: { [entry]: spec }, write: [entry] }],
 			logins: [{ name: "web", roles: ["alpha"] }]
-		},
+		}),
 		entry
 	}
 }

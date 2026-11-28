@@ -49,40 +49,41 @@ import {
 	writtenAt,
 	writtenOf
 } from "#test/support/worlds/model/session/writes.ts"
-import type {
-	Action,
-	ActionKind,
-	BaseSpec,
-	ClaimsSetting,
-	ContextFacts,
-	ContextSpec,
-	DirectSessionState,
-	DirectStart,
-	DirectStatement,
-	EntryOp,
-	EntrySpec,
-	FieldDomain,
-	FieldSpec,
-	HostFact,
-	HostSchema,
-	HostState,
-	InstallSpec,
-	LoginSpec,
-	ModelState,
-	Occurrence,
-	PageFrom,
-	ReadVia,
-	RelationSpec,
-	RoleRef,
-	RoleSpec,
-	Rule,
-	SmallScope,
-	SnapshotRef,
-	StaleSource,
-	Term,
-	Token,
-	TokenWild,
-	HostValue
+import {
+	type Action,
+	type ActionKind,
+	type BaseSpec,
+	type ClaimsSetting,
+	type ContextFacts,
+	type ContextSpec,
+	type DirectSessionState,
+	type DirectStart,
+	type DirectStatement,
+	type EntryOp,
+	type EntrySpec,
+	type FieldDomain,
+	type FieldSpec,
+	type HostFact,
+	type HostSchema,
+	type HostState,
+	type HostValue,
+	type InstallSpec,
+	installSpec,
+	type LoginSpec,
+	type ModelState,
+	type Occurrence,
+	type PageFrom,
+	type ReadVia,
+	type RelationSpec,
+	type RoleRef,
+	type RoleSpec,
+	type Rule,
+	type SmallScope,
+	type SnapshotRef,
+	type StaleSource,
+	type Term,
+	type Token,
+	type TokenWild
 } from "#test/support/worlds/model/types.ts"
 
 /** The default exhaustive box: two relations, two rules, one context, two subjects, three facts, three actions deep. */
@@ -481,9 +482,7 @@ const openActions = (state: ModelState, scoped: Scoped): ReadonlyArray<Action> =
 			Arr.filter(install.roles, (role) => contextsRead(install.base, role).length > 0).slice(0, 1),
 			(role) => open({ kind: "own", role: role.name }, { kind: "none" }, "current")
 		),
-		...(install.logins.length > 1
-			? [open({ kind: "other-login", role: first.name }, firstToken, "current")]
-			: []),
+		open({ kind: "other-login", role: first.name }, firstToken, "current"),
 		...Arr.map(droppedNames(install).slice(0, 1), (role) =>
 			open({ kind: "dropped", role }, firstToken, "current")
 		),
@@ -1968,7 +1967,7 @@ export const enumerateInstalls = (
 			return undefined
 		}
 		const role = roleWith(base, "alpha", [first, ...rest])
-		return { base, roles: [role], logins: [{ name: "web", roles: [role.name] }] }
+		return installSpec({ base, roles: [role], logins: [{ name: "web", roles: [role.name] }] })
 	}
 	const variants = Arr.flatMap(relations, (r) => [
 		Arr.map(
@@ -2002,14 +2001,18 @@ export const enumerateInstalls = (
 			const install = single(entries)
 			return install === undefined ? [] : [install]
 		}),
-		{ base, roles: [alpha, full], logins: [{ name: "web", roles: [alpha.name, full.name] }] },
-		{
+		installSpec({
+			base,
+			roles: [alpha, full],
+			logins: [{ name: "web", roles: [alpha.name, full.name] }]
+		}),
+		installSpec({
 			base,
 			roles: [alpha, full],
 			logins: [
 				{ name: "web", roles: [alpha.name] },
 				{ name: "ops", roles: [full.name] }
 			]
-		}
+		})
 	]
 }
