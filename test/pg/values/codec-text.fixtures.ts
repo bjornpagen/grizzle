@@ -152,8 +152,8 @@ const naturalCarrier: DeclaredCarrier = {
 	accumulate: (first) => accumulated(naturalType, first)
 }
 
-/** boolean. */
-const booleanCarrier = declaredOf("boolean", bool)
+/** bool. */
+const booleanCarrier = declaredOf("bool", bool)
 
 /** A closed id of Kind, a slot's type. */
 const kindCarrier = declaredOf("closed id", closedId(Kind))
@@ -165,12 +165,12 @@ const centsKey = Symbol("Cents")
  * and natural.
  */
 const declaredCarriers: Arr.NonEmptyReadonlyArray<DeclaredCarrier> = [
-	declaredOf("smallint", int2),
-	declaredOf("integer", int4),
-	declaredOf("bigint", int8),
+	declaredOf("int2", int2),
+	declaredOf("int4", int4),
+	declaredOf("int8", int8),
 	declaredOf("numeric(7,2)", numeric(7, 2)),
-	declaredOf("real", float4),
-	declaredOf("double precision", float8),
+	declaredOf("float4", float4),
+	declaredOf("float8", float8),
 	declaredOf("money", money),
 	booleanCarrier,
 	contractOf("uuid", Id, idKey),

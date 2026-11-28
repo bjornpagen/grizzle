@@ -379,7 +379,7 @@ export const model: ReadonlyArray<
 	],
 	[
 		"Cents",
-		defined(lawsOf(t, "contract")[0]).id,
+		defined(lawsOf(t, "domain")[0]).id,
 		(facts) =>
 			Arr.map(
 				Arr.dedupe(
