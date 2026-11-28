@@ -1078,6 +1078,12 @@ export type FromSource =
 			readonly alias: string
 	  }
 	| {
+			/**
+			 * A VALUES list, `(VALUES (...), ... OFFSET 0) AS <alias>(<column>, ...)` (sql/print.ts): fenced, so PostgreSQL
+			 * plans it apart under its alias, the relation its level reads, where it would pull the list up into the
+			 * level as a relation of its own naming, `*VALUES*` (a single row's `*RESULT*`), no advice target the scope
+			 * mints.
+			 */
 			readonly kind: "values"
 			readonly rows: NonEmptyReadonlyArray<ReadonlyArray<Expr>>
 			readonly alias: string

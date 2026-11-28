@@ -35,6 +35,7 @@ import { nameKey } from "#compiler/sql/ast.ts"
 import { bindSelect } from "#compiler/sql/bind.ts"
 import { AdviceScope } from "#compiler/sql/naming.ts"
 import { levelItems, scannedItems } from "#compiler/sql/plan.ts"
+import { printStatement } from "#compiler/sql/print.ts"
 import { codebookOfStates } from "#test/support/closed/generate.ts"
 import { owning } from "#test/support/policy.ts"
 import {
@@ -50,6 +51,7 @@ import {
 	boundMet,
 	catalog,
 	contextLevel,
+	existsFenced,
 	itemOf,
 	seekConditionsOf,
 	specified,
@@ -232,6 +234,44 @@ export const everyReadIsBoundAsItsLevelFixesItWhereItStandsUnderTheScopesOneAlia
 					"a conjunct stated twice binds T's seek once, never an index condition and a filter of one column"
 				)
 				switch (drawn.place.kind) {
+					case "exists": {
+						const top = Arr.flatMap(bound.plan.levels, (level) =>
+							level.kind === "joins" && level.name.kind === "top" ? [level] : []
+						)
+						const joined = Arr.flatMap(top, (level) => Arr.map(level.joined, (j) => j.join))
+						if (drawn.place.not) {
+							assert.deepEqual(
+								joined,
+								["hash"],
+								"the NOT EXISTS of a set is an anti join of the level, its set hashed after S"
+							)
+							c.note("a NOT EXISTS of a set PostgreSQL anti-joins, hashed after its level's items")
+						} else {
+							assert.ok(
+								joined.length === 0 && existsFenced(bound.statement),
+								"the EXISTS of a set reads it through one fenced item, a subplan PostgreSQL makes no join of"
+							)
+							c.note("an EXISTS of a set read through a fenced item, a subplan")
+						}
+						if (drawn.place.over === "values") {
+							assert.ok(
+								Str.includes(" OFFSET 0) AS ")(printStatement(bound.statement)),
+								"the VALUES list is fenced, planned apart under its alias"
+							)
+							c.note("a VALUES list fenced, planned apart under its alias")
+						}
+						break
+					}
+					case "fenced": {
+						const joins = topJoins(bound.statement, bound.plan)
+						assert.deepEqual(
+							joins,
+							{ lateral: [true], where: false, hashed: false },
+							"the level's conjunct over T's fenced rows and S moves beneath the fence, binding T there"
+						)
+						c.note("a reader's conjunct moved beneath a fence, binding the read there")
+						break
+					}
 					case "union": {
 						const appends = Arr.flatMap(bound.plan.levels, (level) =>
 							level.kind === "append" ? [level] : []
@@ -323,6 +363,32 @@ export const everyReadIsBoundAsItsLevelFixesItWhereItStandsUnderTheScopesOneAlia
 		oracle: { kind: "specification", name: "the contract's binding rules (CARRY-CONTRACT §1)" },
 		kept: [],
 		kills: [
+			{
+				file: "packages/engine/src/sql/bind.ts",
+				original: '\t\tif (c.kind !== "exists" || !c.not) {\n',
+				replacement: '\t\tif (c.kind !== "exists" || c.not) {\n',
+				why: "A NOT EXISTS PostgreSQL makes an anti join of its level names no item there: its set is joined by a hash the advice carries no JOIN_ORDER or HASH_JOIN of (LAWS' Law 1 on existence-witness's fold by count, JOIN_ORDER(v1 r6), HASH_JOIN(r6))."
+			},
+			{
+				file: "packages/engine/src/sql/bind.ts",
+				original:
+					"\t\t\tthis.#joinedBy(q, env) === undefined\n\t\t\t\t? this.sublink(q, env)\n\t\t\t\t: this.query(wrapper(q, false), env, undefined)\n",
+				replacement: "\t\t\tthis.sublink(q, env)\n",
+				why: "An EXISTS of a set correlated in its WHERE is left as written: PostgreSQL makes it a semi join of the level, whose order, method and unique form no advice carries."
+			},
+			{
+				file: "packages/engine/src/sql/bind.ts",
+				original:
+					'\t\t(q.offset !== undefined && (past === "nothing" || !fenceOnly(q.offset))) ||\n',
+				replacement: "\t\tq.offset !== undefined ||\n",
+				why: "A level's conjunct over a fenced LATERAL derived table and an item before it stays the join's condition: its derived read is unbound beneath the fence, and the join reads the bound column of the item before it in its condition (LAWS' Law 2 on cross-step, v1@r11.path)."
+			},
+			{
+				file: "packages/engine/src/sql/print.ts",
+				original: 'const valuesFence = " OFFSET 0"\n',
+				replacement: 'const valuesFence = ""\n',
+				why: "A VALUES list in FROM unfenced: PostgreSQL pulls it up into its level as `*VALUES*`, which no advice names, and the join order naming its alias is partially matched (LAWS' Law 1 on ready-keys' guard, JOIN_ORDER(v4@r22 r24@r22))."
+			},
 			{
 				file: "packages/engine/src/sql/bind.ts",
 				original:

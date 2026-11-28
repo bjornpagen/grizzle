@@ -30,6 +30,7 @@ import {
 	keyedRead,
 	keyedSet,
 	lit,
+	notExists,
 	operandSelect,
 	param,
 	provedCore,
@@ -67,6 +68,10 @@ export type BindFeature =
 	| "an INSERT's met rows planned apart under the scope's names"
 	| "a UNION ALL's append level, each arm's one item a member"
 	| "a derived UNION ALL's members appended to its reader's item"
+	| "a NOT EXISTS of a set PostgreSQL anti-joins, hashed after its level's items"
+	| "an EXISTS of a set read through a fenced item, a subplan"
+	| "a VALUES list fenced, planned apart under its alias"
+	| "a reader's conjunct moved beneath a fence, binding the read there"
 
 export const bindFeatures = [
 	"a seek at a literal",
@@ -87,7 +92,11 @@ export const bindFeatures = [
 	"a world view's read whose qual its barrier keeps out",
 	"an INSERT's met rows planned apart under the scope's names",
 	"a UNION ALL's append level, each arm's one item a member",
-	"a derived UNION ALL's members appended to its reader's item"
+	"a derived UNION ALL's members appended to its reader's item",
+	"a NOT EXISTS of a set PostgreSQL anti-joins, hashed after its level's items",
+	"an EXISTS of a set read through a fenced item, a subplan",
+	"a VALUES list fenced, planned apart under its alias",
+	"a reader's conjunct moved beneath a fence, binding the read there"
 ] as const
 
 /**
@@ -223,7 +232,9 @@ export type Fixed = "a" | "b" | "f" | "v" | "d"
  * through T's whole view at its level's top, once, or twice, the second read whole beside the first; or none, a
  * session's context read instead, its claims document's row written `m`, or an INSERT's met rows, their own names
  * written as the lowering writes them; or in the first arm of a UNION ALL with S's, the statement's own or a derived
- * table its top reads.
+ * table its top reads; or in a MATERIALIZED CTE beside a read of S an EXISTS or a NOT EXISTS of its WHERE tests at b
+ * against S's key, over that CTE or over a VALUES list (`exists`); or in a LATERAL derived table fenced by OFFSET 0
+ * after S, its level equating its a with S's key (`fenced`).
  */
 export type Place =
 	| { readonly kind: "top" }
@@ -236,6 +247,8 @@ export type Place =
 	| { readonly kind: "world"; readonly leaky: boolean }
 	| { readonly kind: "met" }
 	| { readonly kind: "union"; readonly at: "top" | "derived" }
+	| { readonly kind: "exists"; readonly not: boolean; readonly over: "cte" | "values" }
+	| { readonly kind: "fenced" }
 
 export interface BindCase {
 	readonly place: Place
@@ -263,7 +276,11 @@ export const bindCaseGen: Gen<BindCase> = (source) => {
 			{ kind: "world", leaky: true },
 			{ kind: "met" },
 			{ kind: "union", at: "top" },
-			{ kind: "union", at: "derived" }
+			{ kind: "union", at: "derived" },
+			{ kind: "exists", not: true, over: "cte" },
+			{ kind: "exists", not: false, over: "cte" },
+			{ kind: "exists", not: true, over: "values" },
+			{ kind: "fenced" }
 		])
 	)
 	return {
@@ -357,6 +374,56 @@ export const statementOf = (c: BindCase): Select => {
 		}
 		case "context":
 			return select(provedCore("oneRow", [target(col("x", "c1"))], [contextSource], undefined))
+		case "exists": {
+			const tested: FromSource =
+				c.place.over === "cte"
+					? cteRefAs("t_rows", "x")
+					: {
+							kind: "values",
+							rows: [[lit.int(1, types.integer)], [lit.int(2, types.integer)]],
+							alias: "x",
+							columns: ["b"]
+						}
+			const test = operandSelect(
+				core([target(lit.int(1, types.integer))], [tested], eq(col("x", "b"), col("s", "k")))
+			)
+			return {
+				...select(
+					keyedSet(
+						[target(col("s", "w"))],
+						[sRead],
+						c.place.not ? notExists(test) : exists(test),
+						"a read of S its rows' test reads"
+					)
+				),
+				with: {
+					recursive: false,
+					ctes: [
+						{
+							name: "t_rows",
+							materialized: "MATERIALIZED",
+							query: operandSelect(core([target(col("t", "b"))], [tRead], whereOf(fixed)))
+						}
+					]
+				}
+			}
+		}
+		case "fenced": {
+			const inner: OperandSelect = {
+				...operandSelect(
+					keyedRead([target(col("t", "a")), target(col("t", "b"))], [tRead], whereOf(fixed))
+				),
+				offset: lit.int(0, types.bigint)
+			}
+			return select(
+				keyedSet(
+					[target(col("d", "b"))],
+					[sRead, derived(inner, "d", true)],
+					eq(col("d", "a"), col("s", "k")),
+					"a read of S beside T's fenced rows"
+				)
+			)
+		}
 		case "union": {
 			const united = continuedAll(
 				"disjoint",
@@ -551,8 +618,11 @@ export const specified = (c: BindCase): SpecifiedRead => {
 			return { kind: "index", probe: false, bound: sorted(["a", ...held]) }
 		case "window":
 			return c.place.at === "a" ? { kind: "index", probe: false, bound: ["a"] } : { kind: "whole" }
+		case "fenced":
+			return { kind: "index", probe: false, bound: sorted(["a", ...held]) }
 		case "top":
-		case "union": {
+		case "union":
+		case "exists": {
 			const many = Arr.some(held, (f) => f !== "f")
 			if (many && Arr.contains(held, "a")) {
 				return { kind: "index", probe: false, bound: sorted(held) }
@@ -604,6 +674,27 @@ export const contextLevel = (
 				)
 		})
 	}
+}
+
+/**
+ * Whether the bound statement's top WHERE tests an EXISTS that reads one derived table fenced by OFFSET 0, which
+ * PostgreSQL plans as a subplan, never a join of the level.
+ */
+export const existsFenced = (bound: Select): boolean => {
+	const body = bound.body
+	const where = body.kind === "core" ? body.where : undefined
+	if (where?.kind !== "exists") {
+		return false
+	}
+	const test = where.query.body
+	const [first, ...others] = test.kind === "core" ? test.from : []
+	return (
+		others.length === 0 &&
+		first?.kind === "derived" &&
+		first.query.offset?.kind === "literal" &&
+		first.query.offset.value.kind === "int" &&
+		first.query.offset.value.value === 0n
+	)
 }
 
 /** The met rows the bound statement reads at its top, as the binding wrote them. */

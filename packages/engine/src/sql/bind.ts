@@ -1159,8 +1159,17 @@ const wrapper = (q: OperandSelect, named: boolean): OperandSelect => {
 }
 
 /**
+ * Whether an OFFSET is a fence alone, `OFFSET 0`, which skips no row: PostgreSQL pushes no qual past it, and the binding
+ * moves one into the query beneath it as it moves one into a query of none (`pushedInto`), the rows the same.
+ */
+const fenceOnly = (offset: Expr): boolean =>
+	offset.kind === "literal" && offset.value.kind === "int" && offset.value.value === 0n
+
+/**
  * Whether a derived table's query takes a conjunct of its reader pushed into it (allpaths.c subquery_push_qual's
- * conditions, as grizzle's queries meet them), and the query with it pushed: one core of no WITH, LIMIT or OFFSET, each
+ * conditions, as grizzle's queries meet them), and the query with it pushed: one core of no WITH, LIMIT or OFFSET, but
+ * for a fence (`fenceOnly`) where the binding moves the conjunct itself (`past` "fences"), which PostgreSQL pushes no
+ * qual past, never where it states what PostgreSQL pushes (a world view's barrier, `#world`), each
  * column the conjunct reads of `alias` a target reading no aggregate, window, set-returning or VOLATILE call, in a
  * grouped core one it groups by, under DISTINCT ON one it distinguishes, and in a core that calls a window function
  * one every window partitions by, a conjunct of which keeps each partition whole (check_output_expressions,
@@ -1168,13 +1177,18 @@ const wrapper = (q: OperandSelect, named: boolean): OperandSelect => {
  * parent row binds, reads that partition's rows alone. The conjunct holds no sublink and no VOLATILE call. The pushed
  * conjunct reads each column's target in its place, a WHERE conjunct of the core.
  */
-const pushedInto = (q: OperandSelect, alias: string, c: Expr): OperandSelect | undefined => {
+const pushedInto = (
+	q: OperandSelect,
+	alias: string,
+	c: Expr,
+	past: "fences" | "nothing"
+): OperandSelect | undefined => {
 	const body = q.body
 	if (
 		body.kind !== "core" ||
 		q.with !== undefined ||
 		q.limit !== undefined ||
-		q.offset !== undefined ||
+		(q.offset !== undefined && (past === "nothing" || !fenceOnly(q.offset))) ||
 		opaque(c) ||
 		!qualifiersOf(c).has(alias)
 	) {
@@ -1363,6 +1377,15 @@ class Binder {
 	/** A transform under `env`: each column reference read at its relation's new alias, each sublink bound. */
 	renamer(env: Env): Transform {
 		const sublink = (q: OperandSelect) => this.sublink(q, env)
+		/**
+		 * An EXISTS no anti join of its level reads (`#anti`), read through one item of the scope's wherever PostgreSQL
+		 * would make it a join (`#joinedBy`), which it then plans as a subplan: a semi join's plan, whose unique form
+		 * PostgreSQL weighs by cost, is no plan the binding states.
+		 */
+		const existing = (q: OperandSelect) =>
+			this.#joinedBy(q, env) === undefined
+				? this.sublink(q, env)
+				: this.query(wrapper(q, false), env, undefined)
 		const array = (q: OperandSelect) => this.setQuery(wrapped(q, false), env, undefined)
 		return new (class extends Transform {
 			override readonly expr = (x: Expr): Expr => {
@@ -1375,7 +1398,10 @@ class Binder {
 						"an index order stated where no level's LIMIT holds it (sql/ast.ts AccessTag), which the binding reads there alone"
 					)
 				}
-				if (x.kind === "exists" || x.kind === "subquery") {
+				if (x.kind === "exists") {
+					return { ...x, query: existing(x.query) }
+				}
+				if (x.kind === "subquery") {
 					return { ...x, query: sublink(x.query) }
 				}
 				if (x.kind === "array") {
@@ -1626,11 +1652,20 @@ class Binder {
 			}
 		}
 		const rename = this.renamer(here)
-		this.#level(name, bound)
+		const antis: Array<JoinedItem<AccessIndexRequest>> = []
+		const conjuncts = where.map((w) => {
+			const anti = this.#anti(w, here, bound.length + antis.length)
+			if (anti === undefined) {
+				return rename.expr(w)
+			}
+			antis.push(anti.joined)
+			return anti.conjunct
+		})
+		this.#level(name, bound, antis)
 		const frame = {
 			kind: "core",
 			from: fromOf(bound),
-			where: conjunction(where.map((w) => rename.expr(w))),
+			where: conjunction(conjuncts),
 			groupBy: rename.exprs(c.groupBy),
 			having: c.having === undefined ? undefined : rename.expr(c.having)
 		} as const
@@ -1650,8 +1685,15 @@ class Binder {
 		return { core: { ...frame, distinct, targets: [t0, ...ts] }, env: here, items }
 	}
 
-	/** A level's plan, its first entry driving and the rest joined in order, where the scope names it. */
-	#level(name: PlanName | undefined, bound: ReadonlyArray<BoundEntry>): void {
+	/**
+	 * A level's plan, its first entry driving and the rest joined in order, then the items of the anti joins PostgreSQL
+	 * makes of its NOT EXISTS conjuncts (`#anti`), where the scope names it.
+	 */
+	#level(
+		name: PlanName | undefined,
+		bound: ReadonlyArray<BoundEntry>,
+		antis: ReadonlyArray<JoinedItem<AccessIndexRequest>>
+	): void {
 		const [first, ...joined] = bound
 		if (name === undefined || first === undefined) {
 			return
@@ -1660,9 +1702,90 @@ class Binder {
 			kind: "joins",
 			name,
 			first: first.item,
-			joined: joined.map((j): JoinedItem<AccessIndexRequest> => ({ item: j.item, join: j.method })),
+			joined: [
+				...joined.map((j): JoinedItem<AccessIndexRequest> => ({ item: j.item, join: j.method })),
+				...antis
+			],
 			appended: bound.flatMap((b) => b.appended)
 		})
+	}
+
+	/**
+	 * The one entry the EXISTS of `q`, a conjunct of the level `here`, reads where PostgreSQL makes the EXISTS a join of
+	 * that level (subselect.c convert_EXISTS_sublink_to_join, simplify_EXISTS_query): a core of no WITH, grouping,
+	 * aggregate, window, set-returning target or OFFSET, its LIMIT none or a literal, of one entry no stored table or
+	 * view (a stored read's sublink reads it through one item of the scope's, `wrapped`), whose FROM reads no relation
+	 * of an enclosing level, and whose WHERE reads one of this level's and calls nothing VOLATILE; none for any other,
+	 * which PostgreSQL plans as a subplan.
+	 */
+	#joinedBy(q: OperandSelect, here: Env): Entry | undefined {
+		const body = q.body
+		if (
+			q.with !== undefined ||
+			q.offset !== undefined ||
+			(q.limit !== undefined && q.limit.kind !== "literal") ||
+			body.kind !== "core" ||
+			body.distinct !== false ||
+			body.groupBy.length > 0 ||
+			body.having !== undefined ||
+			!body.targets.every((t) => overRowsOf(t.expr) === undefined && !returnsSet(t.expr))
+		) {
+			return undefined
+		}
+		const [entry, ...others] = entriesOf(body.from)
+		if (entry === undefined || others.length > 0 || entry.source.kind === "table") {
+			return undefined
+		}
+		const outer = (a: string) => here.relations.has(a)
+		if ([...neededBy((t) => t.fromItem(entry.source)).keys()].some(outer)) {
+			return undefined
+		}
+		const conjuncts = conjunctsOf(body.where)
+		const level = (a: string) => here.relations.get(a)?.depth === here.depth
+		return conjuncts.some((c) => [...qualifiersOf(c)].some(level)) && !conjuncts.some(opaque)
+			? entry
+			: undefined
+	}
+
+	/**
+	 * A NOT EXISTS conjunct of the level `here` PostgreSQL makes an anti join of the level (`#joinedBy`), bound, with the
+	 * item it joins at `place`: its one entry's, read after every item of the level, by a hash where its WHERE equates a
+	 * column of it with a value of the level's items, a set join's of an item no index binds, else by a nested loop;
+	 * none for any other conjunct.
+	 */
+	#anti(
+		c: Expr,
+		here: Env,
+		place: number
+	): { readonly conjunct: Expr; readonly joined: JoinedItem<AccessIndexRequest> } | undefined {
+		if (c.kind !== "exists" || !c.not) {
+			return undefined
+		}
+		const entry = this.#joinedBy(c.query, here)
+		const written = entry === undefined ? undefined : writtenOf(entry.source)
+		if (entry === undefined || written === undefined) {
+			return undefined
+		}
+		const bound = this.#bound(c.query, here, undefined)
+		const [item, ...others] = bound.items
+		if (item === undefined || others.length > 0) {
+			return defect("an anti join's sublink reading one item")
+		}
+		const body = c.query.body
+		const level = (a: string) => {
+			const d = here.relations.get(a)
+			return d?.depth === here.depth && d.place < place
+		}
+		const hashed =
+			body.kind === "core" &&
+			conjunctsOf(body.where).some((x) => {
+				const b = bindingOf(x, written)
+				return b?.op === "=" && [...qualifiersOf(b.value)].some(level)
+			})
+		return {
+			conjunct: { ...c, query: bound.query },
+			joined: { item, join: hashed ? "hash" : "nestedLoop" }
+		}
 	}
 
 	/**
@@ -2386,7 +2509,7 @@ class Binder {
 			) {
 				continue
 			}
-			query = pushedInto(query, written, c) ?? query
+			query = pushedInto(query, written, c, "nothing") ?? query
 		}
 		const scope = new ViewScope(view.ordinal)
 		const nested = new Binder(scope, this.#catalog, this.#reads)
@@ -2483,7 +2606,7 @@ class Binder {
 			if (joins && !lateral && !this.#keyedBy(query, written, c)) {
 				continue
 			}
-			const pushed = pushedInto(query, written, c)
+			const pushed = pushedInto(query, written, c, "fences")
 			if (pushed === undefined) {
 				continue
 			}
@@ -2610,7 +2733,8 @@ class Binder {
 			here = withRelation(here, written, alias, depth, place)
 			this.#level(
 				name,
-				[...qualifiersOf(atTid.value)].some(earlier) ? [...bound, tidRead] : [tidRead, ...bound]
+				[...qualifiersOf(atTid.value)].some(earlier) ? [...bound, tidRead] : [tidRead, ...bound],
+				[]
 			)
 			const rename = this.renamer(here)
 			return {
@@ -2649,16 +2773,20 @@ class Binder {
 			)
 			bound.push(probed)
 			here = withRelation(here, written, alias, depth, place + 1)
-			this.#level(name, [
-				...bound,
-				{
-					source: probed.source,
-					step: { join: "cross" },
-					item: { alias, scan: { kind: "tid" } },
-					method: "nestedLoop",
-					appended: []
-				}
-			])
+			this.#level(
+				name,
+				[
+					...bound,
+					{
+						source: probed.source,
+						step: { join: "cross" },
+						item: { alias, scan: { kind: "tid" } },
+						method: "nestedLoop",
+						appended: []
+					}
+				],
+				[]
+			)
 			const rename = this.renamer(here)
 			return {
 				alias,
@@ -2705,16 +2833,20 @@ class Binder {
 							}
 						}
 		here = withRelation(here, written, alias, depth, place)
-		this.#level(name, [
-			{
-				source: { kind: "read", table, alias, access: { kind: "whole" } },
-				step: { join: "cross" },
-				item: targetItem,
-				method: "nestedLoop",
-				appended: []
-			},
-			...bound
-		])
+		this.#level(
+			name,
+			[
+				{
+					source: { kind: "read", table, alias, access: { kind: "whole" } },
+					step: { join: "cross" },
+					item: targetItem,
+					method: "nestedLoop",
+					appended: []
+				},
+				...bound
+			],
+			[]
+		)
 		const rename = this.renamer(here)
 		return {
 			alias,
@@ -2791,19 +2923,23 @@ class Binder {
 			sourceWritten === undefined
 				? withTarget
 				: withRelation(withTarget, sourceWritten, sourceAlias, depth, 1)
-		this.#level(name, [
-			{
-				source: { kind: "read", table: s.table, alias, access: { kind: "whole" } },
-				step: { join: "cross" },
-				item: {
-					alias,
-					scan: catalogTable === undefined ? { kind: "rows" } : { kind: "seq" }
+		this.#level(
+			name,
+			[
+				{
+					source: { kind: "read", table: s.table, alias, access: { kind: "whole" } },
+					step: { join: "cross" },
+					item: {
+						alias,
+						scan: catalogTable === undefined ? { kind: "rows" } : { kind: "seq" }
+					},
+					method: "nestedLoop",
+					appended: []
 				},
-				method: "nestedLoop",
-				appended: []
-			},
-			{ ...source, method: "hash" }
-		])
+				{ ...source, method: "hash" }
+			],
+			[]
+		)
 		const [using] = fromOf([source])
 		if (using === undefined) {
 			return defect("a MERGE's one source, bound as one item")

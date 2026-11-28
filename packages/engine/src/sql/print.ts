@@ -1143,6 +1143,12 @@ const printSettingRows = (columns: NonEmptyReadonlyArray<CarriedColumn>, alias: 
 	return `(SELECT ${targets.join(", ")} FROM ROWS FROM (${calls.join(", ")}) AS ${scan}(${names.join(", ")})) AS ${quoteIdent(alias)}`
 }
 
+/**
+ * The fence a VALUES list in FROM prints inside its parentheses (FromSource `values`), so PostgreSQL plans it apart
+ * under its alias, never pulling it up as `*VALUES*`.
+ */
+const valuesFence = " OFFSET 0"
+
 const printFromItem = (item: FromItem): string => {
 	switch (item.kind) {
 		case "table":
@@ -1214,7 +1220,7 @@ const printFromItem = (item: FromItem): string => {
 		case "arrays":
 			return printArrays(item.source, item.alias)
 		case "values":
-			return `(${printValuesRows(item.rows)}) AS ${quoteIdent(item.alias)}(${printIdentList(item.columns)})`
+			return `(${printValuesRows(item.rows)}${valuesFence}) AS ${quoteIdent(item.alias)}(${printIdentList(item.columns)})`
 		case "context":
 			return printContextSource(item)
 		case "joins":
