@@ -8,11 +8,12 @@
  * it states no fact of, and charged every relation the installation names with a foreign key check of each statement
  * writing T: metis core's operator held 30,120 such reasons (15,060 pivot, 15,060 snapshot) of 55,910.
  *
- * The box: Account (clerk -> person) and Grant (person, program), which `admin` inserts with Item; T (number, item,
- * origin), contained in Item, written by `writer` only through `Mine`, T's rows while the session's user holds `act`
- * (a filter reading Account and Grant), T's rows while the session's claim stands (one reading no relation) or every
- * row of T; the write an insert, a put, or a delete by `number`, which reads Mine's view; compiled for READ COMMITTED as
- * generate compiles it.
+ * The box: Account (clerk -> person) and Grant (person, program), which `admin` inserts with Item and Holder (clerk,
+ * number); T (number, item, origin), contained in Item, written by `writer` only through `Mine`, T's rows while the
+ * session's user holds `act` (a filter reading Account and Grant), T's rows while the session's claim stands (one
+ * reading no relation), every row of T, or every row of T in the writer's world, its scope binding T's unit at the
+ * numbers Holder gives the session's user; the write an insert, a put, or a delete by `number`, or an insert of Item
+ * from the numbers Mine's view holds; compiled for READ COMMITTED as generate compiles it.
  *
  * Oracle: the policy's own semantics, over the writer's facts:
  * - every object a fact names is a relation of the installation or the call's own carrier;
@@ -20,7 +21,11 @@
  *   of T the statement changes only where the membership holds of it;
  * - the insert of T is fed by none of them: WITH CHECK only refuses a row, so no row it writes is joined with them;
  * - where the write states rows (an insert, a put), a statement that writes nothing, the entry's precheck, reads T, its
- *   key probe's body, and each relation the filter reads, its filter function's, by their absence.
+ *   key probe's body, and each relation the filter reads, its filter function's, by their absence;
+ * - the read of the numbers Mine's view holds, which the insert of Item copies, reads T and every relation the view
+ *   reads by their rows, its definition as the installation renders it (physical/access/world-views.ts): the filter's
+ *   relations, and a scoped writer's scope owner's, Holder, at whose keys the view reads T in the writer's world, so
+ *   READ COMMITTED's certificate holds the owner's read wherever the scope restricts the rows a write reads.
  *
  * Features: each filter and each write.
  */
@@ -45,13 +50,14 @@ import {
 	type Filter,
 	filterReads,
 	policedLoginOf,
+	viewReads,
 	type Write
 } from "#test/unit/program/isolation/policed-reads.fixtures.ts"
 
 type Feature = Filter | Write
 
 /** The relations the installation states, besides the call's own carriers. */
-const RELATIONS: ReadonlyArray<string> = ["Account", "Grant", "Item", "T"]
+const RELATIONS: ReadonlyArray<string> = ["Account", "Grant", "Holder", "Item", "T"]
 
 /** Every read a statement makes: its own body's and each query CTE instance's. */
 const readsOf = (s: StatementFacts): ReadonlyArray<ReadFact> => [
@@ -90,11 +96,18 @@ const writerFacts = (drawn: Drawn): ReadonlyArray<MemberFacts> => {
 export const aWriteThroughAPolicedEntryIsReadOverItsRowSecurity = property.exhaust(
 	finite(drawnGen),
 	{
-		box: "T contained in Item, written through an entry filtered by Account and Grant, by the session alone or not at all, by insert, put or delete",
+		box: "T contained in Item, written through an entry filtered by Account and Grant, by the session alone, not at all or by the writer's scope over Holder, by insert, put or delete, or copied into Item",
 		needs: {},
-		situations: ["others", "session", "none", "insert", "put", "delete"] satisfies ReadonlyArray<
-			Reached<Feature>
-		>,
+		situations: [
+			"others",
+			"session",
+			"none",
+			"scoped",
+			"insert",
+			"put",
+			"delete",
+			"copy"
+		] satisfies ReadonlyArray<Reached<Feature>>,
 		check: (_, c: Case<Feature>) => (drawn: Drawn) =>
 			Effect.sync(() => {
 				const { filter, write } = drawn
@@ -123,7 +136,7 @@ export const aWriteThroughAPolicedEntryIsReadOverItsRowSecurity = property.exhau
 									`${label}: an update or delete of T is fed by T and every relation the filter reads`
 								)
 							}
-							if (w.op === "insert") {
+							if (w.op === "insert" && w.relation === "T") {
 								assert.deepEqual(
 									Arr.filter(reads, (r) => fed.includes(r)),
 									[],
@@ -132,7 +145,20 @@ export const aWriteThroughAPolicedEntryIsReadOverItsRowSecurity = property.exhau
 							}
 						}
 					}
-					if (write !== "delete") {
+					if (write === "copy") {
+						/** Each relation the member's statements read by its rows' presence or their number. */
+						const found = Arr.flatMap(m.statements, (s) =>
+							Arr.flatMap(readsOf(s), (r) =>
+								r.mode === "positive" || r.mode === "counted" ? [r.relation] : []
+							)
+						)
+						assert.deepEqual(
+							Arr.filter(["T", ...viewReads[filter]], (r) => !found.includes(r)),
+							[],
+							`${label}: the read of the view's numbers reads T and every relation the view reads by their rows`
+						)
+					}
+					if (write === "insert" || write === "put") {
 						const prechecks = Arr.filter(m.statements, (s) => s.writes.length === 0)
 						const absent = (relation: string): boolean =>
 							Arr.some(prechecks, (s) =>
@@ -177,6 +203,13 @@ export const aWriteThroughAPolicedEntryIsReadOverItsRowSecurity = property.exhau
 				original: "\t\tdefinitions.set([view.schema, view.name], {",
 				replacement: "\t\tdefinitions.set([view.schema, view.name.toUpperCase()], {",
 				why: 'The entry\'s view read as a table no relation is, as at 1d105e86c: a delete through it reads `?"policed_reads__writer"."mine"`; the property fails.'
+			},
+			{
+				file: "packages/engine/src/program/isolation/member-facts.ts",
+				original:
+					"\t\t\t\t\trows: {\n\t\t\t\t\t\t...world.checked.world.base.rows(world.checked.writable),\n\t\t\t\t\t\tworld: world.checked.worldRows()\n\t\t\t\t\t}\n",
+				replacement: "\t\t\t\t\trows: world.checked.world.base.rows(world.checked.writable)\n",
+				why: "The certifier's model of a scoped writer's view reads T in reality's world, as at 3a53e9d9: the read of the view's numbers reads T alone, Holder only by its absence in the insert's precheck, never the scope owner's rows the installed view reads; the property fails."
 			}
 		]
 	}

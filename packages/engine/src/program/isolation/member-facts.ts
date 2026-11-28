@@ -364,7 +364,10 @@ const roleWorld = (
 				lowerDefinition(`${role.name}.${e.entry.name}`, e.analysis.query, {
 					names,
 					catalog: cx.catalog,
-					rows: world.checked.world.base.rows(world.checked.writable)
+					rows: {
+						...world.checked.world.base.rows(world.checked.writable),
+						world: world.checked.worldRows()
+					}
 				})
 			).query,
 			columns: e.analysis.heading.map((c) => identifierOf(identity.column(c.name)))
