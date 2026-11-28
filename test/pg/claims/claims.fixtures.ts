@@ -120,7 +120,7 @@ export const claimsAt = (name: string) => {
 	/** Every number one assignment's: metis's series makes the number a key of its own. */
 	const numberKey = key(on(Assignment, "number"))
 	const base = schema(
-		`${name}_sittings`,
+		name,
 		[
 			Kind,
 			ClerkAccount,
@@ -459,6 +459,9 @@ export const claimsAt = (name: string) => {
 		app,
 		desk,
 		numberKey,
+		/** The app's reads every role of it serves, and each scoped role's read of its own entry. */
+		reads,
+		firsts: { student: studentFirsts.read, coach: coachFirsts.read },
 		/**
 		 * The Learner unit's members, each keyed leading with `child`, with each of its keys that holds no `child`: a probe
 		 * that binds one whole reads one row, which the world then holds to the claimed child or drops.

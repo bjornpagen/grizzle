@@ -1,6 +1,7 @@
 /**
  * Index serving's populations (serving.test.ts): the generated workloads, the drawn requests and the shared ones, each
- * case installed, loaded at volume and judged by PostgreSQL (serving.ts), and the regressions each replays first.
+ * case installed, loaded at volume and judged by the plan laws in every pg_class state (serving.ts), and the regressions
+ * each replays first.
  */
 import { assert, defined } from "@bjornpagen/testing/assert"
 import {
@@ -13,21 +14,30 @@ import {
 	recorded,
 	weighted
 } from "@bjornpagen/testing/gen"
-import { Array as Arr, Effect, Result } from "effect"
+import { Array as Arr, Effect, Record as Rec, Result } from "effect"
 import { isCompileError } from "#compiler/core/errors.ts"
 import type { Direction } from "#compiler/core/order.ts"
 import { codeOf } from "#compiler/ir/codes.ts"
 import type { AccessUse } from "#compiler/ir/products.ts"
 import {
 	drawnRequests,
+	inEveryState,
 	judgeServing,
-	loadAtVolume,
 	type RequestSpec,
 	rosterDomainSql,
 	type ServingFeature,
 	specText,
-	type VolumeLoad
+	type VolumeLoad,
+	volumeState
 } from "#test/pg/physical/serving.ts"
+import {
+	budgetOfScope,
+	fullWorldRole,
+	lawsOver,
+	plannedScope,
+	routineScopes,
+	servedRead
+} from "#test/support/advice.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import {
 	closed,
@@ -125,7 +135,13 @@ export type WorkloadFeature =
 	| "a workload installed"
 	| "a workload refused for an unrepresentable key"
 
-/** The generated case's reads as a workload, installed, loaded and judged. */
+/**
+ * The generated case's reads as a workload, installed with its full world's login, whose workload holds them, as
+ * `grizzle generate` drafts it, each relation loaded at volume, and in every pg_class state (serving.ts inEveryState):
+ * every read as a served Db of the full world reads it (test/support/advice.ts servedRead) and every routine of the
+ * installation (routineScopes) held to the plan laws, each of no parameter to its budget, and the installation's
+ * indexes judged (serving.ts judgeServing).
+ */
 export const workloadCase = (
 	c: ProgramCase,
 	note: (feature: ServingFeature | WorkloadFeature) => void
@@ -146,14 +162,14 @@ export const workloadCase = (
 					break
 			}
 		}
-		const installed = yield* Effect.result(
+		const result = yield* Effect.result(
 			installFullWorld(built.schema, programs, [], {
 				label: "serving_workload",
 				ambient: ordinarySession
 			})
 		)
-		if (Result.isFailure(installed)) {
-			const e = installed.failure
+		if (Result.isFailure(result)) {
+			const e = result.failure
 			if (isCompileError(e) && e.reason._tag === "UnrepresentableKey") {
 				note("a workload refused for an unrepresentable key")
 				return
@@ -161,7 +177,8 @@ export const workloadCase = (
 			return assert.fail(`the workload does not install: ${String(e)}\n${printCase(c)}`)
 		}
 		note("a workload installed")
-		const judged = installed.success.plan
+		const installed = result.success
+		const judged = installed.plan
 		for (const o of judged.installation.manifest.objects) {
 			if (o.kind === "index") {
 				assert.ok(
@@ -170,6 +187,11 @@ export const workloadCase = (
 				)
 			}
 		}
+		const role = fullWorldRole(installed, built.schema, [])
+		const reads = yield* Effect.forEach(Rec.toEntries(programs), ([name, program]) =>
+			servedRead(installed, role, program, `the served read ${name}`)
+		)
+		const scopes = [...Arr.map(reads, (r) => r.scope), ...routineScopes(judged.installation)]
 		const domain = rosterDomainSql(judged, c.schema.roster.name)
 		const codec = defined(
 			judged.installation.names.codes.rosters.get(parsedName(c.schema.roster.name)),
@@ -198,12 +220,30 @@ export const workloadCase = (
 				})
 			}
 		})
-		const settled = yield* loadAtVolume(judged, loads)
-		const problems = yield* judgeServing(settled, note)
+		const loaded = Arr.isReadonlyArrayNonEmpty(loads)
+			? loads
+			: assert.fail(`a generated schema of no relation\n${printCase(c)}`)
+		const problems = yield* inEveryState(
+			judged.installation,
+			(session) => volumeState(session, judged, loaded),
+			(session, read) =>
+				Effect.gen(function* () {
+					const found: Array<string> = []
+					for (const scope of scopes) {
+						const planned = yield* plannedScope(session, scope)
+						const budget = yield* budgetOfScope(session, read, scope)
+						for (const problem of [...lawsOver(scope, planned), ...budget]) {
+							found.push(problem)
+						}
+					}
+					const serving = yield* judgeServing(session, read, judged, note)
+					return [...found, ...serving]
+				})
+		)
 		assert.deepEqual(
 			problems,
 			[],
-			`PostgreSQL serves every request and needs every created index\n${printCase(c)}`
+			`every served read and routine holds the plan laws, every request is served and every created index needed\n${printCase(c)}`
 		)
 	})
 
@@ -443,9 +483,8 @@ const intentsGen = array(intentGen, { min: 1, max: 6 })
 
 /**
  * The sizes of Rota's roster the drawn suite draws: from four shades, the fewest at which a GiST index's scan past one
- * left unbound, its rows held evenly, reads more than one descent's buffers (physical/indexes/engine.ts), to eight.
- * Rota's rows hold its first shade nine in ten (rotaLoad), where that read stays within one descent's buffers at each
- * count, so only the claim (serving.ts unboundBeforeLead) finds such a scan unserved.
+ * left unbound, its rows held evenly, reads past one descent's pages (physical/indexes/engine.ts), to eight. Rota's
+ * rows hold its first shade nine in ten (rotaLoad), as a default is.
  */
 const fewestShades = 4
 const mostShades = 8
@@ -516,7 +555,10 @@ const resolveIntents = (intents: ReadonlyArray<Intent>): ReadonlyArray<RequestSp
 
 export type RequestFeature = ServingFeature | "a span predicate on during alone"
 
-/** The drawn requests on the drawn suite's schema (requestSchema), installed, loaded and judged. */
+/**
+ * The drawn requests on the drawn suite's schema (requestSchema), installed, each relation loaded at volume, and judged
+ * in every pg_class state (serving.ts inEveryState, judgeServing).
+ */
 export const requestCase = (sketch: RequestSketch, note: (feature: RequestFeature) => void) =>
 	Effect.gen(function* () {
 		const specs = resolveIntents(sketch.intents)
@@ -529,12 +571,16 @@ export const requestCase = (sketch: RequestSketch, note: (feature: RequestFeatur
 			label: "serving_requests",
 			extensions: [drawnRequests(specs)]
 		})
-		const settled = yield* loadAtVolume(plan, [...indexedLoads, rotaLoad(plan, sketch.shades)])
-		const problems = yield* judgeServing(settled, note)
+		const problems = yield* inEveryState(
+			plan.installation,
+			(session) =>
+				volumeState(session, plan, Arr.append(indexedLoads, rotaLoad(plan, sketch.shades))),
+			(session, read) => judgeServing(session, read, plan, note)
+		)
 		assert.deepEqual(
 			problems,
 			[],
-			`PostgreSQL serves every request and needs every created index, Rota of ${sketch.shades} shades: ${Arr.join(Arr.map(specs, specText), "; ")}`
+			`every drawn request is served and every created index needed, Rota of ${sketch.shades} shades: ${Arr.join(Arr.map(specs, specText), "; ")}`
 		)
 	})
 

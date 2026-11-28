@@ -18,11 +18,11 @@
  *   counted member, and of a session, a unit whose Visits and items go with it, from raw facts or from a class's
  *   enrolment, is held to the claims; the state after a write is the model's;
  * - every scan of a member in every statement the role's reads send is an index probe that binds the unit's key, as
- *   PostgreSQL's generic plan reads it (EXPLAIN (GENERIC_PLAN)): a claims-scoped read probes by the child wherever it
- *   reads a member, inside every derivation.
+ *   PostgreSQL plans it under the advice the read carries, the plan laws held over it (test/support/advice.ts): a
+ *   claims-scoped read probes by the child wherever it reads a member, inside every derivation.
  *
  * Oracle: the specification, the world and the laws over every row, stated over the drawn state (claims.fixtures.ts); the
- * plans by EXPLAIN's reading of each scan's index condition (test/support/pg/physical/plan-bindings.ts scanBindings).
+ * plans PostgreSQL 19 makes under each read's carried advice, read by the plan laws (test/support/advice.ts).
  *
  * Features: a student's, a no-one's and a coach's reads; a clocked read of a child the claims do not bind; a whole read
  * of a relation in no unit; an outsideWorld fact; an assignment refused at another child's number; a sequence's owner
@@ -35,22 +35,9 @@
 import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { regex } from "arkregex"
-import {
-	Array as Arr,
-	Effect,
-	Option,
-	Order,
-	Predicate,
-	Record as Rec,
-	Result,
-	String as Str
-} from "effect"
+import { Array as Arr, Effect, Option, Order, Record as Rec, Result } from "effect"
 import { Db } from "#adapter/public/db.ts"
-import { parsePlanTree } from "#bench/harness/explain.ts"
-import { isPlainRecord } from "#compiler/core/record.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
-import { servedFile } from "#compiler/served/json.ts"
 import {
 	Assignment,
 	assignmentOver,
@@ -77,9 +64,9 @@ import {
 	worldOf,
 	writeOutcome
 } from "#test/pg/claims/claims.fixtures.ts"
+import { lawNodes, lawsOver, plannedScope, servedRead } from "#test/support/advice.ts"
 import { rowsOf, writeAnswerOf } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
-import { scanBindings } from "#test/support/pg/physical/plan-bindings.ts"
 import { refusedEntries } from "#test/support/refused.ts"
 import { servedGenerated } from "#test/support/served-db.ts"
 import { ownerSession, Substrate, worldSession } from "#test/support/substrate/substrate.ts"
@@ -110,30 +97,6 @@ const outsideFeature = (kind: ClaimsCase["write"]["kind"]): ClaimsFeature => {
 		case "startEventless":
 			return "a raw fact outside the claims refused outsideWorld"
 	}
-}
-
-const stringLiteral = regex("'(?:[^']|'')*'", "g")
-const placeholder = regex("\\$(\\d+)", "g")
-
-/** The placeholders a statement's text names outside its string literals: the greatest `$n`, 0 for none. */
-const placeholdersOf = (sql: string): number =>
-	Arr.reduce(
-		[...Str.matchAll(placeholder)(Str.replaceAll(stringLiteral, "''")(sql))],
-		0,
-		(most, m) => Math.max(most, Number(m[1]))
-	)
-
-/** Every SQL text under `value`, a served member's read, each statement's and each part's, in the file's order. */
-const sqlTexts = (value: unknown): ReadonlyArray<string> => {
-	if (Arr.isArray(value)) {
-		return Arr.flatMap(value, sqlTexts)
-	}
-	if (!isPlainRecord(value)) {
-		return []
-	}
-	return Arr.flatMap(Rec.toEntries(value), ([key, inner]) =>
-		key === "sql" && Predicate.isString(inner) ? [inner] : sqlTexts(inner)
-	)
 }
 
 /** A role's world reads and writes the base's programs over the units its claims bind, every law over every row. */
@@ -616,8 +579,12 @@ export const aRoleWithAScopeReadsAndWritesItsWorldEveryLawOverEveryRow = propert
 )
 
 /**
- * Every scan of a member in every statement a scoped role's reads send binds the unit's key in its index condition,
- * as PostgreSQL's generic plan reads it: a claims-scoped read probes by the child wherever it reads a member.
+ * Every scan of a member in every statement a scoped role's reads send binds the unit's key in its index condition, as
+ * PostgreSQL plans it under the advice the read carries: each read compiled as a served Db of the role compiles it
+ * (test/support/advice.ts servedRead) and planned on the role's own session, its claims in force, in a transaction
+ * rolled back after it, the plan laws held over it (plannedScope, lawsOver), and each scan of a member's table among its
+ * plans holding the member's child, or one of its keys whole, in its index condition: a claims-scoped read probes by
+ * the child wherever it reads a member, inside every derivation.
  */
 export const everyScanOfAMemberUnderAScopeProbesByTheUnitsKey = property.explore(claimsCaseGen, {
 	needs: { claims: Substrate.fresh(claimsTemplate) },
@@ -630,67 +597,88 @@ export const everyScanOfAMemberUnderAScopeProbesByTheUnitsKey = property.explore
 					Effect.provideService(
 						Effect.gen(function* () {
 							const m = taken.value.installed
-							const { app, student, coach, members } = claimsAt(m.declared)
+							const { app, student, coach, members, reads, firsts } = claimsAt(m.declared)
 							const s = yield* Substrate
 							const names = namesOf(m)
-							const file = servedFile(taken.value.served.get(app.name))
-							if (!file.ok) {
-								return assert.fail(`the app's served file decodes: ${file.error.message}`)
-							}
 							const role = c.claims.role === "student" ? student : coach
-							const served = Arr.findFirst(file.value.roles, (r) => r.name === c.claims.role)
-							if (Option.isNone(served)) {
-								return assert.fail(`the app serves the role ${c.claims.role}`)
-							}
+							const served = c.claims.role === "student" ? app.roles.student : app.roles.coach
 							const session = yield* s.session({
 								...worldSession(m.world(role), {
 									kind: "document",
 									text: jsonText({ Session: { sub: subOf(c.claims) } })
 								}),
-								label: `explaining ${c.claims.role}`
+								label: `planning ${c.claims.role}`
 							})
-							/** Each member's table, its `child` column and the columns of each of its keys without one. */
+							/** Each member's table, by the qualified name a plan's scan names it by, with its `child` column and each
+							 * of its keys without one. */
 							const tables = new Map<
 								string,
 								{ readonly child: string; readonly keys: ReadonlyArray<ReadonlyArray<string>> }
 							>(
-								Arr.map(members, (m) => [
-									names.tableIdent(m.relation),
-									{
-										child: names.columnIdent(m.relation, "child"),
-										keys: Arr.map(m.keys, (k) =>
-											Arr.map(k, (f) => names.columnIdent(m.relation, f))
-										)
-									}
-								])
+								Arr.map(members, (member) => {
+									const q = m.installation.names.relation(member.relation.name)
+									return [
+										`${q.schema}.${q.name}`,
+										{
+											child: names.columnIdent(member.relation, "child"),
+											keys: Arr.map(member.keys, (k) =>
+												Arr.map(k, (f) => names.columnIdent(member.relation, f))
+											)
+										}
+									] as const
+								})
 							)
-							for (const member of served.value.members) {
-								if (member.kind === "change") {
-									continue
+							const problems: Array<string> = []
+							for (const [name, program] of Rec.toEntries({
+								...reads,
+								presentedOf: reads.presentedOf.clocked,
+								firsts: firsts[c.claims.role]
+							})) {
+								const read = yield* servedRead(m, served, program, `${c.claims.role}'s ${name}`)
+								const planned = yield* Effect.acquireUseRelease(
+									session.values("BEGIN", []),
+									() => plannedScope(session, read.scope),
+									() => Effect.orDie(session.values("ROLLBACK", []))
+								)
+								for (const problem of lawsOver(read.scope, planned)) {
+									problems.push(problem)
 								}
-								for (const sql of sqlTexts(member.read)) {
-									/** A generic plan binds no value: each placeholder is bound null and never read. */
-									const placeholders = placeholdersOf(sql)
-									const rows = yield* session.values(
-										`EXPLAIN (GENERIC_PLAN, VERBOSE, FORMAT JSON) ${sql}`,
-										Array.from({ length: placeholders }, () => null)
-									)
-									const plan = parsePlanTree(rows[0]?.[0])
-									if (Result.isFailure(plan)) {
-										return assert.fail(`the plan of ${member.name} parses`)
-									}
-									for (const scan of scanBindings(plan.success)) {
-										const table = tables.get(scan.relation)
-										if (table !== undefined) {
-											assert.ok(
-												scan.bound.has(table.child) ||
-													Arr.some(table.keys, (k) => Arr.every(k, (c) => scan.bound.has(c))),
-												`${member.name}'s scan of ${scan.relation} (${scan.nodeType}) binds ${table.child}, or a whole key, in its index condition; it binds ${Arr.join([...scan.bound], ", ")}`
+								for (const plan of planned.plans) {
+									for (const node of lawNodes(plan.root)) {
+										const relation = Option.getOrElse(node.relation, () => "")
+										const table = tables.get(relation)
+										if (table === undefined) {
+											continue
+										}
+										const shown = Option.getOrElse(node.alias, () => "")
+										const bound = new Set(
+											Arr.flatMap(
+												[
+													node,
+													...Arr.filter(node.children, (n) => n.nodeType === "Bitmap Index Scan")
+												],
+												(n) =>
+													Arr.flatMap(n.indexCond, (ref) =>
+														ref.alias === shown ? [ref.column] : []
+													)
+											)
+										)
+										if (
+											!bound.has(table.child) &&
+											!Arr.some(table.keys, (k) => Arr.every(k, (col) => bound.has(col)))
+										) {
+											problems.push(
+												`${read.scope.label}: its ${node.nodeType} of ${relation} binds ${Arr.join([...bound], ", ")} in its index condition, neither ${table.child} nor a whole key`
 											)
 										}
 									}
 								}
 							}
+							assert.deepEqual(
+								problems,
+								[],
+								`every read of the ${c.claims.role} plans as it carries and probes each member by its child`
+							)
 						}),
 						Substrate,
 						taken.substrate
@@ -698,8 +686,8 @@ export const everyScanOfAMemberUnderAScopeProbesByTheUnitsKey = property.explore
 				)
 			),
 	oracle: {
-		kind: "specification",
-		name: "each scan's index condition, as EXPLAIN (GENERIC_PLAN) reads it, against the unit's key"
+		kind: "postgresql",
+		name: "PostgreSQL 19's plans of each read under the advice it carries, on the role's session: its generated advice, its feedback on the supplied, and each member scan's index condition against the unit's key"
 	},
 	kept: [],
 	kills: [

@@ -1589,12 +1589,13 @@ const largeRows = 1_000_000
 /**
  * A load a law stands in a state: the tables it fills, each quoted and qualified, and how it fills them, in `units`
  * units (rows, documents, packages: whatever the load counts), units `from` to `to` of 1 to `units` at a call, both
- * included, each call in the transaction its session holds open.
+ * included, each call in the transaction its session holds open, or committed, as a seed through the judge commits its
+ * rows, its error `E` and its requirement `R` the load's own.
  */
-export interface StateLoad {
+export interface StateLoad<E = SqlError, R = never> {
 	readonly tables: Arr.NonEmptyReadonlyArray<string>
 	readonly units: number
-	readonly load: (from: number, to: number) => Effect.Effect<void, SqlError>
+	readonly load: (from: number, to: number) => Effect.Effect<void, E, R>
 }
 
 /** Each of `tables`, by the statement `of` makes of it, run on `session`. */
@@ -1617,15 +1618,16 @@ const countedAt = (quoted: string, rows: number): string =>
 	`WHERE c.oid = ${quoteString(quoted)}::pg_catalog.regclass`
 
 /**
- * `load` run on `session`, in the transaction it holds open, and its tables stood in `state` (`PgClassState`). A
- * counted-empty table is counted as the VACUUM of e1 counts it, one another session runs while its load is open: its
- * pages, and no row, the load's rows in progress to that VACUUM; a large one at `largeRows` on its pages.
+ * `load` run, and its tables stood in `state` (`PgClassState`) by `session`, in the transaction it holds open or each
+ * statement its own: a statistics statement is no VACUUM, which no transaction may run. A counted-empty table is
+ * counted as the VACUUM of e1 counts it, one another session runs while its load is open: its pages, and no row, the
+ * load's rows in progress to that VACUUM; a large one at `largeRows` on its pages.
  */
-export const standIn = (
+export const standIn = <E, R>(
 	session: BenchSession,
-	load: StateLoad,
+	load: StateLoad<E, R>,
 	state: PgClassState
-): Effect.Effect<void, SqlError> => {
+): Effect.Effect<void, E | SqlError, R> => {
 	const all = load.load(1, load.units)
 	switch (state) {
 		case "never vacuumed":
@@ -1775,7 +1777,11 @@ export const heightsOf = (
  * - `hash`: a lookup reads its metapage and its key's bucket page, then that bucket's overflow pages one by one, each
  *   page's next its special space's hasho_nextblkno (hash.h HashPageOpaqueData), InvalidBlockNumber ending the chain:
  *   its height is two and the longest overflow chain of any bucket, walked from each bucket page (pageinspect's
- *   hash_page_type and hash_page_stats, in the template's pageinspect_ext), the pages a lookup of the worst key reads.
+ *   hash_page_type and hash_page_stats, in the template's pageinspect_ext), the pages a lookup of the worst key reads;
+ * - `gist`: a GiST tree is balanced, every leaf at one depth (gist.h, a split adds a level at the root alone) and its
+ *   pages record no level, so its height is the length of its leftmost path, walked from its root (GIST_ROOT_BLKNO,
+ *   block 0) down each inner page's first downlink (its first item's tuple id, whose block is the child) to a page
+ *   flagged a leaf (F_LEAF), by pageinspect's gist_page_opaque_info and gist_page_items_bytea.
  */
 const heightReaders: Readonly<
 	Record<string, (read: SuperuserRead, index: string) => Effect.Effect<number>>
@@ -1799,6 +1805,22 @@ const heightReaders: Readonly<
 					"SELECT (2 + COALESCE(pg_catalog.max(overflow), 0))::text FROM chain"
 			),
 			(rows) => Number(cellOf(rows, `the longest overflow chain of ${index}`))
+		)
+	},
+	gist: (read, index) => {
+		const page = (block: string) =>
+			`pageinspect_ext.get_raw_page(${quoteString(index)}, (${block})::pg_catalog.int8)`
+		const leaf = (block: string) =>
+			`'leaf' = ANY ((pageinspect_ext.gist_page_opaque_info(${page(block)})).flags)`
+		return Effect.map(
+			read(
+				`WITH RECURSIVE walk(block, depth, leaf) AS (SELECT 0::pg_catalog.int8, 1, ${leaf("0")} ` +
+					`UNION ALL SELECT d.child, w.depth + 1, ${leaf("d.child")} FROM walk AS w CROSS JOIN LATERAL ` +
+					"(SELECT ((i.ctid::pg_catalog.text::pg_catalog.point)[0])::pg_catalog.int8 AS child " +
+					`FROM pageinspect_ext.gist_page_items_bytea(${page("w.block")}) AS i ORDER BY i.itemoffset LIMIT 1) AS d ` +
+					"WHERE NOT w.leaf) SELECT pg_catalog.max(walk.depth)::text FROM walk"
+			),
+			(rows) => Number(cellOf(rows, `the leftmost path of ${index}`))
 		)
 	},
 	gin: (read, index) => {

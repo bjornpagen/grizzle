@@ -36,7 +36,7 @@ export class MalformedPlan extends Data.TaggedError("MalformedPlan")<{
 	readonly message: string
 }> {}
 
-export interface Buffers {
+interface Buffers {
 	readonly sharedHit: number
 	readonly sharedRead: number
 	readonly sharedDirtied: number
@@ -50,7 +50,7 @@ export interface Buffers {
 }
 
 /** A node's WAL counters: present on every node of a capture made with WAL, and on none of one made without. */
-export type WalCounters =
+type WalCounters =
 	| {
 			readonly kind: "captured"
 			readonly records: number
@@ -65,7 +65,7 @@ export type WalCounters =
  * A Memoize node's cache statistics: a cache node's presence does not mean useful reuse. PostgreSQL reports the lookups
  * only once the cache has missed, so a cache that saw no lookup has none.
  */
-export interface CacheStats {
+interface CacheStats {
 	readonly key: string
 	readonly lookups:
 		| { readonly kind: "none" }
@@ -79,13 +79,13 @@ export interface CacheStats {
 		  }
 }
 
-export interface HashStats {
+interface HashStats {
 	readonly buckets: number
 	readonly batches: number
 	readonly peakMemoryKb: number
 }
 
-export interface SortStats {
+interface SortStats {
 	readonly method: string
 	readonly spaceUsedKb: number
 	readonly spaceType: string
@@ -182,7 +182,7 @@ export interface PlanNode extends NodeKeys {
 	readonly children: ReadonlyArray<PlanNode>
 }
 
-export interface TriggerCalls {
+interface TriggerCalls {
 	readonly name: string
 	readonly constraint: Option.Option<string>
 	readonly relation: string
@@ -212,7 +212,7 @@ export interface Explained {
 	readonly settings: Readonly<Record<string, string>>
 }
 
-export type SerializeFormat = "text" | "binary"
+type SerializeFormat = "text" | "binary"
 
 export interface ExplainOptions {
 	/**
@@ -525,17 +525,6 @@ export const parsePlan = (value: unknown): Result.Result<Explained, MalformedPla
 	reading(() => readPlan(value))
 
 /**
- * Whether a plan node roots a plan of its own, a SubPlan's or an InitPlan's (NodeKeys `parentRelationship`): a subquery
- * expression its parent's conditions run, once or for each row they are evaluated over, so its scans are read apart from
- * its parent's, their bindings their own conditions' equalities to the outer row's columns.
- */
-export const plansApart = (node: Pick<NodeKeys, "parentRelationship">): boolean =>
-	Option.match(node.parentRelationship, {
-		onNone: () => false,
-		onSome: (r) => r === "InitPlan" || r === "SubPlan"
-	})
-
-/**
  * The plan tree of one EXPLAIN (..., FORMAT JSON) result without ANALYZE, such as a GENERIC_PLAN: no actual figures,
  * buffers or timings, so only the tree is read.
  */
@@ -677,24 +666,6 @@ export const explainServerStatement = (
 			(execute) => explainStatementWith(execute, options)
 		),
 		parseRows
-	)
-
-/**
- * The generic plan of `sql` as every session grizzle opens plans it (`underGenericPlans`), estimated, never run: EXPLAIN
- * (VERBOSE, FORMAT JSON) of its EXECUTE with every one of its `parameters` NULL, which a generic plan never reads.
- */
-export const genericPlanOf = (
-	session: BenchSession,
-	sql: string,
-	parameters: number
-): Effect.Effect<ReadonlyArray<ReadonlyArray<unknown>>, SqlError> =>
-	preparedExplain(
-		session,
-		"gz_generic",
-		sql,
-		executeArguments(Array.from({ length: parameters }, () => "NULL")),
-		"generic",
-		(execute) => `EXPLAIN (VERBOSE, FORMAT JSON) ${execute}`
 	)
 
 /** Every node of a plan, depth first, the root first. */
@@ -852,7 +823,7 @@ export const rowsTouched = (plan: PlanNode): number =>
 export const rowsGenerated = (plan: PlanNode): number =>
 	scanned(planNodes(plan).filter(generatingScan))
 
-export interface AccessCondition {
+interface AccessCondition {
 	readonly nodeType: string
 	readonly relation: Option.Option<string>
 	readonly index: string

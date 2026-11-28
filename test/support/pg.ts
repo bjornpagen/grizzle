@@ -797,8 +797,8 @@ export const runAlone = (
  * hint bit on a row whose inserting transaction id shares its group of 32 in the commit log (clog.c
  * CLOG_XACTS_PER_LSN_GROUP, heapam_visibility.c SetHintBitsExt), whichever database that commit was in, and VACUUM
  * marks no page holding such a row all-visible (pruneheap.c). A table VACUUMed right after its load then keeps an unset
- * visibility map, and the planner costs an index-only scan of it as a plain index scan, the heap fetched for every row
- * (costsize.c cost_index), so the plans the serving judges read (test/pg/physical/serving.ts loadRows) would turn on
+ * visibility map, and an index-only scan of it fetches the heap for every row (nodeIndexonlyscan.c), so a budget over
+ * a table VACUUMed after its load (test/support/advice.ts budgetOver, an index-only scan's heap fetches) would turn on
  * the WAL writer's timing.
  */
 export const testDatabaseSettings: ReadonlyArray<readonly [name: string, value: string]> = [
