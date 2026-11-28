@@ -101,8 +101,7 @@ const documents = query(Catalog).rule((r) => {
 /**
  * A subject's lessons up to a grade, the read a catalog serves beside its searches: an equality on the subject and a
  * range of grades, whose B-tree the read earns, so the searches' filters have an index of their own, which a search's
- * fenced match never reads (lower/shapes/search searchFenced), and the declared statistics price the subject as the
- * anchor that index leads with.
+ * match never reads: the match drives its read, its filters above it (sql/bind.ts Binder #classified `search`).
  */
 const ofSubject = query(Catalog).rule((r) => {
 	const { lesson, subject, grade } = v(Lesson, "lesson")

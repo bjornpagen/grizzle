@@ -25,7 +25,7 @@
 
 import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
-import { type Case, property } from "@bjornpagen/testing/property"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import {
@@ -270,19 +270,30 @@ export const atScaleAMatchOfAMarkerWordFewLessonsHoldReadsLessonThroughTheGINInd
 			kind: "postgresql",
 			name: "the served member's executed plan, its nodes named by the installation"
 		},
-		kept: [],
+		kept: [
+			{
+				token: ReplayToken(
+					"test/pg/search/search.test.ts#atScaleAMatchOfAMarkerWordFewLessonsHoldReadsLessonThroughTheGINIndexWithNoSequentialScanAndTouchesBuffersInProportionToItsMatches:1.0:0.0.0.0"
+				),
+				reason:
+					"matching's read of 2,000 lessons for a marker word ten hold, beside its subject and grade: the binding ranked the match after the subject's and the grade's range and asked no GIN index, none was installed, and the read ranged every lesson of the subject (lane REDS7's census of main 29a4d30c)",
+				since: "2026-11-28"
+			}
+		],
 		kills: [
 			{
 				file: "packages/engine/src/sql/bind.ts",
 				original: '\t\tconst search = matched("search")\n',
 				replacement: "\t\tconst search = undefined\n",
-				why: "The binding reads no search document's match: the read of Lesson is a scan its plan states, it asks no GIN index, none is installed, and PostgreSQL reads Lesson sequentially; the plan check fails."
+				why: "The binding reads no search document's match: the read of Lesson ranges its subject's grades through the B-tree ofSubject earns, the match a filter above it, it asks no GIN index, none is installed, and Lesson is read at every lesson of the subject up to the grade; the plan check fails."
 			},
 			{
-				file: "packages/engine/src/lower/shapes/index.ts",
-				original: "\tFilter: realized(facts, searchFenced(conservativeLowerers.Filter)),",
-				replacement: "\tFilter: realized(facts, conservativeLowerers.Filter),",
-				why: "The text search unfenced: its match a filter beside the subject's and the grade's, so the declared statistics of those choose the read, and Lesson is read through another index than its GIN."
+				file: "packages/engine/src/sql/bind.ts",
+				original:
+					'\t\tif (search !== undefined) {\n\t\t\treturn { kind: "search", column: search.column, conjunct: search.conjunct }\n',
+				replacement:
+					'\t\tif (search !== undefined && bindings.length === 0) {\n\t\t\treturn { kind: "search", column: search.column, conjunct: search.conjunct }\n',
+				why: "A match drives its read only where no equality stands beside it, as the binding ranked it last (2a0607313f) once the workload asked its indexes of the bound plans alone (a09f5f8376): matching's read of Lesson ranges the subject's grades through ofSubject's B-tree, the match a filter above it, reading every lesson of the subject up to the grade, and asks no GIN index; the plan check fails."
 			}
 		]
 	})

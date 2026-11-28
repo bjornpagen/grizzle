@@ -2856,6 +2856,9 @@ class Binder {
 	 * column's kind (BindColumn), against a value its level fixes, its equalities `bindings` among them, and the index
 	 * order its level's LIMIT states of it (`order`), in this order of what reaches the fewest rows by construction:
 	 * - its equalities where they hold a unique key whole, at one row (`seek`, a key lookup);
+	 * - a search document's match (`search`), its rows those its query's lexemes hold, every row the read delivers among
+	 *   them, its other conjuncts filters above them: the match drives its read, and no index is asked of the relation
+	 *   for the filters beside it (docs/reads-and-writes.md "Full text search");
 	 * - its level's index order: a take's or a page's ORDER BY of its B-tree columns past the ones its equalities fix,
 	 *   after them (`ordered`), or an approximate search's distance from a fixed vector (`nearest`), the equalities then
 	 *   filters;
@@ -2864,7 +2867,7 @@ class Binder {
 	 *   column it or they bind holds many values (`range`, a text column bounded on both sides a prefix search), as the
 	 *   workload's access paths have always ranged a read;
 	 * - its equalities where one holds many values (`seek`);
-	 * - a network's containment (`network`) or a search document's match (`search`), the equalities filters;
+	 * - a network's containment (`network`), the equalities filters;
 	 * - else whole: no conjunct an index serves, or equalities of few values alone, a roster's share of the rows.
 	 * A conjunct of any other operator is a filter, never an access.
 	 */
@@ -2900,12 +2903,6 @@ class Binder {
 			return { kind: "seek", eq: [b0, ...bs], keyed: true }
 		}
 		const kindOf = (column: string) => table.columns.get(column)?.kind
-		if (order !== undefined) {
-			const ordered = orderedOf(table, written, order, equal, fixed)
-			if (ordered !== undefined) {
-				return ordered.kind === "ordered" ? { ...ordered, eq: bindings } : ordered
-			}
-		}
 		const matched = (kind: keyof typeof matchOperators) =>
 			conjuncts
 				.flatMap((c) => {
@@ -2913,6 +2910,16 @@ class Binder {
 					return m !== undefined && fixed(m.value) ? [{ conjunct: c, column: m.column }] : []
 				})
 				.toSorted((x, y) => compareStrings(x.column, y.column))[0]
+		const search = matched("search")
+		if (search !== undefined) {
+			return { kind: "search", column: search.column, conjunct: search.conjunct }
+		}
+		if (order !== undefined) {
+			const ordered = orderedOf(table, written, order, equal, fixed)
+			if (ordered !== undefined) {
+				return ordered.kind === "ordered" ? { ...ordered, eq: bindings } : ordered
+			}
+		}
 		const span = matched("span")
 		if (span !== undefined) {
 			return { kind: "span", eq: bindings, column: span.column, conjunct: span.conjunct }
@@ -2963,13 +2970,9 @@ class Binder {
 			return { kind: "seek", eq: [b0, ...bs], keyed: false }
 		}
 		const network = matched("network")
-		if (network !== undefined) {
-			return { kind: "network", column: network.column, conjunct: network.conjunct }
-		}
-		const search = matched("search")
-		return search === undefined
+		return network === undefined
 			? { kind: "whole" }
-			: { kind: "search", column: search.column, conjunct: search.conjunct }
+			: { kind: "network", column: network.column, conjunct: network.conjunct }
 	}
 
 	/**

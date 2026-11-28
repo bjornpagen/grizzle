@@ -194,9 +194,9 @@ const step = query(Catalog).reads({ nearest: nearestArm, text: textArm, hybrid }
 
 /**
  * A route's lessons by their keys, the read a catalog serves beside its searches: an equality on the route's app and
- * subject, whose B-tree the read earns, so the route's filters have an index of their own, which the arms' fenced
- * streams never read (lower/shapes/vector fenceOf, lower/shapes/search searchFenced), and the declared statistics price
- * the app and the subject as the anchors that index leads with.
+ * subject, whose B-tree the read earns, so the route's filters have an index of their own, which the arms' streams
+ * never read: the nearest arm's fenced (lower/shapes/vector fenceOf), the text arm's match driving its read, its filters
+ * above it (sql/bind.ts Binder #classified `search`).
  */
 const route = query(Catalog).rule((r) => {
 	const { lesson, subject, app } = v(Lesson, "lesson")

@@ -96,7 +96,6 @@ import { recursionLowerer } from "#compiler/lower/shapes/recursion/index.ts"
 import { refineDelivered } from "#compiler/lower/shapes/refined/index.ts"
 import { regionLowerer } from "#compiler/lower/shapes/region/index.ts"
 import { inputSetLowerer } from "#compiler/lower/shapes/relparam/index.ts"
-import { searchFenced } from "#compiler/lower/shapes/search/index.ts"
 import { atRowWalk, drivenSemiJoin } from "#compiler/lower/shapes/semi-join/index.ts"
 import type { DrivingSet } from "#compiler/lower/shapes/share/copies.ts"
 import { shareKey } from "#compiler/lower/shapes/share/index.ts"
@@ -634,7 +633,7 @@ const optimizedLowerers = (
 		facts,
 		regionLowerer(facts, (n) => state.strategy(n) === "materialized")
 	),
-	Filter: realized(facts, searchFenced(conservativeLowerers.Filter)),
+	Filter: realized(facts, conservativeLowerers.Filter),
 	ProjectSet: realized(facts, conservativeLowerers.ProjectSet),
 	SemiJoin: semiJoinShape(facts),
 	AntiJoin: realized(facts, lowerAntiJoinAt(atRowWalk)),

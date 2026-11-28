@@ -3,9 +3,9 @@ import { type Env, type LowerContext, refuse } from "#compiler/lower/conservativ
 import type { OperandSelect } from "#compiler/sql/ast.ts"
 
 /**
- * A searched occurrence's scan as its region reads it, the core a fence over it extends (lower/shapes/vector fenceOf,
- * lower/shapes/search searchFenced): one plain core over its one table, with no order and no bound of its own, and the
- * alias it reads the table under. A scan the lowering spells otherwise is refused with `capability`.
+ * A searched occurrence's scan as its region reads it, the core a fence over it extends (lower/shapes/vector fenceOf):
+ * one plain core over its one table, with no order and no bound of its own, and the alias it reads the table under. A
+ * scan the lowering spells otherwise is refused with `capability`.
  */
 export const fencedScan = (
 	cx: LowerContext,
