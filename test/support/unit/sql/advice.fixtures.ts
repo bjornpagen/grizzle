@@ -32,6 +32,7 @@ export type AdviceFeature =
 	| "a tag's name"
 	| "an append member"
 	| "a UNION ALL's append level"
+	| "a join problem past join_collapse_limit, nested"
 
 export const adviceFeatures = [
 	"join order",
@@ -45,7 +46,8 @@ export const adviceFeatures = [
 	"quoted name",
 	"a tag's name",
 	"an append member",
-	"a UNION ALL's append level"
+	"a UNION ALL's append level",
+	"a join problem past join_collapse_limit, nested"
 ] as const satisfies ReadonlyArray<Reached<AdviceFeature>>
 
 /** The columns an index stores and a read needs, from one small pool, so covering is often met and often missed. */
@@ -126,7 +128,7 @@ export const planGen: Gen<ReadPlan<IndexRef>> = (source) => {
 					item: item(),
 					join: s.draw(element(["nestedLoop", "hash"] as const satisfies ReadonlyArray<JoinMethod>))
 				}),
-				{ min: 0, max: 3 }
+				{ min: 0, max: source.draw(boolean) ? 3 : 11 }
 			)
 		)
 		const appended = source.draw(array(member, { min: 0, max: 2 }))
@@ -270,6 +272,31 @@ export const parsedAtoms = (advice: string): ReadonlyArray<Atom> => {
 		t += 1
 		const tag = Str.toUpperCase(Str.slice(1)(word))
 		expect("(")
+		if (tag === "JOIN_ORDER") {
+			/** The members of one problem up to its closing parenthesis, a nested one bracketed, flattened. */
+			const members = (): ReadonlyArray<string> => {
+				const read: Array<string> = []
+				while (tokens[t] !== ")") {
+					if (tokens[t] === "(") {
+						t += 1
+						const nested = members()
+						expect(")")
+						read.push("(")
+						for (const m of nested) {
+							read.push(m)
+						}
+						read.push(")")
+					} else {
+						read.push(targetOf())
+					}
+				}
+				return read
+			}
+			const targets = members()
+			expect(")")
+			atoms.push({ tag, targets, index: undefined })
+			continue
+		}
 		const indexed = tag === "INDEX_SCAN" || tag === "INDEX_ONLY_SCAN"
 		const targets: Array<string> = []
 		while (tokens[t] !== ")") {
@@ -284,16 +311,32 @@ export const parsedAtoms = (advice: string): ReadonlyArray<Atom> => {
 		}
 		expect(")")
 		if (!indexed) {
-			if (tag === "JOIN_ORDER") {
-				atoms.push({ tag, targets, index: undefined })
-			} else {
-				for (const target of targets) {
-					atoms.push({ tag, targets: [target], index: undefined })
-				}
+			for (const target of targets) {
+				atoms.push({ tag, targets: [target], index: undefined })
 			}
 		}
 	}
 	return atoms
+}
+
+/**
+ * A level's join order as PostgreSQL deconstructs a chain of explicit joins (initsplan.c deconstruct_recurse, restated):
+ * the left side's members and the next item fold into one problem while they number at most join_collapse_limit, 8, and
+ * past it the left side is one member, a problem of its own; flattened, each nested problem bracketed by parentheses.
+ */
+const nestedOrder = (targets: ReadonlyArray<string>): ReadonlyArray<string> => {
+	const [first, ...rest] = targets
+	let left: { readonly members: number; readonly tokens: ReadonlyArray<string> } = {
+		members: first === undefined ? 0 : 1,
+		tokens: first === undefined ? [] : [first]
+	}
+	for (const t of rest) {
+		left =
+			left.members + 1 <= 8
+				? { members: left.members + 1, tokens: [...left.tokens, t] }
+				: { members: 2, tokens: ["(", ...left.tokens, ")", t] }
+	}
+	return left.tokens
 }
 
 /**
@@ -341,7 +384,7 @@ export const statedAtoms = (plan: ReadPlan<IndexRef>): ReadonlyArray<Atom> =>
 		const scans = Arr.flatMap(scanned, scanOf)
 		return [
 			...(items.length > 1
-				? [{ tag: "JOIN_ORDER", targets: Arr.map(items, targetOf), index: undefined }]
+				? [{ tag: "JOIN_ORDER", targets: nestedOrder(Arr.map(items, targetOf)), index: undefined }]
 				: []),
 			...Arr.map(joined, (j) => one(j.join === "hash" ? "HASH_JOIN" : "NESTED_LOOP_PLAIN", j.item)),
 			...scans,

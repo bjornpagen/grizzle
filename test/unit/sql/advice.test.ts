@@ -55,6 +55,9 @@ export const aPlansAdviceParsesAsPgPlanAdviceReadsItAndHoldsExactlyTheAtomsThePl
 					if (items.length > 1) {
 						c.note("join order")
 					}
+					if (items.length > 8) {
+						c.note("a join problem past join_collapse_limit, nested")
+					}
 					if (level.kind === "joins" && Arr.some(level.joined, (j) => j.join === "hash")) {
 						c.note("hash join")
 					}
@@ -106,6 +109,12 @@ export const aPlansAdviceParsesAsPgPlanAdviceReadsItAndHoldsExactlyTheAtomsThePl
 		},
 		kept: [],
 		kills: [
+			{
+				file: "packages/engine/src/sql/advice.ts",
+				original: "\t\tproblem = problem.length < joinCollapseLimit ? [...problem, t] : [problem, t]\n",
+				replacement: "\t\tproblem = [...problem, t]\n",
+				why: "A level of more items than PostgreSQL folds into one join problem is advised as one: PostgreSQL plans the first eight apart, as one member of the next problem, and the flat join order matches no problem it plans."
+			},
 			{
 				file: "packages/engine/src/sql/advice.ts",
 				original: '\t\tcase "bitmap":\n\t\t\treturn [`BITMAP_HEAP_SCAN(',

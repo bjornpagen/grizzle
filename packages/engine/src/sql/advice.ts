@@ -13,7 +13,8 @@
  * same.
  *
  * The atoms, per level the plan holds, in order:
- * - `JOIN_ORDER(t1 … tn)` where the level joins two items or more, the first driving;
+ * - `JOIN_ORDER(t1 … tn)` where the level joins two items or more, the first driving, a problem past PostgreSQL's
+ *   join_collapse_limit nested as PostgreSQL nests it, `JOIN_ORDER((t1 … t8) t9 …)` (`joinOrder`);
  * - for each item after the first, the method that puts it on the inner side: `NESTED_LOOP_PLAIN(t)`, a probe's, a
  *   LATERAL item's and a cross product's, read again per row before it, or `HASH_JOIN(t)`, a set join's;
  * - for each stored relation, its scan: `SEQ_SCAN(t)` read whole; `INDEX_ONLY_SCAN(t <index>)` through an index that
@@ -147,6 +148,32 @@ const scanAtom = (item: PlanItem<IndexRef>, at: string): ReadonlyArray<string> =
 /** An item's atom of no Gather. */
 const noGather = (at: string): string => `NO_GATHER(${at})`
 
+/**
+ * PostgreSQL's join_collapse_limit, its default: the most members of a level's explicit joins it folds into one join
+ * problem (initsplan.c deconstruct_recurse). A level's FROM is one chain of explicit joins, its first item then each
+ * joined one in order (sql/bind.ts fromOf), and each NOT EXISTS PostgreSQL makes an anti join wraps it whole: so its
+ * problem gathers the items in order until it holds this many, and the next item then joins that problem as one member
+ * of a problem of its own, nested, as far as the level's items go. The planner settings stay PostgreSQL's own: grizzle
+ * sets none, its join orders following the default.
+ */
+const joinCollapseLimit = 8
+
+/** A member of a join problem: an item's target, or a problem PostgreSQL planned of its own, nested (`joinOrder`). */
+type JoinMember = string | ReadonlyArray<JoinMember>
+
+/**
+ * A level's join order of its items' targets, in order (`joinCollapseLimit`): each problem's members in order, a nested
+ * problem in parentheses, as pg_plan_advice reads and writes one (pgpa_output.c pgpa_output_join_member).
+ */
+const joinOrder = (targets: ReadonlyArray<string>): string => {
+	let problem: ReadonlyArray<JoinMember> = []
+	for (const t of targets) {
+		problem = problem.length < joinCollapseLimit ? [...problem, t] : [problem, t]
+	}
+	const text = (m: JoinMember): string => (typeof m === "string" ? m : `(${m.map(text).join(" ")})`)
+	return `JOIN_ORDER(${problem.map(text).join(" ")})`
+}
+
 /** A level's atoms, in the order the header states. */
 const levelAtoms = (level: PlanLevel<IndexRef>): ReadonlyArray<string> => {
 	const items = levelItems(level)
@@ -154,7 +181,7 @@ const levelAtoms = (level: PlanLevel<IndexRef>): ReadonlyArray<string> => {
 	const at = (item: PlanItem<IndexRef>) => target(item, level.name)
 	const joined = level.kind === "joins" ? level.joined : []
 	return [
-		...(joined.length === 0 ? [] : [`JOIN_ORDER(${items.map(at).join(" ")})`]),
+		...(joined.length === 0 ? [] : [joinOrder(items.map(at))]),
 		...joined.map((j) => `${methodTag[j.join]}(${at(j.item)})`),
 		...scanned.flatMap((item) => scanAtom(item, at(item))),
 		...scanned.map((item) => noGather(at(item)))
