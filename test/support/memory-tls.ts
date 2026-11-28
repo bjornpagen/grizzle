@@ -4,7 +4,7 @@ import { Duplex, type DuplexOptions } from "node:stream"
 import { createSecureContext, type SecureContext, TLSSocket } from "node:tls"
 import { Array as Arr, String as Str } from "effect"
 import type { PgSocket } from "#adapter/types/driver.ts"
-import type { Transport } from "#adapter/types/layer.ts"
+import type { SslRequestTransport } from "#adapter/types/layer.ts"
 
 /**
  * TLS that a test terminates itself, in memory, on grizzle's public transport: a test's own certificate authority and a
@@ -282,7 +282,10 @@ export const unreachableConnection = (): PgSocket =>
  * The transport that reaches a memory endpoint: its sockets, and its CA and servername, verified as any server's. Its
  * host is the servername and its port PostgreSQL's, which a socket in memory never dials.
  */
-export const memoryTransport = (material: TlsMaterial, open: () => PgSocket): Transport => ({
+export const memoryTransport = (
+	material: TlsMaterial,
+	open: () => PgSocket
+): SslRequestTransport => ({
 	kind: "sslRequest",
 	host: material.servername,
 	port: 5432,

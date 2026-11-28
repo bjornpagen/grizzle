@@ -4,6 +4,7 @@ import type { OpenError } from "#adapter/errors/execution.ts"
 import { DbLayer, LiveSource } from "#adapter/public/layer.ts"
 import { roleNameOf } from "#adapter/served/served.ts"
 import type {
+	ConnectionPassword,
 	DbConfigShape,
 	DbConnection,
 	DbLayerOf,
@@ -41,19 +42,22 @@ const noDecoder = (name: string): Effect.Effect<Redacted.Redacted> =>
 
 /**
  * DbLayer.make of `config`, given the LiveSource.layer of its login over its own connection as the decoder login,
- * whose credential `decoder` gives, read only when the source first connects, at its process's first watch.
+ * whose credential over the network `decoder` gives, read only when the source first connects, at its process's first
+ * watch; over a Unix socket the decoder signs in as the account the kernel names, with no password.
  */
 const sourced = <const L extends AnyLogin>(
 	config: DbConfigShape<NoInfer<L>> & { readonly login: ServedLogin<L> },
-	decoder: DbConnection["password"]
+	decoder: ConnectionPassword
 ): SourcedLayer<L> => {
-	const connection: DbConnection = {
+	const target = {
 		driver: config.driver,
-		transport: config.transport,
 		database: config.database,
-		password: decoder,
 		...(config.rolePrefix === undefined ? {} : { rolePrefix: config.rolePrefix })
 	}
+	const connection: DbConnection =
+		config.transport.kind === "sslRequest"
+			? { ...target, transport: config.transport, password: decoder }
+			: { ...target, transport: config.transport }
 	return Layer.provide(
 		DbLayer.make(config),
 		LiveSource.layer({ ...connection, login: config.login })

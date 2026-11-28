@@ -1,7 +1,7 @@
 import * as net from "node:net"
 import { Array as Arr, Data, Effect, Exit, Option, Scope } from "effect"
 import type { PgSocket } from "#adapter/types/driver.ts"
-import type { Transport } from "#adapter/types/layer.ts"
+import type { SslRequestTransport } from "#adapter/types/layer.ts"
 import type { TlsMember } from "#test/support/cluster.ts"
 
 /**
@@ -56,9 +56,10 @@ export interface ConnectionBudget {
 	 * `transport` whose every socket draws one permit as `open` makes it, before anything is sent on it, and gives it back
 	 * when the socket closes, its TLS upgrade's end included. `open` throws ConnectionBudgetExhausted when none is free. A
 	 * CancelRequest's connection holds no backend, but the transport opens it as it opens a session's, so it draws one for
-	 * the moment it lives.
+	 * the moment it lives. A Unix socket transport opens no socket of the caller's, so a session over one draws through
+	 * `opened` instead.
 	 */
-	readonly transport: (transport: Transport) => Transport
+	readonly transport: (transport: SslRequestTransport) => SslRequestTransport
 	/**
 	 * The connections the budget's openers hold open now (HeldConnection): every socket of `transport` that connected and
 	 * is not destroyed, by its ports, and every backend `hold` holds.

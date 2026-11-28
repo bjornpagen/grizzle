@@ -24,7 +24,8 @@ hold for every writer, because PostgreSQL enforces them.
   key and row it admits; `grizzle migrate` refuses any other.
 - A migration role that owns the database and may create roles: the first migration creates one PostgreSQL role per
   login and per role.
-- TLS to the server, verified against your CA and the server's name: the only way grizzle connects.
+- TLS to the server, verified against your CA and the server's name: the only way grizzle connects over the network.
+  A program on the server's own machine may connect over its Unix socket instead, with no TLS and no password.
 - Node 26 or later, `effect` 4, and `pg` (node-postgres) 8.
 
 ## Install
@@ -914,6 +915,34 @@ export const IndexerLayer = gRuntime.DbLayer.make({
 		catch: (cause) => new g.CredentialError({ cause })
 	}).pipe(Effect.map(Redacted.make))
 })
+```
+
+A program on the database's own machine can leave the network out: the `unixSocket` transport connects to the
+server's Unix-domain socket, the file `<directory>/.s.PGSQL.<port>` named by PostgreSQL's `unix_socket_directories`
+and `port`. It needs no certificate and sends no SSLRequest, since PostgreSQL offers no TLS on a Unix socket and
+nothing crosses a network, and it takes no password: the kernel tells the server which operating-system account is
+calling. A password beside a socket is a type error, and a server that asks for one anyway is refused
+(`PasswordAsked`), never answered.
+
+```ts
+/** A job on the database's machine signs in over its Unix socket, as the account it runs as. */
+export const LocalIndexerLayer = gRuntime.DbLayer.make({
+	driver: pgDriver,
+	transport: { kind: "unixSocket", directory: "/run/postgresql", port: 5432 },
+	database: "app",
+	login: IndexerServed,
+	pool: { max: 2 }
+})
+```
+
+The server's `pg_hba.conf` authenticates the socket by that account, `peer`, and `pg_ident.conf` maps the account to
+the login's role:
+
+```text
+# pg_hba.conf
+local  app  indexer  peer map=app
+# pg_ident.conf: the account the job runs as, and the role it signs in as
+app    indexer-job  indexer
 ```
 
 ### Errors and outcomes with Effect

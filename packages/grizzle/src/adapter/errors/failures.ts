@@ -173,6 +173,18 @@ export class DriverRefused extends Data.TaggedError("DriverRefused")<{ readonly 
 	}
 }
 
+/**
+ * The server asked for a password over its Unix socket, where a connection carries none (types/layer.ts
+ * UnixSocketConnection): its pg_hba.conf authenticates the connection's `local` line by a password method, where grizzle
+ * expects the account the kernel names (`peer`). Nothing was sent in answer, and neither PGPASSWORD nor a password file
+ * was read.
+ */
+export class PasswordAsked extends Data.TaggedError("PasswordAsked") {
+	override get message(): string {
+		return "the server asked for a password over its Unix socket, where grizzle sends none: its pg_hba.conf must authenticate the local connection by the operating-system account (peer)"
+	}
+}
+
 /** The server reached ReadyForQuery without the BackendKeyData every session cancels with, so grizzle refused it. */
 export class NoCancelKey extends Data.TaggedError("NoCancelKey") {
 	override get message(): string {
@@ -182,8 +194,9 @@ export class NoCancelKey extends Data.TaggedError("NoCancelKey") {
 
 /**
  * How a connection attempt failed, classified once, where pg reports it (adapter/wire/session.ts): the password Effect
- * failed; a socket error code, an unreachable host's ETIMEDOUT among them; the server refused the startup; TLS; a
- * connection closed before it was ready; pg's own refusal; or no cancellation key. None carries a password.
+ * failed; a socket error code, an unreachable host's ETIMEDOUT and a socket file that is not there (ENOENT) among
+ * them; the server refused the startup; TLS; a connection closed before it was ready; pg's own refusal; a password asked
+ * over a Unix socket; or no cancellation key. None carries a password.
  */
 export type ConnectRefusal =
 	| CredentialError
@@ -192,6 +205,7 @@ export type ConnectRefusal =
 	| TlsRefused
 	| ConnectionClosed
 	| DriverRefused
+	| PasswordAsked
 	| NoCancelKey
 
 /**
@@ -216,10 +230,11 @@ export type AcquireRefusal = ConnectRefusal | LayerReleased
  *
  * - `object`: an object holding `settings`; `data`: an object whose settings read as data, with no getter, setter or
  *   refusing proxy; `known`: a setting of its block, one of `settings`;
- * - `driver`: node-postgres as imported, its Client, Pool and DatabaseError classes; `sslRequest`: the transport kind
- *   "sslRequest"; `socketOpener`: a function returning a new, unconnected socket;
+ * - `driver`: node-postgres as imported, its Client, Pool and DatabaseError classes; `transportKind`: a transport kind,
+ *   "sslRequest" or "unixSocket"; `socketOpener`: a function returning a new, unconnected socket;
  * - `nonemptyText`; `networkHost`: a name or an IP address, never a path, which node-postgres reads as a Unix socket's
- *   directory, over which PostgreSQL offers no TLS;
+ *   directory, over which PostgreSQL offers no TLS; `socketDirectory`: an absolute path, holding no NUL;
+ * - `socketPassword`: absent, beside a Unix socket, over which the server authenticates the operating-system account;
  * - `integer`: an integer from `least` to `most`, a port number, milliseconds or sessions; `integerFrom`: an integer
  *   from `least`;
  * - `certificates`: PEM certificate text or a nonempty list of them; `readableCertificates`: PEM text TLS reads as
@@ -237,10 +252,12 @@ export type SettingRule =
 	| { readonly kind: "data" }
 	| { readonly kind: "known"; readonly settings: ReadonlyArray<string> }
 	| { readonly kind: "driver" }
-	| { readonly kind: "sslRequest" }
+	| { readonly kind: "transportKind" }
 	| { readonly kind: "socketOpener" }
 	| { readonly kind: "nonemptyText" }
 	| { readonly kind: "networkHost" }
+	| { readonly kind: "socketDirectory" }
+	| { readonly kind: "socketPassword" }
 	| {
 			readonly kind: "integer"
 			readonly least: number
@@ -281,14 +298,18 @@ const ruleText = (rule: SettingRule): string => {
 			return `is no setting; the settings are ${Arr.join(rule.settings, ", ")}`
 		case "driver":
 			return 'must be node-postgres as imported (import pg from "pg"): its Client, Pool and DatabaseError classes'
-		case "sslRequest":
-			return 'must be "sslRequest": an SSLRequest, then verify-full TLS over the socket'
+		case "transportKind":
+			return 'must be "sslRequest", an SSLRequest then verify-full TLS over a socket of the network, or "unixSocket", the server\'s Unix-domain socket on this machine'
 		case "socketOpener":
 			return "must be a function returning a new, unconnected socket"
 		case "nonemptyText":
 			return "must be a nonempty string"
 		case "networkHost":
-			return "must be a network host, a name or an IP address: node-postgres reads a host starting with / as a Unix socket's directory, and PostgreSQL offers no TLS over a Unix socket"
+			return "must be a network host, a name or an IP address: node-postgres reads a host starting with / as a Unix socket's directory, and PostgreSQL offers no TLS over a Unix socket, which is the \"unixSocket\" transport's"
+		case "socketDirectory":
+			return "must be an absolute path holding no NUL: the directory the server's Unix socket is in, one of its unix_socket_directories"
+		case "socketPassword":
+			return "must be left out beside a Unix socket: the server authenticates the operating-system account the kernel names (peer), and no password is ever sent"
 		case "integer":
 			return `must be an integer ${rule.unit === "port" ? "port number" : "number of milliseconds"} from ${rule.least} to ${rule.most}`
 		case "integerFrom":

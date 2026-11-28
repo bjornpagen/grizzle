@@ -184,6 +184,7 @@ const readStage = (reason: ReadReason): ReadStage => {
 		case "SocketFailed":
 		case "ConnectionClosed":
 		case "DriverRefused":
+		case "PasswordAsked":
 		case "NoCancelKey":
 		case "LayerReleased":
 			return "acquire"

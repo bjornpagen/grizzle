@@ -11,24 +11,34 @@
  * unknown cells, or by a checked read of a field its types leave out (BackendKeyData), so batch.ts sees only
  * grizzle's types.
  *
- * - Transport. Every connection, a session's and a CancelRequest's, is a socket the transport opens (Transport.open),
- *   connected to its host and port, then an SSLRequest, then verify-full TLS over it: the certificate must chain to the
- *   CA bundle and name `servername`. The transport is the one the parse admitted (connection/config.ts ParsedTransport),
- *   so its bundle is a nonempty list of PEM texts and its host a network host, never the path of a Unix socket, which
- *   pg would connect by path alone. pg replaces the `servername` it gives TLS with the host whenever the host is a
- *   name, so the name is verified by the identity check itself, and the SNI a server sees is the host; a
- *   CancelRequest's connection is upgraded the same way (sessionTls). A server that answers the SSLRequest with N is
- *   refused: pg has no fallback to plaintext.
- * - Password. A Redacted, or an Effect evaluated once per connection attempt, under the services of the lease it is
- *   opened for: pg is given a function either way (passwordOf), which it calls when the server asks for a password,
- *   since pg reads PGPASSWORD, then a password file, for any password it is given as a falsy value. A client holds
- *   those services only until its connection is set up, so one the server never asked for a password keeps no lease's
- *   context. Its CredentialError fails the attempt at the stage credential, as the failure's reason; a defect or an
- *   interruption of the Effect is the operation's defect.
+ * - Transport. Every connection, a session's and a CancelRequest's, reaches its server as its transport's kind says
+ *   (connection/config.ts ParsedTransport), on a socket opened for it alone (openSocket).
+ *   - Over the network (`sslRequest`), the socket is the transport's own (Transport.open), connected to its host and
+ *     port, then an SSLRequest, then verify-full TLS over it: the certificate must chain to the CA bundle and name
+ *     `servername`. The parse admitted the transport, so its bundle is a nonempty list of PEM texts and its host a
+ *     network host, never the path of a Unix socket, which pg would connect by path alone. pg replaces the `servername`
+ *     it gives TLS with the host whenever the host is a name, so the name is verified by the identity check itself,
+ *     and the SNI a server sees is the host; a CancelRequest's connection is upgraded the same way (sessionTls). A
+ *     server that answers the SSLRequest with N is refused: pg has no fallback to plaintext.
+ *   - Over the server's Unix socket (`unixSocket`), the socket is a `net.Socket` grizzle opens, connected to the socket
+ *     file `<directory>/.s.PGSQL.<port>`, and it carries no SSLRequest and no TLS, which is right: PostgreSQL offers
+ *     TLS over no Unix socket; nothing the connection carries leaves the machine, so there is no network to protect it
+ *     on; and the kernel, not a certificate, says who is at each end: the server learns the client's operating-system
+ *     account from the socket itself (peer authentication), and the client reaches whatever listens at the socket
+ *     file, which only an account that may write its directory can put there. pg is told `ssl: false`, so PGSSLMODE
+ *     never turns TLS on for it.
+ * - Password. Over the network, a Redacted, or an Effect evaluated once per connection attempt, under the services of
+ *   the lease it is opened for: pg is given a function either way (passwordOf), which it calls when the server asks for
+ *   a password, since pg reads PGPASSWORD, then a password file, for any password it is given as a falsy value. A
+ *   client holds those services only until its connection is set up, so one the server never asked for a password
+ *   keeps no lease's context. Its CredentialError fails the attempt at the stage credential, as the failure's reason; a
+ *   defect or an interruption of the Effect is the operation's defect. Over a Unix socket a connection carries no
+ *   password: pg is given a function all the same, which fails the attempt with PasswordAsked whenever the server asks
+ *   for one, by any method, so no password is ever sent, and pg reads no PGPASSWORD and no password file.
  * - Failure. A connection attempt that fails is classified once, here, from what pg reports (failures.ts
  *   ConnectRefusal): the CredentialError, a socket error code, the
  *   server's refusal of the startup with its ErrorResponse as it gave it, TLS, a connection closed before it was ready,
- *   pg's own refusal, or no cancellation key.
+ *   pg's own refusal, a password asked over a Unix socket, or no cancellation key.
  * - Startup. pg sends user and database, and a login's session its pinned defaults as `options`
  *   (physical/ddl/roles.ts loginStartupOptions), the very defaults its role stores, which Db.open's admission
  *   verifies; an owner's session sends its default level and generic plans (startupOptionsOf), generic plans the one of
@@ -48,8 +58,8 @@
  *   flight. Every other statement (batch.ts OneShotStatement) runs as PostgreSQL's unnamed statement, parsed, bound and
  *   executed in its own execution.
  * - Cancellation. pg's JavaScript client has no supported cancel: Client#cancel is undocumented and writes the
- *   CancelRequest on a plaintext socket. A session sends one CancelRequest over a connection of its own, which the
- *   transport opens and upgrades as a session's, with the BackendKeyData pg read at startup (Session.cancel); an
+ *   CancelRequest on a plaintext socket. A session sends one CancelRequest over a connection of its own, opened as a
+ *   session's and, over the network, upgraded as one's, with the BackendKeyData pg read at startup (Session.cancel); an
  *   interrupted flight sends one, and another each time the server answers a query of it after the one before was
  *   sent, until the server has ended it, and destroys the session only once a request could not reach the server
  *   (wire/batch.ts abandon).
@@ -65,7 +75,7 @@
  *   module gives it (sessionClient, attemptFailed).
  */
 import { Buffer } from "node:buffer"
-import { isIP } from "node:net"
+import { isIP, Socket } from "node:net"
 import { type ConnectionOptions, checkServerIdentity, connect as tlsConnect } from "node:tls"
 import * as Arr from "effect/Array"
 import * as Cause from "effect/Cause"
@@ -87,7 +97,12 @@ import {
 	type ReplicationCommand
 } from "#compiler/plan/runtime.ts"
 
-import type { ParsedConnection, ParsedTransport } from "#adapter/connection/config.ts"
+import type {
+	ParsedConnection,
+	ParsedSslRequest,
+	ParsedTransport,
+	ParsedUnixSocket
+} from "#adapter/connection/config.ts"
 import { CredentialError } from "#adapter/errors/credential.ts"
 import {
 	ConnectionClosed,
@@ -96,6 +111,7 @@ import {
 	DriverRefused,
 	ConnectionLost,
 	NoCancelKey,
+	PasswordAsked,
 	ReplicationEnded,
 	type ServerError,
 	SocketFailed,
@@ -186,7 +202,7 @@ const wireModeOf = (startup: Startup): PgWireMode =>
 
 /**
  * Where one session connects and as whom: the parsed connection (connection/config.ts ParsedConnection), its driver,
- * transport, database and password, the login role, whose session it is, installed already under the
+ * database and transport with its credential, the login role, whose session it is, installed already under the
  * connection's role space, and its transactions' control texts.
  */
 export interface SessionSpec extends Omit<ParsedConnection, "roles"> {
@@ -292,7 +308,7 @@ const rawText = { getTypeParser: () => (text: string) => text } as const
  * from its nonempty list of PEM texts (connection/config.ts ParsedTransport): a context built from a list trusts that
  * list alone, never Node's own root certificates, so no bundle ever lets a public authority's certificate verify.
  */
-const verifyFull = (transport: ParsedTransport): ConnectionOptions => {
+const verifyFull = (transport: ParsedSslRequest): ConnectionOptions => {
 	const servername = transport.servername
 	return {
 		secureContext: transport.authority,
@@ -307,12 +323,27 @@ const verifyFull = (transport: ParsedTransport): ConnectionOptions => {
  * verify-full's options, the host, and the host as the SNI whenever it is a name. A CancelRequest's connection is
  * upgraded with exactly these, so it verifies as the session it cancels did.
  */
-const sessionTls = (transport: ParsedTransport, socket: PgSocket): ConnectionOptions => ({
+const sessionTls = (transport: ParsedSslRequest, socket: PgSocket): ConnectionOptions => ({
 	socket,
 	host: transport.host,
 	...verifyFull(transport),
 	...(isIP(transport.host) === 0 ? { servername: transport.host } : {})
 })
+
+/**
+ * The socket file of a Unix socket transport, `<directory>/.s.PGSQL.<port>`: the name PostgreSQL gives the socket it
+ * listens on in each of its unix_socket_directories, and the path pg 8.23 connects a session to from the same host and
+ * port (lib/client.js), so a CancelRequest reaches the server its session did.
+ */
+const socketFile = (transport: ParsedUnixSocket): string =>
+	`${transport.directory}/.s.PGSQL.${transport.port}`
+
+/**
+ * A new, unconnected socket for one connection over `transport`: the network transport's own (Transport.open), or a
+ * `net.Socket` of grizzle's for a Unix socket, which no caller's code needs to open.
+ */
+const openSocket = (transport: ParsedTransport): PgSocket =>
+	transport.kind === "sslRequest" ? transport.open() : new Socket()
 
 /**
  * The failures pg reports only by their message, as the pinned pg spells them: the server's answer to the SSLRequest (N,
@@ -355,17 +386,18 @@ const saidBy = (error: unknown): string =>
 export type Handshakes = WeakSet<object>
 
 /**
- * The class of a failed connection attempt, from what pg reported (failures.ts ConnectRefusal): the CredentialError the
- * password function rejected with; a Node error the TLS handshake raised, as TLS with its code; an ErrorResponse, the
- * server's refusal of the startup as it gave it; any other Node error by its code, as the socket's; pg's own failures
- * that carry no code by their message; and anything else pg ended the startup with as its own refusal, with pg's words.
+ * The class of a failed connection attempt, from what pg reported (failures.ts ConnectRefusal): the CredentialError or
+ * the PasswordAsked the password function rejected with; a Node error the TLS handshake raised, as TLS with its code;
+ * an ErrorResponse, the server's refusal of the startup as it gave it; any other Node error by its code, as the
+ * socket's; pg's own failures that carry no code by their message; and anything else pg ended the startup with as its
+ * own refusal, with pg's words.
  */
 const connectRefusalOf = (
 	spec: SessionSpec,
 	handshakes: Handshakes,
 	error: unknown
 ): ConnectRefusal => {
-	if (error instanceof CredentialError) {
+	if (error instanceof CredentialError || error instanceof PasswordAsked) {
 		return error
 	}
 	if (
@@ -417,15 +449,31 @@ export interface AttemptServices {
 }
 
 /**
- * The password of one connection attempt: a function pg calls when the server asks for one, which yields the Redacted
- * or runs the Effect under the services `current` holds then. pg is never given a text, which it would read as unset
- * when empty, falling back to PGPASSWORD and then to a password file; a function it calls, whatever it yields.
- *
- * A typed failure rejects with the CredentialError, which fails the attempt at the credential stage; a defect or
- * an interruption of the Effect rejects with a PasswordDefect, the operation's defect.
+ * The password of one connection attempt: a function pg calls when the server asks for one. pg is never given a text,
+ * which it would read as unset when empty, falling back to PGPASSWORD and then to a password file; a function it calls,
+ * whatever it yields. Over the network it yields the Redacted or runs the Effect under the services `current` holds
+ * then (networkPassword); over a Unix socket, where a connection carries no password, it rejects with PasswordAsked,
+ * which fails the attempt with nothing sent.
  */
 const passwordOf = (spec: SessionSpec, services: AttemptServices): (() => Promise<string>) => {
-	const configured = spec.password
+	const transport = spec.transport
+	switch (transport.kind) {
+		case "sslRequest":
+			return networkPassword(transport.password, services)
+		case "unixSocket":
+			return () => Promise.reject(new PasswordAsked())
+	}
+}
+
+/**
+ * A network connection's password function (passwordOf): the Redacted, or the Effect run under the services `current`
+ * holds when pg calls it. A typed failure rejects with the CredentialError, which fails the attempt at the credential
+ * stage; a defect or an interruption of the Effect rejects with a PasswordDefect, the operation's defect.
+ */
+const networkPassword = (
+	configured: ParsedSslRequest["password"],
+	services: AttemptServices
+): (() => Promise<string>) => {
 	const secret: Effect.Effect<Redacted.Redacted, CredentialError> = Redacted.isRedacted(configured)
 		? Effect.succeed(configured)
 		: configured
@@ -445,19 +493,19 @@ const passwordOf = (spec: SessionSpec, services: AttemptServices): (() => Promis
 }
 
 /**
- * A session's client configuration over `socket`, the one the transport opened for it: it states every startup and
+ * A session's client configuration over `socket`, the one opened for it (openSocket): it states every startup and
  * wire setting pg would otherwise read from the environment and can be told, the client encoding and the TLS
- * negotiation among them, so `PGCLIENT_ENCODING` and `PGSSLNEGOTIATION` reach no session, and a login's and an owner's
- * session its options (startupOptionsOf), so `PGOPTIONS` reaches none of theirs; the startup variables it cannot be told are
- * connection/environment.ts's. The password is the attempt's (passwordOf).
+ * negotiation among them, so `PGCLIENT_ENCODING`, `PGSSLNEGOTIATION` and `PGSSLMODE` reach no session, and a login's
+ * and an owner's session its options (startupOptionsOf), so `PGOPTIONS` reaches none of theirs; the startup variables
+ * it cannot be told are connection/environment.ts's. The password is the attempt's (passwordOf), and the destination
+ * the transport's (destinationOf).
  */
 const clientConfig = (
 	spec: SessionSpec,
 	socket: PgSocket,
 	password: () => Promise<string>
 ): PgClientConfig => ({
-	host: spec.transport.host,
-	port: spec.transport.port,
+	...destinationOf(spec.transport),
 	database: spec.database,
 	user: spec.role,
 	password,
@@ -467,11 +515,26 @@ const clientConfig = (
 	...wireModeOf(spec.startup),
 	types: rawText,
 	connectionTimeoutMillis: 0,
-	ssl: verifyFull(spec.transport),
 	stream: () => socket
 })
 
-/** Destroys a client's connection at once: the TLS socket pg reads, and the transport's socket under it. */
+/**
+ * Where pg connects a session's socket, and its TLS: a network transport's host and port, verify-full TLS over them;
+ * a Unix socket's directory as pg's host, which pg reads as a socket's directory since it starts with /, and its port,
+ * which names the socket file in it (socketFile), with no TLS.
+ */
+const destinationOf = (
+	transport: ParsedTransport
+): Pick<PgClientConfig, "host" | "port" | "ssl"> => {
+	switch (transport.kind) {
+		case "sslRequest":
+			return { host: transport.host, port: transport.port, ssl: verifyFull(transport) }
+		case "unixSocket":
+			return { host: transport.directory, port: transport.port, ssl: false }
+	}
+}
+
+/** Destroys a client's connection at once: the TLS socket pg reads, if any, and the socket under it. */
 export const destroyWire = (client: PgClient, socket: PgSocket): void => {
 	client.connection.stream.destroy()
 	socket.destroy()
@@ -501,23 +564,38 @@ const cancelFrame = (key: BackendKey): Uint8Array => {
 }
 
 /**
- * How a CancelRequest ended: `sent`, written over its connection's TLS, which the server closes once it has read it and
- * signalled the backend; or `unreached`, its connection failed or ended before the request was written, as the
- * operating system reports an unreachable host (refused, timed out, reset), or as the server refused the SSLRequest or
- * the TLS handshake failed. An unreached request is the server's own verdict that the client cannot reach it now.
+ * How a CancelRequest ended: `sent`, written over its connection, over the network once its TLS was up, which the
+ * server closes once it has read it and signalled the backend; or `unreached`, its connection failed or ended before
+ * the request was written, as the operating system reports an unreachable host or socket file (refused, timed out,
+ * reset, not there), or as the server refused the SSLRequest or the TLS handshake failed. An unreached request is the
+ * server's own verdict that the client cannot reach it now.
  */
 export type CancelEnd = "sent" | "unreached"
 
 /**
- * One CancelRequest for whatever statement the session's backend is running, over a connection of its own: a socket
- * the transport opens, connected to its host and port, then the SSLRequest and verify-full TLS exactly as a session's
- * (sessionTls). It ends when that connection closes or fails (CancelEnd): `sent` once the request was written, which
- * the server reads and then closes the connection, `unreached` if it ended before. No clock of grizzle's ends it.
- * Either way, or when it is interrupted, its sockets are destroyed.
+ * One CancelRequest for whatever statement the session's backend is running, over a connection of its own to the
+ * server the session reached, by its transport's kind: over the network, verify-full TLS as a session's (cancelOverTls);
+ * over the server's Unix socket, in plaintext on a second connection to the socket file, as a session's carries no TLS
+ * there (cancelOverSocket). It ends when that connection closes or fails (CancelEnd): `sent` once the request was
+ * written, which the server reads and then closes the connection, `unreached` if it ended before. No clock of
+ * grizzle's ends it. Either way, or when it is interrupted, its sockets are destroyed.
  */
-const cancelRequest = (spec: SessionSpec, key: BackendKey): Effect.Effect<CancelEnd> =>
+const cancelRequest = (spec: SessionSpec, key: BackendKey): Effect.Effect<CancelEnd> => {
+	const transport = spec.transport
+	switch (transport.kind) {
+		case "sslRequest":
+			return cancelOverTls(transport, key)
+		case "unixSocket":
+			return cancelOverSocket(transport, key)
+	}
+}
+
+/**
+ * A CancelRequest over the network: a socket the transport opens, connected to its host and port, then the SSLRequest
+ * and verify-full TLS exactly as a session's (sessionTls), and the request written once TLS is up.
+ */
+const cancelOverTls = (transport: ParsedSslRequest, key: BackendKey): Effect.Effect<CancelEnd> =>
 	Effect.callback<CancelEnd>((resume) => {
-		const transport = spec.transport
 		const raw = transport.open()
 		const sockets: Array<{ readonly destroy: () => unknown }> = [raw]
 		let end: CancelEnd = "unreached"
@@ -551,6 +629,33 @@ const cancelRequest = (spec: SessionSpec, key: BackendKey): Effect.Effect<Cancel
 		})
 		raw.setNoDelay(true)
 		raw.connect(transport.port, transport.host)
+		return Effect.sync(finish)
+	})
+
+/**
+ * A CancelRequest over the server's Unix socket: a new connection to its socket file (socketFile), the request written
+ * as it connects, in plaintext, the one message the connection carries.
+ */
+const cancelOverSocket = (transport: ParsedUnixSocket, key: BackendKey): Effect.Effect<CancelEnd> =>
+	Effect.callback<CancelEnd>((resume) => {
+		const socket = new Socket()
+		let end: CancelEnd = "unreached"
+		let finished = false
+		const finish = (): void => {
+			if (finished) {
+				return
+			}
+			finished = true
+			socket.destroy()
+			resume(Effect.succeed(end))
+		}
+		socket.on("error", finish)
+		socket.once("close", finish)
+		socket.once("connect", () => {
+			end = "sent"
+			socket.write(cancelFrame(key))
+		})
+		socket.connect(socketFile(transport))
 		return Effect.sync(finish)
 	})
 
@@ -900,8 +1005,8 @@ interface ClientHooks {
  * The client class of the sessions over `spec`, derived from the driver's own Client. pg's Pool constructs each client
  * with its own copy of its options, from which it hides the password, and reads `connectionTimeoutMillis` from those
  * options as its own bound on the wait for a free client; so a client takes its configuration from here instead, with
- * no connect timeout (clientConfig), and the wait stays the lease's. Each client opens its socket through the transport
- * as it is constructed. An `error` event of a client in use is also the failure of its queries, which their callbacks
+ * no connect timeout (clientConfig), and the wait stays the lease's. Each client opens its socket for its transport
+ * (openSocket) as it is constructed. An `error` event of a client in use is also the failure of its queries, which their callbacks
  * receive, so the event is dropped rather than left to crash the process. A connection that failed is destroyed: pg
  * leaves it open when the failure is the client's own, a rejected password function or a SCRAM proof that does not
  * verify. The client's password runs under the services of the attempt that constructs it until its connection is set
@@ -921,7 +1026,7 @@ export const sessionClient = (
 	class SessionClient extends spec.driver.Client {
 		constructor() {
 			const services: AttemptServices = { current: attempt.current, own: attempt.own }
-			const socket = spec.transport.open()
+			const socket = openSocket(spec.transport)
 			super(clientConfig(spec, socket, passwordOf(spec, services)))
 			hooks.opened(this, socket)
 			this.connection.once("sslconnect", () => {
@@ -1258,5 +1363,5 @@ export const connectReplication = (
 	)
 }
 
-/** Where a login's sessions connect: the driver, the transport, the database, the login role and the password. */
+/** Where a login's sessions connect: the driver, the transport with its credential, the database and the login role. */
 export type LoginConnection = Omit<SessionSpec, "startup" | "controls">

@@ -22,7 +22,13 @@ import { type ParsedConnection, parseConnection, roleSettings } from "#adapter/c
 import { type CredentialError } from "#adapter/errors/credential.ts"
 import { BatchRefused } from "#adapter/errors/failures.ts"
 import type { MigrationConnectionConfig } from "#adapter/types/config.ts"
-import type { DbConnection, PoolBounds, Transport } from "#adapter/types/layer.ts"
+import type {
+	DbConnection,
+	PoolBounds,
+	SslRequestConnection,
+	SslRequestTransport,
+	UnixSocketConnection
+} from "#adapter/types/layer.ts"
 import {
 	type ApartFailure,
 	type BatchOutcome,
@@ -710,7 +716,7 @@ export const clusterPool: PoolBounds = { max: testPoolMax }
  * budget's permits while it lives (substrate/budget.ts ConnectionBudget transport): a DbLayer's pool stays lazy, and each
  * session it opens draws as it opens.
  */
-const clusterTransport = (cluster: BudgetedCluster): Transport =>
+const clusterTransport = (cluster: BudgetedCluster): SslRequestTransport =>
 	cluster.budget.transport({
 		kind: "sslRequest",
 		host: pgPin.host,
@@ -728,11 +734,26 @@ export const clusterConnection = (
 	cluster: BudgetedCluster,
 	database: string,
 	password: Redacted.Redacted | Effect.Effect<Redacted.Redacted, CredentialError>
-): DbConnection => ({
+): SslRequestConnection => ({
 	driver: pgDriver,
 	transport: clusterTransport(cluster),
 	database,
 	password
+})
+
+/**
+ * A connection to the local cluster's `database` over its member's Unix socket, which the member's pg_hba.conf admits
+ * every role over with no secret (its `local` line): the member's socket directory, the port its socket file is named
+ * by, and no password. grizzle opens its sockets itself, so a test draws the permits they hold from the cluster's
+ * budget (substrate/budget.ts ConnectionBudget within) and states each session's backend (hold).
+ */
+export const clusterSocketConnection = (
+	cluster: BudgetedCluster,
+	database: string
+): UnixSocketConnection => ({
+	driver: pgDriver,
+	transport: { kind: "unixSocket", directory: cluster.socket, port: cluster.port },
+	database
 })
 
 /**

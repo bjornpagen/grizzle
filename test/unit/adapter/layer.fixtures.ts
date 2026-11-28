@@ -30,7 +30,7 @@ import { type StartupVariable, startupVariableNames } from "#adapter/connection/
 import { OpenError } from "#adapter/errors/execution.ts"
 import { ClaimRefused, type SettingRule } from "#adapter/errors/failures.ts"
 import { served } from "#adapter/public/layer.ts"
-import type { DbConfigShape } from "#adapter/types/layer.ts"
+import type { DbConfigShape, SslRequestConnection, Transport } from "#adapter/types/layer.ts"
 
 import { nonEmpty } from "@bjornpagen/testing/assert"
 import { query, v } from "#compiler/public/query.ts"
@@ -44,19 +44,20 @@ import { processValue, variableGen, type VariableValue } from "#test/support/pro
  * DbLayer.make parses its DbConfig once, where it is given (packages/grizzle/src/adapter/pool/served.ts, connection/config.ts), and a
  * config no connection can use fails the layer before any connection.
  *
- * Over drawn configs (tricky hosts, never a path, servernames, databases and passwords; a Redacted or an Effect
- * password; a CA as one PEM text or a list; pool bounds across their ranges, their ends included;
- * a pool hook and a verify or none) for a login whose roles read no context, a valid one builds its layer, which opens
- * no session until a Db is opened on it. The same config with one fault injected, each a refusal the typed DbConfig
- * already rules out but a JavaScript caller can pass (a setting of another type, missing, empty or null; a driver that
- * is no node-postgres; a host that is a path, which node-postgres would read as a Unix socket's, over which PostgreSQL
- * offers no TLS; a port outside 1 to 65535 or no integer; a timer's delay or a pool bound outside its range, or no
- * integer; an unknown
- * key at the top, in the transport or in the pool, the settings the connection no longer has among them; a transport
- * no verify-full connection can use; a login no served(...) built; a pool hook or a verify that is no function; no
- * verify for a login one of whose roles reads a context), fails the layer with OpenError{stage: "config"} whose
- * DbConfigRefused names the faulty setting by its path (SettingFault), the rule an unknown key and a host that is a path
- * break, and never quotes the password. The migration connection's role-specific
+ * Over drawn configs of both transports (over the network: tricky hosts, never a path, servernames, databases and
+ * passwords, a Redacted or an Effect password, a CA as one PEM text or a list; over a Unix socket: tricky absolute
+ * directories and no password; pool bounds across their ranges, their ends included; a verify or none) for a login
+ * whose roles read no context, a valid one builds its layer, which opens no session until a Db is opened on it. The
+ * same config with one fault injected, each a refusal the typed DbConfig already rules out but a JavaScript caller can
+ * pass (a setting of another type, missing, empty or null; a driver that is no node-postgres; a transport of no kind; a
+ * host that is a path, which node-postgres would read as a Unix socket's, over which PostgreSQL offers no TLS; a socket
+ * directory that is no absolute path or holds a NUL; a port outside 1 to 65535 or no integer; a pool bound outside its
+ * range, or no integer; an unknown key at the top, in the transport or in the pool, the settings the connection no
+ * longer has among them, and every setting of the other transport's kind; a password beside a Unix socket; a transport
+ * no verify-full connection can use; a login no served(...) built; a verify that is no function; no verify for a login
+ * one of whose roles reads a context), fails the layer with OpenError{stage: "config"} whose DbConfigRefused names the
+ * faulty setting by its path (SettingFault), the rule an unknown key, a host that is a path, a socket directory and a
+ * password beside a socket break, and never quotes the password. The migration connection's role-specific
  * faults are test/unit/cli/connection.test.ts's: one parser reads both blocks.
  *
  * The same valid configs under a drawn process environment, the one pg reads (connection/environment.ts): each startup
@@ -147,13 +148,19 @@ const PlainServed = served<typeof Plain>(compiledServedFile(Plain), "plain")
 
 export const ClaimingServed = served<typeof Claiming>(compiledServedFile(Claiming), "claiming")
 
-/** A valid config: every rule parseConnection states holds, the password a Redacted or an Effect yielding one. */
-interface Drawn {
-	readonly config: DbConfigShape<typeof Plain>
+/**
+ * A valid config: every rule parseConnection states holds; over the network the password a Redacted or an Effect
+ * yielding one, over a Unix socket none, `password` then the mark a fault injects beside the socket.
+ */
+interface Drawn<C extends DbConfigShape<typeof Plain> = DbConfigShape<typeof Plain>> {
+	readonly config: C
 	readonly password: string
 }
 
-export const drawnGen: Gen<Drawn> = (source) => {
+/** A valid config over the network. */
+export const networkDrawnGen: Gen<Drawn<SslRequestConnection & DbConfigShape<typeof Plain>>> = (
+	source
+) => {
 	const host = source.draw(hostGen)
 	const port = source.draw(int(1, 65535))
 	const database = source.draw(textGen)
@@ -193,12 +200,41 @@ export const drawnGen: Gen<Drawn> = (source) => {
 	}
 }
 
+/** A socket directory: an absolute path of one to three segments of tricky text, a / ending it or not. */
+const directoryGen: Gen<string> = (source) =>
+	`/${Arr.join(source.draw(array(textGen, { min: 1, max: 3 })), "/")}${source.draw(element(["", "/"]))}`
+
+/** A valid config over the server's Unix socket: no password. */
+const socketDrawnGen: Gen<Drawn> = (source) => {
+	const directory = source.draw(directoryGen)
+	const port = source.draw(int(1, 65535))
+	const database = source.draw(textGen)
+	const password = `pw-${source.draw(textGen)}`
+	const max = source.draw(int(1, 20))
+	const verify = source.draw(boolean)
+	return {
+		password,
+		config: {
+			driver: pgDriver,
+			transport: { kind: "unixSocket", directory, port },
+			database,
+			pool: { max },
+			login: PlainServed,
+			...(verify ? { verify: () => Effect.succeed({}) } : {})
+		}
+	}
+}
+
+/** A valid config over either transport. */
+export const drawnGen: Gen<Drawn> = oneOf<Drawn>([networkDrawnGen, socketDrawnGen])
+
 /** A setting of DbConfig a fault breaks. */
 type Setting =
 	| "driver"
 	| "transport"
 	| "transport.kind"
 	| "transport.host"
+	| "transport.directory"
 	| "transport.port"
 	| "transport.open"
 	| "transport.ca"
@@ -211,14 +247,18 @@ type Setting =
 	| "verify"
 
 /**
- * What a run reaches: its valid config built, and its fault refused at the setting it breaks, or as an unknown key; a
- * host that is a path refused at the host.
+ * What a run reaches: its valid config built, over either transport, and its fault refused at the setting it breaks,
+ * or as an unknown key, a setting of the other transport's among them; a host that is a path refused at the host; a
+ * password beside a Unix socket refused at the password.
  */
 export type LayerFeature =
 	| "valid built"
+	| "valid built over a Unix socket"
 	| `refused DbConfig.${Setting}`
 	| "refused an unknown setting"
+	| "refused a setting of the other transport"
 	| "refused a host that is a path"
+	| "refused a password beside a Unix socket"
 
 /** What a refusal must name: a setting of DbConfig, or an unknown key, quoted. */
 type Named =
@@ -268,97 +308,161 @@ export const settingOf = (f: Fault): ReadonlyArray<string> =>
 			? ["DbConfig", f.names.key]
 			: ["DbConfig", f.place, f.names.key]
 
-/** The rule a fault's refusal must name where the fault decides it: an unknown key's, and a host that is a path's. */
+/**
+ * The rule a fault's refusal must name where the fault decides it: an unknown key's, a host that is a path's, a socket
+ * directory's and a password's beside a Unix socket.
+ */
 export const ruleOf = (f: Fault): Option.Option<SettingRule["kind"]> =>
 	f.names.kind === "unknown"
 		? Option.some("known")
 		: f.reaches === "refused a host that is a path"
 			? Option.some("networkHost")
-			: Option.none()
+			: f.reaches === "refused DbConfig.transport.directory"
+				? Option.some("socketDirectory")
+				: f.reaches === "refused a password beside a Unix socket"
+					? Option.some("socketPassword")
+					: Option.none()
+
+/** A setting of the other transport's kind, beside this one's: no setting of it, refused as an unknown key. */
+const otherKindSetting = (key: string, value: unknown): Fault => ({
+	place: "transport",
+	override: { [key]: value },
+	names: { kind: "unknown", key },
+	reaches: "refused a setting of the other transport"
+})
+
+/** The settings of a network transport no Unix socket holds, each with a value it would hold. */
+const networkOnly: Arr.NonEmptyReadonlyArray<readonly [string, unknown]> = [
+	["host", "localhost"],
+	["open", () => new net.Socket()],
+	["ca", pem("ca")],
+	["servername", "localhost"]
+]
+
+/** The faults of a transport's own settings, by its kind, and those of the other kind's settings beside it. */
+const transportFaults = (kind: Transport["kind"]): ReadonlyArray<Gen<Fault>> => {
+	switch (kind) {
+		case "sslRequest":
+			return [
+				map(element<unknown>(["", 7, undefined, null]), (host) =>
+					fault(setting("transport.host"), "transport", { host })
+				),
+				map(element(["/", "/tmp", "/var/run/postgresql", "/tmp/.s.PGSQL.5432"]), pathHost),
+				map(element<unknown>(["socket", 1, null, undefined]), (open) =>
+					fault(setting("transport.open"), "transport", { open })
+				),
+				map(element<unknown>(["", [], [""], 42, undefined]), (ca) =>
+					fault(setting("transport.ca"), "transport", { ca })
+				),
+				map(element<unknown>(["", 7, null, undefined]), (servername) =>
+					fault(setting("transport.servername"), "transport", { servername })
+				),
+				map(element<unknown>(["/run/postgresql", "relative"]), (directory) =>
+					otherKindSetting("directory", directory)
+				)
+			]
+		case "unixSocket":
+			return [
+				map(
+					element<unknown>([
+						"",
+						"run/postgresql",
+						"./run",
+						"~/run",
+						"/run/post\0gresql",
+						7,
+						undefined,
+						null
+					]),
+					(directory) => fault(setting("transport.directory"), "transport", { directory })
+				),
+				map(element(networkOnly), ([key, value]) => otherKindSetting(key, value)),
+				(source) => ({
+					place: "top",
+					override: { password: Redacted.make(`pw-${source.draw(textGen)}`) },
+					names: setting("password"),
+					reaches: "refused a password beside a Unix socket"
+				})
+			]
+	}
+}
 
 /**
- * Each fault a JavaScript caller can pass. The last: a login one of whose roles reads a context, without a verify, so
- * no Db of it could turn a token into claims.
+ * Each fault a JavaScript caller can pass to a config over a transport of `kind`. The last: a login one of whose roles
+ * reads a context, without a verify, so no Db of it could turn a token into claims.
  */
-export const faultGen: Gen<Fault> = oneOf<Fault>([
-	map(
-		element([
-			"role",
-			"user",
-			"ssl",
-			"sslmode",
-			"options",
-			"host",
-			"port",
-			"tls",
-			"connectTimeoutMs",
-			"attachPool"
-		]),
-		(key) => fault(unknownKey(key), "top", { [key]: "x" })
-	),
-	map(
-		element<unknown>([undefined, null, 42, {}, { Client: 1, Pool: 1, DatabaseError: 1 }]),
-		(driver) => fault(setting("driver"), "top", { driver })
-	),
-	map(element<unknown>([undefined, null, "sslRequest", []]), (transport) =>
-		fault(setting("transport"), "top", { transport })
-	),
-	map(element(["mode", "sslmode", "rejectUnauthorized", "tls"]), (key) =>
-		fault(unknownKey(key), "transport", { [key]: "x" })
-	),
-	map(element<unknown>(["tls", "", undefined]), (kind) =>
-		fault(setting("transport.kind"), "transport", { kind })
-	),
-	map(element<unknown>(["", 7, undefined, null]), (host) =>
-		fault(setting("transport.host"), "transport", { host })
-	),
-	map(element(["/", "/tmp", "/var/run/postgresql", "/tmp/.s.PGSQL.5432"]), pathHost),
-	map(
-		element<unknown>([
-			0,
-			-1,
-			65536,
-			54.32,
-			"5432",
-			Number.NaN,
-			Number.POSITIVE_INFINITY,
-			undefined
-		]),
-		(port) => fault(setting("transport.port"), "transport", { port })
-	),
-	map(element<unknown>(["socket", 1, null, undefined]), (open) =>
-		fault(setting("transport.open"), "transport", { open })
-	),
-	map(element<unknown>(["", [], [""], 42, undefined]), (ca) =>
-		fault(setting("transport.ca"), "transport", { ca })
-	),
-	map(element<unknown>(["", 7, null, undefined]), (servername) =>
-		fault(setting("transport.servername"), "transport", { servername })
-	),
-	(source) => {
-		const value = source.draw(element<unknown>(["", 1, undefined, null]))
-		return fault(setting("database"), "top", { database: value })
-	},
-	map(element<unknown>(["plain text", undefined, 42, { value: "x" }, null]), (password) =>
-		fault(setting("password"), "top", { password })
-	),
-	map(element<unknown>([undefined, null, 10, []]), (pool) =>
-		fault(setting("pool"), "top", { pool })
-	),
-	map(element(["min", "idleTimeoutMs", "size", "connectionTimeoutMillis"]), (key) =>
-		fault(unknownKey(key), "pool", { [key]: 1 })
-	),
-	map(element<unknown>([0, -1, 1.5, "10", Number.NaN, undefined]), (max) =>
-		fault(setting("pool.max"), "pool", { max })
-	),
-	map(element<unknown>(["", 1, undefined, null, {}, Shelf, "plain"]), (value) =>
-		fault(setting("login"), "top", { login: value })
-	),
-	map(element<unknown>(["verify", 1, null, {}]), (value) =>
-		fault(setting("verify"), "top", { verify: value })
-	),
-	constant(fault(setting("verify"), "top", { login: ClaimingServed, verify: undefined }))
-])
+export const faultGen = (kind: Transport["kind"]): Gen<Fault> =>
+	oneOf<Fault>([
+		map(
+			element([
+				"role",
+				"user",
+				"ssl",
+				"sslmode",
+				"options",
+				"host",
+				"port",
+				"tls",
+				"connectTimeoutMs",
+				"attachPool"
+			]),
+			(key) => fault(unknownKey(key), "top", { [key]: "x" })
+		),
+		map(
+			element<unknown>([undefined, null, 42, {}, { Client: 1, Pool: 1, DatabaseError: 1 }]),
+			(driver) => fault(setting("driver"), "top", { driver })
+		),
+		map(element<unknown>([undefined, null, "sslRequest", []]), (transport) =>
+			fault(setting("transport"), "top", { transport })
+		),
+		map(element(["mode", "sslmode", "rejectUnauthorized", "tls"]), (key) =>
+			fault(unknownKey(key), "transport", { [key]: "x" })
+		),
+		map(element<unknown>(["tls", "unix", "socket", "", undefined]), (transportKind) =>
+			fault(setting("transport.kind"), "transport", { kind: transportKind })
+		),
+		...transportFaults(kind),
+		map(
+			element<unknown>([
+				0,
+				-1,
+				65536,
+				54.32,
+				"5432",
+				Number.NaN,
+				Number.POSITIVE_INFINITY,
+				undefined
+			]),
+			(port) => fault(setting("transport.port"), "transport", { port })
+		),
+		(source) => {
+			const value = source.draw(element<unknown>(["", 1, undefined, null]))
+			return fault(setting("database"), "top", { database: value })
+		},
+		...(kind === "sslRequest"
+			? [
+					map(element<unknown>(["plain text", undefined, 42, { value: "x" }, null]), (password) =>
+						fault(setting("password"), "top", { password })
+					)
+				]
+			: []),
+		map(element<unknown>([undefined, null, 10, []]), (pool) =>
+			fault(setting("pool"), "top", { pool })
+		),
+		map(element(["min", "idleTimeoutMs", "size", "connectionTimeoutMillis"]), (key) =>
+			fault(unknownKey(key), "pool", { [key]: 1 })
+		),
+		map(element<unknown>([0, -1, 1.5, "10", Number.NaN, undefined]), (max) =>
+			fault(setting("pool.max"), "pool", { max })
+		),
+		map(element<unknown>(["", 1, undefined, null, {}, Shelf, "plain"]), (value) =>
+			fault(setting("login"), "top", { login: value })
+		),
+		map(element<unknown>(["verify", 1, null, {}]), (value) =>
+			fault(setting("verify"), "top", { verify: value })
+		),
+		constant(fault(setting("verify"), "top", { login: ClaimingServed, verify: undefined }))
+	])
 
 /** A layer, whatever it provides, built in a scope of its own and closed: its exit. */
 export const built = (

@@ -130,6 +130,15 @@ export const IndexerLayer = gRuntime.DbLayer.make({
 	}).pipe(Effect.map(Redacted.make))
 })
 
+/** A job on the database's machine signs in over its Unix socket, as the account it runs as. */
+export const LocalIndexerLayer = gRuntime.DbLayer.make({
+	driver: pgDriver,
+	transport: { kind: "unixSocket", directory: "/run/postgresql", port: 5432 },
+	database: "app",
+	login: IndexerServed,
+	pool: { max: 2 }
+})
+
 /** A post as the client sends it, decoded with Effect Schema. */
 const NewPost = Schema.Struct({ slug: Schema.String, title: Schema.String, body: Schema.String })
 

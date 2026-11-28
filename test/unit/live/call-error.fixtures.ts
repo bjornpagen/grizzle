@@ -31,6 +31,7 @@ import {
 	LayerReleased,
 	NoCancelKey,
 	ParamRejected,
+	PasswordAsked,
 	ServerError,
 	SocketFailed,
 	StartupRefused,
@@ -347,6 +348,7 @@ type Ended =
 	| "the password Effect failed"
 	| "closed before ready"
 	| "pg ended the startup"
+	| "a password asked over a Unix socket"
 	| "no cancellation key"
 	| "no TLS offered"
 	| "TLS answered neither"
@@ -356,6 +358,7 @@ const endedOracle: { readonly [E in Ended]: Expected } = {
 	"the password Effect failed": credential("passwordFailed"),
 	"closed before ready": unavailable("connectionClosed"),
 	"pg ended the startup": credential("driverRefused"),
+	"a password asked over a Unix socket": credential("driverRefused"),
 	"no cancellation key": { kind: "failed" },
 	"no TLS offered": credential("tlsUnverified"),
 	"TLS answered neither": credential("tlsUnverified")
@@ -451,6 +454,7 @@ const endings: Arr.NonEmptyReadonlyArray<Ended> = [
 	"the password Effect failed",
 	"closed before ready",
 	"pg ended the startup",
+	"a password asked over a Unix socket",
 	"no cancellation key",
 	"no TLS offered",
 	"TLS answered neither"
@@ -554,6 +558,8 @@ const endedRefusal = (ended: Ended): ConnectRefusal => {
 			return new DriverRefused({
 				said: "SASL: SCRAM-SERVER-FINAL-MESSAGE: server signature does not match"
 			})
+		case "a password asked over a Unix socket":
+			return new PasswordAsked()
 		case "no cancellation key":
 			return new NoCancelKey()
 		case "no TLS offered":

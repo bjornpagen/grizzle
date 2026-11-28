@@ -40,7 +40,7 @@ export const connectionTo = (
 	cluster: Cluster,
 	database: string,
 	password: Redacted.Redacted
-): gRuntime.DbConnection => ({
+): gRuntime.SslRequestConnection => ({
 	driver: pg,
 	transport: {
 		kind: "sslRequest",

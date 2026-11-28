@@ -4,7 +4,13 @@
  * socket module it reads as a caller does.
  */
 export { Effect, Redacted } from "effect"
-export type { DbConfigShape, PoolBounds, Transport, Verify } from "#adapter/types/layer.ts"
+export type {
+	DbConfigShape,
+	PoolBounds,
+	SslRequestTransport,
+	UnixSocketTransport,
+	Verify
+} from "#adapter/types/layer.ts"
 export { DbLayer, served } from "#adapter/public/layer.ts"
 export type { CredentialError } from "#index.ts"
 export { PlainLogin, WebLogin } from "#test/support/agreement/access-schema.ts"

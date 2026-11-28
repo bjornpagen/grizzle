@@ -41,13 +41,20 @@ export type DbLayerOf<L> =
 	RolesOf<L> extends infer R ? (R extends unknown ? DbLayerService<R> : never) : never
 
 /**
- * How a connection reaches the server, the one way there is: the transport's socket, which `open` makes unconnected
- * and the driver connects to `host` and `port`, then the SSLRequest, and verify-full TLS over the socket, the server
- * certificate chained to `ca` and naming `servername`. A plain Node caller opens `() => new net.Socket()`; a tunnel
- * connects to its local end and names the server it reaches. A server that answers the SSLRequest with no is refused:
- * nothing is ever sent in plaintext.
+ * How a connection reaches the server: over the network, an SSLRequest and then verify-full TLS (SslRequestTransport),
+ * or over the server's own Unix-domain socket, from a program on the server's machine (UnixSocketTransport). Nothing
+ * ever crosses a network in plaintext.
  */
-export interface Transport {
+export type Transport = SslRequestTransport | UnixSocketTransport
+
+/**
+ * A connection over the network: the transport's socket, which `open` makes unconnected and the driver connects to
+ * `host` and `port`, then the SSLRequest, and verify-full TLS over the socket, the server certificate chained to `ca`
+ * and naming `servername`. A plain Node caller opens `() => new net.Socket()`; a tunnel connects to its local end and
+ * names the server it reaches. A server that answers the SSLRequest with no is refused: nothing is ever sent in
+ * plaintext.
+ */
+export interface SslRequestTransport {
 	readonly kind: "sslRequest"
 	/**
 	 * The host the socket connects to, nonempty: a name or an IP address, never a path (a host starting with /), which
@@ -65,18 +72,48 @@ export interface Transport {
 }
 
 /**
+ * A connection over the server's Unix-domain socket, for a program on the server's own machine: the socket file
+ * `<directory>/.s.PGSQL.<port>`, as PostgreSQL names it from its unix_socket_directories and its port. grizzle opens
+ * the socket itself. The connection crosses no network, so it sends no SSLRequest and has no TLS, which PostgreSQL
+ * offers over no Unix socket; and it carries no password: the kernel tells the server which operating-system account
+ * is calling, and pg_hba.conf's `local` line authenticates it by that account (`peer`, the account mapped to the login
+ * role by pg_ident.conf). The kernel bounds the socket file's path (its sun_path: 108 bytes on Linux and 104 on macOS,
+ * a terminating NUL among them): a longer path is no address, and each connection to it fails with the socket's
+ * EINVAL (SocketFailed).
+ */
+export interface UnixSocketTransport {
+	readonly kind: "unixSocket"
+	/** The directory the server's socket is in, one of its unix_socket_directories: an absolute path, no NUL in it. */
+	readonly directory: string
+	/** The server's port, which names its socket file: an integer from 1 to 65535. */
+	readonly port: number
+}
+
+/**
+ * A connection's password: a Redacted, or an Effect evaluated for each connection attempt, so a rotating credential
+ * needs no restart.
+ */
+export type ConnectionPassword =
+	| Redacted.Redacted
+	| Effect.Effect<Redacted.Redacted, CredentialError>
+
+/**
  * Where a connection goes and how it authenticates, which a DbLayer's config and the migration connection share: the
- * driver, the transport, the database and its installation's role prefix, and the password.
+ * driver, the transport, the database and its installation's role prefix, and the password a network connection
+ * signs in with. A connection over a Unix socket takes no password (UnixSocketConnection): the server authenticates
+ * the operating-system account the kernel names.
  *
  * It states no timeout: a connection attempt waits for its server's own answer or failure, as the operating system
- * reports an unreachable host (a refused or timed-out TCP connect, SocketFailed with its code) and as PostgreSQL ends
- * a startup it does not finish (its authentication_timeout). A caller that answers by a deadline states it on its own
- * call (`Effect.timeout`), its own decision, never grizzle's.
+ * reports an unreachable host (a refused or timed-out TCP connect, a socket file that is not there, SocketFailed with
+ * its code) and as PostgreSQL ends a startup it does not finish (its authentication_timeout). A caller that answers by
+ * a deadline states it on its own call (`Effect.timeout`), its own decision, never grizzle's.
  */
-export interface DbConnection {
+export type DbConnection = SslRequestConnection | UnixSocketConnection
+
+/** What every connection states, whatever its transport: the driver, the database and the installation's role prefix. */
+interface ConnectionTarget {
 	/** node-postgres, as the caller imports it (`import pg from "pg"`): grizzle imports no driver itself. */
 	readonly driver: PgDriver
-	readonly transport: Transport
 	readonly database: string
 	/**
 	 * The installation's role prefix: every login's and role's PostgreSQL role is `<rolePrefix>__<role>` (roleNameOf),
@@ -86,8 +123,23 @@ export interface DbConnection {
 	 * without it, each role is the name `grizzle generate` committed.
 	 */
 	readonly rolePrefix?: string
-	/** Evaluated for each connection attempt when it is an Effect, so a rotating credential needs no restart. */
-	readonly password: Redacted.Redacted | Effect.Effect<Redacted.Redacted, CredentialError>
+}
+
+/** A connection over the network: verify-full TLS, then the password, which the server asks for once TLS is up. */
+export interface SslRequestConnection extends ConnectionTarget {
+	readonly transport: SslRequestTransport
+	readonly password: ConnectionPassword
+}
+
+/**
+ * A connection over the server's Unix socket, which takes no password: the server authenticates the operating-system
+ * account the kernel names. A server that asks for one anyway (its pg_hba.conf names a password method for `local`) is
+ * refused, PasswordAsked, and no password is ever sent.
+ */
+export interface UnixSocketConnection extends ConnectionTarget {
+	readonly transport: UnixSocketTransport
+	/** No password: a socket connection that states one does not compile, and the parse refuses it. */
+	readonly password?: never
 }
 
 /**
@@ -305,7 +357,8 @@ interface DecoderByReads extends Readonly<Record<Reads, ServedDecoder>> {
 
 /**
  * LiveSource.layer's config: the connection of the installation's decoder login, whose `password` is that login's
- * credential, the one login that reads the installation's replication slot, and a served login of the installation,
+ * credential over the network (over a Unix socket, the account the kernel names is), the one login that reads the
+ * installation's replication slot, and a served login of the installation,
  * whose file carries the installation's live source (texts, names and tables) where the login serves a read. The
  * decoder login is the served login's `decoder`, its PostgreSQL role `roleNameOf(login.decoder, connection)`.
  */
@@ -326,8 +379,9 @@ export interface LiveSourceConstructor {
 
 /**
  * DbLayer.make; packages/grizzle/src/adapter/public/layer.ts implements it. The config is parsed where it is given: one
- * no connection can use (a driver that is no driver, an empty host or one that is a path, a port outside 1 to 65535, an
- * empty CA bundle, no servername, a pool bound outside its range) fails the layer with
+ * no connection can use (a driver that is no driver, an empty host or one that is a path, a socket directory that is no
+ * absolute path, a port outside 1 to 65535, an empty CA bundle, no servername, a setting of the other transport's, a
+ * password beside a Unix socket, a pool bound outside its range) fails the layer with
  * OpenError{stage: "config"}, as does a served file of another login than the name served(...) was given.
  * Building the layer reads the served file once and rebuilds what runs each of its programs (codecs, readers,
  * decoders, the refusal classifier and the prologue); it compiles nothing and evaluates no schema. L is read off the

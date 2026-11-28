@@ -14,7 +14,7 @@ import {
 } from "effect"
 import pgDriver from "pg"
 import type { ConnectRefusal } from "#adapter/errors/failures.ts"
-import type { Transport } from "#adapter/types/layer.ts"
+import type { SslRequestTransport } from "#adapter/types/layer.ts"
 import { connectSession, type Session } from "#adapter/wire/session.ts"
 import { servedSession } from "#compiler/program/served.ts"
 import { pgPin } from "#test/support/env.ts"
@@ -807,7 +807,7 @@ export interface Tap {
 	 * session through it is recorded and gated; every CancelRequest through it is counted. Each socket draws one of the
 	 * cluster's budget's permits while it lives, as the tap's connection to the cluster lives as long.
 	 */
-	readonly transport: Transport
+	readonly transport: SslRequestTransport
 	/** A mark at the end of the traffic so far. */
 	readonly mark: () => number
 	/** The traffic since `mark`. */

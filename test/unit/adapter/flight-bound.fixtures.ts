@@ -27,7 +27,7 @@ import {
 } from "effect"
 import pgDriver from "pg"
 import type { BatchFailure, ConnectRefusal, InputTooLarge } from "#adapter/errors/failures.ts"
-import type { Transport } from "#adapter/types/layer.ts"
+import type { SslRequestTransport } from "#adapter/types/layer.ts"
 import {
 	type ApartFailure,
 	type BatchStatement,
@@ -142,7 +142,7 @@ class WireServer {
 	committed = 0
 	resetAt: ResetAt = "never"
 	/** The transport that reaches the server: a TCP socket to its port, verified against its CA as `servername`. */
-	readonly transport: Transport
+	readonly transport: SslRequestTransport
 	readonly #material = tlsMaterial("flight-bound.test")
 	readonly #connections: Array<Socket> = []
 	readonly #opened: Array<Socket> = []

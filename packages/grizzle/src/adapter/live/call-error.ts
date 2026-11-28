@@ -212,6 +212,7 @@ const acquireTags: { readonly [T in AcquireRefusal["_tag"]]: T } = {
 	TlsRefused: "TlsRefused",
 	ConnectionClosed: "ConnectionClosed",
 	DriverRefused: "DriverRefused",
+	PasswordAsked: "PasswordAsked",
 	NoCancelKey: "NoCancelKey",
 	LayerReleased: "LayerReleased"
 }
@@ -343,7 +344,8 @@ const tlsCallError = (
 
 /**
  * A session never had, by its cause (failures.ts AcquireRefusal), carrying a failure's own message: the password
- * Effect's failure, `passwordFailed`, and pg's own end of the startup, `driverRefused`, are `credentialRefused`; the
+ * Effect's failure, `passwordFailed`, and pg's own end of the startup or a password asked over a Unix socket, which
+ * grizzle ends as pg ends one it cannot answer, `driverRefused`, are `credentialRefused`; the
  * server's refusal by its SQLSTATE (serverCallError), the socket's by its code (socketCallError) and TLS's by its fault
  * (tlsCallError), an unreachable host's ETIMEDOUT `timedOut` among them; a connection closed before it was ready,
  * `connectionClosed`, is `unavailable`; a server that sends no cancellation key is `failed`, since every attempt
@@ -362,6 +364,7 @@ const connectCallError = (refusal: AcquireRefusal, message: string): CallErrorIn
 		case "ConnectionClosed":
 			return unavailable("connectionClosed", message)
 		case "DriverRefused":
+		case "PasswordAsked":
 			return credentialRefused("driverRefused", message)
 		case "NoCancelKey":
 			return messageErrors.failed(message)

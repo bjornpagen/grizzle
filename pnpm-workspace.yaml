@@ -24,6 +24,10 @@ minimumReleaseAge: 1440
 minimumReleaseAgeExclude:
   - effect
   - "@effect/*"
+# tsrs's first release was approved by hand with two-factor sign-in, which pnpm ranks above the trusted publisher every
+# later release uses; each release's signed provenance names github.com/oxc-project/tsrs's own release workflow.
+trustPolicyExclude:
+  - tsrs@7.1.0-beta.tsrs3
 # Node 26 is the floor, so its types are the only Node types, even for packages that ask for newer: code typed against
 # 26 runs on 26 and every Node after it.
 overrides:

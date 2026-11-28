@@ -123,6 +123,7 @@ const constructors: {
 	NoCancelKey: Failures.NoCancelKey,
 	OpenError: gRuntime.OpenError,
 	ParamRejected: Failures.ParamRejected,
+	PasswordAsked: Failures.PasswordAsked,
 	PutTargetConflict: Failures.PutTargetConflict,
 	ReadFailure: Execution.ReadFailure,
 	RoleOutsideLayers: gRuntime.RoleOutsideLayers,

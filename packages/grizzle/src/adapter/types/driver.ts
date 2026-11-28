@@ -68,10 +68,12 @@ export interface PgQuery extends Submittable {
 type TlsUpgradable = NonNullable<ConnectionOptions["socket"]>
 
 /**
- * The socket a connection runs over, as the caller's transport opens it, unconnected: pg connects it
- * (`connect(port, host)`, pg 8.23 lib/connection.js), sets no-delay on it, refs and unrefs it, writes the SSLRequest on
- * it and upgrades it through `tls.connect({ socket })` (TlsUpgradable); a CancelRequest's connection is opened,
- * connected and upgraded the same way (wire/session.ts). A plain Node caller opens `new net.Socket()`.
+ * The socket a connection runs over, unconnected: a network transport's, as the caller's transport opens it, which pg
+ * connects (`connect(port, host)`, pg 8.23 lib/connection.js), sets no-delay on, refs and unrefs, writes the SSLRequest
+ * on and upgrades through `tls.connect({ socket })` (TlsUpgradable), a CancelRequest's connection opened, connected and
+ * upgraded the same way (wire/session.ts); or a Unix socket transport's, a `net.Socket` grizzle opens itself, which pg
+ * connects by its socket file's path alone (lib/client.js) and never upgrades. A plain Node caller opens
+ * `new net.Socket()`.
  */
 export interface PgSocket extends TlsUpgradable {
 	connect(port: number, host: string): unknown
@@ -95,8 +97,9 @@ export type PgWireMode =
 /**
  * The configuration of every session's client, each setting stated, so pg reads none of them from the environment
  * (connection/environment.ts): the destination and login, the password as a function pg calls when the server asks for
- * one, verify-full TLS negotiated by SSLRequest over the transport's socket, no connect timeout, its wire mode, text
- * results, and a login's pinned startup options, which an owner's session leaves out.
+ * one, verify-full TLS negotiated by SSLRequest over a network transport's socket, or `false` over a Unix socket, which
+ * has none and which pg would otherwise read PGSSLMODE for, no connect timeout, its wire mode, text results, and a
+ * login's pinned startup options, which an owner's session leaves out.
  *
  * `connectionTimeoutMillis` is 0, the one value pg 8.23 sets no timer for (lib/client.js `if
  * (this._connectionTimeoutMillis > 0)`): a connection attempt waits for its server's own answer or failure, never a
@@ -113,7 +116,7 @@ export type PgClientConfig = PgWireMode & {
 	readonly options?: string
 	readonly types: { readonly getTypeParser: () => (text: string) => string }
 	readonly connectionTimeoutMillis: 0
-	readonly ssl: ConnectionOptions
+	readonly ssl: ConnectionOptions | false
 	readonly stream: () => PgSocket
 }
 

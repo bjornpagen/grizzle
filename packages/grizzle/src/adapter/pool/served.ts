@@ -330,8 +330,7 @@ const makeServedSessions = Effect.fn("makeServedSessions")(function* <L>(
 		driver: config.driver,
 		transport: config.transport,
 		database: config.database,
-		role: login.role,
-		password: config.password
+		role: login.role
 	}
 	const pool = yield* makePool({
 		connection,

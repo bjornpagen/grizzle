@@ -10,6 +10,7 @@ import {
 
 import {
 	ConnectRefused,
+	type ConnectTarget,
 	type MigrateError,
 	type StatementFailure,
 	stopped
@@ -29,7 +30,7 @@ import {
 	type Uncommitting
 } from "#adapter/wire/batch.ts"
 
-import type { ParsedConnection } from "#adapter/connection/config.ts"
+import type { ParsedConnection, ParsedTransport } from "#adapter/connection/config.ts"
 import { connectSession, type Session } from "#adapter/wire/session.ts"
 import { type CatalogQuery, catalogRow, catalogRows } from "#adapter/wire/statement.ts"
 import { servedSession } from "#compiler/plan/common.ts"
@@ -40,7 +41,8 @@ import type { InstallationNames } from "#compiler/plan/migration.ts"
  *
  * `grizzle migrate` runs as the migration identity, which owns the schema. It is no login of the application: it has
  * none of the logins' fixed defaults and enters no role, so it does not go through the pool. It opens one session over
- * the connection's driver and transport, with the adapter's verify-full TLS and per-attempt password, waiting for the
+ * the connection's driver and transport, with the adapter's verify-full TLS and per-attempt password over the network
+ * or the operating-system account over a Unix socket, waiting for the
  * server's own answer with no connect timeout (../wire/session.ts), holds it for the whole apply, and sends every step itself. A step is a list of
  * statements sent together, in one flight (../wire/batch.ts): every statement of it is written before any answer is
  * read, so no statement of a step can wait on another's answer, and the session sends nothing else. A step is
@@ -152,6 +154,16 @@ export const connectionInstallation = (connection: MigrationConnection): Install
 	roles: connection.roles
 })
 
+/** The server a parsed transport reaches for, as a refusal names it (errors.ts ConnectTarget). */
+const targetOf = (transport: ParsedTransport): ConnectTarget => {
+	switch (transport.kind) {
+		case "sslRequest":
+			return { kind: "sslRequest", host: transport.host, port: transport.port }
+		case "unixSocket":
+			return { kind: "unixSocket", directory: transport.directory, port: transport.port }
+	}
+}
+
 /**
  * Opens the migration identity's session, closed with the scope. A connection failure is a MigrateError whose reason,
  * ConnectRefused, carries the connection attempt's refusal (failures.ts ConnectRefusal), whose message states that
@@ -165,8 +177,7 @@ export const openMigrationSession = (
 			stopped(
 				new ConnectRefused({
 					role: spec.role,
-					host: spec.transport.host,
-					port: spec.transport.port,
+					target: targetOf(spec.transport),
 					refusal
 				})
 			),

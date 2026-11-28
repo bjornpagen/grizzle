@@ -196,6 +196,12 @@ export default g.defineConfig({
   to `ca` and naming `servername`), `database`, `role`, `password` (a Redacted, or an Effect yielding one, evaluated for
   each connection attempt: an RDS IAM token, a secret manager's lookup). grizzle bounds no connection attempt: it
   waits for the server's answer or the operating system's failure. README "Logins, connecting and RDS IAM" shows the RDS IAM password with `@aws-sdk/rds-signer`.
+- On the database's own machine, `transport` may be the server's Unix socket instead: `{ kind: "unixSocket",
+  directory, port }`, the socket file `<directory>/.s.PGSQL.<port>` (`unix_socket_directories`, `port`). It takes no
+  `open`, `ca`, `servername` or `password`, each a type error beside it: no SSLRequest and no TLS, which PostgreSQL
+  offers over no Unix socket, and the kernel names the calling operating-system account, which `pg_hba.conf`
+  authenticates (`local <database> <role> peer map=<map>`, the account mapped to the role in `pg_ident.conf`). A
+  server that asks for a password there is refused, `PasswordAsked`; nothing is sent.
 - Never write a credential into the config file: read it where the config runs, as the password Effect does.
 - `connection` is a function: only `migrate` and `drift` call it, so `generate`, `check` and `names` read no cluster
   setting and no CA file, and `check` runs in CI where no cluster is reachable. `migrate` and `drift` refuse a process environment that
@@ -616,7 +622,7 @@ Applied files, which only `migrate` can check against the ledger:
 
 | Stage | Fix |
 | --- | --- |
-| connect | check the configuration's connection: its host, port, database, role, password and CA |
+| connect | check the configuration's connection: its host, port, database, role, password and CA, or its Unix socket's directory and port and the server's pg_hba.conf local line |
 | stack | have a superuser raise the server's max_stack_depth to at least 2MB, its default |
 | advice | have a superuser load pg_plan_advice for the database (ALTER DATABASE <database> SET session_preload_libraries = 'pg_plan_advice') or the server (shared_preload_libraries = 'pg_plan_advice', a restart), with no role setting its own session_preload_libraries, then run grizzle migrate again |
 | blocks | run grizzle migrate against a server built with PostgreSQL's default block_size, 8192 bytes: a server's block size is fixed when it is built |
@@ -720,7 +726,8 @@ to fix, or the compiler's refusal of a schema or login with its fix, and no line
   `connection` is the config's connection without its `role` and its password, which are the migration role's
   (`DbLayer.make` refuses a `role` as an unknown setting): `driver: pgDriver` (`import pgDriver from "pg"`), the
   `transport` (`{ kind: "sslRequest", host, port, open: () => new net.Socket(), ca, servername }`, always
-  verify-full) and the `database`. `password` is the login's own, and `pool` is `{ max }`:
+  verify-full, or `{ kind: "unixSocket", directory, port }` on the database's machine) and the `database`.
+  `password` is the login's own, none over a Unix socket, and `pool` is `{ max }`:
   each session is kept open once opened, for the layer's life, never closed for being idle.
   grizzle states no number of its own: a `Db` call waits for a session until it gets one or is interrupted, a
   connection attempt for the server's answer or the operating system's failure, and an interrupted statement ends once

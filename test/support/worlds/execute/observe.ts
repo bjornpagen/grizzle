@@ -162,6 +162,7 @@ export const readFailed = (error: ReadError): Effect.Effect<Observation> => {
 		case "SocketFailed":
 		case "ConnectionClosed":
 		case "DriverRefused":
+		case "PasswordAsked":
 		case "NoCancelKey":
 		case "LayerReleased":
 		case "ConnectionLost":

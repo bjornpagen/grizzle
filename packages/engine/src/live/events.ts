@@ -34,7 +34,8 @@ import type { BrokenLaws, Witness } from "#compiler/types/changeset/changeset.ts
  *   not name the host, the handshake failed with a code no system error has, or the server offers no TLS or answered
  *   the SSLRequest with neither yes nor no;
  * - `driverRefused`: the driver ended the authentication itself, with no SQLSTATE and no code: a SCRAM exchange whose
- *   server proof does not verify, a mechanism it does not support, or a server asking a password of a role given none.
+ *   server proof does not verify, a mechanism it does not support, or a server asking a password of a role given none,
+ *   a connection over a Unix socket among them, which carries none.
  */
 export const credentialReasons = [
 	"passwordFailed",

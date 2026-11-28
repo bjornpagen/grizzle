@@ -157,8 +157,9 @@ const predicateRoomPerWorker = 60
 
 /**
  * The first port a family's members claim from (@bjornpagen/testing/pg family.ts): each member's, the lowest from it
- * that no family claims and nothing listens at, the one way grizzle's client connects (verify-full TLS at localhost,
- * packages/grizzle/src/adapter/types/layer.ts refuses a socket path). Above every fixed port of the clusters made before
+ * that no family claims and nothing listens at, where grizzle's network transport connects (verify-full TLS at
+ * localhost, packages/grizzle/src/adapter/types/layer.ts SslRequestTransport; its Unix socket transport reaches the
+ * member's socket). Above every fixed port of the clusters made before
  * families (5432 to 5999 on cassowary, 2026-11-22) and below the kernel's ephemeral range (from 32768). A module that
  * names the cluster's port with no member at hand, for a connection no test opens, reads it here (test/support/env.ts
  * clusterPort).
@@ -169,7 +170,7 @@ export const clusterNetwork = { kind: "tls", from: 20_000 } as const
  * grizzle's local cluster, which every test, benchmark and script reaches: at each checkout (a lane's workspace,
  * trunk's worktree) a family of its own, the workbench's PostgreSQL units postgres@grizzle-test-<key>-<i>
  * (~/Documents/beefy-workspace/workbench/parts/postgres), each member listening on localhost at a port it claims from
- * clusterNetwork's over verify-full TLS alone, which grizzle's client demands, the server's certificate the
+ * clusterNetwork's over verify-full TLS alone, which grizzle's network transport demands, the server's certificate the
  * workbench's, signed by the CA PGSSLROOTCERT names; owned by grizzle_dev, the migration identity, its template
  * grizzle_template carrying pgvector in vector_ext and pageinspect in pageinspect_ext, whose B-tree metapage a test
  * of a plan's buffers reads an index's height from as the bootstrap superuser; every member preloading

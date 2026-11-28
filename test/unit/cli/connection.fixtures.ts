@@ -101,98 +101,175 @@ const hostGen: Gen<string> = oneOf<string>([
 	hostText
 ])
 
-/** A drawn connection: its settings, the password as a Redacted or an Effect yielding one. */
+/**
+ * A drawn connection's transport: over the network, with its host, servername, CA and password, the password a
+ * Redacted or an Effect yielding one; or over a Unix socket, its directory an absolute path of tricky text, with no
+ * password.
+ */
+type DrawnTransport =
+	| {
+			readonly kind: "sslRequest"
+			readonly host: string
+			readonly port: number
+			readonly servername: string
+			readonly ca: "one" | "list"
+			readonly passwordForm: "redacted" | "effect"
+	  }
+	| { readonly kind: "unixSocket"; readonly directory: string; readonly port: number }
+
+/** A drawn connection: its settings, and the password a network transport signs in with. */
 interface Drawn {
 	readonly role: string
 	readonly password: string
-	readonly passwordForm: "redacted" | "effect"
-	readonly host: string
-	readonly port: number
-	readonly servername: string
-	readonly ca: "one" | "list"
 	readonly database: string
+	readonly transport: DrawnTransport
 }
+
+const portGen: Gen<number> = oneOf([element([1, 5432, 65535]), int(1, 65535)])
+
+/** A socket directory: an absolute path of one to three segments of tricky text, a / ending it or not. */
+const directoryGen: Gen<string> = (source) =>
+	`/${Arr.join(source.draw(array(textPart, { min: 1, max: 3 })), "/")}${source.draw(element(["", "/"]))}`
+
+const transportGen: Gen<DrawnTransport> = oneOf<DrawnTransport>([
+	(source) => ({
+		kind: "sslRequest",
+		host: source.draw(hostGen),
+		port: source.draw(portGen),
+		servername: source.draw(oneOf([hostGen, textPart])),
+		ca: source.draw(element(["one", "list"])),
+		passwordForm: source.draw(element(["redacted", "effect"]))
+	}),
+	(source) => ({
+		kind: "unixSocket",
+		directory: source.draw(directoryGen),
+		port: source.draw(portGen)
+	})
+])
 
 export const drawnGen: Gen<Drawn> = (source) => ({
 	role: source.draw(textPart),
 	/** Distinctive, so a reason quoting it is caught. */
 	password: source.draw(map(textPart, (p) => `pw-${p}`)),
-	passwordForm: source.draw(element(["redacted", "effect"])),
-	host: source.draw(hostGen),
-	port: source.draw(oneOf([element([1, 5432, 65535]), int(1, 65535)])),
-	servername: source.draw(oneOf([hostGen, textPart])),
-	ca: source.draw(element(["one", "list"])),
-	database: source.draw(textPart)
+	database: source.draw(textPart),
+	transport: source.draw(transportGen)
 })
 
 const open = (): net.Socket => new net.Socket()
 
-/** The configuration's connection of a drawn one, its password one object a resolved connection keeps. */
-export const typedOf = (d: Drawn): MigrationConnectionConfig => ({
-	driver: pgDriver,
-	transport: {
-		kind: "sslRequest",
-		host: d.host,
-		port: d.port,
-		open,
-		ca: d.ca === "one" ? caText : [caText, caText],
-		servername: d.servername
-	},
-	database: d.database,
-	role: d.role,
-	password:
-		d.passwordForm === "redacted"
-			? Redacted.make(d.password)
-			: Effect.sync(() => Redacted.make(d.password))
-})
+/**
+ * The configuration's connection of a drawn one: over the network its password one object a resolved connection keeps;
+ * over a Unix socket none.
+ */
+export const typedOf = (d: Drawn): MigrationConnectionConfig => {
+	const target = { driver: pgDriver, database: d.database, role: d.role }
+	const t = d.transport
+	switch (t.kind) {
+		case "sslRequest":
+			return {
+				...target,
+				transport: {
+					kind: "sslRequest",
+					host: t.host,
+					port: t.port,
+					open,
+					ca: t.ca === "one" ? caText : [caText, caText],
+					servername: t.servername
+				},
+				password:
+					t.passwordForm === "redacted"
+						? Redacted.make(d.password)
+						: Effect.sync(() => Redacted.make(d.password))
+			}
+		case "unixSocket":
+			return {
+				...target,
+				transport: { kind: "unixSocket", directory: t.directory, port: t.port }
+			}
+	}
+}
 
 /**
- * The settings the agreement compares, and whether the password, the driver's three classes and `open` are the given
- * ones.
+ * A transport's settings the agreement compares: over the network, whether its password and `open` are the given ones;
+ * over a Unix socket, its directory and port, and nothing more, since it holds no credential.
  */
+type TransportFields =
+	| {
+			readonly kind: "sslRequest"
+			readonly host: string
+			readonly port: number
+			readonly ca: ReadonlyArray<string>
+			readonly servername: string
+			readonly open: boolean
+			readonly password: boolean
+	  }
+	| { readonly kind: "unixSocket"; readonly directory: string; readonly port: number }
+
+/** The settings the agreement compares, and whether the driver's three classes are the given ones. */
 interface Fields {
 	readonly role: string
 	readonly database: string
-	readonly kind: "sslRequest"
-	readonly host: string
-	readonly port: number
-	readonly ca: ReadonlyArray<string>
-	readonly servername: string
 	readonly driver: boolean
-	readonly open: boolean
-	readonly password: boolean
+	readonly transport: TransportFields
 }
 
 /** What a resolved connection must state of the configuration's: every setting, the password and functions as given. */
 export const fields = (c: MigrationConnection, given: MigrationConnectionConfig): Fields => ({
 	role: c.role,
 	database: c.database,
-	kind: c.transport.kind,
-	host: c.transport.host,
-	port: c.transport.port,
-	ca: c.transport.ca,
-	servername: c.transport.servername,
 	driver:
 		c.driver.Client === given.driver.Client &&
 		c.driver.Pool === given.driver.Pool &&
 		c.driver.DatabaseError === given.driver.DatabaseError,
-	open: c.transport.open === given.transport.open,
-	password: c.password === given.password
+	transport: resolvedTransport(c, given)
 })
+
+/** A resolved connection's transport fields, `open` and the password compared with the given ones by identity. */
+const resolvedTransport = (
+	c: MigrationConnection,
+	given: MigrationConnectionConfig
+): TransportFields => {
+	const t = c.transport
+	switch (t.kind) {
+		case "sslRequest":
+			return {
+				kind: "sslRequest",
+				host: t.host,
+				port: t.port,
+				ca: t.ca,
+				servername: t.servername,
+				open: given.transport.kind === "sslRequest" && t.open === given.transport.open,
+				password: t.password === given.password
+			}
+		case "unixSocket":
+			return { kind: "unixSocket", directory: t.directory, port: t.port }
+	}
+}
 
 /** What the configuration states, its CA as the bundle TLS is handed: one PEM text the bundle of it alone. */
 export const givenFields = (given: MigrationConnectionConfig): Fields => ({
 	role: given.role,
 	database: given.database,
-	kind: given.transport.kind,
-	host: given.transport.host,
-	port: given.transport.port,
-	ca: typeof given.transport.ca === "string" ? [given.transport.ca] : given.transport.ca,
-	servername: given.transport.servername,
 	driver: true,
-	open: true,
-	password: true
+	transport: givenTransport(given.transport)
 })
+
+const givenTransport = (t: MigrationConnectionConfig["transport"]): TransportFields => {
+	switch (t.kind) {
+		case "sslRequest":
+			return {
+				kind: "sslRequest",
+				host: t.host,
+				port: t.port,
+				ca: typeof t.ca === "string" ? [t.ca] : t.ca,
+				servername: t.servername,
+				open: true,
+				password: true
+			}
+		case "unixSocket":
+			return { kind: "unixSocket", directory: t.directory, port: t.port }
+	}
+}
 
 /** The shapes the agreement must reach in every run, each by some case. */
 export const connectionFeatures = [
@@ -200,23 +277,27 @@ export const connectionFeatures = [
 	"a role outside ASCII",
 	"a password Effect",
 	"a CA list",
-	"the highest port"
+	"the highest port",
+	"a Unix socket"
 ] as const
 
 export type ConnectionFeature = (typeof connectionFeatures)[number]
 
 /** The shapes a drawn connection holds: a code unit past U+007F is a letter outside ASCII, or half a surrogate pair. */
-export const notes = (d: Drawn): ReadonlyArray<ConnectionFeature> =>
-	Arr.flatMap(
+export const notes = (d: Drawn): ReadonlyArray<ConnectionFeature> => {
+	const t = d.transport
+	return Arr.flatMap(
 		[
-			["an IPv6 host", Arr.some(ipv6Hosts, (h) => h === d.host)],
+			["an IPv6 host", t.kind === "sslRequest" && Arr.some(ipv6Hosts, (h) => h === t.host)],
 			["a role outside ASCII", Arr.some(Str.split(d.role, ""), (unit) => unit > "\u007f")],
-			["a password Effect", d.passwordForm === "effect"],
-			["a CA list", d.ca === "list"],
-			["the highest port", d.port === 65535]
+			["a password Effect", t.kind === "sslRequest" && t.passwordForm === "effect"],
+			["a CA list", t.kind === "sslRequest" && t.ca === "list"],
+			["the highest port", t.port === 65535],
+			["a Unix socket", t.kind === "unixSocket"]
 		] satisfies ReadonlyArray<readonly [ConnectionFeature, boolean]>,
 		([feature, holds]) => (holds ? [feature] : [])
 	)
+}
 
 /** Everything a refusal reports: its message and the whole error, where no value it refuses may appear. */
 export const reported = (refused: CliError): string =>

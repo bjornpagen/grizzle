@@ -46,6 +46,7 @@ export type DbConfig<L> = DbConfigShape<L>
 export type { Token } from "#adapter/db/token.ts"
 export type { PgDriver, PgSocket } from "#adapter/types/driver.ts"
 export type {
+	ConnectionPassword,
 	DbConnection,
 	DbLayerOf,
 	DecoderLogin,
@@ -59,7 +60,11 @@ export type {
 	ServedLogin,
 	ServedRole,
 	ServedRoles,
+	SslRequestConnection,
+	SslRequestTransport,
 	Transport,
+	UnixSocketConnection,
+	UnixSocketTransport,
 	Verify
 } from "#adapter/types/layer.ts"
 export type { Isolation } from "#compiler/plan/common.ts"

@@ -26,6 +26,7 @@ import {
 	ClaimingServed,
 	closingMaterial,
 	drawnGen,
+	networkDrawnGen,
 	type EnvironmentFeature,
 	environmentGen,
 	faultGen,
@@ -46,100 +47,125 @@ import {
  * DbLayer.make builds every valid config, and refuses every fault injected into one at stage config, naming it.
  *
  * Budget: its suite's count before the conversion (unit/adapter/layer-config: 400 independent cases and 0 steered,
- * Vitest at grizzle 4ca3036a).
+ * Vitest at grizzle 4ca3036a). Each transport's own faults are drawn beside a config of that transport alone, about half
+ * the cases, so a steered phase of 100 cases, which runs only while a situation is unreached, reaches the rarest of them
+ * whatever the floor's draws.
  */
 export const dbLayerMakeBuildsEveryValidConfigAndRefusesEveryFaultInjectedIntoOneAtStageConfigNamingIt =
-	property.explore((source) => [source.draw(drawnGen), source.draw(faultGen)] as const, {
-		needs: {},
-		situations: [
-			"valid built",
-			"refused DbConfig.driver",
-			"refused DbConfig.transport",
-			"refused DbConfig.transport.kind",
-			"refused DbConfig.transport.host",
-			"refused DbConfig.transport.port",
-			"refused DbConfig.transport.open",
-			"refused DbConfig.transport.ca",
-			"refused DbConfig.transport.servername",
-			"refused DbConfig.database",
-			"refused DbConfig.password",
-			"refused DbConfig.pool",
-			"refused DbConfig.pool.max",
-			"refused DbConfig.login",
-			"refused DbConfig.verify",
-			"refused an unknown setting",
-			"refused a host that is a path"
-		] satisfies ReadonlyArray<Reached<LayerFeature>>,
-		check:
-			(_, k: Case<LayerFeature>) =>
-			([d, f]) =>
-				Effect.gen(function* () {
-					const names = nameText(f.names)
-					const valid = yield* built(DbLayer.make(d.config))
-					assert.ok(
-						Exit.isSuccess(valid),
-						`a valid config is refused: ${Exit.isFailure(valid) ? Cause.pretty(valid.cause) : ""}`
-					)
-					k.note("valid built")
-					/** The config with the fault injected at its place, the rest of the config as drawn. */
-					const injected: DbConfigShape<typeof Plain> =
-						f.place === "top"
-							? Object.assign({ ...d.config }, f.override)
-							: f.place === "transport"
-								? Object.assign(
-										{ ...d.config },
-										{
-											transport: Object.assign({ ...d.config.transport }, f.override)
-										}
-									)
-								: Object.assign(
-										{ ...d.config },
-										{
-											pool: Object.assign({ ...d.config.pool }, f.override)
-										}
-									)
-					const exit = yield* built(DbLayer.make(injected))
-					assert.ok(Exit.isFailure(exit), `the fault at ${names} builds a layer`)
-					const error = Cause.squash(exit.cause)
-					assert.ok(error instanceof OpenError, `the fault at ${names} fails with ${String(error)}`)
-					assert.equal(error.stage, "config")
-					assert.ok(
-						error.reason instanceof DbConfigRefused,
-						`the fault at ${names} has no DbConfigRefused reason`
-					)
-					const refused = error.reason
-					assert.deepEqual<ReadonlyArray<string>>(
-						refused.setting,
-						settingOf(f),
-						`the fault at ${names} names its setting`
-					)
-					Option.match(ruleOf(f), {
-						onNone: () => undefined,
-						onSome: (kind) => assert.equal(refused.rule.kind, kind, `the fault at ${names}`)
-					})
-					lacksText(
-						`${error.message}\n${inspect(refused, { depth: 12 })}`,
-						d.password,
-						`the refusal of the fault at ${names} quotes the password`
-					)
-					k.note(f.reaches)
-				}),
-		oracle: {
-			kind: "specification",
-			name: "DbConfig's documented settings: a valid config builds, each injected fault is DbConfigRefused naming its setting"
+	property.explore(
+		(source) => {
+			const drawn = source.draw(drawnGen)
+			return [drawn, source.draw(faultGen(drawn.config.transport.kind))] as const
 		},
-		budget: { runs: 400, steered: 0 },
-		kept: [],
-		kills: [
-			{
-				file: "packages/grizzle/src/adapter/connection/config.ts",
-				original:
-					'\tconst transport = parseTransport(transportRead.value, [...where, "transport"])',
-				replacement: "\tconst transport = parseTransport(transportRead.value, where)",
-				why: "A transport setting's refusal names it as the block's own, its path missing \"transport\"."
-			}
-		]
-	})
+		{
+			needs: {},
+			situations: [
+				"valid built",
+				"valid built over a Unix socket",
+				"refused DbConfig.driver",
+				"refused DbConfig.transport",
+				"refused DbConfig.transport.kind",
+				"refused DbConfig.transport.host",
+				"refused DbConfig.transport.directory",
+				"refused DbConfig.transport.port",
+				"refused DbConfig.transport.open",
+				"refused DbConfig.transport.ca",
+				"refused DbConfig.transport.servername",
+				"refused DbConfig.database",
+				"refused DbConfig.password",
+				"refused DbConfig.pool",
+				"refused DbConfig.pool.max",
+				"refused DbConfig.login",
+				"refused DbConfig.verify",
+				"refused an unknown setting",
+				"refused a setting of the other transport",
+				"refused a host that is a path",
+				"refused a password beside a Unix socket"
+			] satisfies ReadonlyArray<Reached<LayerFeature>>,
+			check:
+				(_, k: Case<LayerFeature>) =>
+				([d, f]) =>
+					Effect.gen(function* () {
+						const names = nameText(f.names)
+						const valid = yield* built(DbLayer.make(d.config))
+						assert.ok(
+							Exit.isSuccess(valid),
+							`a valid config is refused: ${Exit.isFailure(valid) ? Cause.pretty(valid.cause) : ""}`
+						)
+						k.note("valid built")
+						if (d.config.transport.kind === "unixSocket") {
+							k.note("valid built over a Unix socket")
+						}
+						/** The config with the fault injected at its place, the rest of the config as drawn. */
+						const injected: DbConfigShape<typeof Plain> =
+							f.place === "top"
+								? Object.assign({ ...d.config }, f.override)
+								: f.place === "transport"
+									? Object.assign(
+											{ ...d.config },
+											{
+												transport: Object.assign({ ...d.config.transport }, f.override)
+											}
+										)
+									: Object.assign(
+											{ ...d.config },
+											{
+												pool: Object.assign({ ...d.config.pool }, f.override)
+											}
+										)
+						const exit = yield* built(DbLayer.make(injected))
+						assert.ok(Exit.isFailure(exit), `the fault at ${names} builds a layer`)
+						const error = Cause.squash(exit.cause)
+						assert.ok(
+							error instanceof OpenError,
+							`the fault at ${names} fails with ${String(error)}`
+						)
+						assert.equal(error.stage, "config")
+						assert.ok(
+							error.reason instanceof DbConfigRefused,
+							`the fault at ${names} has no DbConfigRefused reason`
+						)
+						const refused = error.reason
+						assert.deepEqual<ReadonlyArray<string>>(
+							refused.setting,
+							settingOf(f),
+							`the fault at ${names} names its setting`
+						)
+						Option.match(ruleOf(f), {
+							onNone: () => undefined,
+							onSome: (kind) => assert.equal(refused.rule.kind, kind, `the fault at ${names}`)
+						})
+						lacksText(
+							`${error.message}\n${inspect(refused, { depth: 12 })}`,
+							d.password,
+							`the refusal of the fault at ${names} quotes the password`
+						)
+						k.note(f.reaches)
+					}),
+			oracle: {
+				kind: "specification",
+				name: "DbConfig's documented settings: a valid config builds, each injected fault is DbConfigRefused naming its setting"
+			},
+			budget: { runs: 400, steered: 100 },
+			kept: [],
+			kills: [
+				{
+					file: "packages/grizzle/src/adapter/connection/config.ts",
+					original:
+						'\tconst admitted = parseTransport(transportRead.value, [...where, "transport"])',
+					replacement: "\tconst admitted = parseTransport(transportRead.value, where)",
+					why: "A transport setting's refusal names it as the block's own, its path missing \"transport\"."
+				},
+				{
+					file: "packages/grizzle/src/adapter/connection/config.ts",
+					original:
+						'\t\t\treturn keys.includes("password")\n\t\t\t\t? Result.fail(faultAt(where, "password", { kind: "socketPassword" }))\n\t\t\t\t: Result.succeed(transport)',
+					replacement: "\t\t\treturn Result.succeed(transport)",
+					why: "A password beside a Unix socket is admitted, so a JavaScript caller's password sits unused where the server authenticates the account."
+				}
+			]
+		}
+	)
 
 /**
  * DbLayer.make refuses at stage config exactly the process environments that set PGREPLICATION, and builds under
@@ -223,7 +249,7 @@ export const dbLayerMakeRefusesAtStageConfigExactlyTheProcessEnvironmentsThatSet
  * keeps the runner's cap of 200, which it stops short of once every situation is reached.
  */
 export const dbLayerMakeJudgesATokenAtStageTokenBeforeAnyConnectionNoToken68ATokenMalformedVerifysRefusalOrThrowATokenRefusedAPayloadThatDoesNotDecodeAClaimRefused =
-	property.explore((source) => [source.draw(drawnGen), source.draw(tokenCaseGen)] as const, {
+	property.explore((source) => [source.draw(networkDrawnGen), source.draw(tokenCaseGen)] as const, {
 		needs: {},
 		situations: [
 			"a token that is no token68",

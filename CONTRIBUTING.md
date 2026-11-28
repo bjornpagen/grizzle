@@ -173,8 +173,9 @@ own process, each verdict with the HEAD and clean status it ran at).
   install, never one inside its submodule, gives it its dependencies; its `grizzle-pg` bin runs `build` and `source`.
 
 Every TCP connection to the cluster, the tests' included, is verify-full TLS. The bootstrap superuser, the account's
-own user, alone connects over the local socket, which trusts it: `pnpm pg admin` and the tests' superuser sessions
-(`test/support/substrate/substrate.ts`). Nothing keeps a PID file: child processes are owned by an `AbortSignal`,
+own user, connects over the local socket, which trusts it: `pnpm pg admin` and the tests' superuser sessions
+(`test/support/substrate/substrate.ts`); beside it only the tests of grizzle's Unix socket transport
+(`test/pg/adapter/unix-socket.test.ts`), whose sessions sign in there as a login of their own. Nothing keeps a PID file: child processes are owned by an `AbortSignal`,
 `await using` or a `DisposableStack`.
 
 ## How changes land

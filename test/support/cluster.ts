@@ -27,9 +27,10 @@ import { pgCluster } from "#test/support/env.ts"
 export type MemberCa = Extract<MemberTls, { readonly kind: "tls" }>
 
 /**
- * A member as grizzle reaches it: over verify-full TLS at localhost, its CA stated (MemberCa). grizzle refuses a
- * connection without verify-full TLS and refuses a socket path (packages/grizzle/src/adapter/types/layer.ts), so a
- * member of no TLS is no member its tests can reach.
+ * A member as grizzle's tests reach it: over verify-full TLS at localhost, its CA stated (MemberCa), as grizzle's
+ * network transport demands, and over its Unix socket beside it (packages/grizzle/src/adapter/types/layer.ts
+ * Transport). The tests hold grizzle to both transports, the network's TLS and its refusals among them, so a member of
+ * no TLS is no member they can reach.
  */
 export type TlsMember = PgMember & Readonly<{ tls: MemberCa }>
 
@@ -38,7 +39,7 @@ class SocketOnlyMember extends Data.TaggedError("SocketOnlyMember")<{
 	readonly member: string
 }> {
 	override get message(): string {
-		return `member ${this.member} is reached over its socket alone: grizzle connects over verify-full TLS only, so its cluster's network must be tls (pg.config.ts)`
+		return `member ${this.member} is reached over its socket alone: grizzle's tests reach a member over verify-full TLS as well as over its socket, so its cluster's network must be tls (pg.config.ts)`
 	}
 }
 

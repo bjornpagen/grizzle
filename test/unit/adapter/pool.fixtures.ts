@@ -16,7 +16,7 @@ import {
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Clock, Duration, Effect, Exit, Result, type Scope } from "effect"
 import type { PgSocket } from "#adapter/types/driver.ts"
-import type { Transport } from "#adapter/types/layer.ts"
+import type { SslRequestTransport } from "#adapter/types/layer.ts"
 import type { Session } from "#adapter/wire/session.ts"
 import { memoryEndpoint, memoryTransport, tlsMaterial } from "#test/support/memory-tls.ts"
 import { pickGen } from "#test/support/pick.ts"
@@ -191,7 +191,8 @@ export const sequenceSpace: Aimed<Sequence, PoolFeature> = aimed(sequenceGen, [
 	["cut mid-acquisition", earlyCutGen]
 ])
 
-const frame = (type: string, body: Uint8Array): Buffer => {
+/** A backend message: its type byte, its length counting itself, and its body. */
+export const frame = (type: string, body: Uint8Array): Buffer => {
 	const out = Buffer.alloc(5 + body.length)
 	out.write(type, 0, "latin1")
 	out.writeInt32BE(4 + body.length, 1)
@@ -199,14 +200,14 @@ const frame = (type: string, body: Uint8Array): Buffer => {
 	return out
 }
 
-const int32 = (n: number): Buffer => {
+export const int32 = (n: number): Buffer => {
 	const out = Buffer.alloc(4)
 	out.writeInt32BE(n)
 	return out
 }
 
-const authenticationOk = frame("R", int32(0))
-const readyForQuery = frame("Z", Buffer.from("I", "latin1"))
+export const authenticationOk = frame("R", int32(0))
+export const readyForQuery = frame("Z", Buffer.from("I", "latin1"))
 const backendKeyData = (pid: number): Buffer => frame("K", Buffer.concat([int32(pid), int32(7)]))
 /** A FATAL invalid_authorization_specification, which the server sends and then closes the connection. */
 const startupRefusal = frame(
@@ -242,7 +243,7 @@ const textColumn = (name: string): Buffer =>
  * The answer to the one statement a pool sends on a session, the read of its reap window, on the extended protocol:
  * ParseComplete, BindComplete, its row's description and its row, CommandComplete and ReadyForQuery.
  */
-const reapWindowAnswer = Buffer.concat([
+export const reapWindowAnswer = Buffer.concat([
 	frame("1", Buffer.alloc(0)),
 	frame("2", Buffer.alloc(0)),
 	frame(
@@ -312,7 +313,7 @@ export class FakeServer {
 	})
 
 	/** The transport that reaches the server: a new connection for each socket pg opens. */
-	readonly transport: Transport = memoryTransport(this.#material, () => {
+	readonly transport: SslRequestTransport = memoryTransport(this.#material, () => {
 		this.opened += 1
 		const socket = this.#connect()
 		this.open.add(socket)

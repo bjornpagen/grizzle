@@ -8,7 +8,7 @@ import { liveSleep } from "@bjornpagen/testing/live"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Duration, Effect, Formatter, Layer, Result } from "effect"
 import { Db } from "#adapter/public/db.ts"
-import type { Transport } from "#adapter/types/layer.ts"
+import type { SslRequestTransport } from "#adapter/types/layer.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { int4 } from "#compiler/public/fields.ts"
@@ -129,9 +129,9 @@ interface Sockets {
 
 /** `transport` counting each socket it opens, and each one's close, into `sockets`. */
 const countedTransport = (
-	transport: Transport,
+	transport: SslRequestTransport,
 	sockets: { opened: number; closed: number }
-): Transport => ({
+): SslRequestTransport => ({
 	...transport,
 	open: () => {
 		const socket = transport.open()

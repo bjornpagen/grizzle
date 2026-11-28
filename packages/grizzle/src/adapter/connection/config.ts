@@ -11,7 +11,13 @@ import * as Str from "effect/String"
 import { readHost } from "#adapter/engine.ts"
 import type { SettingFault, SettingRule } from "#adapter/errors/failures.ts"
 import type { PgDriver, PgSocket } from "#adapter/types/driver.ts"
-import type { DbConnection, PoolBounds, Transport } from "#adapter/types/layer.ts"
+import type {
+	ConnectionPassword,
+	DbConnection,
+	PoolBounds,
+	SslRequestTransport,
+	Transport
+} from "#adapter/types/layer.ts"
 import {
 	type CallerObject,
 	type CallerRecord,
@@ -69,12 +75,13 @@ const portMax = 65_535
 /**
  * A connection block, parsed once where it is given: the DbConfig DbLayer.make takes, and the migration connection
  * grizzle.config.ts types (cli/connection.ts). Its type says what a block holds, and a block written in JavaScript is
- * checked all the same; the rules no type states (a driver whose Client, Pool and DatabaseError are classes, the one
- * transport kind, a nonempty network host that is no path, a nonempty servername and database, a port from 1 to 65535,
- * a nonempty CA bundle of PEM texts, a migration connection's nonempty role) hold for
- * every caller, and the parsed transport's type carries the host's and the bundle's (ParsedTransport). The parsed
- * block is required throughout: a session and a pool connect only with one (wire/session.ts). No refusal quotes a
- * password.
+ * checked all the same; the rules no type states (a driver whose Client, Pool and DatabaseError are classes, a
+ * transport of one of the two kinds holding exactly its own kind's settings, a nonempty network host that is no path, a
+ * socket directory that is an absolute path, a nonempty servername and database, a port from 1 to 65535, a nonempty CA
+ * bundle of PEM texts, a password beside a network transport and none beside a Unix socket, a migration connection's
+ * nonempty role) hold for every caller, and the parsed transport's type carries the host's, the directory's and the
+ * bundle's, and the credential of its kind (ParsedTransport). The parsed block is required throughout: a session and a
+ * pool connect only with one (wire/session.ts). No refusal quotes a password.
  *
  * What a block holds besides its connection: its own settings' keys (`settings`), and what the parse of the block
  * returns of them beside the connection, `E`, read off the block's plain data where its connection's settings are read
@@ -126,8 +133,9 @@ export const liveSourceSettings: BlockSettings<Readonly<Record<string, never>>> 
 
 /**
  * The settings the block's read leaves unread, each read once off the typed block instead: the driver, a module whose
- * members may be getters; the password; the transport, read by its own read (readTransport), whose `open` is the
- * caller's function; and a DbConfig's login value, its verify and its snapshot, which the layer reads (pool/served.ts),
+ * members may be getters; the password; the transport, read by its own read (readTransport), whose `open`, a network
+ * transport's, is the caller's function; and a DbConfig's login value, its verify and its snapshot, which the layer
+ * reads (pool/served.ts),
  * the snapshot by its own parser (boundary/snapshot.ts parseSnapshot).
  */
 const typedSettings: ReadonlySet<string> = new Set([
@@ -139,7 +147,10 @@ const typedSettings: ReadonlySet<string> = new Set([
 	"snapshot"
 ])
 
-/** The transport setting its read leaves unread, read once off the typed transport: `open`, the caller's function. */
+/**
+ * The transport setting its read leaves unread, read once off the typed transport: `open`, a network transport's
+ * function, the caller's.
+ */
 const typedTransportSettings: ReadonlySet<string> = new Set(["open"])
 
 /** A connection block's own settings, every block's beside its extras' (BlockSettings). */
@@ -151,8 +162,17 @@ export const connectionSettings = [
 	"password"
 ] as const
 
-/** A transport's settings. */
-export const transportSettings = ["kind", "host", "port", "open", "ca", "servername"] as const
+/**
+ * A transport's settings, by its kind: each kind admits exactly its own, so a setting of the other kind's, a CA beside a
+ * Unix socket or a directory beside a network host, is no setting of it. Every kind a Transport has is here, by its
+ * type.
+ */
+export const transportSettings = {
+	sslRequest: ["kind", "host", "port", "open", "ca", "servername"],
+	unixSocket: ["kind", "directory", "port"]
+} as const satisfies {
+	readonly [K in Transport["kind"]]: ReadonlyArray<keyof Extract<Transport, { readonly kind: K }>>
+}
 
 /** A pool's settings: its most sessions, the one bound a pool takes (types/layer.ts PoolBounds). */
 export const poolSettings = ["max"] as const
@@ -160,22 +180,39 @@ export const poolSettings = ["max"] as const
 /**
  * A host a socket reaches over the network, as the parse admits it (parseTransport): a name or an IP address, nonempty,
  * and never a path. node-postgres reads a host that starts with / as the directory of a Unix socket, which it connects
- * by path alone, and PostgreSQL offers TLS over no Unix socket, so an SSLRequest transport never has one.
+ * by path alone, and PostgreSQL offers TLS over no Unix socket, so an SSLRequest transport never has one: a Unix socket
+ * is the unixSocket transport's.
  */
 type NetworkHost = string & Brand.Brand<"NetworkHost">
 const networkHost = Brand.nominal<NetworkHost>()
+
+/**
+ * The directory a server's Unix socket is in, as the parse admits it (parseTransport): an absolute path, which
+ * node-postgres reads as a socket's directory, the host it connects to by path, and holding no NUL, which no path
+ * holds.
+ */
+type SocketDirectory = string & Brand.Brand<"SocketDirectory">
+const socketDirectory = Brand.nominal<SocketDirectory>()
 
 /** PEM certificate text, as the parse admits it (caBundle): more than whitespace, which no certificate is. */
 type PemText = string & Brand.Brand<"PemText">
 const pemText = Brand.nominal<PemText>()
 
 /**
- * A transport as the parse admits it (parseTransport), the one a connection reaches its server through: its host a
- * network host, its port from 1 to 65535, the caller's `open`, its CA bundle a nonempty list of PEM texts, so a
- * certificate always has an authority to chain to, the bundle parsed once into the trust store every connection's TLS
- * verifies against (`authority`), and its servername nonempty. Only the parse makes one.
+ * A transport as the parse admits it (parseTransport), the one a connection reaches its server through, with the
+ * credential the connection signs in with over it: a network connection's TLS and password (ParsedSslRequest), or a
+ * Unix socket, over which the server authenticates the operating-system account the kernel names, with none
+ * (ParsedUnixSocket). So no parsed connection holds a password beside a Unix socket. Only the parse makes one.
  */
-export interface ParsedTransport {
+export type ParsedTransport = ParsedSslRequest | ParsedUnixSocket
+
+/**
+ * A network transport as the parse admits it: its host a network host, its port from 1 to 65535, the caller's `open`,
+ * its CA bundle a nonempty list of PEM texts, so a certificate always has an authority to chain to, the bundle parsed
+ * once into the trust store every connection's TLS verifies against (`authority`), its servername nonempty, and the
+ * password the server asks for once TLS is up.
+ */
+export interface ParsedSslRequest {
 	readonly kind: "sslRequest"
 	readonly host: NetworkHost
 	readonly port: number
@@ -188,16 +225,28 @@ export interface ParsedTransport {
 	 */
 	readonly authority: SecureContext
 	readonly servername: string
+	readonly password: ConnectionPassword
 }
 
-/** A block's destination, credentials and verify-full TLS, as its driver connects them, and the role space of the
- * installation in its database, its `rolePrefix` read (core/identity.ts roleSpaceOf). */
+/**
+ * A Unix socket transport as the parse admits it: its directory an absolute path, and its port from 1 to 65535, which
+ * names the socket file in it. It holds no credential.
+ */
+export interface ParsedUnixSocket {
+	readonly kind: "unixSocket"
+	readonly directory: SocketDirectory
+	readonly port: number
+}
+
+/**
+ * A block's destination and credentials, its transport's (ParsedTransport), as its driver connects them, and the role
+ * space of the installation in its database, its `rolePrefix` read (core/identity.ts roleSpaceOf).
+ */
 export interface ParsedConnection {
 	readonly driver: PgDriver
 	readonly transport: ParsedTransport
 	readonly database: string
 	readonly roles: RoleSpace
-	readonly password: DbConnection["password"]
 }
 
 /** Whether `v` is a safe integer from `least` to `most`. */
@@ -230,9 +279,7 @@ const unknownKey = (
  * The password a block gives, read off its typed value so an Effect keeps the channels its type states: a Redacted
  * whose value is text, or an Effect; none for anything else a JavaScript caller passes.
  */
-const givenPassword = (
-	given: DbConnection["password"]
-): Option.Option<DbConnection["password"]> => {
+const givenPassword = (given: DbConnection["password"]): Option.Option<ConnectionPassword> => {
 	if (Redacted.isRedacted(given)) {
 		const text: unknown = Redacted.value(given)
 		return typeof text === "string" ? Option.some(given) : Option.none()
@@ -282,16 +329,17 @@ const driverOf = (given: PgDriver): Option.Option<PgDriver> => {
 
 /**
  * A block's transport as its one read leaves it (readTransport): the copy of its settings, every own key among them,
- * and the caller's `open`, read once off the typed transport.
+ * and the caller's `open` where the typed transport holds one, read once off it: a network transport's.
  */
 interface TransportRead {
 	readonly setting: CallerObject
-	readonly open: Transport["open"]
+	readonly open: SslRequestTransport["open"] | undefined
 }
 
 /**
  * A block's transport, read once off the typed block: its settings copied but `open`, which is read once off the typed
- * transport; none for a value that is no object, and refused when its reading throws or meets a getter or a setter.
+ * transport where it holds one; none for a value that is no object, and refused when its reading throws or meets a
+ * getter or a setter.
  */
 const readTransport = (
 	typed: Transport
@@ -302,40 +350,66 @@ const readTransport = (
 	}
 	const read = readCaller(passed, typedTransportSettings)
 	return read.ok
-		? Result.succeed(Option.some({ setting: read.value, open: typed.open }))
+		? Result.succeed(
+				Option.some({ setting: read.value, open: "open" in typed ? typed.open : undefined })
+			)
 		: Result.fail(undefined)
 }
 
+/** A transport's own settings as the parse admits them, before its kind's credential joins them (credentialed). */
+type AdmittedTransport = Omit<ParsedSslRequest, "password"> | ParsedUnixSocket
+
+/** The port of a transport at `where`: an integer from 1 to 65535, or refused. */
+const parsePort = (port: unknown, where: SettingPath): Result.Result<number, SettingFault> =>
+	typeof port === "number" && integerIn(port, 1, portMax)
+		? Result.succeed(port)
+		: Result.fail(
+				faultAt(where, "port", { kind: "integer", least: 1, most: portMax, unit: "port" })
+			)
+
 /**
- * A block's transport as its read left it (readTransport): parsed, its host minted a network host and its CA a bundle of
- * PEM texts, or the setting it refuses.
+ * A block's transport as its read left it (readTransport): its kind read first, and then exactly its kind's settings
+ * (transportSettings), each parsed, or the setting it refuses, a setting of the other kind's refused as no setting of
+ * it.
  */
 const parseTransport = (
 	read: TransportRead,
 	where: SettingPath
-): Result.Result<ParsedTransport, SettingFault> => {
-	const extra = unknownKey(read.setting.keys, transportSettings, where)
+): Result.Result<AdmittedTransport, SettingFault> => {
+	const { kind } = read.setting.data
+	switch (kind) {
+		case "sslRequest":
+			return parseSslRequest(read, where)
+		case "unixSocket":
+			return parseUnixSocket(read, where)
+		default:
+			return Result.fail(faultAt(where, "kind", { kind: "transportKind" }))
+	}
+}
+
+/** A network transport's settings as its read left them: its host minted a network host and its CA a bundle of PEM
+ * texts, or the setting it refuses. */
+const parseSslRequest = (
+	read: TransportRead,
+	where: SettingPath
+): Result.Result<AdmittedTransport, SettingFault> => {
+	const extra = unknownKey(read.setting.keys, transportSettings.sslRequest, where)
 	if (Option.isSome(extra)) {
 		return Result.fail(extra.value)
 	}
-	const { kind, host, port, ca: caSetting, servername } = read.setting.data
+	const { host, port: portSetting, ca: caSetting, servername } = read.setting.data
 	const open = read.open
-	const passedOpen: unknown = open
-	if (kind !== "sslRequest") {
-		return Result.fail(faultAt(where, "kind", { kind: "sslRequest" }))
-	}
 	if (typeof host !== "string" || host === "") {
 		return Result.fail(faultAt(where, "host", { kind: "nonemptyText" }))
 	}
 	if (Str.startsWith("/")(host)) {
 		return Result.fail(faultAt(where, "host", { kind: "networkHost" }))
 	}
-	if (typeof port !== "number" || !integerIn(port, 1, portMax)) {
-		return Result.fail(
-			faultAt(where, "port", { kind: "integer", least: 1, most: portMax, unit: "port" })
-		)
+	const port = parsePort(portSetting, where)
+	if (Result.isFailure(port)) {
+		return Result.fail(port.failure)
 	}
-	if (typeof passedOpen !== "function") {
+	if (typeof open !== "function") {
 		return Result.fail(faultAt(where, "open", { kind: "socketOpener" }))
 	}
 	const ca = caBundle(caSetting)
@@ -350,16 +424,64 @@ const parseTransport = (
 		readHost(faultAt(where, "ca", { kind: "readableCertificates" }), () =>
 			Result.succeed(createSecureContext({ ca: [...bundle] }))
 		),
-		(authority): ParsedTransport => ({
+		(authority): AdmittedTransport => ({
 			kind: "sslRequest",
 			host: networkHost(host),
-			port,
+			port: port.success,
 			open,
 			ca: bundle,
 			authority,
 			servername
 		})
 	)
+}
+
+/** A Unix socket transport's settings as its read left them: its directory minted a socket directory, or the setting
+ * it refuses. */
+const parseUnixSocket = (
+	read: TransportRead,
+	where: SettingPath
+): Result.Result<AdmittedTransport, SettingFault> => {
+	const extra = unknownKey(read.setting.keys, transportSettings.unixSocket, where)
+	if (Option.isSome(extra)) {
+		return Result.fail(extra.value)
+	}
+	const { directory, port: portSetting } = read.setting.data
+	if (
+		typeof directory !== "string" ||
+		!Str.startsWith("/")(directory) ||
+		Str.includes("\0")(directory)
+	) {
+		return Result.fail(faultAt(where, "directory", { kind: "socketDirectory" }))
+	}
+	return Result.map(parsePort(portSetting, where), (port): AdmittedTransport => ({
+		kind: "unixSocket",
+		directory: socketDirectory(directory),
+		port
+	}))
+}
+
+/**
+ * A block's transport with the credential its kind signs in with: a network transport's password, which the block must
+ * give; and nothing beside a Unix socket, over which the server authenticates the operating-system account, so a block
+ * that states a password there is refused at it.
+ */
+const credentialed = (
+	transport: AdmittedTransport,
+	password: Option.Option<ConnectionPassword>,
+	keys: ReadonlyArray<string>,
+	where: SettingPath
+): Result.Result<ParsedTransport, SettingFault> => {
+	switch (transport.kind) {
+		case "sslRequest":
+			return Option.isSome(password)
+				? Result.succeed({ ...transport, password: password.value })
+				: Result.fail(faultAt(where, "password", { kind: "password" }))
+		case "unixSocket":
+			return keys.includes("password")
+				? Result.fail(faultAt(where, "password", { kind: "socketPassword" }))
+				: Result.succeed(transport)
+	}
 }
 
 /**
@@ -419,11 +541,11 @@ export const parseConnection = <E>(
 	}
 	const { database, rolePrefix } = plain
 	if (Option.isNone(transportRead)) {
-		return Result.fail(faultAt(where, "transport", { kind: "object", settings: transportSettings }))
+		return Result.fail(faultAt(where, "transport", { kind: "object", settings: ["kind"] }))
 	}
-	const transport = parseTransport(transportRead.value, [...where, "transport"])
-	if (Result.isFailure(transport)) {
-		return Result.fail(transport.failure)
+	const admitted = parseTransport(transportRead.value, [...where, "transport"])
+	if (Result.isFailure(admitted)) {
+		return Result.fail(admitted.failure)
 	}
 	if (typeof database !== "string" || database === "") {
 		return Result.fail(faultAt(where, "database", { kind: "nonemptyText" }))
@@ -436,15 +558,15 @@ export const parseConnection = <E>(
 	if (Result.isFailure(parsedExtras)) {
 		return Result.fail(parsedExtras.failure)
 	}
-	if (Option.isNone(password)) {
-		return Result.fail(faultAt(where, "password", { kind: "password" }))
+	const transport = credentialed(admitted.success, password, keys, where)
+	if (Result.isFailure(transport)) {
+		return Result.fail(transport.failure)
 	}
 	return Result.succeed({
 		driver: driver.value,
 		transport: transport.success,
 		database,
 		roles: roles.success,
-		password: password.value,
 		...parsedExtras.success
 	})
 }

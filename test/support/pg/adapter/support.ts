@@ -2,7 +2,7 @@ import { liveSleep } from "@bjornpagen/testing/live"
 import { Array as Arr, Duration, Effect, Redacted, type Scope } from "effect"
 import type { CredentialError } from "#adapter/errors/credential.ts"
 import type { BatchRefused } from "#adapter/errors/failures.ts"
-import type { PoolBounds, Transport } from "#adapter/types/layer.ts"
+import type { PoolBounds, SslRequestTransport } from "#adapter/types/layer.ts"
 import { type ApartFailure, oneShotStatement } from "#adapter/wire/batch.ts"
 import { makePool, type SessionPool } from "#adapter/wire/pool.ts"
 import { type Session } from "#adapter/wire/session.ts"
@@ -75,7 +75,7 @@ export interface PoolOptions {
 	 */
 	readonly transport:
 		| { readonly kind: "cluster" }
-		| { readonly kind: "given"; readonly transport: Transport }
+		| { readonly kind: "given"; readonly transport: SslRequestTransport }
 	/** The startup options and control texts every session sends: a served file's, or ones a test plants. */
 	readonly session: ServedSession
 }

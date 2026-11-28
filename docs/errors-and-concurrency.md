@@ -348,10 +348,12 @@ fails with its `CallError`, by its `_tag`:
     the host, the handshake failed with a code no system error has, or the server offers no TLS or answered the
     SSLRequest with neither yes nor no;
   - `driverRefused`: pg ended the startup itself, with no SQLSTATE and no code: a SCRAM exchange whose server proof
-    does not verify, a mechanism it does not support, a server that asks a password of a role given none.
+    does not verify, a mechanism it does not support, a server that asks a password of a role given none; or the
+    server asked for a password over its Unix socket, where grizzle sends none (`PasswordAsked`).
 - **`unavailable`**: no session could be had for now, for a cause that may pass. Its `reason` is `{ _tag }`, a cause
   of a closed set read off the SQLSTATE or the socket's code, never off the message:
-  - `connectionRefused`: nothing accepted the connection at its address, ECONNREFUSED or ENOENT;
+  - `connectionRefused`: nothing accepted the connection at its address, ECONNREFUSED or ENOENT (a Unix socket's file
+    that is not there);
   - `hostUnreachable`: no route reaches the host, EHOSTUNREACH, ENETUNREACH, EHOSTDOWN or ENETDOWN;
   - `hostUnresolved`: the host's name did not resolve, ENOTFOUND or EAI_AGAIN;
   - `timedOut`: the operating system gave up on the connection, ETIMEDOUT;

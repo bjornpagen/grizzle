@@ -14,8 +14,8 @@ The reference grizzle's source and tests cite by heading (test/unit/dev/referenc
 
 It owns the schema and the database, and has CREATEROLE to create the PostgreSQL roles of your logins and roles. It needs no superuser. A role without CREATE on the database fails the first migration with 42501 ("permission denied for database") at its first statement, the CREATE SCHEMA of the installed schema: the database's owner holds CREATE on it, and another role only where it is granted. A migration that creates `btree_gist`, a trusted extension, needs it too. It also holds `pg_signal_backend` (`GRANT pg_signal_backend TO <migration role>`, which a superuser gives, or a role holding it WITH ADMIN): a migration that drops a role first ends the sessions holding that role's temporary tables ([Deploying](#deploying)), and PostgreSQL lets a role end a session only where it holds the privileges of the session's login or pg_signal_backend's. Without it, such a migration fails with 42501 ("permission denied to terminate process") and rolls back, as it fails with 2BP01 when nothing ends them.
 
-- **A password for each login role**, which you set, or, for RDS IAM authentication, membership in `rds_iam`, and one for the installation's decoder login where a login serves a read: the role a reading login's served file names, `roleNameOf(WebServed.decoder, connection)` (Connecting). Each connection authenticates with exactly the password its configuration names: node-postgres never reads `PGPASSWORD` or `~/.pgpass` for one.
-- **TLS with verify-full**, the only mode. Plaintext is refused.
+- **A password for each login role**, which you set, or, for RDS IAM authentication, membership in `rds_iam`, and one for the installation's decoder login where a login serves a read: the role a reading login's served file names, `roleNameOf(WebServed.decoder, connection)` (Connecting). Each connection authenticates with exactly the password its configuration names: node-postgres never reads `PGPASSWORD` or `~/.pgpass` for one. A connection over the server's Unix socket takes none: `pg_hba.conf` authenticates it by the operating-system account the kernel names (Deploying).
+- **TLS with verify-full**, the only mode over the network. Plaintext is refused. Over the server's Unix socket there is no TLS: PostgreSQL offers none there, and nothing crosses a network.
 - **A direct connection.** PgBouncer is not supported.
 - **`max_pred_locks_per_transaction = 2048`**, recommended: a server-start setting, about 115 MB of shared memory at 200 connections. SERIALIZABLE writes and reads take predicate locks.
 
@@ -77,7 +77,8 @@ Every setting is required, and nothing else is configurable:
 - **`connection`**: a function returning where `migrate`, `drift`, `roles` and `uninstall` connect, as the
   role that owns the schemas. Only they call it, so `generate`, `check` and `names` read no cluster setting and no CA file, and
   run in CI where no cluster is reachable. Its password is a `Redacted` or an Effect evaluated for each connection
-  attempt. Its `rolePrefix`, which `DbLayer.make` takes too, is the installation's own, optional: see "Two
+  attempt; over the server's Unix socket (`transport: { kind: "unixSocket", directory, port }`) it takes none. Its
+  `rolePrefix`, which `DbLayer.make` takes too, is the installation's own, optional: see "Two
   installations on one cluster" below.
 
 grizzle reads no file you don't name and no environment variable for where to connect: the config reads its own
@@ -532,6 +533,29 @@ export const RdsEtlLayer = gRuntime.DbLayer.make({
 	}).pipe(Effect.map(Redacted.make))
 })
 ```
+
+**On the database's own machine.** A program beside its PostgreSQL connects over the server's Unix-domain socket,
+`transport: { kind: "unixSocket", directory: "/run/postgresql", port: 5432 }`, the socket file
+`/run/postgresql/.s.PGSQL.5432` that `unix_socket_directories` and `port` name. It states no `ca`, `servername`, `open`
+or `password`, and each is a type error and a `config` refusal beside a socket: the connection sends no SSLRequest and
+carries no TLS, which PostgreSQL offers over no Unix socket and which nothing crossing no network needs, and the kernel
+tells the server which operating-system account is calling. Authenticate it by that account, mapped to the login's
+role:
+
+```text
+# pg_hba.conf
+local  app  all  peer map=app
+# pg_ident.conf: each account and the role it signs in as
+app    web-app      web
+app    migrator     app_owner
+```
+
+A server whose `local` line names a password method instead is refused at the connection, `PasswordAsked`, which a
+`Db` call reads as `credentialRefused` (`driverRefused`): no password is ever sent over the socket, and neither
+`PGPASSWORD` nor a password file is read. A socket file that is not there is `unavailable` (`connectionRefused`,
+ENOENT), as a refused TCP connection is. The kernel bounds the socket file's path, 107 bytes on Linux and 103 on
+macOS: a longer one fails every connection with the socket's EINVAL. A CancelRequest goes over a second connection to
+the same socket.
 
 ## PostgreSQL known issues
 

@@ -23,7 +23,8 @@ import type { ServedLive, ServedSession } from "#compiler/plan/serve.ts"
 /**
  * LiveSource.layer: an installation's live source for the process, one per installation, which every DbLayer of a
  * login of it that serves a read requires (types/layer.ts LiveOf). Its config is the connection of the installation's
- * decoder login, its `password` that login's credential, and a served login of the installation, whose file carries the
+ * decoder login, its `password` that login's credential over the network (over a Unix socket, the account the kernel
+ * names is), and a served login of the installation, whose file carries the
  * installation's live source where the login serves a read. It is parsed once, where it is given; one no connection can
  * use fails the layer at stage config. Over a login that serves no read it holds no source: no layer that needs one
  * needs it, so a program may provide it wherever it provides a layer, and a read registered on it ends `failed`.
@@ -98,8 +99,7 @@ const makeLiveSource = (
 					driver: parsed.driver,
 					transport: parsed.transport,
 					database: parsed.database,
-					role: decoder,
-					password: parsed.password
+					role: decoder
 				}
 				const slot = liveSlotOf(source.stem, parsed.database)
 				const fanout = yield* fanoutSource({

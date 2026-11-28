@@ -19,6 +19,7 @@ import {
 	maxLocksPerTransactionFor,
 	specialWorkerProcesses
 } from "#adapter/migrate/locks.ts"
+import type { SslRequestTransport, UnixSocketTransport } from "#adapter/types/layer.ts"
 import {
 	catalogDeparted,
 	type CompileError,
@@ -328,15 +329,32 @@ const fileOf = (first: { readonly folder: string; readonly file: string }): Migr
 	file: first.file
 })
 
-/** The migration identity could not connect to `host`:`port` as `role`, for `refusal`; no schema is concerned yet. */
+/**
+ * The server a connection reaches for, as its transport names it: a network host and its port, or the server's Unix
+ * socket, in its directory and named by its port.
+ */
+export type ConnectTarget =
+	| Pick<SslRequestTransport, "kind" | "host" | "port">
+	| Pick<UnixSocketTransport, "kind" | "directory" | "port">
+
+/** A connect target as a sentence names it: `host:port`, or the Unix socket's file. */
+const targetText = (target: ConnectTarget): string => {
+	switch (target.kind) {
+		case "sslRequest":
+			return `${target.host}:${target.port}`
+		case "unixSocket":
+			return `the Unix socket ${target.directory}/.s.PGSQL.${target.port}`
+	}
+}
+
+/** The migration identity could not connect to `target` as `role`, for `refusal`; no schema is concerned yet. */
 export class ConnectRefused extends Data.TaggedError("ConnectRefused")<{
 	readonly role: string
-	readonly host: string
-	readonly port: number
+	readonly target: ConnectTarget
 	readonly refusal: ConnectRefusal
 }> {
 	override get message(): string {
-		return `the migration identity ${this.role} could not connect to ${this.host}:${this.port}: ${this.refusal.message}`
+		return `the migration identity ${this.role} could not connect to ${targetText(this.target)}: ${this.refusal.message}`
 	}
 }
 

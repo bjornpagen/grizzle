@@ -2,12 +2,12 @@
  * Where `grizzle migrate` and `grizzle drift` connect, generated: the configuration's connection, and nothing else.
  *
  * - Agreement: a connection drawn with tricky parts (reserved and non-ASCII characters in the role, password, database,
- *   host and servername, the host never a path, IPv6 hosts, ports across their range, a CA as one text or
- *   a list, a password Redacted or an Effect) resolves to exactly the drawn role and connection, its CA the bundle TLS
- *   is handed: the parse of the connection (adapter/connection/config.ts, whose faults test/unit/adapter/layer.test.ts
- *   injects through DbLayer.make) plus the role and the password kept as given, and the driver as the three classes
- *   it reads off the given module once (its Client, Pool and DatabaseError), never the module itself, so no getter of
- *   another member runs.
+ *   host, servername and socket directory, the host never a path, IPv6 hosts, ports across their range, a CA as one
+ *   text or a list, a password Redacted or an Effect, or a Unix socket's directory, an absolute path, and no password)
+ *   resolves to exactly the drawn role and connection, its CA the bundle TLS is handed: the parse of the connection
+ *   (adapter/connection/config.ts, whose faults test/unit/adapter/layer.test.ts injects through DbLayer.make) plus the
+ *   role and the password kept as given, and the driver as the three classes it reads off the given module once (its
+ *   Client, Pool and DatabaseError), never the module itself, so no getter of another member runs.
  * - The role, the one setting a migration connection adds: one that is not a nonempty string, or none, is refused at
  *   stage config as a ConnectionRefused whose setting is `["connection", "role"]` and whose rule is a nonempty string
  *   (SettingFault), and no refusal holds the password.

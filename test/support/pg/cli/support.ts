@@ -22,7 +22,7 @@ import { defineConfig } from "#adapter/config/define.ts"
 import { served } from "#adapter/public/layer.ts"
 import { roleNameOf } from "#adapter/served/served.ts"
 import type { GrizzleConfig, MigrationConnectionConfig } from "#adapter/types/config.ts"
-import type { DbConnection, ServedLogin } from "#adapter/types/layer.ts"
+import type { ConnectionPassword, ServedLogin, SslRequestConnection } from "#adapter/types/layer.ts"
 import { type ConfigFile, type ResolvedConfig, resolveConfig } from "#cli/config.ts"
 import { type CliError, ConfigMissing, cliError } from "#cli/errors.ts"
 import { processMeter } from "#cli/main.ts"
@@ -152,7 +152,7 @@ export const offlinePassword = "offline-password"
  *
  * @internal
  */
-export const offlineConnection: DbConnection = {
+export const offlineConnection: SslRequestConnection = {
 	driver: pgDriver,
 	transport: {
 		kind: "sslRequest",
@@ -167,7 +167,7 @@ export const offlineConnection: DbConnection = {
 }
 
 /** The migration identity's connection to no cluster, for a configuration no test migrates with. */
-export const offlineOwner: MigrationConnectionConfig = {
+export const offlineOwner: SslRequestConnection & { readonly role: string } = {
 	...offlineConnection,
 	role: pgCluster.owner
 }
@@ -180,7 +180,7 @@ export const offlineOwner: MigrationConnectionConfig = {
 const credentialsOf = (
 	cluster: PgMember,
 	as: ConnectionAs
-): Pick<MigrationConnectionConfig, "role" | "password"> => {
+): { readonly role: string; readonly password: ConnectionPassword } => {
 	if (as.kind === "role") {
 		return { role: as.role, password: Redacted.make(as.password) }
 	}

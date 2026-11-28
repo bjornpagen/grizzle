@@ -150,7 +150,8 @@ export const refusalText = {
 
 /** The fix of each stage at which `grizzle migrate` stops (packages/grizzle/src/adapter/migrate/errors.ts). */
 export const migrateStageFix: Readonly<Record<MigrateStage, string>> = {
-	connect: "check the configuration's connection: its host, port, database, role, password and CA",
+	connect:
+		"check the configuration's connection: its host, port, database, role, password and CA, or its Unix socket's directory and port and the server's pg_hba.conf local line",
 	stack: "have a superuser raise the server's max_stack_depth to at least 2MB, its default",
 	blocks:
 		"run grizzle migrate against a server built with PostgreSQL's default block_size, 8192 bytes: a server's block size is fixed when it is built",
