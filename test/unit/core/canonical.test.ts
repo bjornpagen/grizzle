@@ -579,9 +579,22 @@ export const canonicalComparisonIsEqualityOfSpecifiedTextSameContentsTooAndSorts
 				),
 				reason: "NaN beside NaN, one text though no number equals NaN",
 				since: "2026-11-10"
+			},
+			{
+				token: ReplayToken(
+					"test/unit/core/canonical.test.ts#canonicalComparisonIsEqualityOfSpecifiedTextSameContentsTooAndSortsASetByItRefusingAMemberOutsideTheModelAtItsPlace@small-stack:-:2.0.5.0.0.7.0.0.0"
+				),
+				reason: "0 beside -0, two texts though 0 === -0",
+				since: "2026-11-28"
 			}
 		],
 		kills: [
+			{
+				file: "packages/engine/src/core/canonical.ts",
+				original: "\t\t\tif (Object.is(x, y)) {\n\t\t\t\tcontinue\n\t\t\t}",
+				replacement: "\t\t\tif (x === y) {\n\t\t\t\tcontinue\n\t\t\t}",
+				why: "two values one by ===, so 0 is one value with -0, whose texts are two; the comparison property fails at its kept case."
+			},
 			{
 				file: "packages/engine/src/core/canonical.ts",
 				original:

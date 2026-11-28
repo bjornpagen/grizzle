@@ -702,12 +702,13 @@ const memberPairs = (x: Compared, y: Compared, leftOut: OmitRule): MemberPairs =
 
 /**
  * Whether two values have one text under the members `leftOut` leaves out, read by walking both at once and writing
- * neither, each value read by the canonical model (canonicalOf). A scalar is itself, a finite number its value, -0
- * being 0; NaN, an infinity, a vector or a value implementing the protocol its tag and payload, so NaN is the same as
- * NaN; a list its items in order; a record its members by key in any order, a member the text leaves out left out here;
- * and a value outside the model, which no text holds, the same as nothing but itself. One value met twice is one value
- * at once, so a value is read only where it differs from the other. The pairs still to compare wait on a stack on the
- * heap, so no depth of value deepens the call stack.
+ * neither, each value read by the canonical model (canonicalOf). A scalar is itself, a finite number its value; -0,
+ * NaN, an infinity, a vector or a value implementing the protocol its tag and payload, so NaN is the same as NaN and -0
+ * is not 0; a list its items in order; a record its members by key in any order, a member the text leaves out left out
+ * here; and a value outside the model, which no text holds, the same as nothing but itself. One value met twice is one
+ * value at once, by SameValue (Object.is), the one identity under which the model's two zeros are two values, as their
+ * texts are, where `===` holds 0 and -0 one; so a value is read only where it differs from the other. The pairs still to
+ * compare wait on a stack on the heap, so no depth of value deepens the call stack.
  */
 export const sameUnder = (leftOut: OmitRule): ((a: unknown, b: unknown) => boolean) =>
 	sameBy(canonicalOf, leftOut)
@@ -719,7 +720,7 @@ const sameBy =
 		const pending: Array<readonly [unknown, unknown]> = [[a, b]]
 		for (let pair = pending.pop(); pair !== undefined; pair = pending.pop()) {
 			const [x, y] = pair
-			if (x === y) {
+			if (Object.is(x, y)) {
 				continue
 			}
 			const readX = reading(x)
