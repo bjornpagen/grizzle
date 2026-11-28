@@ -46,7 +46,8 @@ import {
 	type ServedSnapshot,
 	servedSnapshot,
 	snapshotResolver,
-	type UncoveredRead
+	type UncoveredRead,
+	type UninstalledRole
 } from "#compiler/plan/serve.ts"
 
 /**
@@ -69,12 +70,13 @@ export type WorkloadPlace =
 
 /**
  * The compile of a login's workload refused, at `place`, for `error`: a CompileError, a workload ChangeSet no served
- * file can hold, with every reason (served/unserved.ts UnservedMember), or a watched read whose footprint the
- * snapshot's live source does not decode, with every part of it the source does not (served/forms.ts UncoveredRead).
+ * file can hold, with every reason (served/unserved.ts UnservedMember), a watched read whose footprint the snapshot's
+ * live source does not decode, with every part of it the source does not (served/forms.ts UncoveredRead), or a role
+ * the snapshot's installation does not install (deploy/snapshot/served.ts UninstalledRole).
  */
 export interface ServedRefusal {
 	readonly place: WorkloadPlace
-	readonly error: CompileError | UnservedMember | UncoveredRead
+	readonly error: CompileError | UnservedMember | UncoveredRead | UninstalledRole
 }
 
 /**
@@ -257,8 +259,8 @@ export const servedEntry = (
  * plans no ChangeSet: the login's compile compiled them), every reading of the clock its clocked reads and ChangeSets
  * make counting from `clock`: its roles, each with its workload's programs compiled, which a test reads beside the file
  * they project (a change form's compiled entry, its put choices among it). A role the snapshot records no certificate of
- * is refused at the login; a program that casts a parameter to a type the snapshot's installation does not install is
- * refused at its role and program as UninstalledDomain.
+ * is one its installation does not install, refused at the role as UninstalledRole; a program that casts a parameter to
+ * a type the snapshot's installation does not install is refused at its role and program as UninstalledDomain.
  */
 export const snapshotCompiled = Effect.fn("snapshotCompiled")(function* (
 	login: ServedInput,
@@ -292,7 +294,10 @@ export const snapshotCompiled = Effect.fn("snapshotCompiled")(function* (
 				Arr.map(login.login.roles, (r) => r.desc.name)
 			)
 		),
-		atLogin
+		(uninstalled): ServedRefusal => ({
+			place: { kind: "role", role: uninstalled.role },
+			error: uninstalled
+		})
 	)
 	const changes = yield* Effect.mapError(
 		loginChangesOver(

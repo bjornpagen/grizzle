@@ -6203,8 +6203,12 @@ is `readCommitted` or `serializable`, for every role of the login.
 each one statement. A ChangeSet's read-backs run in its own transaction, at its
 level.
 
-**compileServed serves every role SERIALIZABLE.** A file `compileServed` compiles from other programs than the
-committed workload has no certificate behind it, so every role in it runs SERIALIZABLE.
+**compileServed compiles each role at its certified level, and refuses a role the installation does not install.** A
+file `compileServed` compiles runs each role at the level the installation certified it at, which `snapshot.json`
+records, as the file `grizzle generate` commits serves it. A login or a role no configuration lists has no certificate,
+no grants and no views, so no file of it can run: `compileServed` refuses it, a `ServedRefusal` at the role whose error
+is `UninstalledRole`, naming the login and the role. List the login with the role in the configuration's logins and run
+`grizzle generate`.
 
 **compileServed refuses a read the live source does not serve.** A watch of a read whose table the installation's
 publication leaves out, or whose routing column its live source does not route by, would miss its changes, and a watch

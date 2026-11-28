@@ -267,29 +267,36 @@ export const snapshotResolver =
 	}
 
 /**
+ * A role of a login that the installation a snapshot records does not install. The installation certifies every role of
+ * each login it installs (SnapshotDerived `certification`, physical/install/compile.ts certificationOf), so a role it
+ * holds no certificate of is one its database has no grants and no views of, and no served file of it can run: a login
+ * a test composes that no configuration lists, or a role added to a configured login. Its remedy is the
+ * configuration's: list the login with the role, and run grizzle generate.
+ */
+export interface UninstalledRole {
+	readonly _tag: "UninstalledRole"
+	readonly login: string
+	readonly role: string
+}
+
+/**
  * The level each of `roles`, the roles of `login`, runs its writes at in the installation `snapshot` records, by the
  * role's name (SnapshotDerived `certification`): what a served compile from the snapshot compiles each role's ChangeSets
  * at, as generate's served file serves them. A role it records no certificate of is one the installation does not
- * install, whose compile is refused.
+ * install (UninstalledRole), whose compile is refused at the first such role in the login's order.
  */
 export const certifiedLevels = (
 	snapshot: ServedSnapshot,
 	login: string,
 	roles: ReadonlyArray<string>
-): Result.Result<ReadonlyMap<string, Isolation>, CompileError> => {
+): Result.Result<ReadonlyMap<string, Isolation>, UninstalledRole> => {
 	const levels = new Map<string, Isolation>()
 	for (const role of roles) {
 		const certified = snapshot.derived.certification.find(
 			(c) => c.login === login && c.role === role
 		)
 		if (certified === undefined) {
-			return Result.err(
-				malformedArtifact(
-					"snapshot",
-					["derived", "certification"],
-					`a certificate of the role ${role} of the login ${login}, which the installation snapshot.json records installs: compile a login its installation installs`
-				)
-			)
+			return Result.err({ _tag: "UninstalledRole", login, role })
 		}
 		levels.set(role, certified.certificate.level)
 	}

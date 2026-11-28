@@ -30,7 +30,8 @@ export {
 	type InstalledIndexes,
 	servedSnapshot,
 	snapshotIndexes,
-	snapshotResolver
+	snapshotResolver,
+	type UninstalledRole
 } from "#compiler/deploy/snapshot/served.ts"
 export type { RealityReading } from "#compiler/analysis/schema.ts"
 export { rosterCodebook } from "#compiler/ir/codes.ts"

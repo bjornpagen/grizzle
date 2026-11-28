@@ -29,11 +29,17 @@
  *   that level among it: the snapshot records each role's certificate, which that compile compiles its ChangeSets at,
  *   so a test runs the forms production runs. Kept: the snapshot-only compile compiled every role at SERIALIZABLE, so
  *   its writes read what generate's did not (second-call's put of Fixed, batched's insert of Wide).
+ * - A role the installation does not install: a login no configuration lists, of a role none lists, and a configured
+ *   login with that role added, each compiled from the snapshot alone (compileServed, as an application's test
+ *   compiles one), are refused at the role, UninstalledRole naming the login and the role, since the installation
+ *   holds no grants and no views of it and no served file of it can run; den's derived requests composed by such a
+ *   login were refused as a malformed snapshot.
  */
 import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Record as Rec, String as Str } from "effect"
+import { compileServed } from "#adapter/public/compile.ts"
 import { served as servedLogin } from "#adapter/public/layer.ts"
 import { snapshotServedEntry } from "#adapter/served/compile.ts"
 import { compileSchema, resolveConfig } from "#cli/config.ts"
@@ -234,6 +240,29 @@ export const aRolesIsolationLevelIsDecidedOnceFromTheStatementsItsWritesSendEver
 						notes.note("a READ COMMITTED role served from the snapshot alone")
 					}
 				}
+				/** A role no configuration lists, made for each login it is composed into: a role is in one login. */
+				const visitor = () => role(Work, "visitor", wholeEntriesOf(Work))
+				for (const composed of [
+					login(Work, "composing", [visitor()]),
+					login(Work, "app", [
+						role(Work, "writer", wholeEntriesOf(Work), listsOf(c.mode, c.writes)),
+						role(Work, "reader", wholeEntriesOf(Work)),
+						visitor()
+					])
+				]) {
+					const refused = yield* Effect.match(compileServed(composed, snapshot, []), {
+						onFailure: Option.some,
+						onSuccess: () => Option.none()
+					})
+					assert.deepEqual(
+						refused,
+						Option.some({
+							place: { kind: "role", role: "visitor" },
+							error: { _tag: "UninstalledRole", login: composed.name, role: "visitor" }
+						}),
+						`login ${composed.name}: a role the installation does not install is refused at the role`
+					)
+				}
 				const logins: ReadonlyArray<AnyLogin> = [app, ...psql]
 				for (const l of logins) {
 					assert.deepEqual(
@@ -279,6 +308,12 @@ export const aRolesIsolationLevelIsDecidedOnceFromTheStatementsItsWritesSendEver
 					'\t\t\t(role) => defined(levels.get(role), "the certified level of each role of the login"),\n',
 				replacement: '\t\t\t() => "serializable",\n',
 				why: "The snapshot-only compile compiles every role at SERIALIZABLE whatever its certificate: a READ COMMITTED role's served file from the snapshot is no longer generate's, its writes compiled at another level than production runs them."
+			},
+			{
+				file: "packages/engine/src/deploy/snapshot/served.ts",
+				original: '\t\t\treturn Result.err({ _tag: "UninstalledRole", login, role })',
+				replacement: '\t\t\tlevels.set(role, "serializable")\n\t\t\tcontinue',
+				why: "A role the installation does not install is compiled anyway, at SERIALIZABLE, into a served file nothing can run: the composed login's compile succeeds where it is refused at its role."
 			},
 			{
 				file: "packages/engine/src/program/workload/roles.ts",

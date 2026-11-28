@@ -90,11 +90,12 @@ const compiledJson = (
  *
  * It is an application's test's way to a program the login's committed workload does not hold: compile it into a served
  * file of its own over the database's snapshot, then serve that file. `workloads` is `login.workload` for the login's own
- * file. A value login(...) did not build, a base that does not compile, a program that does not compile for a role it
- * runs on, and a live read whose footprint the snapshot's live source does not decode, so that a watch of it would miss
- * its changes (UncoveredRead, a snapshot of an installation migrated without the program's workload), are each its
- * ServedRefusal, naming where the compile refused; an answered read (workload answered), which no change wakes, needs
- * none of the source.
+ * file. A value login(...) did not build, a base that does not compile, a role the snapshot's installation does not
+ * install (UninstalledRole: a login or a role no configuration lists has no grants and no views, so list it and run
+ * grizzle generate), a program that does not compile for a role it runs on, and a live read whose footprint the
+ * snapshot's live source does not decode, so that a watch of it would miss its changes (UncoveredRead, a snapshot of an
+ * installation migrated without the program's workload), are each its ServedRefusal, naming where the compile refused;
+ * an answered read (workload answered), which no change wakes, needs none of the source.
  */
 export const compileServed = (
 	login: AnyLogin,

@@ -5,7 +5,7 @@ import {
 	type SettingFault as ConnectionSettingFault,
 	settingFaultText
 } from "#adapter/errors/failures.ts"
-import type { WorkloadPlace } from "#adapter/served/compile.ts"
+import type { ServedRefusal, WorkloadPlace } from "#adapter/served/compile.ts"
 import type { DeclarationRefused } from "#cli/renames.ts"
 import {
 	type CompileError,
@@ -17,13 +17,8 @@ import {
 	type RecordedFormat,
 	recordedFormatText
 } from "#compiler/plan/common.ts"
-import { metaFileName, type UnservedMember, type UnservedReason } from "#compiler/plan/migration.ts"
-import {
-	type LiveGap,
-	manifestFileName,
-	snapshotFileName,
-	type UncoveredRead
-} from "#compiler/plan/serve.ts"
+import { metaFileName, type UnservedReason } from "#compiler/plan/migration.ts"
+import { type LiveGap, manifestFileName, snapshotFileName } from "#compiler/plan/serve.ts"
 import { maxMigrationNameLength } from "#compiler/plan/usage.ts"
 
 /**
@@ -814,7 +809,7 @@ export class ServedRefused extends Data.TaggedError("ServedRefused")<{
 	readonly schema: string
 	readonly login: string
 	readonly place: WorkloadPlace
-	readonly error: CompileError | UnservedMember | UncoveredRead
+	readonly error: ServedRefusal["error"]
 }> {
 	override get message(): string {
 		return `login ${this.login}'s workload does not compile${workloadPlaceText(this.place)}: ${servedRefusalText(this.error)}`
@@ -847,7 +842,7 @@ const liveGapText = (gap: LiveGap): string => {
 	}
 }
 
-const servedRefusalText = (error: CompileError | UnservedMember | UncoveredRead): string => {
+const servedRefusalText = (error: ServedRefusal["error"]): string => {
 	switch (error._tag) {
 		case "CompileError":
 			return error.message
@@ -855,6 +850,8 @@ const servedRefusalText = (error: CompileError | UnservedMember | UncoveredRead)
 			return `a ChangeSet no served file can hold: ${Arr.join(Arr.map(error.reasons, unservedReasonText), "; ")}`
 		case "UncoveredRead":
 			return `a read the installation's live source does not serve, so a watch of it would miss its changes or a migration: ${Arr.join(Arr.map(error.gaps, liveGapText), ", ")}`
+		case "UninstalledRole":
+			return `role ${error.role} of login ${error.login} is not installed, so no served file of it can run: list the login with the role in the configuration's logins and run grizzle generate`
 	}
 }
 
