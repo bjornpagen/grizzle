@@ -48,6 +48,7 @@ import {
 	type BindFeature,
 	bindCaseGen,
 	bindFeatures,
+	boundAccess,
 	boundMet,
 	catalog,
 	contextLevel,
@@ -82,6 +83,31 @@ export const everyReadIsBoundAsItsLevelFixesItWhereItStandsUnderTheScopesOneAlia
 						`the context's claims row is ${inner}, the scope's, the one item of the level its alias names (${Formatter.format(levels)})`
 					)
 					c.note("a context source's row named by the scope, its level's one item")
+					return
+				}
+				if (drawn.place.kind === "hashed") {
+					const [read] = Arr.flatMap(bound.plan.levels, (level) =>
+						level.name.kind === "top" ? scannedItems(level) : []
+					)
+					const request = read?.scan.kind === "index" ? read.scan.index : undefined
+					const access = boundAccess(bound.statement)
+					assert.deepEqual(
+						{
+							use: request?.use,
+							keys: Arr.map(request?.keys ?? [], (k) => k.expr),
+							access: access?.kind,
+							row: access?.kind === "row" ? [...access.columns] : []
+						},
+						drawn.place.both
+							? { use: "row equality", keys: ["p", "q"], access: "row", row: ["p", "q"] }
+							: { use: "equality lookup", keys: ["p"], access: "seek", row: [] },
+						"U's byte strings bound together are one equality of their row, read through the hash index over it; one alone an equality lookup"
+					)
+					c.note(
+						drawn.place.both
+							? "byte strings bound together, one equality of their row"
+							: "one byte string bound alone, an equality lookup"
+					)
 					return
 				}
 				if (drawn.place.kind === "met") {
@@ -363,6 +389,12 @@ export const everyReadIsBoundAsItsLevelFixesItWhereItStandsUnderTheScopesOneAlia
 		oracle: { kind: "specification", name: "the contract's binding rules (CARRY-CONTRACT §1)" },
 		kept: [],
 		kills: [
+			{
+				file: "packages/engine/src/sql/bind.ts",
+				original: "\t\t\trs.length > 0 &&\n",
+				replacement: "\t\t\trs.length > 99 &&\n",
+				why: "Byte strings bound together are bound one equality each, which no index serves: the index engine refuses the lookup, where the binding states one equality of their row that a hash index over it serves."
+			},
 			{
 				file: "packages/engine/src/sql/bind.ts",
 				original: '\t\tif (c.kind !== "exists" || !c.not) {\n',

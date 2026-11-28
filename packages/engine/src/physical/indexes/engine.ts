@@ -872,9 +872,10 @@ interface Covered extends Stated {
 
 /**
  * A stated request as coverage reads it (Covered): its entry's keys judged where its own index is a B-tree; a lookup of a
- * stored derived relation's table by equalities of one column no B-tree entry holds reads a hash index on it, and one of
- * several such columns, each by an equality of its own, is refused, since a hash index on one of them reads every row
- * sharing that one value. The one derivation of what serves a request, planning's and resolution's (`resolverOf`).
+ * stored derived relation's table by equalities of one column no B-tree entry holds reads a hash index on it, and the
+ * binding states a lookup of several such columns as one equality of their row (AccessUse `row equality`), which a hash
+ * index over the row serves, so no lookup of several reaches here: one is an internal compiler error. The one derivation
+ * of what serves a request, planning's and resolution's (`resolverOf`).
  */
 const coveredOf = (stated: Stated): Covered => {
 	const { request, relation, keys, roles, placements, label } = stated
@@ -890,10 +891,8 @@ const coveredOf = (stated: Stated): Covered => {
 		relation.stored
 	) {
 		return isNonEmpty(keys.slice(1))
-			? fail(
-					"UnsupportedOperation",
-					label,
-					`a lookup of the stored relation ${request.relation} by one column of no byte bound, which a hash index finds the rows of; it binds ${keys.map((k) => keyTermText(k.column)).join(", ")}, each of no byte bound, and a hash index on one of them reads every row sharing that one value: bind a key of it, or a column a B-tree holds`
+			? defect(
+					`${label}: a lookup of the stored relation ${request.relation} binding ${keys.map((k) => keyTermText(k.column)).join(", ")}, each of no byte bound, by an equality of each, which the binding states as one equality of their row (sql/bind.ts HashRow, AccessUse "row equality")`
 				)
 			: { ...stated, placements: hashPlacements(keys), filtered: [] }
 	}

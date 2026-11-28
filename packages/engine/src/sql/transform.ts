@@ -567,6 +567,10 @@ export class Transform {
 				const bound = mapNonEmptyKept(access.bound, (b) => this.seekBinding(b))
 				return bound === access.bound ? access : { ...access, bound }
 			}
+			case "row": {
+				const values = mapNonEmptyKept(access.values, (v) => this.expr(v))
+				return values === access.values ? access : { ...access, values }
+			}
 			case "ordered": {
 				const bound = mapList(access.bound, (b) => this.seekBinding(b))
 				return bound === access.bound ? access : { ...access, bound }
@@ -2043,6 +2047,11 @@ class Visit {
 								case "ordered":
 									for (const b of access.bound) {
 										this.expr(b.condition)
+									}
+									return
+								case "row":
+									for (const v of access.values) {
+										this.expr(v)
 									}
 									return
 								case "range":

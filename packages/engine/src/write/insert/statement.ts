@@ -1,5 +1,6 @@
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import type { Identity } from "#compiler/core/identity.ts"
 import type { ConstraintName, EntryName, StoredRelationName } from "#compiler/core/ids.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import type { DagTemplates } from "#compiler/ir/dag-digest.ts"
@@ -77,6 +78,9 @@ export interface WriteNames extends PhysicalNames {
 	/** The whole view of a stored relation (physical/ddl/names.ts InstallNames `wholeView`), which the binding reads a
 	 * role's read of it through (physical/access/catalog.ts servedCatalog). */
 	readonly wholeView: (relation: string) => ObjectName
+	/** The level each relation is installed in (physical/ddl/names.ts InstallNames `levelOf`), which holds the row type of
+	 * a hash index over a stored derived relation's byte strings that the binding casts a row equality to. */
+	readonly levelOf: (relation: string) => Identity<"schema">
 }
 
 /**

@@ -1035,6 +1035,15 @@ class ScopeWalk {
 				case "ordered":
 					bound(access.bound)
 					return
+				case "row":
+					this.#at("values", () => {
+						for (const [i, v] of access.values.entries()) {
+							this.#at(i, () => {
+								this.#expr(v, query)
+							})
+						}
+					})
+					return
 				case "range":
 					bound(access.bound)
 					this.#at("conditions", () => {

@@ -36,7 +36,7 @@
  * was in a WHERE or an ON. A read it cannot classify is an internal compiler error.
  */
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
-import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	isNonEmpty,
 	mapNonEmpty,
@@ -142,13 +142,15 @@ export type Holds = "many" | "few"
  * - a span's, which no B-tree keys: GiST under range_ops serves its Allen relations, its scalar prefix through
  *   btree_gist;
  * - a search document's, which no B-tree keys: GIN serves its match.
- * A text of no byte bound and a byte string are a text's and a scalar's like any other: a read binding one asks for it,
- * and the index engine decides what serves the request or refuses it (physical/indexes/engine.ts refusedUndigested), the
- * one place of the rule of what no entry holds.
+ * - a byte string's (`bytes`), which no B-tree entry holds: a read binding it alone asks for it as a scalar's, which a
+ *   hash index on it serves, and a read binding several, each by equality, binds their row (BindTable `hashRow`).
+ * A text of no byte bound is a text's like any other: a read binding one asks for it, and the index engine decides what
+ * serves the request or refuses it (physical/indexes/engine.ts refusedUndigested), the one place of the rule of what no
+ * entry holds.
  */
 export type BindColumn =
 	| {
-			readonly kind: "scalar" | "text" | "network"
+			readonly kind: "scalar" | "text" | "network" | "bytes"
 			readonly field: string
 			readonly holds: Holds
 	  }
@@ -178,7 +180,18 @@ export interface BindTable {
 	readonly relation: string
 	readonly columns: ReadonlyMap<string, BindColumn>
 	readonly keys: ReadonlyArray<ReadonlyArray<string>>
+	readonly hashRow: HashRow
 }
+
+/**
+ * How a read binds several byte strings of a table by equality, each a column no B-tree entry holds (BindColumn
+ * `bytes`): through the hash index the installation makes of their row, cast to its own composite type, which `type`
+ * names for the bound columns, in the table's column order (physical/indexes/engine.ts hashedRow), a stored derived
+ * relation's table's (`typed`); none for any other table, whose read binding several is refused by the index engine.
+ */
+export type HashRow =
+	| { readonly kind: "none" }
+	| { readonly kind: "typed"; readonly type: (columns: NonEmptyReadonlyArray<string>) => TypeRef }
 
 /**
  * A role's view as the binding reads it (ReadCatalog `view`):
@@ -722,6 +735,12 @@ type Classified =
 			readonly keyed: boolean
 	  }
 	| {
+			readonly kind: "row"
+			readonly eq: NonEmptyReadonlyArray<Binding>
+			readonly columns: NonEmptyReadonlyArray<string>
+			readonly type: TypeRef
+	  }
+	| {
 			readonly kind: "ordered"
 			readonly eq: ReadonlyArray<Binding>
 			readonly order: NonEmptyReadonlyArray<OrderedColumn>
@@ -860,6 +879,8 @@ const accessRequest = (
 				? defect("a seek binding a column at least")
 				: requestOf(table, [c0, ...cs], [], access.keyed ? "key lookup" : "equality lookup")
 		}
+		case "row":
+			return requestOf(table, access.columns, [], "row equality")
 		case "ordered":
 			return keyedRequest(
 				table,
@@ -2356,6 +2377,29 @@ class Binder {
 						columnsOf(access.eq)
 					)
 				}
+				case "row": {
+					for (const b of access.eq) {
+						take(b.conjunct)
+					}
+					const valueOf = (column: string): Expr =>
+						this.expr(
+							defined(
+								access.eq.find((b) => b.column === column),
+								`the binding of ${column}, a column of the row`
+							).value,
+							self
+						)
+					return indexed(
+						{
+							kind: "row",
+							type: access.type,
+							columns: access.columns,
+							values: mapNonEmpty(access.columns, valueOf)
+						},
+						accessRequest(table, access),
+						access.columns
+					)
+				}
 				case "ordered":
 					return indexed(
 						{ kind: "ordered", bound: sought(access.eq), order: access.order, use: access.use },
@@ -2466,6 +2510,21 @@ class Binder {
 		const holds = (column: string) => btreeColumn(table, column)?.holds
 		const many = bindings.some((b) => holds(b.column) === "many")
 		const [b0, ...bs] = bindings
+		const [r0, ...rs] = [...table.columns.keys()].filter((c) => equal.has(c))
+		if (
+			table.hashRow.kind === "typed" &&
+			b0 !== undefined &&
+			r0 !== undefined &&
+			rs.length > 0 &&
+			bindings.every((b) => b.op === "=" && table.columns.get(b.column)?.kind === "bytes")
+		) {
+			return {
+				kind: "row",
+				eq: [b0, ...bs],
+				columns: [r0, ...rs],
+				type: table.hashRow.type([r0, ...rs])
+			}
+		}
 		if (many && b0 !== undefined && holdsKey(table, equal)) {
 			return { kind: "seek", eq: [b0, ...bs], keyed: true }
 		}

@@ -1,5 +1,5 @@
 import { defect } from "@bjornpagen/grizzle-text/base/invariant"
-import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { nominal } from "#compiler/core/brand.ts"
 import type { FloatSpecialName } from "#compiler/core/canonical.ts"
 import type { ClockUnit } from "#compiler/core/clock.ts"
@@ -899,6 +899,18 @@ export interface OrderedColumn {
 export type LevelAccess =
 	| { readonly kind: "whole" }
 	| { readonly kind: "seek"; readonly bound: NonEmptyReadonlyArray<SeekBinding> }
+	| {
+			/**
+			 * Byte strings no B-tree entry holds, bound by equality, several: one equality of their row,
+			 * `ROW(<alias>.<column>, ...)::<type> = ROW(<value>, ...)::<type>`, both rows cast to the composite type of the
+			 * hash index over them (sql/bind.ts HashRow), so PostgreSQL keeps it one record equality its index condition
+			 * reads, where two bare row constructors would be a conjunct per column no index serves.
+			 */
+			readonly kind: "row"
+			readonly type: TypeRef
+			readonly columns: NonEmptyReadonlyArray<string>
+			readonly values: NonEmptyReadonlyArray<Expr>
+	  }
 	| { readonly kind: "tid"; readonly at: Expr }
 	| {
 			readonly kind: "ordered"
@@ -1157,6 +1169,29 @@ export const readConditions = (source: FromSource): ReadonlyArray<Expr> => {
 		case "seek":
 		case "ordered":
 			return access.bound.map((b) => b.condition)
+		case "row": {
+			const type = access.type
+			return [
+				{
+					kind: "binary",
+					op: "=",
+					left: {
+						kind: "cast",
+						expr: {
+							kind: "row",
+							items: mapNonEmpty(access.columns, (column) => ({
+								kind: "column",
+								table: source.alias,
+								column
+							}))
+						},
+						type
+					},
+					right: { kind: "cast", expr: { kind: "row", items: access.values }, type },
+					schema: undefined
+				}
+			]
+		}
 		case "range":
 			return [...access.bound.map((b) => b.condition), ...access.conditions]
 		case "span":

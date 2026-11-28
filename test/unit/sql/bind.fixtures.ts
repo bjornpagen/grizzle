@@ -8,7 +8,7 @@ import { type Gen, boolean, element } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order } from "effect"
 import { defaultOpclass } from "#compiler/ir/law.ts"
 import type { AccessIndexRequest } from "#compiler/ir/products.ts"
-import type { Expr, FromSource, OperandSelect, Select } from "#compiler/sql/ast.ts"
+import type { Expr, FromSource, LevelAccess, OperandSelect, Select } from "#compiler/sql/ast.ts"
 import { nameKey } from "#compiler/sql/ast.ts"
 import { type BindTable, type BindView, bindView, type ReadCatalog } from "#compiler/sql/bind.ts"
 import {
@@ -30,6 +30,7 @@ import {
 	keyedRead,
 	keyedSet,
 	lit,
+	namedType,
 	notExists,
 	operandSelect,
 	param,
@@ -46,6 +47,7 @@ import type { PlanItem, ReadPlan } from "#compiler/sql/plan.ts"
 import { levelItems, scannedItems } from "#compiler/sql/plan.ts"
 import { printExpr } from "#compiler/sql/print.ts"
 import { identityHooks, Transform } from "#compiler/sql/transform.ts"
+import { installedTypes } from "#compiler/sql/type-schemas.ts"
 
 /** What a case of the property reaches: each way a read of T is bound, or is not. */
 export type BindFeature =
@@ -72,6 +74,8 @@ export type BindFeature =
 	| "an EXISTS of a set read through a fenced item, a subplan"
 	| "a VALUES list fenced, planned apart under its alias"
 	| "a reader's conjunct moved beneath a fence, binding the read there"
+	| "byte strings bound together, one equality of their row"
+	| "one byte string bound alone, an equality lookup"
 
 export const bindFeatures = [
 	"a seek at a literal",
@@ -96,7 +100,9 @@ export const bindFeatures = [
 	"a NOT EXISTS of a set PostgreSQL anti-joins, hashed after its level's items",
 	"an EXISTS of a set read through a fenced item, a subplan",
 	"a VALUES list fenced, planned apart under its alias",
-	"a reader's conjunct moved beneath a fence, binding the read there"
+	"a reader's conjunct moved beneath a fence, binding the read there",
+	"byte strings bound together, one equality of their row",
+	"one byte string bound alone, an equality lookup"
 ] as const
 
 /**
@@ -111,7 +117,8 @@ const tTable: BindTable = {
 		["f", { kind: "scalar", field: "f", holds: "few" }],
 		["v", { kind: "vector", field: "v", holds: "many", cosine: defaultOpclass }]
 	]),
-	keys: [["a"]]
+	keys: [["a"]],
+	hashRow: { kind: "none" }
 }
 
 const sTable: BindTable = {
@@ -120,7 +127,26 @@ const sTable: BindTable = {
 		["k", { kind: "scalar", field: "k", holds: "many" }],
 		["w", { kind: "scalar", field: "w", holds: "many" }]
 	]),
-	keys: [["k"]]
+	keys: [["k"]],
+	hashRow: { kind: "none" }
+}
+
+/**
+ * U(p, q, x), a stored derived relation's table of no key: p and q byte strings, which no B-tree entry holds, read
+ * together through the hash index over their row, cast to its type `app.u_<columns>` (sql/bind.ts HashRow); x a scalar.
+ */
+const uTable: BindTable = {
+	relation: "U",
+	columns: new Map([
+		["p", { kind: "bytes", field: "p", holds: "many" }],
+		["q", { kind: "bytes", field: "q", holds: "many" }],
+		["x", { kind: "scalar", field: "x", holds: "many" }]
+	]),
+	keys: [],
+	hashRow: {
+		kind: "typed",
+		type: (columns) => namedType(installedTypes("app"), `u_${Arr.join(columns, "_")}`, [])
+	}
 }
 
 /** The alias T's whole view's body names T by, which PostgreSQL plans T under where it flattens the view. */
@@ -141,7 +167,9 @@ const tablesOnly: ReadCatalog = {
 			? tTable
 			: key === nameKey({ schema: "app", name: "s" })
 				? sTable
-				: undefined,
+				: key === nameKey({ schema: "app", name: "u" })
+					? uTable
+					: undefined,
 	view: () => undefined,
 	fired: () => undefined
 }
@@ -234,7 +262,8 @@ export type Fixed = "a" | "b" | "f" | "v" | "d"
  * written as the lowering writes them; or in the first arm of a UNION ALL with S's, the statement's own or a derived
  * table its top reads; or in a MATERIALIZED CTE beside a read of S an EXISTS or a NOT EXISTS of its WHERE tests at b
  * against S's key, over that CTE or over a VALUES list (`exists`); or in a LATERAL derived table fenced by OFFSET 0
- * after S, its level equating its a with S's key (`fenced`).
+ * after S, its level equating its a with S's key (`fenced`); or none, U read at a parameter of each of its byte
+ * strings or of p alone (`hashed`).
  */
 export type Place =
 	| { readonly kind: "top" }
@@ -249,6 +278,7 @@ export type Place =
 	| { readonly kind: "union"; readonly at: "top" | "derived" }
 	| { readonly kind: "exists"; readonly not: boolean; readonly over: "cte" | "values" }
 	| { readonly kind: "fenced" }
+	| { readonly kind: "hashed"; readonly both: boolean }
 
 export interface BindCase {
 	readonly place: Place
@@ -280,7 +310,9 @@ export const bindCaseGen: Gen<BindCase> = (source) => {
 			{ kind: "exists", not: true, over: "cte" },
 			{ kind: "exists", not: false, over: "cte" },
 			{ kind: "exists", not: true, over: "values" },
-			{ kind: "fenced" }
+			{ kind: "fenced" },
+			{ kind: "hashed", both: true },
+			{ kind: "hashed", both: false }
 		])
 	)
 	return {
@@ -408,6 +440,20 @@ export const statementOf = (c: BindCase): Select => {
 				}
 			}
 		}
+		case "hashed":
+			return select(
+				keyedSet(
+					[target(col("u", "x"))],
+					[table("app", "u", "u")],
+					c.place.both
+						? and([
+								eq(col("u", "p"), param(1, types.bytea)),
+								eq(col("u", "q"), param(2, types.bytea))
+							])
+						: eq(col("u", "p"), param(1, types.bytea)),
+					"a read of U at its byte strings"
+				)
+			)
 		case "fenced": {
 			const inner: OperandSelect = {
 				...operandSelect(
@@ -600,6 +646,7 @@ export const specified = (c: BindCase): SpecifiedRead => {
 			return { kind: "index", probe: true, bound: sorted(["b", ...held]) }
 		case "context":
 		case "met":
+		case "hashed":
 			return { kind: "whole" }
 		case "world":
 			return c.place.leaky ? { kind: "whole" } : { kind: "index", probe: false, bound: ["a"] }
@@ -695,6 +742,13 @@ export const existsFenced = (bound: Select): boolean => {
 		first.query.offset.value.kind === "int" &&
 		first.query.offset.value.value === 0n
 	)
+}
+
+/** The access of the read the bound statement holds at its top, none where it holds no bound read there. */
+export const boundAccess = (bound: Select): LevelAccess | undefined => {
+	const body = bound.body
+	const [first] = body.kind === "core" ? body.from : []
+	return first?.kind === "read" ? first.access : undefined
 }
 
 /** The met rows the bound statement reads at its top, as the binding wrote them. */

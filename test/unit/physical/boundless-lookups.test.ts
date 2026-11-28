@@ -4,14 +4,15 @@
  * own inference, so its lookup is not refused for want of a bound; the hash index's entry is the value's 4-byte hash
  * code, and the rows it finds are the lookup's own. A lookup binding several such columns as one row equality (AccessUse
  * `row equality`) reads a hash index over their row, `ROW(<columns>)::<type>`, the type its own composite object of
- * those columns in the index's key order, created before the index; one binding them by an equality of each is refused
- * as UnsupportedOperation, since a hash index on one of them reads every row sharing that one value. Over AccountNote, a
+ * those columns in the index's key order, created before the index; one binding them by an equality of each is an
+ * internal compiler error, since the binding states every such lookup as one row equality (sql/bind.ts HashRow) and a
+ * hash index on one of them would read every row sharing that one value. Over AccountNote, a
  * sealed unit's stored relation of two bytes columns, a lookup of one of them, of both by an equality of each, and of
  * both as a row.
  *
  * Oracle: the rule, stated over the lookup's columns: one created hash index on the one column, or on the row of both,
- * after its composite type, the request resolving to it, storing and returning nothing; a refusal of two by an
- * equality of each.
+ * after its composite type, the request resolving to it, storing and returning nothing; an internal compiler error for
+ * two by an equality of each.
  *
  * Its budget is the runner's: a new property, with no suite before it to carry a count from.
  */
@@ -19,8 +20,8 @@ import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Option } from "effect"
-import { refused, succeeded } from "#test/support/assert.ts"
+import { Array as Arr, Effect, Option, String as Str } from "effect"
+import { succeeded } from "#test/support/assert.ts"
 import {
 	installNoted,
 	boundlessColumns,
@@ -29,10 +30,10 @@ import {
 
 type BoundlessFeature =
 	| "one column read through a hash index"
-	| "two columns refused"
+	| "two columns by an equality of each, an internal compiler error"
 	| "two columns read through a hash of their row"
 
-/** A stored lookup of one column of no byte bound alone, or of several as a row, reads a hash index; several by an equality of each are refused. */
+/** A stored lookup of one column of no byte bound alone, or of several as a row, reads a hash index; several by an equality of each are an internal compiler error. */
 export const aStoredLookupOfOneColumnOfNoByteBoundReadsAHashIndexOnIt = property.exhaust(
 	finite(int(1, 3)),
 	{
@@ -40,7 +41,7 @@ export const aStoredLookupOfOneColumnOfNoByteBoundReadsAHashIndexOnIt = property
 		box: "a lookup of AccountNote by one of its two bytes columns alone, by both, and by both as a row",
 		situations: [
 			"one column read through a hash index",
-			"two columns refused",
+			"two columns by an equality of each, an internal compiler error",
 			"two columns read through a hash of their row"
 		] satisfies ReadonlyArray<Reached<BoundlessFeature>>,
 		check: (_, c: Case<BoundlessFeature>) => (bound) =>
@@ -48,11 +49,12 @@ export const aStoredLookupOfOneColumnOfNoByteBoundReadsAHashIndexOnIt = property
 				const columns = Arr.take(boundlessColumns, bound)
 				const rowed = bound > boundlessColumns.length
 				if (columns.length > 1 && !rowed) {
-					refused(
-						installNoted([boundlessLookup(columns, "equality lookup")]),
-						"UnsupportedOperation"
+					assert.throws(
+						() => installNoted([boundlessLookup(columns, "equality lookup")]),
+						(e) => Str.includes("each of no byte bound, by an equality of each")(String(e)),
+						"a lookup of two bytes columns by an equality of each, which the binding states as one row equality, is an internal compiler error"
 					)
-					c.note("two columns refused")
+					c.note("two columns by an equality of each, an internal compiler error")
 					return
 				}
 				const request = boundlessLookup(columns, rowed ? "row equality" : "equality lookup")
@@ -125,7 +127,7 @@ export const aStoredLookupOfOneColumnOfNoByteBoundReadsAHashIndexOnIt = property
 				file: "packages/engine/src/physical/indexes/engine.ts",
 				original: "\t\treturn isNonEmpty(keys.slice(1))\n",
 				replacement: "\t\treturn false\n",
-				why: "A lookup of two bytes columns read through a hash index on the first: every row sharing that value is read for each lookup, and the lookup is never refused."
+				why: "A lookup of two bytes columns read through a hash index on the first: every row sharing that value is read for each lookup, where such a lookup, which the binding never states, is an internal compiler error."
 			},
 			{
 				file: "packages/engine/src/physical/indexes/engine.ts",

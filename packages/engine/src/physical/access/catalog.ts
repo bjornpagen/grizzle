@@ -15,7 +15,12 @@
  */
 import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import { catchCompileError } from "#compiler/core/canonical.ts"
-import { identifierOf, identity, parseDeclaredName } from "#compiler/core/identity.ts"
+import {
+	type Identity,
+	identifierOf,
+	identity,
+	parseDeclaredName
+} from "#compiler/core/identity.ts"
 import { compareNumbers, compareStrings } from "#compiler/core/order.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import {
@@ -33,10 +38,13 @@ import type {
 	BindColumn,
 	BindTable,
 	BindView,
+	HashRow,
 	ReadCatalog,
 	WorldBinding
 } from "#compiler/sql/bind.ts"
+import { namedType } from "#compiler/sql/build.ts"
 import { type Alias, wholeViewAlias } from "#compiler/sql/naming.ts"
+import { installationTypes } from "#compiler/sql/type-schemas.ts"
 
 /**
  * A field as an index serves it (see the header), by its carrier: a span's and a search document's, which GiST and GIN
@@ -62,6 +70,9 @@ const columnOf = (field: TargetField, name: string, vectorSchema: string): BindC
 	}
 	if (carrier === "inet" || carrier === "cidr") {
 		return { kind: "network", field: name, holds }
+	}
+	if (field.desc.kind === "bytes") {
+		return { kind: "bytes", field: name, holds }
 	}
 	return { kind: carrier === "text" ? "text" : "scalar", field: name, holds }
 }
@@ -109,9 +120,13 @@ export const wholeViewAliases = (model: LawModel): ReadonlyMap<string, Alias> =>
 /** A view PostgreSQL plans apart under the reference's alias, whose body no plan names (sql/bind.ts BindView). */
 const apartView: BindView = { kind: "apart" }
 
-/** The installed names the binding's catalog reads (`catalogOf`): a table's and its columns', and a whole view's. */
+/**
+ * The installed names the binding's catalog reads (`catalogOf`): a table's and its columns', a whole view's, and the
+ * level each relation is installed in, which holds the row type of a hash index over its byte strings.
+ */
 type CatalogNames = Pick<PhysicalNames, "relation" | "column" | "vectorSchema"> & {
 	readonly wholeView: (relation: string) => ObjectName
+	readonly levelOf: (relation: string) => Identity<"schema">
 }
 
 /**
@@ -160,7 +175,27 @@ const catalogOf = (
 		const keys = r.keyNames.flatMap((k) =>
 			k.span === undefined ? [k.fields.map((f) => names.column(relation, f.name))] : []
 		)
-		const table: BindTable = { relation, columns, keys }
+		/** A stored derived relation's byte strings, bound together by equality, are read through the hash index the
+		 * installation makes of their row, cast to its type (physical/indexes/engine.ts hashedRow), named here as there. */
+		const byName: ReadonlyMap<string, BindColumn> = columns
+		const hashRow: HashRow =
+			r.kind === "stored"
+				? {
+						kind: "typed",
+						type: (bound) =>
+							namedType(
+								installationTypes(names.levelOf(relation)),
+								identifierOf(
+									identity.hashRow(
+										relation,
+										bound.map((c) => byName.get(c)?.field ?? defect(`the field of ${c}`))
+									)
+								),
+								[]
+							)
+					}
+				: { kind: "none" }
+		const table: BindTable = { relation, columns, keys, hashRow }
 		tables.set(nameKey(names.relation(relation)), table)
 		/** A relation whose whole view's name does not fit has none: a role that holds it whole is refused where it is
 		 * named (physical/ddl/names.ts namedRole), so no statement reads one. */
@@ -199,7 +234,8 @@ const ledgerHead = (schema: string): ReadonlyMap<NameKey, BindTable> =>
 					["target", { kind: "scalar", field: "target", holds: "many" }],
 					["complete", { kind: "scalar", field: "complete", holds: "few" }]
 				]),
-				keys: [["head"]]
+				keys: [["head"]],
+				hashRow: { kind: "none" }
 			}
 		]
 	])
