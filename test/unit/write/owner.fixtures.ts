@@ -29,7 +29,7 @@ import { testArtifacts, testCompile } from "#test/support/compile.ts"
 import { Id } from "#test/support/ids.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { checking, owning } from "#test/support/policy.ts"
-import { descOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
+import { descOf, uuidOf } from "#test/support/unit/write/changeset/fixtures.ts"
 
 /** Ledger(id, total, n drawn, t accumulated): the owner of the counted family of Entry. */
 const Ledger = relation(

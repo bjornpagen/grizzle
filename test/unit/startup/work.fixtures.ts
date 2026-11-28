@@ -30,11 +30,16 @@ import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { AnyClosed, AnyRelation, Relation } from "#compiler/types/schema/relation.ts"
 import type { EntryValue } from "#compiler/types/schema/world.ts"
 import { defineConfig } from "#index.ts"
-import { cliOver, configName, offlineConnection, offlineOwner } from "#test/pg/cli/support.ts"
 import { callCounts, type CountedFunction } from "#test/support/kernel/calls.ts"
 import { offlineDecoders, servedSourcedLayer } from "#test/support/live-layer.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import { clusterPool } from "#test/support/pg.ts"
+import {
+	cliOver,
+	configName,
+	offlineConnection,
+	offlineOwner
+} from "#test/support/pg/cli/support.ts"
 import { upTo } from "#test/support/up-to.ts"
 
 /**

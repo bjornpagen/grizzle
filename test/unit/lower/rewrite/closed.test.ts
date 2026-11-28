@@ -26,7 +26,14 @@ import { simplifyPass } from "#compiler/lower/optimize/simplify/index.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { compileTemplate, programAsts, testCompile } from "#test/support/compile.ts"
 import { has, shapeOf } from "#test/support/kernel/shape.ts"
-import { Q, T, Task } from "#test/unit/lower/conservative/fixtures.ts"
+import { Q, T, Task } from "#test/support/unit/lower/conservative/fixtures.ts"
+import {
+	ledgerCatalog,
+	nodesOf,
+	passContext,
+	queryOf,
+	runPasses
+} from "#test/support/unit/lower/rewrite/support.ts"
 import {
 	type ClosedFeature,
 	featureOf,
@@ -45,13 +52,6 @@ import {
 	specified
 } from "#test/unit/lower/rewrite/closed.fixtures.ts"
 import { scopedStay } from "#test/unit/lower/rewrite/guarded.ts"
-import {
-	ledgerCatalog,
-	nodesOf,
-	passContext,
-	queryOf,
-	runPasses
-} from "#test/unit/lower/rewrite/support.ts"
 
 /** R07 over closed constants rewrites an occurrence exactly when it reads every key field as one value and no payload. */
 export const r07OverClosedConstantsRewritesAnOccurrenceExactlyWhenItReadsEveryKeyFieldAsOneValueAndNoPayload =

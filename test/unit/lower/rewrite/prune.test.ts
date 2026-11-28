@@ -29,7 +29,13 @@ import { conservativeMeta } from "#compiler/ir/rel.ts"
 import { analyzeLogical, everyNode, queryEvidence } from "#compiler/logical/annotate.ts"
 import { sourcePrunePass } from "#compiler/lower/optimize/prune/index.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { Edge, Posting, Q } from "#test/unit/lower/conservative/fixtures.ts"
+import { Edge, Posting, Q } from "#test/support/unit/lower/conservative/fixtures.ts"
+import {
+	ledgerCatalog,
+	passContext,
+	rulesOf,
+	runPasses
+} from "#test/support/unit/lower/rewrite/support.ts"
 import {
 	aggregateNames,
 	aggregates,
@@ -45,7 +51,6 @@ import {
 	type Reader,
 	type Stage
 } from "#test/unit/lower/rewrite/prune.fixtures.ts"
-import { ledgerCatalog, passContext, rulesOf, runPasses } from "#test/unit/lower/rewrite/support.ts"
 
 /** Demand pruning keeps a fold's whole bound tuple, the key no head reads included, and drops only undemanded aggregates. */
 export const demandPruningKeepsAFoldsWholeBoundTupleTheKeyNoHeadReadsIncludedAndDropsOnlyUndemandedAggregates =

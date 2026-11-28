@@ -17,7 +17,7 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { sameNode } from "#compiler/scalar/compute/typing.ts"
-import { baseParams, lowerWith, typeWith } from "#test/unit/compute/support.ts"
+import { baseParams, lowerWith, typeWith } from "#test/support/unit/compute/support.ts"
 import {
 	computationKey,
 	descriptions,

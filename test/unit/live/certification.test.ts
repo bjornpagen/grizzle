@@ -2,7 +2,7 @@
  * Certification stays put: a role's isolation certificate is decided by its writes alone, so the live source a login's
  * reads install over their footprint tables (the publication and the replica identity its plan asks for) changes no
  * verdict. Over the QTI-shaped learner (the isolation oracle's sitting
- * shape, test/pg/isolation/support/shapes.ts: an importer writing a Doc and its Pools, a learner starting a Sitting by
+ * shape, test/support/pg/isolation/support/shapes.ts: an importer writing a Doc and its Pools, a learner starting a Sitting by
  * reading the Doc's group, or naming every value of it) and the platform fixture (test/support/fixtures/api/platform.ts,
  * its billing role's served workload), each drafted as `grizzle generate` drafts it from the empty snapshot
  * (cli/generate.ts draftSchema):

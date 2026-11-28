@@ -9,7 +9,7 @@ import {
 	type TestField,
 	testPg,
 	v
-} from "#test/unit/compute/support.ts"
+} from "#test/support/unit/compute/support.ts"
 
 /** What a case reached: a power the proof admits, evaluated, and one next to exp(6000) among them. */
 export type WorkFeature = "an admitted power evaluated" | "a power next to exp(6000) evaluated"

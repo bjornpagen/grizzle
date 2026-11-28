@@ -18,7 +18,7 @@ import {
 	patternOver,
 	stringsOver,
 	walkGen
-} from "#test/unit/text/generators.ts"
+} from "#test/support/unit/text/generators.ts"
 
 /**
  * A member of a drawn conjunction: one of its family's own patterns, one generated over its alphabet, or a finite

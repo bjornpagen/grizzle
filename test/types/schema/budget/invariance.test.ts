@@ -10,7 +10,7 @@
  * declares, a relation under another name and a role's entry of a stranger raise exactly the diagnostics, codes and
  * refusals, they raise over the twin. Oracle: the twin, a program at the smallest scale the probes read.
  */
-import { boxAgreement } from "#test/types/batch/agreement.ts"
+import { boxAgreement } from "#test/support/types/batch/agreement.ts"
 import { statementProgram } from "#test/types/schema/budget/generate.ts"
 import { statementProbes } from "#test/types/schema/budget/invariance.dictionary.ts"
 

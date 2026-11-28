@@ -67,6 +67,7 @@ import {
 	targetGen
 } from "#test/support/lexical.ts"
 import { checkedIn } from "#test/support/policy.ts"
+import { admittedPatternOver, walkGen } from "#test/support/unit/text/generators.ts"
 import {
 	admittedMaxPrecision,
 	alphabet,
@@ -86,7 +87,6 @@ import {
 	roundDouble,
 	type Route
 } from "#test/unit/scalar/lexical.fixtures.ts"
-import { admittedPatternOver, walkGen } from "#test/unit/text/generators.ts"
 
 /** A pattern automaton's minimization at the text analysis's bounds, what an inclusion compares. */
 const minimal = (nfa: Nfa): DfaOutcome => minimalDfa(nfa, regexDfaLimits)

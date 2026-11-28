@@ -6,14 +6,14 @@ import { ChangeSet } from "#compiler/public/changeset.ts"
 import { instant, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { mutable, relation, schema, unit } from "#compiler/public/schema.ts"
-import { fixtureTemplate } from "#test/pg/reads/support.ts"
+import { fixtureTemplate } from "#test/support/pg/reads/support.ts"
 import {
 	printed,
 	type RawDocument,
 	raw,
 	rawText,
 	stored
-} from "#test/unit/values/search-document.fixtures.ts"
+} from "#test/support/unit/values/search-document.fixtures.ts"
 
 /**
  * The bound of Kept's amount, pg.numeric.within(keptDigits, keptScale): below 10^6 in magnitude, at most 3 fraction

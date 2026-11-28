@@ -11,7 +11,7 @@ import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { compileTemplateOver, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { preludeAt, preludeFrom, preludeModule } from "#test/support/prelude.ts"
-import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/batch/batch.ts"
+import { batchOwned, caseOwned, type Entry, type Program } from "#test/support/types/batch/batch.ts"
 
 /**
  * The closed-key program: a closed relation whose one key is its declared key of two closed ids, neither of whose

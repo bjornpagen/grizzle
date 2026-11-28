@@ -19,6 +19,7 @@ import { compileWrite } from "#compiler/write/program/compile.ts"
 import { refused, succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { checking } from "#test/support/policy.ts"
+import { descOf } from "#test/support/unit/write/changeset/fixtures.ts"
 import {
 	type DeadlineFeature,
 	deadlineFeature,
@@ -26,7 +27,6 @@ import {
 	deadlineOf,
 	fits
 } from "#test/unit/check/clock-reading.fixtures.ts"
-import { descOf } from "#test/unit/write/changeset/fixtures.ts"
 
 /** A deadline of a clock reading and a bounded delay types with no guard exactly where the clock's range and the delay's bounds prove it fits its field. */
 export const aDeadlineOfAClockReadingAndABoundedDelayTypesWithNoGuardExactlyWhereTheClocksRangeProvesItFits =

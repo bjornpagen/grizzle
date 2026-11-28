@@ -48,18 +48,18 @@ import { ChangeSet } from "#compiler/public/changeset.ts"
 import { type AnyLogin, login, wholeEntriesOf } from "#compiler/public/schema.ts"
 import { roleBuilder as role } from "#compiler/schema/world.ts"
 import { defineConfig } from "#index.ts"
-import { offlineOwner } from "#test/pg/cli/support.ts"
 import { Work } from "#test/support/agreement/changeset-schema.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { joined, jsonOf } from "#test/support/chunked.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
+import { offlineOwner } from "#test/support/pg/cli/support.ts"
 import {
 	caseGen,
 	type Feature,
 	file,
 	listsOf,
 	showCase
-} from "#test/unit/cli/served-certified.fixtures.ts"
+} from "#test/support/unit/cli/served-certified.fixtures.ts"
 
 /**
  * A role's isolation level is decided once from the statements its writes send, every name they reach resolved, and

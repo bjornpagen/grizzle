@@ -3,7 +3,7 @@
  * UnsupportedOperation: a group statement cannot tell which of its rows are among the union's first k, which only the
  * merge across groups decides.
  *
- * Inputs: the fixture's two heterogeneous unions of heading groups (test/unit/page/fixtures.ts flagged and
+ * Inputs: the fixture's two heterogeneous unions of heading groups (test/support/unit/page/fixtures.ts flagged and
  * flaggedByTitle, told apart by the roster-typed level), each taken at any bound and ordered again, by its own order or
  * by its own key reversed: a page reads an Ordered query, so an order over the take is the one page a bounded union
  * can be asked for, and a take with no order after it is no page at all. An unbounded union pages, and the generated
@@ -14,7 +14,7 @@
  * Features: each union, and each order over the take: the union's own, and its key reversed.
  *
  * A union whose fields every group holds key it is ordered by that key, one order of every heading group, though a
- * group's own completion would choose a field of its own (test/unit/page/fixtures.ts flaggedWithAid): its rows are
+ * group's own completion would choose a field of its own (test/support/unit/page/fixtures.ts flaggedWithAid): its rows are
  * delivered in it, its take read inside another statement ranks by it, and a page over it seeks by it, each compiled.
  */
 
@@ -26,12 +26,6 @@ import { Array as Arr, Effect } from "effect"
 import { refused, succeeded } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import {
-	bounded,
-	type Feature,
-	type Reorder,
-	type Union
-} from "#test/unit/page/compile.fixtures.ts"
-import {
 	attachedData,
 	attachedDataByTask,
 	attachedOrTitledReordered,
@@ -39,7 +33,13 @@ import {
 	flaggedWithAidByLevel,
 	flaggedWithAidFirstIds,
 	flaggedWithAidRows
-} from "#test/unit/page/fixtures.ts"
+} from "#test/support/unit/page/fixtures.ts"
+import {
+	bounded,
+	type Feature,
+	type Reorder,
+	type Union
+} from "#test/unit/page/compile.fixtures.ts"
 
 /**
  * The page compiler refuses a bounded heterogeneous union, whatever its bound and order.

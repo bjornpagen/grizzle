@@ -6,7 +6,7 @@ import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
-import { fixtureTemplate } from "#test/pg/reads/support.ts"
+import { fixtureTemplate } from "#test/support/pg/reads/support.ts"
 import { type PlanShape, planShapeNames } from "#test/support/plan-shapes.ts"
 
 /**

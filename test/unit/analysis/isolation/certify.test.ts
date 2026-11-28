@@ -187,7 +187,7 @@ import {
 	verdictsOf,
 	withRelation,
 	withRole
-} from "#test/unit/analysis/isolation/certify.fixtures.ts"
+} from "#test/support/unit/analysis/isolation/certify.fixtures.ts"
 
 /** A role that gives another a reason to run SERIALIZABLE, by name, and the conditions it gives. */
 interface GiverConditions {

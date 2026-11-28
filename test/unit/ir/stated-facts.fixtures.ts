@@ -6,7 +6,7 @@ import { jsonText } from "#compiler/core/trusted.ts"
 import type { ClosedFacts } from "#compiler/ir/dag.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { HeadingColumn } from "#compiler/ir/rel.ts"
-import { scalarTypes } from "#test/unit/ir/fixture.ts"
+import { scalarTypes } from "#test/support/unit/ir/fixture.ts"
 
 /** A closed relation's facts keyed by k: each row k and its payloads, `rows` of them. */
 const factsOf = (

@@ -13,10 +13,10 @@ import {
 	snapshotFileName
 } from "#compiler/deploy/snapshot/types.ts"
 import { defineConfig } from "#index.ts"
-import { shopV1 } from "#test/pg/cli/fixture.ts"
-import { cliOver, configName, offlineOwner, workspace } from "#test/pg/cli/support.ts"
 import { fixtureNeedBudget } from "#test/support/budgets.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { shopV1 } from "#test/support/pg/cli/fixture.ts"
+import { cliOver, configName, offlineOwner, workspace } from "#test/support/pg/cli/support.ts"
 
 /**
  * How a case makes the draft's derived facts stale: the `derived` member removed whole (`removed`); the recorded members

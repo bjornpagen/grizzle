@@ -3,7 +3,7 @@ import { Array as Arr, Predicate, Record as Rec } from "effect"
 import { isRecord } from "#compiler/core/record.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import type { CreateFunction } from "#compiler/sql/ast.ts"
-import { type Dimension, dimensions } from "#test/unit/laws/scaling.fixtures.ts"
+import { type Dimension, dimensions } from "#test/support/unit/laws/scaling.fixtures.ts"
 
 /** A case: one of the scaling dimensions' schemas, at a size of one to three. */
 export interface ScopeCase {

@@ -28,10 +28,10 @@ import {
 	filesInstall,
 	filesTemplate
 } from "#test/pg/fields/bytes-family.fixtures.ts"
-import { openedIn } from "#test/pg/reads/support.ts"
 import { writeAnswerOf, rowsOf } from "#test/support/calls.ts"
+import { openedIn } from "#test/support/pg/reads/support.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
+import { uuidOf } from "#test/support/unit/write/changeset/fixtures.ts"
 
 /** A family's bytes members read their stored suffix in chunks and write each re-placed member's bytes whole. */
 export const aFamilysBytesMembersReadTheirStoredSuffixInChunksAndWriteEachRePlacedMembersBytesWhole =

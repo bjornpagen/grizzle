@@ -27,8 +27,8 @@ import type { OperandBody, OperandSelect, EmittedSql } from "#compiler/sql/ast.t
 import { costChosen, sentText } from "#compiler/sql/emit.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { mergeComparator } from "#test/support/merge.ts"
-import { keyed, Posting, Q, T, Task } from "#test/unit/lower/conservative/fixtures.ts"
-import { shapedFacts, shapedProgram, testOptions } from "#test/unit/lower/shapes/support.ts"
+import { keyed, Posting, Q, T, Task } from "#test/support/unit/lower/conservative/fixtures.ts"
+import { shapedFacts, shapedProgram, testOptions } from "#test/support/unit/lower/shapes/support.ts"
 
 export const takeOf = (dag: RelDag): NodeOf<"Take"> =>
 	Option.getOrThrowWith(

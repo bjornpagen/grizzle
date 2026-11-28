@@ -4,7 +4,7 @@ import { array, codePoint, type Gen, int, string, weighted } from "@bjornpagen/t
 import { Array as Arr } from "effect"
 import { constantColumn } from "#compiler/core/decoder.ts"
 import type { Carrier } from "#compiler/types/core/phantom.ts"
-import { fieldSketchGen, type SketchedField } from "#test/unit/schema/field-sketch.ts"
+import { fieldSketchGen, type SketchedField } from "#test/support/unit/schema/field-sketch.ts"
 
 interface RosterSketch {
 	readonly name: number

@@ -61,8 +61,6 @@ import {
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { AnyRelation } from "#compiler/types/schema/relation.ts"
 import type { Statement } from "#compiler/types/schema/statements.ts"
-import { FOLD_SPECS, type FoldSpec, Tag } from "#test/pg/fin/folds.ts"
-import { type Aim, refusedIn, migrationRefusedLaws } from "#test/pg/migrate/support.ts"
 import { foldStoredOf } from "#test/support/families/fold.ts"
 import {
 	type Forest as KeyedForest,
@@ -75,6 +73,8 @@ import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { asDrafted, compile, draftedAt, noDeclarations } from "#test/support/migrate/kit.ts"
 import type { Placeholder } from "#test/support/migrate/review.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
+import { FOLD_SPECS, type FoldSpec, Tag } from "#test/support/pg/fin/folds.ts"
+import { type Aim, refusedIn, migrationRefusedLaws } from "#test/support/pg/migrate/support.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
@@ -502,7 +502,7 @@ const storedMembers = (name: string, x: FieldBase, rosters: ReadonlyArray<typeof
 	)
 
 /**
- * The fin fold seats a backfill draws over stored members (test/pg/fin/folds.ts FOLD_SPECS, by label), each its
+ * The fin fold seats a backfill draws over stored members (test/support/pg/fin/folds.ts FOLD_SPECS, by label), each its
  * relations before the migration and its schema after it, under any name: the monoids and carriers past the sums the
  * other properties draw, each over an ordered family with named accumulators but or's over a counted one with hidden
  * ones, so every operation a fold accumulates by (ir/monoid.ts accumulations) and twos' met plane is backfilled.

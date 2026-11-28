@@ -19,7 +19,7 @@ import {
 } from "#test/support/call-sources.ts"
 import { checkedIn, checkOptions } from "#test/support/policy.ts"
 import { preludeAt, preludeFrom, preludeModule } from "#test/support/prelude.ts"
-import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/batch/batch.ts"
+import { batchOwned, caseOwned, type Entry, type Program } from "#test/support/types/batch/batch.ts"
 
 /**
  * The call-key program: every cell of a row's calls (test/support/call-sources.ts), each call matched at the row's

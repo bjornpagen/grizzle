@@ -12,10 +12,10 @@ import {
 	type PlanNode,
 	rowsRead
 } from "#bench/harness/explain.ts"
-import { seededFamilyTemplate } from "#test/pg/fin/family.ts"
-import { seededSeatTemplate } from "#test/pg/fin/installed.ts"
 import { nodeBatchParams, nodeBatchSql, RELATIONS, Trees } from "#test/pg/fin/tree.ts"
-import { loadTree, rowsByDepth, type TreeRow } from "#test/pg/substrate/tree.ts"
+import { seededFamilyTemplate } from "#test/support/pg/fin/family.ts"
+import { seededSeatTemplate } from "#test/support/pg/fin/installed.ts"
+import { loadTree, rowsByDepth, type TreeRow } from "#test/support/pg/substrate/tree.ts"
 import { pickGen } from "#test/support/pick.ts"
 import { attempt } from "#test/support/substrate.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"

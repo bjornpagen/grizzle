@@ -38,7 +38,7 @@ import {
 	Schedule,
 	Search,
 	Settings
-} from "#test/unit/query/fixtures.ts"
+} from "#test/support/unit/query/fixtures.ts"
 
 type Vars = ReturnType<typeof v>
 

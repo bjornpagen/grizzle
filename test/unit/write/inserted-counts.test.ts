@@ -30,8 +30,8 @@ import { succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { Id } from "#test/support/ids.ts"
 import { checking } from "#test/support/policy.ts"
+import { descOf } from "#test/support/unit/write/changeset/fixtures.ts"
 import { outputText } from "#test/support/wire.ts"
-import { descOf } from "#test/unit/write/changeset/fixtures.ts"
 
 /** The keys a case declares Note by, the id first in each, so a returned row's first cell is its id. */
 const keys = { "id alone": ["id"], "id and n": ["id", "n"] } as const

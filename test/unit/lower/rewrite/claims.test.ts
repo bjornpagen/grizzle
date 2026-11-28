@@ -7,7 +7,7 @@
  * that rebuilds a node keeps the claims its cell held before the rewrite, so a pruned column's name stays in an
  * implication and a key the rewrite's new structure proves is claimed by no node.
  *
- * The box, exhausted: every plan of the core grammar of up to two operators (test/unit/analysis/small/plans.ts), under
+ * The box, exhausted: every plan of the core grammar of up to two operators (test/support/unit/analysis/small/plans.ts), under
  * every key and containment variant of the small universe, in every context it can be read in, checked as a compilation
  * checks it and made the optimized input a query's compile makes (pipeline.ts optimizedInput, under queryEvidence).
  *
@@ -47,14 +47,14 @@ import {
 	type Plan,
 	plansUpTo,
 	printPlan
-} from "#test/unit/analysis/small/plans.ts"
+} from "#test/support/unit/analysis/small/plans.ts"
 import {
 	contextsOf,
 	type Installed,
 	installed,
 	type Variant,
 	variants
-} from "#test/unit/analysis/small/universe.ts"
+} from "#test/support/unit/analysis/small/universe.ts"
 
 type Feature =
 	| "a pass that rewrote the DAG"

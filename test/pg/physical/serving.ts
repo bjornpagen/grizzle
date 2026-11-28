@@ -46,6 +46,9 @@ import {
 	servesNoParams
 } from "#compiler/physical/install/extension.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
+import { parsedName, wild } from "#test/support/kernel/naming.ts"
+import { backendWaitStep, caseHang } from "#test/support/limits.ts"
+import type { PgConnection, SqlError } from "#test/support/pg.ts"
 import {
 	type CopyIndex,
 	copyIndexes,
@@ -54,11 +57,8 @@ import {
 	originalOf,
 	readsOneRowByKey,
 	standCopy
-} from "#test/pg/physical/copies.ts"
-import { scanBindings } from "#test/pg/physical/plan-bindings.ts"
-import { parsedName, wild } from "#test/support/kernel/naming.ts"
-import { backendWaitStep, caseHang } from "#test/support/limits.ts"
-import type { PgConnection, SqlError } from "#test/support/pg.ts"
+} from "#test/support/pg/physical/copies.ts"
+import { scanBindings } from "#test/support/pg/physical/plan-bindings.ts"
 import {
 	countedAsVacuumed,
 	type VolumeFill,

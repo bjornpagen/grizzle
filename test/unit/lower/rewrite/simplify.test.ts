@@ -34,8 +34,16 @@ import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { conservativeMeta } from "#compiler/ir/rel.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
+import {
+	Account,
+	asc,
+	keyed,
+	Posting,
+	Q,
+	T
+} from "#test/support/unit/lower/conservative/fixtures.ts"
+import { nodesOf, rulesOf } from "#test/support/unit/lower/rewrite/support.ts"
 import { upTo } from "#test/support/up-to.ts"
-import { Account, asc, keyed, Posting, Q, T } from "#test/unit/lower/conservative/fixtures.ts"
 import {
 	comparedSign,
 	comparisons,
@@ -56,7 +64,6 @@ import {
 	simplified,
 	u
 } from "#test/unit/lower/rewrite/simplify.fixtures.ts"
-import { nodesOf, rulesOf } from "#test/unit/lower/rewrite/support.ts"
 
 /** Literal folding compares literals under PostgreSQL's equality and order: numeric scale, NaN, -0, code points. */
 export const literalFoldingComparesLiteralsUnderPostgreSQLsEqualityAndOrderNumericScaleNaN0CodePoints =

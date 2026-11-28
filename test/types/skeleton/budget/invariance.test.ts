@@ -9,7 +9,7 @@
  * relation, and a query's rows inserted into another relation, raise exactly the diagnostics, codes and refusals, they
  * raise over the twin. Oracle: the twin, a program at the smallest scale the probes read.
  */
-import { boxAgreement } from "#test/types/batch/agreement.ts"
+import { boxAgreement } from "#test/support/types/batch/agreement.ts"
 import { skeletonProgram } from "#test/types/skeleton/budget/generate.ts"
 import { skeletonProbes } from "#test/types/skeleton/budget/invariance.dictionary.ts"
 

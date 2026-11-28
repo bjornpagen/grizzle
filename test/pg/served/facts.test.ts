@@ -5,7 +5,6 @@ import { Effect, Formatter, Result } from "effect"
 import { memberCalls, variantOf } from "#adapter/db/handles.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { openedIn } from "#test/pg/reads/support.ts"
 import {
 	caseGen,
 	type Feature,
@@ -22,6 +21,7 @@ import {
 	sameItems
 } from "#test/pg/served/facts.fixtures.ts"
 import { writeAnswerOf, readOnce, writeOnce } from "#test/support/calls.ts"
+import { openedIn } from "#test/support/pg/reads/support.ts"
 import { member, withServedDb } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 

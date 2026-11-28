@@ -43,8 +43,6 @@ import { type FolderNaming, type MigrationName } from "#compiler/deploy/render/f
 import { maxMigrationNameLength } from "#compiler/deploy/render/layout.ts"
 import { login, role } from "#compiler/public/schema.ts"
 import { defineConfig } from "#index.ts"
-import { shop, type ShopWorkload } from "#test/pg/cli/fixture.ts"
-import { offlineOwner, writeConfigText } from "#test/pg/cli/support.ts"
 import {
 	daysIn,
 	digitsOf,
@@ -57,6 +55,8 @@ import {
 import { repoRoot } from "#test/support/files.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { noDeclarations, parsedMigrationName } from "#test/support/migrate/kit.ts"
+import { shop, type ShopWorkload } from "#test/support/pg/cli/fixture.ts"
+import { offlineOwner, writeConfigText } from "#test/support/pg/cli/support.ts"
 import { upTo } from "#test/support/up-to.ts"
 /** The commands that draft, by generate's flags: generate, and draft-key, which digests its draft's inputs. */
 type DraftingCommand = Extract<CommandName, "generate" | "draft-key">

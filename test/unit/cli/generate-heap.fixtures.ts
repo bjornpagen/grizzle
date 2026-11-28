@@ -18,7 +18,7 @@ import { workload } from "#compiler/program/workload/value.ts"
 import { roleBuilder as role, wholeWritesOf } from "#compiler/schema/world.ts"
 import type { EntryValue } from "#compiler/types/schema/world.ts"
 import { changeSetOver } from "#compiler/write/changeset/value.ts"
-import { offlineOwner } from "#test/pg/cli/support.ts"
+import { offlineOwner } from "#test/support/pg/cli/support.ts"
 import { upTo } from "#test/support/up-to.ts"
 
 /** A case: how many logins the installation serves, and over how many relations each runs a keyed read and an insert. */

@@ -27,7 +27,6 @@ import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
-import { roundTripRuns } from "#test/pg/codec/scalar.fixtures.ts"
 import {
 	installationsOf,
 	postgresClasses,
@@ -41,6 +40,7 @@ import {
 } from "#test/pg/values/codec-text.fixtures.ts"
 import { orderSetup } from "#test/pg/values/order.fixtures.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { roundTripRuns } from "#test/support/pg/codec/scalar.fixtures.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**

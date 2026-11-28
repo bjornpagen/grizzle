@@ -10,7 +10,7 @@ import { compileWrite } from "#compiler/write/program/compile.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { compileTemplate, realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { checking } from "#test/support/policy.ts"
-import { descOf } from "#test/unit/write/changeset/fixtures.ts"
+import { descOf } from "#test/support/unit/write/changeset/fixtures.ts"
 
 /**
  * Each session's attempts, each attempt's snapshot of its variables, and the assertions that replace a snapshot's

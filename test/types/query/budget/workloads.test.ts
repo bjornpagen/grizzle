@@ -7,7 +7,7 @@
  * past what the checker represents (TS2590); each step adds types and instantiations; and its instantiations grow no
  * faster than linearly. Oracle: the compiler's own counts, compared step against step.
  */
-import { growthGate } from "#test/types/batch/measured.ts"
+import { growthGate } from "#test/support/types/batch/measured.ts"
 import { workloadWidths } from "#test/types/query/budget/workloads.dictionary.ts"
 
 /** The workload's program typechecks at each width with no diagnostic, its instantiations growing no faster than linearly. */

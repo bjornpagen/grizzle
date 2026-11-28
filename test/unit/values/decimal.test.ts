@@ -50,6 +50,7 @@ import {
 	numericMinScale
 } from "#compiler/scalar/values/fault.ts"
 import { faulted, succeeded } from "#test/support/assert.ts"
+import { decimalGen, numericText } from "#test/support/unit/values/support.ts"
 import {
 	canonicalParts,
 	corrupted,
@@ -85,7 +86,6 @@ import {
 	type TypmodFeature,
 	typmodFeatures
 } from "#test/unit/values/decimal.fixtures.ts"
-import { decimalGen, numericText } from "#test/unit/values/support.ts"
 
 /** Decimal parsing reads every exact spelling to numeric_in's value, in its one form. Its budget is its suite's before it was a property (test/unit/values/decimal.test.ts at 4ca3036a): 2000 runs and 2000 steered cases. */
 export const decimalParsingReadsEveryExactSpellingToNumericInsValueInItsOneForm = property.explore(

@@ -12,14 +12,6 @@ import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { check, contained, derived, key, on, relation, schema } from "#compiler/public/schema.ts"
 import { printStatement } from "#compiler/sql/print.ts"
-import {
-	type Seat,
-	type SeatCase,
-	type SeatTemplate,
-	seatIn,
-	seatTemplate,
-	seededSeatTemplate
-} from "#test/pg/fin/installed.ts"
 import { dataStepOf, refusedByRecheck } from "#test/support/data-step.ts"
 import {
 	capturedDeltasOf,
@@ -30,6 +22,14 @@ import {
 	scannedWork,
 	standUpJudge
 } from "#test/support/judge.ts"
+import {
+	type Seat,
+	type SeatCase,
+	type SeatTemplate,
+	seatIn,
+	seatTemplate,
+	seededSeatTemplate
+} from "#test/support/pg/fin/installed.ts"
 import { firstRefusalOf, refusalOf } from "#test/support/substrate.ts"
 import { type RawSession } from "#test/support/substrate/session.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"

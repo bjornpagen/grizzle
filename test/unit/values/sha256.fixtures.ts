@@ -15,7 +15,7 @@ import { String as Str } from "effect"
 import { sha256Octets } from "#compiler/core/digest.ts"
 import { pg, Sha256, sha256 } from "#compiler/public/fields.ts"
 import { check, relation, schema } from "#compiler/public/schema.ts"
-import { hexDigitsPerByte, hexOf } from "#test/unit/values/support.ts"
+import { hexDigitsPerByte, hexOf } from "#test/support/unit/values/support.ts"
 
 /** The length of every digest's hex: two digits for each of its bytes. */
 const hexLength = sha256Octets * hexDigitsPerByte

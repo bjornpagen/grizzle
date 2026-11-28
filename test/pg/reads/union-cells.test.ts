@@ -8,7 +8,6 @@ import { OpenError } from "#adapter/errors/execution.ts"
 import { isCompileError } from "#compiler/core/errors.ts"
 import { codeOf } from "#compiler/ir/codes.ts"
 import { queryOver } from "#compiler/query/build/query.ts"
-import { openedIn } from "#test/pg/reads/support.ts"
 import {
 	allFeatures,
 	armsAlone,
@@ -29,6 +28,7 @@ import {
 	cellsTemplate
 } from "#test/pg/reads/union-cells.fixtures.ts"
 import { namesOf, parsedName } from "#test/support/kernel/naming.ts"
+import { openedIn } from "#test/support/pg/reads/support.ts"
 import { member, openServedDb } from "#test/support/served-db.ts"
 import { inserted } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"

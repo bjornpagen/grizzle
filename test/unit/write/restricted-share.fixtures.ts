@@ -12,7 +12,7 @@ import { succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { everyCallCount } from "#test/support/kernel/calls.ts"
 import { checking } from "#test/support/policy.ts"
-import { descOf } from "#test/unit/write/changeset/fixtures.ts"
+import { descOf } from "#test/support/unit/write/changeset/fixtures.ts"
 
 const A = rows({ k: pg.bigint, v: pg.bigint })
 

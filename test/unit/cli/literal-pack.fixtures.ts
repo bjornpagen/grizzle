@@ -14,7 +14,7 @@ import {
 	firstCellApart,
 	firstPlaceApart,
 	oracleRead
-} from "#test/unit/physical/literal.fixtures.ts"
+} from "#test/support/unit/physical/literal.fixtures.ts"
 
 const Row = closed.ordered("Row", ["r0", "r1", "r2"])
 

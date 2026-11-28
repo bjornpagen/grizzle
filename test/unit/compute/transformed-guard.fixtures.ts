@@ -39,8 +39,8 @@ import { succeeded } from "#test/support/assert.ts"
 import { compileTestWorkload, testCompile } from "#test/support/compile.ts"
 import { Id } from "#test/support/ids.ts"
 import { asDrafted, compile } from "#test/support/migrate/kit.ts"
+import { patternOver } from "#test/support/unit/text/generators.ts"
 import { upTo } from "#test/support/up-to.ts"
-import { patternOver } from "#test/unit/text/generators.ts"
 
 /**
  * A guard over a transformed text proves what its language allows: `computeCore.when(computeCore.matches(T(t), P), (x) =>

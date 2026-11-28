@@ -6,7 +6,7 @@ import type { ScalarCodec } from "#compiler/plan/read.ts"
 import { scalarCodec } from "#compiler/plan/runtime.ts"
 import { int4 } from "#test/support/oracle/gen/domain.ts"
 import { preludeAt, preludeFrom, preludeModule } from "#test/support/prelude.ts"
-import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/batch/batch.ts"
+import { batchOwned, caseOwned, type Entry, type Program } from "#test/support/types/batch/batch.ts"
 
 /**
  * The window-anchor program: the box of anchors whose members' types decide them, each given as a paged member's

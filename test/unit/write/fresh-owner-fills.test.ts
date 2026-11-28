@@ -40,8 +40,8 @@ import { succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { Id } from "#test/support/ids.ts"
 import { checking } from "#test/support/policy.ts"
+import { descOf, parsedOf, uuidOf } from "#test/support/unit/write/changeset/fixtures.ts"
 import { withinMessage } from "#test/support/worlds/execute/offline.ts"
-import { descOf, parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 
 const Doc = relation("Doc", { id: Id, n: drawn(natural) }, ["id"])
 const Node = relation("Node", { doc: Id, at: drawn(natural), attrs: drawn(natural) }, ["doc", "at"])

@@ -9,9 +9,9 @@
  */
 import { word } from "@bjornpagen/testing/dictionary"
 import { finite } from "@bjornpagen/testing/gen"
+import { boxAgreement } from "#test/support/types/batch/agreement.ts"
 import { decoderBox } from "#test/types/api/decoder.dictionary.ts"
 import { decoderProgram } from "#test/types/api/decoder.ts"
-import { boxAgreement } from "#test/types/batch/agreement.ts"
 
 /**
  * A served login's decoder is exactly the arm its login's served file holds, NoDecoder or DecoderLogin, which

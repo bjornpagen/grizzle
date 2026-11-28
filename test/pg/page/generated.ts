@@ -114,9 +114,9 @@ import { loweringViolations } from "#test/support/oracle/verify/index.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 import { everyColumnCarried } from "#test/support/spine.ts"
 import { headingRecord } from "#test/support/statement-rows.ts"
+import { Q } from "#test/support/unit/lower/conservative/fixtures.ts"
+import { withinOneParentCase } from "#test/support/unit/lower/dedup/cases.ts"
 import { outputRows } from "#test/support/wire.ts"
-import { Q } from "#test/unit/lower/conservative/fixtures.ts"
-import { withinOneParentCase } from "#test/unit/lower/dedup/cases.ts"
 
 /**
  * Why a case pages nothing: a column without an admitted order, a baseline lowering that refuses the query, or an
@@ -1371,7 +1371,7 @@ const negativeZeroRelation = (o: OrderedCase): boolean =>
 /**
  * The suite's escaped counterexample, recorded beside its space (gen.ts recorded), which no search of toolchain-test
  * keep reached: page/generated-optimized at TEST_SEED=28094260 (its rotating stream's case 872,
- * test/unit/lower/dedup/cases.ts withinOneParentCase), ordered by its one column and paged two rows at a time, so a
+ * test/support/unit/lower/dedup/cases.ts withinOneParentCase), ordered by its one column and paged two rows at a time, so a
  * page delivers both parents whose children, a take of one row each, share the key a = 0 of the attachment nested below
  * them. The optimized artifact read that attachment's key set without DISTINCT, as if a key within one parent held
  * across parents, and its statement delivered each child of 0 twice, rows the reader refused. The property keeps it by

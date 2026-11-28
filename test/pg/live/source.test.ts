@@ -36,6 +36,11 @@ import { transactionReader } from "#adapter/live/changes.ts"
 import { decodeMessage } from "#adapter/live/pgoutput.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { notificationText } from "#compiler/plan/runtime.ts"
+import { commitLive, worldSurfaces } from "#test/support/live/calls.ts"
+import { commitStatements } from "#test/support/live/direct.ts"
+import { installLive } from "#test/support/live/harness.ts"
+import { type LiveCase, liveCaseGen, statesOf, writesOf } from "#test/support/live/world.ts"
+import { clusterPool } from "#test/support/pg.ts"
 import {
 	bounds,
 	bytesOfHex,
@@ -46,12 +51,7 @@ import {
 	opens,
 	Undecoded,
 	Unopened
-} from "#test/pg/live/source.fixtures.ts"
-import { commitLive, worldSurfaces } from "#test/support/live/calls.ts"
-import { commitStatements } from "#test/support/live/direct.ts"
-import { installLive } from "#test/support/live/harness.ts"
-import { type LiveCase, liveCaseGen, statesOf, writesOf } from "#test/support/live/world.ts"
-import { clusterPool } from "#test/support/pg.ts"
+} from "#test/support/pg/live/source.fixtures.ts"
 import { roleSession, Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 

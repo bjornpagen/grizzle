@@ -3,8 +3,8 @@ import { codePoint, element, type Gen, int, string } from "@bjornpagen/testing/g
 import type { Source } from "@bjornpagen/testing/source"
 import { Array as Arr } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
+import { batchOwned, caseOwned, type Program } from "#test/support/types/batch/batch.ts"
 import { upTo } from "#test/support/up-to.ts"
-import { batchOwned, caseOwned, type Program } from "#test/types/batch/batch.ts"
 
 /**
  * The testing library's vocabulary contract (@bjornpagen/testing features and property): a property's situations and

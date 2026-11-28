@@ -40,9 +40,9 @@ import {
 	outcomeOf,
 	reviewerOf
 } from "#test/pg/migrate/admission.fixtures.ts"
-import { openMigrator } from "#test/pg/migrate/support.ts"
+import { openMigrator } from "#test/support/pg/migrate/support.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
-import { shopV1, shopV2 } from "#test/unit/deploy/schemas.ts"
+import { shopV1, shopV2 } from "#test/support/unit/deploy/schemas.ts"
 
 /** Post-apply admission refuses drift a hand edit may change how the state is reached, never the state. */
 export const admission = property.explore(steered(editGen), {

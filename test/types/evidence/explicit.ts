@@ -1,6 +1,6 @@
 import { Array as Arr, Effect } from "effect"
 import { preludeAt, preludeFrom, preludeModule } from "#test/support/prelude.ts"
-import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/batch/batch.ts"
+import { batchOwned, caseOwned, type Entry, type Program } from "#test/support/types/batch/batch.ts"
 
 /**
  * The explicit-evidence program: each public type that takes an evidence, a query, an ordered query and a finished arm,

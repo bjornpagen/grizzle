@@ -30,8 +30,8 @@ import { succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { conservativeWrite } from "#test/support/conservative.ts"
 import { checking } from "#test/support/policy.ts"
+import { descOf, parsedOf, uuidOf } from "#test/support/unit/write/changeset/fixtures.ts"
 import { upTo } from "#test/support/up-to.ts"
-import { descOf, parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 
 /** Manual tasks, a world entry over Task whose head leaves out the kind its selection fixes. */
 const Manual = query(Work).rule((r) => {

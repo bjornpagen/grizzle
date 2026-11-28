@@ -14,7 +14,7 @@ import {
 	plainRender,
 	renderSql,
 	testPg
-} from "#test/unit/compute/support.ts"
+} from "#test/support/unit/compute/support.ts"
 
 /** The network types an operand is of. */
 export type NetType = "inet" | "cidr"

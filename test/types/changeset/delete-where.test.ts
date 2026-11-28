@@ -7,7 +7,7 @@
  */
 import { word } from "@bjornpagen/testing/dictionary"
 import { finite } from "@bjornpagen/testing/gen"
-import { boxAgreement } from "#test/types/batch/agreement.ts"
+import { boxAgreement } from "#test/support/types/batch/agreement.ts"
 import { deleteWhereBox } from "#test/types/changeset/delete-where.dictionary.ts"
 import { deleteWhereProgram } from "#test/types/changeset/delete-where.ts"
 

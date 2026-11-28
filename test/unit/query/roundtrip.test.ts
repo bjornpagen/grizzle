@@ -26,7 +26,7 @@ import { catchCompileError } from "#compiler/core/canonical.ts"
 import type { CompileReasonTag } from "#compiler/core/errors.ts"
 import { queryState } from "#compiler/query/build/state.ts"
 import { Work } from "#test/support/fixtures/api/work.ts"
-import { descOf } from "#test/unit/query/fixtures.ts"
+import { descOf } from "#test/support/unit/query/fixtures.ts"
 import {
 	type Attached,
 	attachedQuery,

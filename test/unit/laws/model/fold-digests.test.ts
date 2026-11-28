@@ -27,6 +27,14 @@ import type { LawModel } from "#compiler/laws/model/model.ts"
 import { refused, refusedKeys, succeeded } from "#test/support/assert.ts"
 import type { ModelValue } from "#test/support/oracle/evaluate/catalog.ts"
 import {
+	accepts,
+	checksOf,
+	compiledModel,
+	foldLaws,
+	foreignKeyShapes,
+	type Row
+} from "#test/support/unit/laws/model/natives.ts"
+import {
 	type Feature,
 	featureOf,
 	layoutOf,
@@ -35,14 +43,6 @@ import {
 	shapeGen,
 	verdictOf
 } from "#test/unit/laws/model/fold-digests.fixtures.ts"
-import {
-	accepts,
-	checksOf,
-	compiledModel,
-	foldLaws,
-	foreignKeyShapes,
-	type Row
-} from "#test/unit/laws/model/natives.ts"
 
 /** Every pair of every foreign key of the model, `from → to`. */
 const pairsOf = (model: LawModel): ReadonlyArray<string> =>

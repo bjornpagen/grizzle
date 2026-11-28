@@ -24,12 +24,12 @@ import {
 	run,
 	sites
 } from "#test/pg/recursion/lowering/counterexamples.fixtures.ts"
+import { repeatsStates } from "#test/pg/recursion/oracle/support.ts"
+import { oracleProperty, printOutcome } from "#test/support/oracle/runner.ts"
 import {
 	optimizedFeedbackUnionAll,
 	optimizedLowering
-} from "#test/pg/recursion/lowering/support.ts"
-import { repeatsStates } from "#test/pg/recursion/oracle/support.ts"
-import { oracleProperty, printOutcome } from "#test/support/oracle/runner.ts"
+} from "#test/support/pg/recursion/lowering/support.ts"
 
 /** Every generated diamond rooted at its top kills the optimized lowering's UNION ALL feedback mutant, whatever its vertex type, edges, seed or state. */
 export const diamondKillsTheOptimizedFeedbackUnionAll = oracleProperty(diamondCases, {

@@ -27,6 +27,7 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import type { ClockStamp } from "#compiler/ir/instant.ts"
 import { refused, succeeded } from "#test/support/assert.ts"
+import { theoryResult } from "#test/support/unit/analysis/theory/support.ts"
 import {
 	type InstantsFeature,
 	instantsGen,
@@ -35,7 +36,6 @@ import {
 	type ModelStamp,
 	modelOf
 } from "#test/unit/analysis/theory/instants.fixtures.ts"
-import { theoryResult } from "#test/unit/analysis/theory/support.ts"
 
 /** An instant is a clock or a reference by the containments that carry it, a clock outside its key refused, and a reference stamped by the one clock they all reach at a child they carry. */
 export const anInstantIsAClockOrAReferenceByTheContainmentsThatCarryItAClockOutsideItsKeyRefusedAndAReferenceStampedByTheOneClockTheyAllReachAtAChildTheyCarry =

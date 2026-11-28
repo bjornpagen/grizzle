@@ -10,7 +10,7 @@ import {
 	type SchemaDesc,
 	unit
 } from "#test/support/fixtures/ir/desc.ts"
-import { schemaOf } from "#test/unit/analysis/theory/support.ts"
+import { schemaOf } from "#test/support/unit/analysis/theory/support.ts"
 
 /**
  * One case of the box: the unit U over `k`, or none; A, a clock of child (k) or (k, j); B, a clock of child (k); C, a

@@ -57,7 +57,7 @@ import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { validateDag } from "#test/support/oracle/dag-validate.ts"
 import { checking, checkOptions, owning } from "#test/support/policy.ts"
 import { transformOperand } from "#test/support/sql.ts"
-import { nodeOfKind } from "#test/unit/lower/support.ts"
+import { nodeOfKind } from "#test/support/unit/lower/support.ts"
 
 /** A node rebuilt over its rebuilt inputs, the node itself where none changed (ir/dag.ts rebuildDag). */
 const kept = (node: RelNode, inputs: NodeOver<ValueRefs<RelNode>>): RelNode =>

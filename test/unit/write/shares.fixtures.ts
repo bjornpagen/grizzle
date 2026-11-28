@@ -32,7 +32,7 @@ import { flightOf, servableWrite } from "#compiler/write/program/served.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { checking } from "#test/support/policy.ts"
-import { descOf, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
+import { descOf, parsedOf } from "#test/support/unit/write/changeset/fixtures.ts"
 
 const Text = str.bytes(512, str.regex("^.*$", "su"))
 

@@ -2,7 +2,7 @@
  * lawsOf(schema) lists exactly the laws the schema's installation can report, each once, in the schema's canonical order.
  *
  * Each case draws a schema of one or two levels: a family core as the family swarm draws it
- * (test/pg/write/swarm/spec.ts: ordered and counted families, trees, folds of every monoid, copies along every axis,
+ * (test/support/pg/write/swarm/spec.ts: ordered and counted families, trees, folds of every monoid, copies along every axis,
  * generated fields, plain sets and referrers, keys, checks, containments and selections over copies, mutable
  * relations), beside tables under names drawn apart from name order, each keyed by its id or by its id and a span of a
  * checked contract, with fields drawn apart from name order: texts of a palette pattern spelled plainly, with every

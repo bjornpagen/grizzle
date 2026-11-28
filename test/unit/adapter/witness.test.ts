@@ -34,7 +34,7 @@ import {
 	usesLaws,
 	witnessCases,
 	type WitnessFeature
-} from "#test/unit/adapter/witness.fixtures.ts"
+} from "#test/support/unit/adapter/witness.fixtures.ts"
 
 /**
  * A server error at a write means what the classification rules say of the fields grizzle controls, at every origin of

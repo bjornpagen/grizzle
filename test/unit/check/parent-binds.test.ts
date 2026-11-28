@@ -47,8 +47,8 @@ import {
 	situationOf,
 	situations,
 	unplaceableRegions
-} from "#test/unit/check/parent-binds.fixtures.ts"
-import { descOf } from "#test/unit/write/changeset/fixtures.ts"
+} from "#test/support/unit/check/parent-binds.fixtures.ts"
+import { descOf } from "#test/support/unit/write/changeset/fixtures.ts"
 
 /** ParentBinds' artifacts, which every read-back compiles against. */
 const artifacts = succeeded(testArtifacts(ParentBinds, testCompile), "ParentBinds' artifacts")

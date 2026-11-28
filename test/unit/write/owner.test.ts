@@ -27,7 +27,7 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option } from "effect"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { refusalLoc, refused, succeeded } from "#test/support/assert.ts"
-import { descOf } from "#test/unit/write/changeset/fixtures.ts"
+import { descOf } from "#test/support/unit/write/changeset/fixtures.ts"
 import {
 	compile,
 	compiledFeatures,

@@ -29,7 +29,6 @@ import {
 	relation,
 	type SchemaDesc
 } from "#test/support/fixtures/ir/desc.ts"
-import { upTo } from "#test/support/up-to.ts"
 import {
 	accumulatedOf,
 	decodedStatements,
@@ -39,7 +38,8 @@ import {
 	relationsOf,
 	schemaOf,
 	theoryOf
-} from "#test/unit/analysis/theory/support.ts"
+} from "#test/support/unit/analysis/theory/support.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 export const field = (name: string): TermDesc => ({ kind: "field", field: name })
 

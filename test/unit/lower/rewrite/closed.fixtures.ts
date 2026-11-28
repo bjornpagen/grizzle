@@ -7,7 +7,7 @@ import { type RelNode } from "#compiler/ir/rel.ts"
 import { closedId, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
-import { Q, T } from "#test/unit/lower/conservative/fixtures.ts"
+import { Q, T } from "#test/support/unit/lower/conservative/fixtures.ts"
 
 /** How the query reads one key field of Grid. */
 const KEY_READS = ["item", "literal", "param", "free", "own"] as const

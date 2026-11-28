@@ -9,7 +9,7 @@
  */
 import { word } from "@bjornpagen/testing/dictionary"
 import { finite } from "@bjornpagen/testing/gen"
-import { boxAgreement } from "#test/types/batch/agreement.ts"
+import { boxAgreement } from "#test/support/types/batch/agreement.ts"
 import { boundaryBox } from "#test/types/executor/boundary.dictionary.ts"
 import { boundaryProgram } from "#test/types/executor/boundary.ts"
 

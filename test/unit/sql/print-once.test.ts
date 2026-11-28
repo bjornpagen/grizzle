@@ -28,7 +28,7 @@ import {
 	type StatementShape,
 	statementGen,
 	statementOf
-} from "#test/unit/sql/print-once.fixtures.ts"
+} from "#test/support/unit/sql/print-once.fixtures.ts"
 
 /** Exactly the CTEs PostgreSQL would inline are printed in place, and a statement holding one is refused. */
 export const everyCteAStatementReadsOnceIsPrintedInPlaceExactlyWherePostgreSQLWouldInlineIt =

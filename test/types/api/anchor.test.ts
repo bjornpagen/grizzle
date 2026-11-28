@@ -7,9 +7,9 @@
  */
 import { word } from "@bjornpagen/testing/dictionary"
 import { finite } from "@bjornpagen/testing/gen"
+import { boxAgreement } from "#test/support/types/batch/agreement.ts"
 import { anchorBox } from "#test/types/api/anchor.dictionary.ts"
 import { anchorProgram } from "#test/types/api/anchor.ts"
-import { boxAgreement } from "#test/types/batch/agreement.ts"
 
 /** A paged member's window takes exactly the anchors the runtime's window parse admits, among those a type decides. */
 export const anchor = boxAgreement(finite(word(anchorBox)), {

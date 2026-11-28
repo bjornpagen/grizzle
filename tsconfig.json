@@ -206,7 +206,7 @@
 					{
 						"include": [
 							"test/support/memory-tls.ts",
-							"test/unit/dev/consumer.ts",
+							"test/support/unit/dev/consumer.ts",
 							"test/support/wire-tap.ts",
 							"test/unit/adapter/bind.fixtures.ts",
 							"test/unit/adapter/flight-bound.test.ts",

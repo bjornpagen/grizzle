@@ -19,7 +19,14 @@ import {
 	type SchemaDesc,
 	unit
 } from "#test/support/fixtures/ir/desc.ts"
-import { match, queryDesc, ref, relationSource, rule, varsAt } from "#test/unit/check/dsl.ts"
+import {
+	match,
+	queryDesc,
+	ref,
+	relationSource,
+	rule,
+	varsAt
+} from "#test/support/unit/check/dsl.ts"
 
 /** The written texts a generation may read, unbounded, as a QTI string is. */
 const texts = ["a", "b", "c"] as const

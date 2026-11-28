@@ -18,14 +18,14 @@ import {
 	validateTable
 } from "#test/support/oracle/dag-validate.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
+import { everyKind } from "#test/support/unit/ir/fixture.ts"
+import { generatedDags } from "#test/support/unit/ir/population.ts"
 import {
 	dagCorruptions,
 	type DagRefusal,
 	type DagReport,
 	liveVariants
 } from "#test/unit/ir/corruptions.ts"
-import { everyKind } from "#test/unit/ir/fixture.ts"
-import { generatedDags } from "#test/unit/ir/population.ts"
 
 /** The label every place of a DAG's problems is under. */
 const dagLabel = "relational DAG"

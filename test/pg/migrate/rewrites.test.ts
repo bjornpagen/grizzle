@@ -13,7 +13,7 @@
  * Oracle: PostgreSQL itself. A table_rewrite event trigger (test/support/migrate/rewrites.ts) records each table
  * PostgreSQL rewrites while the second version's folder applies, so the property is that no table of the installation
  * is rewritten twice; and the migrated catalog equals a fresh installation of the second version, both read from
- * PostgreSQL's catalog (test/pg/migrate/support.ts sameCatalog).
+ * PostgreSQL's catalog (test/support/pg/migrate/support.ts sameCatalog).
  *
  * Features: several stored generated columns added to one table; an add plus a drop on one table; a CHECK over a new
  * column; a cross-table foreign key onto a new UNIQUE; and a conversion beside generated columns over it. Each pending

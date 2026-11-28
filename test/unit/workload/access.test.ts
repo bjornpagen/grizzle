@@ -19,13 +19,13 @@ import { Array as Arr, Effect, Record as Rec } from "effect"
 import { pathOf } from "#compiler/physical/access/paths.ts"
 import { succeeded } from "#test/support/assert.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
+import { fixtureLogin, servedOf } from "#test/support/unit/workload/fixtures.ts"
 import {
 	named,
 	pathLabel,
 	type PlanFeature,
 	workloadGen
 } from "#test/unit/workload/access.fixtures.ts"
-import { fixtureLogin, servedOf } from "#test/unit/workload/fixtures.ts"
 
 /**
  * The served workload records each program's access by name and asks exactly the paths its programs' statements read

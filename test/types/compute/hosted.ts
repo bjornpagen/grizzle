@@ -4,7 +4,7 @@ import type { Refused } from "#compiler/core/refusals.ts"
 import type { ComputeFn } from "#compiler/ir/desc.ts"
 import { computeSpecs } from "#compiler/scalar/compute/registry.ts"
 import { preludeAt, preludeFrom, preludeModule } from "#test/support/prelude.ts"
-import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/batch/batch.ts"
+import { batchOwned, caseOwned, type Entry, type Program } from "#test/support/types/batch/batch.ts"
 
 /**
  * The hosted-operation program: the box of every scalar function the host does not evaluate (computeSpecs, check

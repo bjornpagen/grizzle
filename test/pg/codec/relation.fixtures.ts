@@ -11,7 +11,7 @@ import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import type { HeadingField } from "#compiler/scalar/values/identity.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
-import { codecOf } from "#test/unit/codec/support.ts"
+import { codecOf } from "#test/support/unit/codec/support.ts"
 
 const uuidA = "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"
 

@@ -55,7 +55,7 @@ import {
 	spell,
 	type Spelling,
 	typeChecks
-} from "#test/unit/physical/install.fixtures.ts"
+} from "#test/support/unit/physical/install.fixtures.ts"
 
 /** The fresh installation is in install order, every object needed and justified, every edge kept. Its budget is its suite's before it was a property (test/unit/physical/install.test.ts at 4ca3036a): 100 runs and 100 steered cases. */
 export const theFreshInstallationIsInInstallOrderEveryObjectNeededAndJustifiedEveryEdgeKept =

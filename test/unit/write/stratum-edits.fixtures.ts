@@ -29,7 +29,7 @@ import { succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { Id } from "#test/support/ids.ts"
 import { checking } from "#test/support/policy.ts"
-import { descOf } from "#test/unit/write/changeset/fixtures.ts"
+import { descOf } from "#test/support/unit/write/changeset/fixtures.ts"
 
 const Club = relation("Club", { id: pg.integer, n: drawnField(natural) }, ["id"])
 

@@ -2,7 +2,7 @@
  * A containment into a derived union of rules that each read one imported query is judged on PostgreSQL 19 as its
  * violation query reads it. SnapStage, the derived join of Snap, Item and Sess, is contained at every column in
  * InSession, a union of one, two or three rules over that join and Visit, each reading it as an import, compiled at its
- * own level or from a level above (test/unit/laws/union-import.schema.ts). Every relation is immutable and keyed by its
+ * own level or from a level above (test/support/unit/laws/union-import.schema.ts). Every relation is immutable and keyed by its
  * child first, so the containment is unit-local, judged whole over the children a transaction wrote. Navigation reads
  * the union whole, restricted inside to its reader's channels under names of its own (analysis/theory/navigate.ts
  * received), where it received them under the reader's names, which its own steps minted again, and the checker refused

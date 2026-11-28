@@ -56,13 +56,13 @@ import {
 import { Work } from "#test/support/fixtures/api/work.ts"
 import { callCounts } from "#test/support/kernel/calls.ts"
 import { checking } from "#test/support/policy.ts"
-import { descOf, switchToManual } from "#test/unit/write/changeset/fixtures.ts"
+import { descOf, switchToManual } from "#test/support/unit/write/changeset/fixtures.ts"
 import {
 	boundTakeWriteOf,
 	chainWriteOf,
 	readersOf,
 	Shared
-} from "#test/unit/write/shared-imports.fixtures.ts"
+} from "#test/support/unit/write/shared-imports.fixtures.ts"
 
 type Feature = "one member" | "several members"
 

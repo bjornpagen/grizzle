@@ -6,8 +6,6 @@ import type { Oracle } from "@bjornpagen/testing/property"
 import { Array as Arr } from "effect"
 
 import { nonEmpty } from "@bjornpagen/testing/assert"
-import { type FamilySeat, familyTemplates } from "#test/pg/fin/family.ts"
-import { type EndFeature } from "#test/pg/fin/installed.ts"
 import {
 	BREAKING_FORMS,
 	type Form,
@@ -27,6 +25,8 @@ import {
 	type Stored,
 	successorOf
 } from "#test/support/families/theorem.ts"
+import { type FamilySeat, familyTemplates } from "#test/support/pg/fin/family.ts"
+import { type EndFeature } from "#test/support/pg/fin/installed.ts"
 import { upTo } from "#test/support/up-to.ts"
 
 /** Each shape's family installed once per member (family.ts familyTemplates), which every case seats. */

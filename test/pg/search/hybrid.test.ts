@@ -35,7 +35,6 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { Db } from "#adapter/public/db.ts"
-import { openedIn } from "#test/pg/reads/support.ts"
 import {
 	analyzed,
 	armTake,
@@ -52,6 +51,7 @@ import {
 	servedByHnsw,
 	vectorOf
 } from "#test/pg/search/hybrid.fixtures.ts"
+import { openedIn } from "#test/support/pg/reads/support.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 

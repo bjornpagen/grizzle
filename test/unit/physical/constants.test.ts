@@ -37,7 +37,6 @@ import { Array as Arr, Effect, Formatter, Order } from "effect"
 import { setText, setWidth } from "#test/support/closed/bit-text.ts"
 import { codebookOfStates, codecFor } from "#test/support/closed/generate.ts"
 import { owning } from "#test/support/policy.ts"
-import { upTo } from "#test/support/up-to.ts"
 import {
 	admits,
 	closedConstants,
@@ -55,7 +54,8 @@ import {
 	states,
 	withHole,
 	worldGen
-} from "#test/unit/physical/constants.fixtures.ts"
+} from "#test/support/unit/physical/constants.fixtures.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /** Roster and closed constants domains that admit exactly the live codes, names that are content, EXECUTE by rule, decoded view columns. Its budget is its suite's before it was a property (test/unit/physical/constants.test.ts at 4ca3036a): 120 runs and 120 steered cases. */
 export const rosterAndClosedConstantsDomainsThatAdmitExactlyTheLiveCodesNamesThatAreContentEXECUTEByRuleDecodedViewColumns =

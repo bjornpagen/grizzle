@@ -41,7 +41,7 @@ import { array, element, type Gen } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { jsMatcher } from "#test/support/regex.ts"
-import { stringsOver, wholeLanguageGen, wordOf } from "#test/unit/text/generators.ts"
+import { stringsOver, wholeLanguageGen, wordOf } from "#test/support/unit/text/generators.ts"
 
 type IntersectionFeature =
 	| "both hold"

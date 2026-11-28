@@ -1,3 +1,5 @@
+import { coreGrammar, extendedGrammar } from "#test/support/unit/analysis/small/plans.ts"
+import { variants } from "#test/support/unit/analysis/small/universe.ts"
 /**
  * The analyses' claims against the truth of a small closed universe, exhaustively.
  *
@@ -47,8 +49,6 @@ import {
 	extendedRequired,
 	extendedVariants
 } from "#test/unit/analysis/small/claims.fixtures.ts"
-import { coreGrammar, extendedGrammar } from "#test/unit/analysis/small/plans.ts"
-import { variants } from "#test/unit/analysis/small/universe.ts"
 
 /** The analyses over a small closed universe every core query of up to two operators: sound on every database, precise where the universe proves. */
 export const theAnalysesOverASmallClosedUniverseEveryCoreQueryOfUpToTwoOperatorsSoundOnEveryDatabasePreciseWhereTheUniverseProves =

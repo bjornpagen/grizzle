@@ -14,7 +14,7 @@ import {
 import { containersOf, freshContainers, keyOrders } from "#test/support/containers.ts"
 import { Task, TaskNote, Work } from "#test/support/fixtures/api/work.ts"
 import { sitesRead } from "#test/support/sites.ts"
-import { descOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
+import { descOf, uuidOf } from "#test/support/unit/write/changeset/fixtures.ts"
 
 /** The i-th query member: a rule over Task with a parameter of its own, so no two are one member. */
 const member = (i: number) =>

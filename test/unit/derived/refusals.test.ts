@@ -35,8 +35,8 @@ import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { admitDerived } from "#compiler/schema/relation.ts"
-import { buildSchema } from "#test/pg/derived/oracle/gen.ts"
 import { Id } from "#test/support/ids.ts"
+import { buildSchema } from "#test/support/pg/derived/oracle/gen.ts"
 import {
 	entries,
 	type LawFeature,

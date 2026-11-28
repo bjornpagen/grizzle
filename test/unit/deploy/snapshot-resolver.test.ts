@@ -41,7 +41,7 @@ import {
 	sameColumns,
 	unplannedKeyRead,
 	unservedRead
-} from "#test/unit/physical/indexes.fixtures.ts"
+} from "#test/support/unit/physical/indexes.fixtures.ts"
 
 type Feature =
 	| "a request resolved through the snapshot"

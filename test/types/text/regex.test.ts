@@ -6,7 +6,7 @@
  * program a batch checks armed, which must raise no diagnostic. Oracle: ECMAScript's own matcher. The witnesses
  * reach every family with a member, and the empty string as a member of a handwritten pattern.
  */
-import { agreement, boxAgreement } from "#test/types/batch/agreement.ts"
+import { agreement, boxAgreement } from "#test/support/types/batch/agreement.ts"
 import {
 	containedCases,
 	containedNotes,

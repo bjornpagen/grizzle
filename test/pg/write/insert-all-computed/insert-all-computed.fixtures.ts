@@ -20,7 +20,7 @@ import {
 	tree
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { fixtureTemplate } from "#test/pg/reads/support.ts"
+import { fixtureTemplate } from "#test/support/pg/reads/support.ts"
 
 /** A package's name, and every text of the schema, as pantry's: up to eight letters. */
 const PackageName = str.regex("^[a-z]{1,8}$")

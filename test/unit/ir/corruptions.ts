@@ -28,7 +28,7 @@ import { statedKey } from "#test/support/fixtures/ir/build.ts"
 import { f as field } from "#test/support/fixtures/ir/desc.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { type DagRule, orderSensitiveWindowFns } from "#test/support/oracle/dag-validate.ts"
-import { scalarTypes } from "#test/unit/ir/fixture.ts"
+import { scalarTypes } from "#test/support/unit/ir/fixture.ts"
 
 /**
  * What the validator must report of a corrupted DAG at a site:

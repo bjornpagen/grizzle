@@ -36,10 +36,10 @@ import { mergeHeadingGroups } from "#compiler/runtime/lower/union.ts"
 import { lit, types } from "#compiler/sql/build.ts"
 import { refused, succeeded } from "#test/support/assert.ts"
 import { mergeComparator } from "#test/support/merge.ts"
-import { fixtureCodes } from "#test/unit/ir/fixture.ts"
-import { T } from "#test/unit/lower/conservative/fixtures.ts"
-import { tasksByKind } from "#test/unit/lower/shapes/queries.ts"
-import { context, shapedFacts, testOptions } from "#test/unit/lower/shapes/support.ts"
+import { fixtureCodes } from "#test/support/unit/ir/fixture.ts"
+import { T } from "#test/support/unit/lower/conservative/fixtures.ts"
+import { tasksByKind } from "#test/support/unit/lower/shapes/queries.ts"
+import { context, shapedFacts, testOptions } from "#test/support/unit/lower/shapes/support.ts"
 import {
 	boundedArms,
 	conservative,

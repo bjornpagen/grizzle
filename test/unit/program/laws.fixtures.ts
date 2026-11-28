@@ -55,13 +55,18 @@ import { regexField } from "#compiler/text/field.ts"
 import type { IdentifiedLaw, Law, OwnLaw } from "#compiler/types/changeset/changeset.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { AnyClosed, Relation } from "#compiler/types/schema/relation.ts"
-import { buildSwarm, featuresGen, type SwarmSpec, swarmSpecGen } from "#test/pg/write/swarm/spec.ts"
 import { Id } from "#test/support/ids.ts"
 import { identityText, ownedStatementText } from "#test/support/kernel/naming.ts"
 import { opened } from "#test/support/open.ts"
+import {
+	buildSwarm,
+	featuresGen,
+	type SwarmSpec,
+	swarmSpecGen
+} from "#test/support/pg/write/swarm/spec.ts"
 import { jsMatcher } from "#test/support/regex.ts"
+import { bareContract } from "#test/support/unit/schema/support.ts"
 import { upTo } from "#test/support/up-to.ts"
-import { bareContract } from "#test/unit/schema/support.ts"
 
 type Flags = "u" | "su"
 

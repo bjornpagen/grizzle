@@ -60,7 +60,7 @@ import { literalOfValue } from "#test/support/oracle/reference/values.ts"
 import { oracleProperty, type Placement, PropertyFailed } from "#test/support/oracle/runner.ts"
 import { OracleSeat } from "#test/support/oracle/seat.ts"
 import type { SqlError } from "#test/support/pg.ts"
-import { type AggregateSpec, Q } from "#test/unit/lower/conservative/fixtures.ts"
+import { type AggregateSpec, Q } from "#test/support/unit/lower/conservative/fixtures.ts"
 
 /**
  * What an optimized differential's case reaches: the certificate rules its optimized artifact rests on, fused and

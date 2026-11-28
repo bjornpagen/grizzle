@@ -15,7 +15,6 @@ import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
-import { inInstallation } from "#test/pg/compute/support.ts"
 import {
 	dictionary,
 	type DictionaryFeature,
@@ -24,6 +23,7 @@ import {
 	judgeDictionary
 } from "#test/pg/compute/text.fixtures.ts"
 import { installationSql } from "#test/support/compile.ts"
+import { inInstallation } from "#test/support/pg/compute/support.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**

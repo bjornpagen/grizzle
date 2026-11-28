@@ -1,5 +1,5 @@
 import { Effect } from "effect"
-import { defaultPool, poolFor, rowsOn } from "#test/pg/adapter/support.ts"
+import { defaultPool, poolFor, rowsOn } from "#test/support/pg/adapter/support.ts"
 import type { Credentials } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { makeTap } from "#test/support/wire-tap.ts"

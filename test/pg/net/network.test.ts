@@ -31,6 +31,10 @@ import { clientCalls } from "#client/client.ts"
 import { handlerClient } from "#client/handler.ts"
 import { admitCidr, admitInet, type Cidr, type Inet } from "#compiler/scalar/values/net.ts"
 import { httpHandler } from "#http/index.ts"
+import { succeeded } from "#test/support/assert.ts"
+import { rowsOf } from "#test/support/calls.ts"
+import { jsonOf } from "#test/support/chunked.ts"
+import { namesOf } from "#test/support/kernel/naming.ts"
 import {
 	campusAt,
 	campusTemplate,
@@ -39,11 +43,7 @@ import {
 	Network,
 	spellings,
 	type ValuesFeature
-} from "#test/pg/net/network.fixtures.ts"
-import { succeeded } from "#test/support/assert.ts"
-import { rowsOf } from "#test/support/calls.ts"
-import { jsonOf } from "#test/support/chunked.ts"
-import { namesOf } from "#test/support/kernel/naming.ts"
+} from "#test/support/pg/net/network.fixtures.ts"
 import { servedGenerated } from "#test/support/served-db.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"

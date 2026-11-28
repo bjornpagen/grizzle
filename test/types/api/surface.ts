@@ -3,7 +3,7 @@ import { jsonText } from "#compiler/core/trusted.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { Account, Work } from "#test/support/agreement/access-schema.ts"
 import { preludeAt, preludeFrom, preludeModule } from "#test/support/prelude.ts"
-import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/batch/batch.ts"
+import { batchOwned, caseOwned, type Entry, type Program } from "#test/support/types/batch/batch.ts"
 
 /**
  * The query facade's surface: the methods the public types promise on a query builder, a rule, a finished arm, a query

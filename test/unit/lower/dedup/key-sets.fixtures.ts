@@ -55,7 +55,7 @@ import {
 import { printQueryCase } from "#test/support/oracle/gen/print.ts"
 import { genParamDecls } from "#test/support/oracle/gen/query.ts"
 import { schemaCodes } from "#test/support/oracle/gen/schema.ts"
-import { perParentNestedGen } from "#test/unit/lower/dedup/cases.ts"
+import { perParentNestedGen } from "#test/support/unit/lower/dedup/cases.ts"
 
 /**
  * What a program's key sets reached: a set proved and one unproved; a nested set proved across parents by the

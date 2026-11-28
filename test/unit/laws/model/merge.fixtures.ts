@@ -25,7 +25,7 @@ import {
 	ridingLaws,
 	type Row,
 	type State
-} from "#test/unit/laws/model/natives.ts"
+} from "#test/support/unit/laws/model/natives.ts"
 
 /** The fields an axis's two copies carry on the owner and on each member, in the order the box draws their values: copy
  * j's source and target among them. */

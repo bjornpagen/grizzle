@@ -21,7 +21,6 @@ import { succeeded } from "#test/support/assert.ts"
 import { type HeadTermDesc } from "#test/support/fixtures/ir/desc.ts"
 import { idDesc } from "#test/support/ids.ts"
 import { checkAuthored, checking, checkOptions } from "#test/support/policy.ts"
-import { upTo } from "#test/support/up-to.ts"
 import {
 	compute,
 	eq,
@@ -35,7 +34,8 @@ import {
 	rule,
 	typedLit,
 	vars
-} from "#test/unit/check/dsl.ts"
+} from "#test/support/unit/check/dsl.ts"
+import { upTo } from "#test/support/up-to.ts"
 import { Graph, theRecursive } from "#test/unit/recursion/fixtures.ts"
 import {
 	copied,

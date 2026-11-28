@@ -4,17 +4,6 @@ import { Array as Arr, Option, Record as Rec } from "effect"
 import type { CompileReasonTag } from "#compiler/core/errors.ts"
 import type { AuthoredExprDesc, MatchDesc, QueryDesc } from "#test/support/fixtures/ir/desc.ts"
 import {
-	descriptorOf,
-	type DrawnSchema,
-	drawnSchemaGen,
-	type ColumnKind,
-	familyOf,
-	columnKinds,
-	kindOf,
-	relationAt,
-	valueOf
-} from "#test/unit/check/drawn.ts"
-import {
 	compute,
 	eq,
 	imported,
@@ -30,7 +19,18 @@ import {
 	take,
 	typedLit,
 	varsAt
-} from "#test/unit/check/dsl.ts"
+} from "#test/support/unit/check/dsl.ts"
+import {
+	descriptorOf,
+	type DrawnSchema,
+	drawnSchemaGen,
+	type ColumnKind,
+	familyOf,
+	columnKinds,
+	kindOf,
+	relationAt,
+	valueOf
+} from "#test/unit/check/drawn.ts"
 
 /**
  * Queries that name parameters at every place a description may, over a drawn schema, and the checker's parameter rule

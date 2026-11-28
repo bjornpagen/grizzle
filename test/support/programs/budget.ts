@@ -1,5 +1,5 @@
 /**
- * The names the type-cost gates' generated programs read (test/types/query/budget/generate.ts and the schema,
+ * The names the type-cost gates' generated programs read (test/support/types/query/budget/generate.ts and the schema,
  * skeleton, family, regex and nesting programs that share its entries), their prelude (test/support/prelude.ts): each
  * program imports these alone, each through this module.
  */

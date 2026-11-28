@@ -39,7 +39,14 @@ import { analyzeText } from "#compiler/text/refinement.ts"
 import { accepts } from "#test/support/fixtures/ir/scalar.ts"
 import { jsMatcher } from "#test/support/regex.ts"
 import { refinementBounds } from "#test/support/text.ts"
-import { walk, walkLength } from "#test/unit/text/generators.ts"
+import { walk, walkLength } from "#test/support/unit/text/generators.ts"
+import {
+	plantedFault,
+	type PlantedFeature,
+	plantedFeature,
+	plantedTextGen,
+	plantedValue
+} from "#test/support/unit/values/support.ts"
 import {
 	acceptances,
 	admittedPatterns,
@@ -69,13 +76,6 @@ import {
 	workCaseGen,
 	type WorkFeature
 } from "#test/unit/text/membership.fixtures.ts"
-import {
-	plantedFault,
-	type PlantedFeature,
-	plantedFeature,
-	plantedTextGen,
-	plantedValue
-} from "#test/unit/values/support.ts"
 
 /** Host NFA membership equals ECMAScript on the handwritten family patterns, over their families' strings and walks of their own NFA, every pattern accepting and refusing. Its budget is its suite's before it was a property (test/unit/text/membership.test.ts at 4ca3036a): 6000 runs and 6000 steered cases. */
 export const hostNFAMembershipEqualsECMAScriptOnTheHandwrittenFamilyPatternsOverTheirFamiliesStringsAndWalksOfTheirOwnNFAEveryPatternAcceptingAndRefusing =

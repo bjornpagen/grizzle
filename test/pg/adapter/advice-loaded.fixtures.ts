@@ -13,15 +13,20 @@ import {
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { noAdvice } from "#compiler/sql/advice.ts"
-import { kept, openMigrator, parsedTarget, reviewedSource } from "#test/pg/migrate/support.ts"
 import { firstCodes } from "#test/support/compile.ts"
 import { fenceSql, prologueIn } from "#test/support/flight/model.ts"
 import { atName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { draftChain, fromEmpty, noDeclarations } from "#test/support/migrate/kit.ts"
+import {
+	kept,
+	openMigrator,
+	parsedTarget,
+	reviewedSource
+} from "#test/support/pg/migrate/support.ts"
 import { testSql } from "#test/support/sql.ts"
 import { freshSchema, Substrate } from "#test/support/substrate/substrate.ts"
+import { shopV1 } from "#test/support/unit/deploy/schemas.ts"
 import { tappedSession } from "#test/support/wire-tap.ts"
-import { shopV1 } from "#test/unit/deploy/schemas.ts"
 
 /**
  * What a case runs on a session of its database: `grizzle migrate`'s first apply of a schema, which installs it; or a

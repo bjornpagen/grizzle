@@ -89,7 +89,7 @@ import {
 	snapshotViolations,
 	strings,
 	versionAt
-} from "#test/unit/physical/literal.fixtures.ts"
+} from "#test/support/unit/physical/literal.fixtures.ts"
 
 /** A drafted migration writes every bit string as one hex constant and every array of a closed constant as one literal, and its snapshot alike. Its budget is its suite's before it was a property (test/unit/physical/literal.test.ts at 4ca3036a): 80 runs and 160 steered cases. */
 export const aDraftedMigrationWritesEveryBitStringAsOneHexConstantAndEveryArrayOfAClosedConstantAsOneLiteral =

@@ -22,14 +22,14 @@ import { regexField } from "#compiler/text/field.ts"
 import { domainValue, membership, type TextRefinement } from "#compiler/text/refinement.ts"
 import { Id } from "#test/support/ids.ts"
 import { jsMatcher } from "#test/support/regex.ts"
-import { upTo } from "#test/support/up-to.ts"
 import {
 	finiteLanguageOver,
 	flagsGen,
 	mostFiniteMembers,
 	patternOver,
 	walkGen
-} from "#test/unit/text/generators.ts"
+} from "#test/support/unit/text/generators.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 export const loc = SourceLoc("str.and", [])
 

@@ -4,7 +4,7 @@ import { jsonText } from "#compiler/core/trusted.ts"
 import { str } from "#compiler/public/text.ts"
 import { regexField } from "#compiler/text/field.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
-import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/batch/batch.ts"
+import { batchOwned, caseOwned, type Entry, type Program } from "#test/support/types/batch/batch.ts"
 
 /**
  * The containments of str.bytes texts, generated, which test/types/text/bytes.test.ts holds the types to and

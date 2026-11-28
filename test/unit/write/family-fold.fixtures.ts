@@ -41,9 +41,9 @@ import {
 	relation,
 	type SchemaDesc
 } from "#test/support/fixtures/ir/desc.ts"
+import { compiledModel } from "#test/support/unit/laws/model/natives.ts"
+import { uuidOf } from "#test/support/unit/write/changeset/fixtures.ts"
 import { upTo } from "#test/support/up-to.ts"
-import { compiledModel } from "#test/unit/laws/model/natives.ts"
-import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 
 /** The carrier a fold's accumulator is of. */
 type Carrier = "int2" | "int4" | "int8" | "natural" | "numeric" | "money" | "set" | "code"

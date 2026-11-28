@@ -20,7 +20,7 @@ import {
 } from "#test/support/agreement/bound-arguments-schema.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import { preludeAt, preludeFrom, preludeModule } from "#test/support/prelude.ts"
-import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/batch/batch.ts"
+import { batchOwned, caseOwned, type Entry, type Program } from "#test/support/types/batch/batch.ts"
 
 /**
  * The bound-argument agreement: every form of rows argument a call of a declared function passes, by Fn.rows and by

@@ -9,7 +9,7 @@ import {
 	recursionProgram,
 	recursionRequired
 } from "#test/support/agreement/recursion.ts"
-import { agreement } from "#test/types/batch/agreement.ts"
+import { agreement } from "#test/support/types/batch/agreement.ts"
 
 /**
  * Over drawn recursions, the types admit exactly what the engine compiles, name its refusal, and infer its records and

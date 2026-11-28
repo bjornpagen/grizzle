@@ -29,8 +29,8 @@ import {
 	type OccurrenceSpec,
 	plainRegion,
 	Q
-} from "#test/unit/lower/conservative/fixtures.ts"
-import { acrossParentsCase, withinOneParentCase } from "#test/unit/lower/dedup/cases.ts"
+} from "#test/support/unit/lower/conservative/fixtures.ts"
+import { acrossParentsCase, withinOneParentCase } from "#test/support/unit/lower/dedup/cases.ts"
 export const perEvaluationRequired = [
 	"correlated take",
 	"correlated region",
@@ -58,7 +58,7 @@ export const perEvaluationRequired = [
  *   twice and (3, 5); the semi-join keeps the groups whose a is some group's b, all but (1, 2).
  *
  * Beside them, the page/generated-optimized counterexample at TEST_SEED=28094260 and its twin
- * (test/unit/lower/dedup/cases.ts): a take of one row per parent with an attachment nested below it, whose key set over
+ * (test/support/unit/lower/dedup/cases.ts): a take of one row per parent with an attachment nested below it, whose key set over
  * a holds a key within one parent only and repeats a = 0 across the two parents unless it deduplicates, and the same
  * attachment paired on the column that fixes the parent too, whose key set is proved across parents and read as it is.
  *
@@ -338,7 +338,7 @@ const escapedCounterexamples: Arr.NonEmptyReadonlyArray<QueryCase> = [
 
 /**
  * The twin of the TEST_SEED=28094260 counterexample, paired on the column that fixes the parent, whose nested key set is
- * proved across parents and read as it is (test/unit/lower/dedup/cases.ts acrossParentsCase): kept by value since
+ * proved across parents and read as it is (test/support/unit/lower/dedup/cases.ts acrossParentsCase): kept by value since
  * 52b373df8 beside its counterexample, it never failed but under the plant that failed all three, so it is the aim of the
  * situation it reaches, a key set read without DISTINCT, built where a case's turn aims at it.
  */

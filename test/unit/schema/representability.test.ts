@@ -99,8 +99,8 @@ import {
 	utf8Bytes,
 	type VectorKeyFeature,
 	vectorKeySketchGen
-} from "#test/unit/schema/representability.fixtures.ts"
-import { bareContract, descOf, rawPg, rawSpan, regex } from "#test/unit/schema/support.ts"
+} from "#test/support/unit/schema/representability.fixtures.ts"
+import { bareContract, descOf, rawPg, rawSpan, regex } from "#test/support/unit/schema/support.ts"
 
 /** Pattern byte bounds bounds a pattern's key by at least its longest match in UTF-8 bytes, and by nothing when its language is infinite. Its budget is its suite's before it was a property (test/unit/schema/representability.test.ts at 4ca3036a): 400 runs and 400 steered cases. */
 export const patternByteBoundsBoundsAPatternsKeyByAtLeastItsLongestMatchInUTF8BytesAndByNothingWhenItsLanguageIsInfinite =

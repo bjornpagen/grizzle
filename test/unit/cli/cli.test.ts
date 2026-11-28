@@ -57,15 +57,15 @@ import {
 	roleSpaceOf
 } from "#compiler/core/identity.ts"
 import { timestampParts } from "#compiler/plan/migration.ts"
+import { refusedAt, succeeded } from "#test/support/assert.ts"
+import { digitsOf, millisOf, secondOfDigits } from "#test/support/calendar.ts"
 import {
 	bin,
 	configName,
 	offlinePassword,
 	resolvedConfig,
 	workspace
-} from "#test/pg/cli/support.ts"
-import { refusedAt, succeeded } from "#test/support/assert.ts"
-import { digitsOf, millisOf, secondOfDigits } from "#test/support/calendar.ts"
+} from "#test/support/pg/cli/support.ts"
 import {
 	argvOf,
 	type ConfigFeature,

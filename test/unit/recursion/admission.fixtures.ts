@@ -12,7 +12,7 @@ import {
 	rule,
 	varRef,
 	vars
-} from "#test/unit/check/dsl.ts"
+} from "#test/support/unit/check/dsl.ts"
 
 /** The pairs (a, b) of the transitive closure of Edge, and the arms beside the transitive one. */
 export type Arm = "b repeating a" | "b fixed to a parameter"

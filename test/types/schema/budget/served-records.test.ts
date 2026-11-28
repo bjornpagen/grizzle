@@ -6,10 +6,10 @@
  * are never instantiated again through a mapped copy of the login's lists.
  *
  * Properties: every program typechecks with no diagnostic, and each unit the larger program adds costs at most its
- * shape's measured instantiations. Oracle: the compiler's own counts (test/types/batch/measured.ts), against the bound
+ * shape's measured instantiations. Oracle: the compiler's own counts (test/support/types/batch/measured.ts), against the bound
  * measured when the login's checks became verdicts (served-records.ts addedAtMost).
  */
-import { costGate } from "#test/types/batch/measured.ts"
+import { costGate } from "#test/support/types/batch/measured.ts"
 import { servedRecords } from "#test/types/schema/budget/served-records.dictionary.ts"
 import { servedCost, servedShapeName } from "#test/types/schema/budget/served-records.ts"
 

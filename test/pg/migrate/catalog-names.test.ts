@@ -41,9 +41,9 @@ import {
 	targets,
 	versionOf
 } from "#test/pg/migrate/catalog-names.fixtures.ts"
-import { apply, noFurther, openMigrator } from "#test/pg/migrate/support.ts"
 import { ambientFeatures } from "#test/support/ambient.ts"
 import { installGenerated } from "#test/support/install-migrate.ts"
+import { apply, noFurther, openMigrator } from "#test/support/pg/migrate/support.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** Objects named like PostgreSQL's own types every catalog type's name on every object, under every path: migrate and drift match, and a second migrate applies nothing. */

@@ -25,11 +25,11 @@ import {
 import type { ServedFile } from "#compiler/served/forms.ts"
 import { servedFile } from "#compiler/served/json.ts"
 import { defineConfig } from "#index.ts"
-import { offlineOwner } from "#test/pg/cli/support.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { jsonOf } from "#test/support/chunked.ts"
 import { repoRoot } from "#test/support/files.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
+import { offlineOwner } from "#test/support/pg/cli/support.ts"
 
 const instantKey = Symbol("Instant")
 const Instant = contract<typeof instantKey>()("Instant", pg.bigint)

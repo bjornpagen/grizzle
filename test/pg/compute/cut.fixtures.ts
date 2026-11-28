@@ -16,8 +16,13 @@ import { printStatement } from "#compiler/sql/print.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { evaluate } from "#test/support/oracle/evaluate/catalog.ts"
 import { patternMember } from "#test/support/oracle/reference/evaluate.ts"
-import { baseParams, lowerWith, plainRender, renderSql } from "#test/unit/compute/support.ts"
-import { boundedColumn, textColumn } from "#test/unit/compute/text.fixtures.ts"
+import {
+	baseParams,
+	lowerWith,
+	plainRender,
+	renderSql
+} from "#test/support/unit/compute/support.ts"
+import { boundedColumn, textColumn } from "#test/support/unit/compute/text.fixtures.ts"
 
 /** The two sides of a cut, each a library function of its own name. */
 export const cuts = ["cutBefore", "cutFrom"] as const

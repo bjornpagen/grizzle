@@ -32,7 +32,7 @@ import { queryState } from "#compiler/query/build/state.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { fromQueryDescription, queryFromDesc } from "#test/support/describe.ts"
 import { AutomaticTask, Kind, Task, TaskNote, Work } from "#test/support/fixtures/api/work.ts"
-import { at, Booking, descOf, Schedule } from "#test/unit/query/fixtures.ts"
+import { at, Booking, descOf, Schedule } from "#test/support/unit/query/fixtures.ts"
 
 const text = (q: unknown): string => {
 	const t = descText(descOf(q))

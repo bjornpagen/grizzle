@@ -6,7 +6,7 @@ import type { FieldDesc } from "#compiler/ir/desc.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { textDesc } from "#test/support/fixtures/ir/desc.ts"
 import { Id } from "#test/support/ids.ts"
-import { typedLit, varRef } from "#test/unit/check/dsl.ts"
+import { typedLit, varRef } from "#test/support/unit/check/dsl.ts"
 
 export const integer: FieldDesc = { kind: "pg", type: "integer" }
 

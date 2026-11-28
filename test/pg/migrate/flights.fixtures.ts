@@ -10,8 +10,8 @@ import type { MigrationSession } from "#adapter/migrate/session.ts"
 import { proofStatements } from "#compiler/deploy/ledger/ledger.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
+import { shopV1, shopV2, shopV3, shopV3Declared } from "#test/support/unit/deploy/schemas.ts"
 import { backendCount, frameOf, type Tapped } from "#test/support/wire-tap.ts"
-import { shopV1, shopV2, shopV3, shopV3Declared } from "#test/unit/deploy/schemas.ts"
 
 export const versions = [
 	[shopV1, noDeclarations],

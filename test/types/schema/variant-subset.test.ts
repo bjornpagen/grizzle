@@ -1,6 +1,6 @@
 import { word } from "@bjornpagen/testing/dictionary"
 import { finite } from "@bjornpagen/testing/gen"
-import { boxAgreement } from "#test/types/batch/agreement.ts"
+import { boxAgreement } from "#test/support/types/batch/agreement.ts"
 /**
  * A variant over a subset of its roster (test/types/schema/variant-subset.ts): `variant(name, roster, arms)` whose arms
  * name some of the roster's handles holds exactly those, so an addition and a make at any other handle are refused, a

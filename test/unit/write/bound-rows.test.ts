@@ -19,8 +19,8 @@ import { property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { RelNode } from "#compiler/ir/rel.ts"
+import { compiled } from "#test/support/unit/write/changeset/fixtures.ts"
 import { bindingGen, readersGen, Upper, writeOf } from "#test/unit/write/bound-rows.fixtures.ts"
-import { compiled } from "#test/unit/write/changeset/fixtures.ts"
 
 /** The scans of `relation` among `nodes`. */
 const scansOf = (nodes: ReadonlyArray<RelNode>, relation: string): number =>

@@ -15,7 +15,7 @@ import {
 	testPg,
 	typeWith,
 	v
-} from "#test/unit/compute/support.ts"
+} from "#test/support/unit/compute/support.ts"
 
 /**
  * What an interval is read off: a term over two integers (Type.base of the first, GREATEST, LEAST, and an exact

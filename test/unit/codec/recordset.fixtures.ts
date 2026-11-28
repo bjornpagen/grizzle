@@ -36,7 +36,7 @@ import { arraysEncoder } from "#test/support/arrays.ts"
 import { fixtureNeedBudget } from "#test/support/budgets.ts"
 import { f } from "#test/support/fixtures/ir/desc.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
-import { codecTypes, kindCodes } from "#test/unit/codec/support.ts"
+import { codecTypes, kindCodes } from "#test/support/unit/codec/support.ts"
 
 /** The relation of readings the normalization properties read: an id, a numeric(5,2) value and a raw double. */
 const reading: RelationSpec = {

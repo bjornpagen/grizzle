@@ -18,7 +18,7 @@ import { succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { Id } from "#test/support/ids.ts"
 import { dictionaryNameGenOtherThan } from "#test/support/kernel/dict.ts"
-import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
+import { uuidOf } from "#test/support/unit/write/changeset/fixtures.ts"
 
 /** Owner(id, n drawn, total accumulated): the owner of the ordered family of Item. */
 export const Owner = relation(

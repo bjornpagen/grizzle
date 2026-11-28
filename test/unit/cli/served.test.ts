@@ -10,7 +10,7 @@ import { check } from "#cli/check.ts"
  * list), each a finding of its own naming the login.
  *
  * A case takes the committed directory of one schema's first draft, whose login serves reads, a key and a ChangeSet over
- * its two roles (the CLI fixture's shop, test/pg/cli/fixture.ts), and plants one fault: the SQL of a nonempty
+ * its two roles (the CLI fixture's shop, test/support/pg/cli/fixture.ts), and plants one fault: the SQL of a nonempty
  * set of its programs that state SQL edited, each at a drawn place by a drawn character; its file deleted; a stray
  * file beside it, of a drawn login name the configuration does not list; or its text mutated (Mutation), a character
  * inserted, replaced or deleted at a drawn place, one member of its JSON value dropped and the rest written as
@@ -31,8 +31,8 @@ import { silentPhases } from "#compiler/core/phase.ts"
 import { servedDirectory, servedPath } from "#compiler/served/forms.ts"
 
 import { assert, defined } from "@bjornpagen/testing/assert"
-import { cliOver, configName, resolvedConfig, workspace } from "#test/pg/cli/support.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { cliOver, configName, resolvedConfig, workspace } from "#test/support/pg/cli/support.ts"
 
 import {
 	baseNeed,

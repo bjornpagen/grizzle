@@ -39,6 +39,7 @@ import { plainType } from "#compiler/scalar/native.ts"
 import { moneyFractionDigits } from "#compiler/scalar/values/decimal.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { ownedInput } from "#test/support/policy.ts"
+import { adoptedLiteral, baseParams, lowerWith } from "#test/support/unit/compute/support.ts"
 import {
 	castSchema,
 	fieldDigits,
@@ -51,7 +52,6 @@ import {
 	type MoneyPlace,
 	moneyPlaces
 } from "#test/unit/compute/exact-literals.fixtures.ts"
-import { adoptedLiteral, baseParams, lowerWith } from "#test/unit/compute/support.ts"
 
 /** Where a case's literal stands: an integer position of a generated field, or an amount's place beside exact money. */
 type Place = IntegerPosition | MoneyPlace

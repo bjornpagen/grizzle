@@ -37,7 +37,7 @@ import * as queueApi from "#test/support/fixtures/api/queue.ts"
 import * as searchApi from "#test/support/fixtures/api/search.ts"
 import * as spansApi from "#test/support/fixtures/api/spans.ts"
 import * as workApi from "#test/support/fixtures/api/work.ts"
-import { switchToManualDescribed, workPrograms } from "#test/unit/workload/fixtures.ts"
+import { switchToManualDescribed, workPrograms } from "#test/support/unit/workload/fixtures.ts"
 
 /**
  * The compile phases of a fixture's install path, with no database: what scripts/dev/profile/compile.ts times.

@@ -32,8 +32,6 @@ import {
 import { str } from "#compiler/public/text.ts"
 import { ownLogin } from "#compiler/schema/own.ts"
 import { loginDescOf } from "#compiler/schema/world.ts"
-import { openMigrator, type TextTarget, writtenTexts } from "#test/pg/migrate/support.ts"
-import { keyGen } from "#test/schedules/write/support.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { installFullWorld } from "#test/support/installed.ts"
@@ -52,6 +50,7 @@ import {
 	noDeclarations
 } from "#test/support/migrate/kit.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
+import { openMigrator, type TextTarget, writtenTexts } from "#test/support/pg/migrate/support.ts"
 import { owning } from "#test/support/policy.ts"
 import type { Interleaving } from "#test/support/schedules/interleave.ts"
 import {
@@ -61,6 +60,7 @@ import {
 	misses
 } from "#test/support/schedules/match.ts"
 import type { Expectation, ScheduleOutcome, StepOutcome } from "#test/support/schedules/types.ts"
+import { keyGen } from "#test/support/schedules/write/support.ts"
 import { reportedOwnerOf } from "#test/support/substrate/errors.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { fullWorld } from "#test/support/worlds.ts"

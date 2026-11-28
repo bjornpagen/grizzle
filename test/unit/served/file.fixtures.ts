@@ -34,7 +34,6 @@ import type { ServedFile } from "#compiler/served/forms.ts"
 import { servedFile, servedText } from "#compiler/served/json.ts"
 import type { UnservedMember } from "#compiler/served/unserved.ts"
 import { changeSetOver } from "#compiler/write/changeset/value.ts"
-import { offlineConnection } from "#test/pg/cli/support.ts"
 import { artifactRefusal, failed } from "#test/support/assert.ts"
 import { joined, jsonOf } from "#test/support/chunked.ts"
 import { Search, scoredDocuments } from "#test/support/fixtures/api/search.ts"
@@ -54,6 +53,7 @@ import {
 	type WSchema
 } from "#test/support/oracle/write/schema.ts"
 import { clusterPool } from "#test/support/pg.ts"
+import { offlineConnection } from "#test/support/pg/cli/support.ts"
 import { compiledLogin, drawnLogin, drawnSchema, loginGen } from "#test/support/served-login.ts"
 import {
 	editedAt,

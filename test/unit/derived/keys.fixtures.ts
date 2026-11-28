@@ -43,8 +43,8 @@ import { schemaBuilder as runtimeSchema } from "#compiler/schema/schema.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import { Id } from "#test/support/ids.ts"
 import { nonEmptyArgumentsOf } from "#test/support/list.ts"
+import { descOf, regex, wildcard } from "#test/support/unit/schema/support.ts"
 import { upTo } from "#test/support/up-to.ts"
-import { descOf, regex, wildcard } from "#test/unit/schema/support.ts"
 
 export type KeyFeature =
 	| "several keys"

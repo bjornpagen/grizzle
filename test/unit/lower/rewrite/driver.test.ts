@@ -31,6 +31,7 @@ import { succeeded } from "#test/support/assert.ts"
 import { genCatalog } from "#test/support/evidence.ts"
 import { callCounts } from "#test/support/kernel/calls.ts"
 import { defaultGenConfig, queryCaseGen } from "#test/support/oracle/gen/case.ts"
+import { caseQuery, ledgerCatalog, passContext } from "#test/support/unit/lower/rewrite/support.ts"
 import {
 	editOrder,
 	foldChain,
@@ -50,7 +51,6 @@ import {
 	workSites
 } from "#test/unit/lower/rewrite/driver.fixtures.ts"
 import type { StructureFeature } from "#test/unit/lower/rewrite/frame.fixtures.ts"
-import { caseQuery, ledgerCatalog, passContext } from "#test/unit/lower/rewrite/support.ts"
 
 /**
  * The kept order is the walk's postorder after any edits: over small DAGs that share their nodes (sharedDags) and up to ten edits at their reached

@@ -15,7 +15,7 @@ import {
 import { lsw, WILD_KINDS, type WildKind } from "@bjornpagen/testing/lsw"
 import { regex } from "arkregex"
 import { Array as Arr, Option, Result, String as Str } from "effect"
-import { nonStringWildKinds } from "#test/unit/values/support.ts"
+import { nonStringWildKinds } from "#test/support/unit/values/support.ts"
 
 export const parse = (source: string, flags: RegexFlags) => parsePattern(source, flags)
 

@@ -24,6 +24,7 @@ import { sameScalarType, typeLabel } from "#compiler/ir/scalar.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { type ScalarTerm } from "#compiler/scalar/compute/term.ts"
 import { exactType, sameCarrier } from "#compiler/scalar/compute/types.ts"
+import { testPg, testSpan, v } from "#test/support/unit/compute/support.ts"
 import {
 	binary,
 	type BinaryOp,
@@ -50,7 +51,6 @@ import {
 	typeOf,
 	wrongEndpointOf
 } from "#test/unit/compute/builders.fixtures.ts"
-import { testPg, testSpan, v } from "#test/unit/compute/support.ts"
 
 /** scalar builders type and refuse operands by the builders' typing rules. */
 export const computeBuildersTypeAndRefuseOperandsByTheBuildersTypingRules = property.exhaust(

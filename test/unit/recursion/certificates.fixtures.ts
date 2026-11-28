@@ -55,7 +55,7 @@ import {
 	typedLit,
 	varRef,
 	vars
-} from "#test/unit/check/dsl.ts"
+} from "#test/support/unit/check/dsl.ts"
 
 type Carrier = "smallint" | "integer" | "bigint"
 

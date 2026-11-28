@@ -8,7 +8,6 @@ import { quoteIdent } from "#compiler/core/text.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
 import { generated, pg } from "#compiler/public/fields.ts"
 import { contained, on, relation, schema } from "#compiler/public/schema.ts"
-import { apply, checkedAdmission, openMigrator } from "#test/pg/migrate/support.ts"
 import { ambientOwner, ordinarySession } from "#test/support/ambient.ts"
 import { joined } from "#test/support/chunked.ts"
 import {
@@ -26,6 +25,7 @@ import {
 } from "#test/support/migrate/kit.ts"
 import type { RealInstallPlan } from "#test/support/oracle/install/real.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
+import { apply, checkedAdmission, openMigrator } from "#test/support/pg/migrate/support.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** Parent as a version declares it: keyed by its one field, or with a field PostgreSQL generates beside its key. */

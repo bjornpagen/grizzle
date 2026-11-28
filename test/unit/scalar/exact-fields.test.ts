@@ -46,8 +46,8 @@ import { printStatement } from "#compiler/sql/print.ts"
 import { refused, refusedKeys, succeeded } from "#test/support/assert.ts"
 import { undeclared } from "#test/support/fixtures/ir/scalar.ts"
 import { checkedIn, ownedInput } from "#test/support/policy.ts"
+import { codecOf } from "#test/support/unit/codec/support.ts"
 import { outputText } from "#test/support/wire.ts"
-import { codecOf } from "#test/unit/codec/support.ts"
 import {
 	type BoundFeature,
 	declaredSchema,

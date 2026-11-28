@@ -6,7 +6,7 @@ import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { date, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
-import { fixtureTemplate } from "#test/pg/reads/support.ts"
+import { fixtureTemplate } from "#test/support/pg/reads/support.ts"
 
 export const Event = relation("Event", { id: pg.integer, day: date }, ["id"])
 

@@ -5,7 +5,7 @@ import { type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { type KeyedRow, numbered, treeOfParents } from "#test/support/families/tree.ts"
 import { f, on, relation, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
-import { drawnNatural, schemaOf, theoryOf } from "#test/unit/analysis/theory/support.ts"
+import { drawnNatural, schemaOf, theoryOf } from "#test/support/unit/analysis/theory/support.ts"
 
 /** The tree fields a mutation sets. */
 type Mutated = "parent" | "r" | "at" | "children" | "start" | "end"

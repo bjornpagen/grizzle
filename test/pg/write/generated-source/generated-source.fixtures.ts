@@ -9,8 +9,8 @@ import { closedId, date, generated, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, key, mutable, on, relation, schema, unit } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { fixtureTemplate } from "#test/pg/reads/support.ts"
 import { bareRecord } from "#test/support/assert.ts"
+import { fixtureTemplate } from "#test/support/pg/reads/support.ts"
 
 const tiers = ["low", "mid", "high"] as const
 

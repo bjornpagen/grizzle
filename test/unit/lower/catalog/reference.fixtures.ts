@@ -1,8 +1,8 @@
 /** What the properties of reference.test.ts read: its spaces, models and helpers. */
 
 import { Array as Arr } from "effect"
-import * as Q from "#test/pg/catalog/queries.ts"
 import type { QueryDesc } from "#test/support/fixtures/ir/desc.ts"
+import * as Q from "#test/support/pg/catalog/queries.ts"
 
 /** The entries, one per target form the catalog lowers to. */
 export const entries: Arr.NonEmptyReadonlyArray<readonly [label: string, desc: QueryDesc]> = [

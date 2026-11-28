@@ -8,8 +8,8 @@ import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { btreeMaxItemSize } from "#compiler/schema/representability.ts"
-import { fixtureTemplate } from "#test/pg/reads/support.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { fixtureTemplate } from "#test/support/pg/reads/support.ts"
 
 /** A path of any length: text of no byte bound, which no key may hold as itself. */
 const Path = str.regex("^.*$", "su")

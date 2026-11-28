@@ -8,7 +8,6 @@ import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import { printType } from "#compiler/sql/print.ts"
-import { sameCatalog } from "#test/pg/migrate/support.ts"
 import {
 	check,
 	contained,
@@ -29,6 +28,7 @@ import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { Placeholder } from "#test/support/migrate/review.ts"
 import { type RewriteMark, rewriteObserver } from "#test/support/migrate/rewrites.ts"
 import { PropertyFailed } from "#test/support/oracle/runner.ts"
+import { sameCatalog } from "#test/support/pg/migrate/support.ts"
 import { attempt, refusalText } from "#test/support/substrate.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"

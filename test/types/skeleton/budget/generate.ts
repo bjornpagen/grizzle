@@ -7,15 +7,15 @@ import {
 	twinPrefix,
 	twinProbesOf,
 	twinProgram
-} from "#test/types/batch/twins.ts"
-import { entriesFrom } from "#test/types/query/budget/generate.ts"
+} from "#test/support/types/batch/twins.ts"
+import { entriesFrom } from "#test/support/types/query/budget/generate.ts"
 
 /**
  * The growing-schema ChangeSet program, one type test of write inference at scale. It writes one TypeScript program
  * over the public barrels with `relations` relations, each with a contract column, and for each relation a ChangeSet
  * with a read-back applied through the handle of a workload over the full role Writer that serves it alone, each call
  * giving its insert's facts, beside the queries it writes from. The query shapes at scale are the growing-schema query
- * program's (test/types/query/budget/generate.ts); this one holds what it lacks.
+ * program's (test/support/types/query/budget/generate.ts); this one holds what it lacks.
  *
  * Beside it stands its twin (batch/twins.ts): the same declarations over the first and the last relation's
  * neighbourhoods alone. A contract host through a query head, a relation's fact and candidate keys, and the relations a

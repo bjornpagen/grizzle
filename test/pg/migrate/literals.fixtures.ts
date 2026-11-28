@@ -12,13 +12,6 @@ import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { check, contained, derived, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import {
-	apply,
-	checkedAdmission,
-	keeping,
-	openMigrator,
-	reviewedSource
-} from "#test/pg/migrate/support.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { joined } from "#test/support/chunked.ts"
 import { standUpJudge } from "#test/support/judge.ts"
@@ -32,6 +25,13 @@ import {
 	noDeclarations
 } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
+import {
+	apply,
+	checkedAdmission,
+	keeping,
+	openMigrator,
+	reviewedSource
+} from "#test/support/pg/migrate/support.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**

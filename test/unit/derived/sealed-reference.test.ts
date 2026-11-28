@@ -34,7 +34,7 @@ import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
 import { succeeded } from "#test/support/assert.ts"
-import { compiledOf } from "#test/unit/analysis/theory/rule-query.fixtures.ts"
+import { compiledOf } from "#test/support/unit/analysis/theory/rule-query.fixtures.ts"
 import {
 	deltasReadIn,
 	derivedName,

@@ -24,6 +24,7 @@ import type { ExprDesc } from "#compiler/ir/desc.ts"
 import { exactDigitsOf, sameScalarType, typeLabel } from "#compiler/ir/scalar.ts"
 import { mixesExact } from "#compiler/scalar/compute/types.ts"
 import { refused, succeeded } from "#test/support/assert.ts"
+import { baseParams, lowerWith, testPg } from "#test/support/unit/compute/support.ts"
 import {
 	castCaseGen,
 	type CastFeature,
@@ -49,7 +50,6 @@ import {
 	variable,
 	vars
 } from "#test/unit/compute/lower.fixtures.ts"
-import { baseParams, lowerWith, testPg } from "#test/unit/compute/support.ts"
 
 /** Lowering in query mode refuses an untyped leaf standing first, types two untyped branches by the literal typing rule, and refuses a fraction for a numeric. Its budget is its suite's before it was a property (test/unit/compute/lower.test.ts at 4ca3036a): 300 runs and 300 steered cases. */
 export const loweringInQueryModeRefusesAnUntypedLeafStandingFirstTypesTwoUntypedBranchesByTheLiteralTypingRuleAndRefusesAFractionForANumeric =

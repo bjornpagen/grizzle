@@ -18,7 +18,7 @@ import { Deliver, DeliverApart } from "#test/support/agreement/schema.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import { messageOf } from "#test/support/message.ts"
 import { identifiers, preludeAt, preludeFrom, preludeModule } from "#test/support/prelude.ts"
-import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/batch/batch.ts"
+import { batchOwned, caseOwned, type Entry, type Program } from "#test/support/types/batch/batch.ts"
 
 /**
  * The attachment agreement: a parent query and a child attached to it, drawn over Deliver (./schema.ts), each with the

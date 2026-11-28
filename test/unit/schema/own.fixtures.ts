@@ -47,7 +47,13 @@ import {
 } from "#test/support/fixtures/ir/desc.ts"
 import { Id } from "#test/support/ids.ts"
 import { ownInput } from "#test/support/policy.ts"
-import { bareContract, rawClosedId, rawPg, regex, type Row } from "#test/unit/schema/support.ts"
+import {
+	bareContract,
+	rawClosedId,
+	rawPg,
+	regex,
+	type Row
+} from "#test/support/unit/schema/support.ts"
 
 /** A row of a relation holding a kind, a closed id of Kind, as a selection's callback reads it. */
 type KindRow = Row & { readonly kind: Row["id"] }

@@ -8,10 +8,10 @@
  * member by member and never through the recursion over the attachment tree that built them.
  *
  * Properties: every program typechecks with no diagnostic, and each unit the larger program adds costs at most its
- * shape's measured instantiations. Oracle: the compiler's own counts (test/types/batch/measured.ts), against the bound
+ * shape's measured instantiations. Oracle: the compiler's own counts (test/support/types/batch/measured.ts), against the bound
  * measured when records' unions were unboxed (records-fragment.ts addedAtMost).
  */
-import { costGate } from "#test/types/batch/measured.ts"
+import { costGate } from "#test/support/types/batch/measured.ts"
 import { recordsFragments } from "#test/types/schema/budget/records-fragment.dictionary.ts"
 import { fragmentCost, fragmentShapeName } from "#test/types/schema/budget/records-fragment.ts"
 

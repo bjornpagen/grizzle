@@ -3,7 +3,7 @@ import { assert, defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Effect } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { type PreludeAt, preludeProgram } from "#test/support/prelude.ts"
-import { assertClean, type Measuring, measuredEach } from "#test/types/batch/measured.ts"
+import { assertClean, type Measuring, measuredEach } from "#test/support/types/batch/measured.ts"
 
 /**
  * The extension programs (extension.test.ts), each a schema.extend over a base of `relations` relations, as edullm's

@@ -42,7 +42,7 @@ import {
 	schemaOf,
 	states,
 	worldGen
-} from "#test/unit/physical/constants.fixtures.ts"
+} from "#test/support/unit/physical/constants.fixtures.ts"
 import {
 	type BindFeature,
 	bindCaseGen,
@@ -304,7 +304,7 @@ export const everyReadIsBoundAsItsLevelFixesItWhereItStandsUnderTheScopesOneAlia
  * under (physical/ddl/roles.ts wholeView, physical/access/catalog.ts wholeViewAliases, sql/bind.ts BindView `whole`): the
  * one name PostgreSQL plans the table under once it flattens the view into the level that reads it, so the advice a
  * read of the view carries names the relation PostgreSQL plans. Over the constants world's installations
- * (test/unit/physical/constants.fixtures.ts): a login whose full role, reader and tagger hold Item and Tags whole.
+ * (test/support/unit/physical/constants.fixtures.ts): a login whose full role, reader and tagger hold Item and Tags whole.
  *
  * Its budget is the runner's: a new property, with no suite before it to carry a count from.
  */

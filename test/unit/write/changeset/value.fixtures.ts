@@ -78,14 +78,14 @@ import {
 	dictionaryNameGenOtherThan,
 	type IdentifierFeature
 } from "#test/support/kernel/dict.ts"
-import { upTo } from "#test/support/up-to.ts"
 import {
 	BookEntry,
 	descOf,
 	LedgerSchema,
 	switchToManual,
 	uuidOf
-} from "#test/unit/write/changeset/fixtures.ts"
+} from "#test/support/unit/write/changeset/fixtures.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /** The relation an extension of Work adds, so Work is a level of the extension and not the other way round. */
 const Extra = relation("Extra", { id: Id }, ["id"])

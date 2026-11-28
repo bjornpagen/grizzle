@@ -9,7 +9,7 @@ import type { QueryCase } from "#test/support/oracle/gen/case.ts"
 import { float4, float8, int4 } from "#test/support/oracle/gen/domain.ts"
 import type { LiteralRow } from "#test/support/oracle/gen/facts.ts"
 import { normalQuery } from "#test/support/oracle/gen/query.ts"
-import { Q } from "#test/unit/lower/conservative/fixtures.ts"
+import { Q } from "#test/support/unit/lower/conservative/fixtures.ts"
 
 /**
  * An observer of a relation parameter's facts read whole by a region: a count of them grouped by n, a bound of them,

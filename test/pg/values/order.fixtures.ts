@@ -15,13 +15,17 @@ import { noSpellings } from "#compiler/ir/pattern.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 import { type CarrierSpec, type HostValue, parseValue } from "#compiler/scalar/values/identity.ts"
-import { cases as codecCases, kindRosterCodes, setupIn } from "#test/pg/codec/scalar.fixtures.ts"
-import { type SqlNames, wireSql } from "#test/pg/codec/support.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { closedIdTypeOf, scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
+import {
+	cases as codecCases,
+	kindRosterCodes,
+	setupIn
+} from "#test/support/pg/codec/scalar.fixtures.ts"
+import { type SqlNames, wireSql } from "#test/support/pg/codec/support.ts"
 import type { CaseSession } from "#test/support/substrate/session.ts"
-import { codecOf } from "#test/unit/codec/support.ts"
+import { codecOf } from "#test/support/unit/codec/support.ts"
 
 /**
  * The handles of an unordered roster, Mark, declared in no code order: the evaluator holds them in their canonical

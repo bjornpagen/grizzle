@@ -23,9 +23,9 @@ import { trusted } from "#compiler/core/trusted.ts"
 import type { ParamMap } from "#compiler/plan/common.ts"
 import { changeSetOver } from "#compiler/write/changeset/value.ts"
 import { pg, query, relation, schema, span, str, v } from "#index.ts"
-import { fixtureTemplate } from "#test/pg/reads/support.ts"
 import { Id } from "#test/support/ids.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
+import { fixtureTemplate } from "#test/support/pg/reads/support.ts"
 
 /** The label's pattern: the one field of Typed whose type refines its base, a text, by a pattern. */
 const labelPattern = "^[a-z]{0,8}$"

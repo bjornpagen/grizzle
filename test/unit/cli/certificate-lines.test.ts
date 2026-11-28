@@ -7,7 +7,7 @@
  * of the role's line has its lines: the lines of its condition, or its givers' counts of it, summed.
  *
  * The box: the certificates the certifier gives the main certify search's drawn installations
- * (test/unit/analysis/isolation/certify.fixtures.ts caseGen, verdictsOf), every role of each. Oracle: the certificate each report is of, read back from its lines.
+ * (test/support/unit/analysis/isolation/certify.fixtures.ts caseGen, verdictsOf), every role of each. Oracle: the certificate each report is of, read back from its lines.
  */
 import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
@@ -20,7 +20,11 @@ import {
 	type IsolationReason,
 	reasonsOf
 } from "#compiler/core/certificate.ts"
-import { caseGen, inputOf, verdictsOf } from "#test/unit/analysis/isolation/certify.fixtures.ts"
+import {
+	caseGen,
+	inputOf,
+	verdictsOf
+} from "#test/support/unit/analysis/isolation/certify.fixtures.ts"
 
 /** What a report under a role reads like. */
 type LinesFeature =

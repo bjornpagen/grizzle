@@ -24,22 +24,6 @@ import type { Declarations, Rename } from "#compiler/deploy/diff/plan.ts"
 import type { CodeSlot, RosterCodes } from "#compiler/ir/cells.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
-import {
-	carry,
-	noExtras,
-	type Renames,
-	typedValue,
-	type Version,
-	versionOf
-} from "#test/pg/migrate-gen/support.ts"
-import {
-	apply,
-	factSetOf,
-	noFurther,
-	openMigrator,
-	sameCatalog,
-	storedRowsOf
-} from "#test/pg/migrate/support.ts"
 import { refusalLoc } from "#test/support/assert.ts"
 import { filledSql } from "#test/support/compile.ts"
 import { generatedDrafting } from "#test/support/install-migrate.ts"
@@ -58,6 +42,22 @@ import { factStatements } from "#test/support/oracle/install/load.ts"
 import { type RealInstallPlan } from "#test/support/oracle/install/real.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
+import {
+	carry,
+	noExtras,
+	type Renames,
+	typedValue,
+	type Version,
+	versionOf
+} from "#test/support/pg/migrate-gen/support.ts"
+import {
+	apply,
+	factSetOf,
+	noFurther,
+	openMigrator,
+	sameCatalog,
+	storedRowsOf
+} from "#test/support/pg/migrate/support.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { buildInstall, type Built } from "#test/support/worlds/execute/build.ts"
 import type {

@@ -36,13 +36,19 @@ import {
 	runnerSchema,
 	stepsScope
 } from "#test/pg/migrate/runner-advice.fixtures.ts"
-import { apply, kept, noFurther, openMigrator, reviewedSource } from "#test/pg/migrate/support.ts"
 import { type LawScope, lawsOver, plannedScope } from "#test/support/advice.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { firstCodes } from "#test/support/compile.ts"
 import { sentSql } from "#test/support/flight/scripted.ts"
 import { atName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { compile, draftChain, fromEmpty, noDeclarations } from "#test/support/migrate/kit.ts"
+import {
+	apply,
+	kept,
+	noFurther,
+	openMigrator,
+	reviewedSource
+} from "#test/support/pg/migrate/support.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** A migration file's transaction runs under the plan advice its meta.json records, and the plan laws hold over it. */

@@ -38,7 +38,7 @@ import {
 	pointGen,
 	scaled,
 	sizesOf
-} from "#test/unit/laws/scaling.fixtures.ts"
+} from "#test/support/unit/laws/scaling.fixtures.ts"
 
 /** Installation size no installation or snapshot grows faster than one dimension of its schema or worlds. */
 export const installationSizeNoInstallationOrSnapshotGrowsFasterThanOneDimensionOfItsSchemaOrWorlds =

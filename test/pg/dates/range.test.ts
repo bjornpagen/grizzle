@@ -28,10 +28,10 @@ import {
 	eventsInstall,
 	eventsTemplate
 } from "#test/pg/dates/range.fixtures.ts"
-import { openedIn } from "#test/pg/reads/support.ts"
 import { bareRecord, succeeded } from "#test/support/assert.ts"
 import { rowsOf } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
+import { openedIn } from "#test/support/pg/reads/support.ts"
 import { pgErrorFields } from "#test/support/substrate/errors.ts"
 import { claimsOfNoFact, Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"

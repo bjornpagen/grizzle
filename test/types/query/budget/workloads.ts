@@ -2,7 +2,7 @@ import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { Array as Arr } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { type PreludeAt, preludeProgram } from "#test/support/prelude.ts"
-import { type GrowthDimension, equalSteps } from "#test/types/batch/measured.ts"
+import { type GrowthDimension, equalSteps } from "#test/support/types/batch/measured.ts"
 
 /**
  * The workload-width program (workloads.test.ts): a workload over a schema of many levels, each a level of the next, of

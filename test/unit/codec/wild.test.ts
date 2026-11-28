@@ -13,8 +13,7 @@ import { int4Max } from "#compiler/core/canonical.ts"
 import type { OutputText } from "#compiler/core/wire.ts"
 import { digestOf } from "#compiler/scalar/values/bytes.ts"
 import { factIdentity, parseValue } from "#compiler/scalar/values/identity.ts"
-import { echoed, outputText, paramText } from "#test/support/wire.ts"
-import { kindCodes } from "#test/unit/codec/support.ts"
+import { kindCodes } from "#test/support/unit/codec/support.ts"
 import {
 	caseGen,
 	decoded,
@@ -31,7 +30,8 @@ import {
 	unstableSpan,
 	wildAims,
 	written
-} from "#test/unit/codec/wild.fixtures.ts"
+} from "#test/support/unit/codec/wild.fixtures.ts"
+import { echoed, outputText, paramText } from "#test/support/wire.ts"
 
 /**
  * The encoders refuse every value with a word of the vocabulary, or admit it to a text that round-trips, and never

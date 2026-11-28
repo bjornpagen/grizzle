@@ -33,7 +33,7 @@ import {
 	varRef,
 	vars,
 	varsAt
-} from "#test/unit/check/dsl.ts"
+} from "#test/support/unit/check/dsl.ts"
 
 import { regex } from "arkregex"
 

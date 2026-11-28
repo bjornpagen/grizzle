@@ -17,7 +17,7 @@ import {
 	changeSetRequired,
 	changeSetServed
 } from "#test/support/agreement/changesets.ts"
-import { agreement } from "#test/types/batch/agreement.ts"
+import { agreement } from "#test/support/types/batch/agreement.ts"
 
 /**
  * Over drawn ChangeSets, the types admit exactly what the engine builds, compiles and binds, name its refusal, and

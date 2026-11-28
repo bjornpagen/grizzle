@@ -44,14 +44,6 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option } from "effect"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import {
-	applyNext,
-	draftNext,
-	installFirst,
-	ownerSessionOf,
-	serverOf,
-	sessionOf
-} from "#test/pg/closed/codes.fixtures.ts"
-import {
 	declarationsOf,
 	everyCaller,
 	heldOf,
@@ -68,7 +60,15 @@ import {
 	validates,
 	versionOf
 } from "#test/pg/closed/row-renames.fixtures.ts"
-import { sameCatalog } from "#test/pg/migrate/support.ts"
+import {
+	applyNext,
+	draftNext,
+	installFirst,
+	ownerSessionOf,
+	serverOf,
+	sessionOf
+} from "#test/support/pg/closed/codes.fixtures.ts"
+import { sameCatalog } from "#test/support/pg/migrate/support.ts"
 import { attempt } from "#test/support/substrate.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 

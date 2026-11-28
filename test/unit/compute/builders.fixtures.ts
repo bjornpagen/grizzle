@@ -19,7 +19,7 @@ import {
 	type TestField,
 	testPg,
 	v
-} from "#test/unit/compute/support.ts"
+} from "#test/support/unit/compute/support.ts"
 
 const Cents = testContract("Cents", testPg.bigint, (x) => computeCore.ge(x, 0n))
 

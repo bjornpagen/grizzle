@@ -41,7 +41,7 @@ import {
 	renderSql,
 	spelledExpr,
 	v
-} from "#test/unit/compute/support.ts"
+} from "#test/support/unit/compute/support.ts"
 
 export type Feature =
 	| "past 256 integer digits"

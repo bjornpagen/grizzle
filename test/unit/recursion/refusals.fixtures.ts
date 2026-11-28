@@ -48,7 +48,7 @@ import {
 	typedLit,
 	varRef,
 	vars
-} from "#test/unit/check/dsl.ts"
+} from "#test/support/unit/check/dsl.ts"
 import { Graph } from "#test/unit/recursion/fixtures.ts"
 
 /**

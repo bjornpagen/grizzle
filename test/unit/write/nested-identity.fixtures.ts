@@ -35,7 +35,7 @@ import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.
 import { Id } from "#test/support/ids.ts"
 import { lawNamesOf } from "#test/support/kernel/naming.ts"
 import { checking } from "#test/support/policy.ts"
-import { descOf, parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
+import { descOf, parsedOf, uuidOf } from "#test/support/unit/write/changeset/fixtures.ts"
 
 /** Owner(id, title, members drawn): the owner of the ordered family of Member. */
 export const Owner = relation(

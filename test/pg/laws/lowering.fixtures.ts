@@ -16,13 +16,6 @@ import type { Installation } from "#compiler/physical/install/compile.ts"
 import { compileInstallation, conservativeInstallation } from "#compiler/program/install.ts"
 import { ChangeSet, type KeyHost, type Witness } from "#compiler/public/changeset.ts"
 import {
-	type Catalogued,
-	constraintText,
-	type Seat,
-	sameRoles,
-	seatOfInstalled
-} from "#test/pg/fin/installed.ts"
-import {
 	A,
 	B,
 	firstVersion,
@@ -52,6 +45,13 @@ import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { draftCodes, fromEmpty, noDeclarations } from "#test/support/migrate/kit.ts"
 import { planRealInstall } from "#test/support/oracle/install/real.ts"
 import type { PgErrorFields } from "#test/support/pg.ts"
+import {
+	type Catalogued,
+	constraintText,
+	type Seat,
+	sameRoles,
+	seatOfInstalled
+} from "#test/support/pg/fin/installed.ts"
 import { schemaDescIn } from "#test/support/policy.ts"
 import { refusedEntries } from "#test/support/refused.ts"
 import { servedFixture } from "#test/support/served-db.ts"

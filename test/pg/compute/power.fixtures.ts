@@ -13,9 +13,9 @@ import {
 	numericMaxPrecision,
 	numericMaxScale
 } from "#compiler/scalar/values/fault.ts"
-import { evaluatorTemplate } from "#test/pg/compute/support.ts"
+import { evaluatorTemplate } from "#test/support/pg/compute/support.ts"
 import { digitString, type PowerBatch } from "#test/support/power-pairs.ts"
-import { spelledExpr, type TestField, testPg, v } from "#test/unit/compute/support.ts"
+import { spelledExpr, type TestField, testPg, v } from "#test/support/unit/compute/support.ts"
 
 /**
  * The field a literal base is typed by, as computeCore.literal types one: a literal never stands first, so the base is a

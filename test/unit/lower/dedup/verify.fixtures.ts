@@ -57,7 +57,7 @@ import type { PlanUnderVerification } from "#test/support/oracle/verify/multipli
 import type { VerificationProblem } from "#test/support/oracle/verify/problems.ts"
 import { pickGen } from "#test/support/pick.ts"
 import { testSql } from "#test/support/sql.ts"
-import { present } from "#test/unit/lower/support.ts"
+import { present } from "#test/support/unit/lower/support.ts"
 
 /** The verification rules. */
 type Rule = VerificationProblem["rule"]

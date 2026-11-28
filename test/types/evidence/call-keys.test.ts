@@ -11,7 +11,7 @@
  */
 import { word } from "@bjornpagen/testing/dictionary"
 import { finite } from "@bjornpagen/testing/gen"
-import { boxAgreement } from "#test/types/batch/agreement.ts"
+import { boxAgreement } from "#test/support/types/batch/agreement.ts"
 import { callKeysBox } from "#test/types/evidence/call-keys.dictionary.ts"
 import { callKeysProgram } from "#test/types/evidence/call-keys.ts"
 

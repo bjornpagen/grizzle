@@ -46,6 +46,7 @@ import {
 	resolveRecursiveCase
 } from "#test/support/oracle/gen/recursive.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
+import { nodeOfKind } from "#test/support/unit/lower/support.ts"
 import {
 	alikeQuery,
 	caseContext,
@@ -72,7 +73,6 @@ import {
 	type Sharing,
 	type Spelling
 } from "#test/unit/lower/graph.fixtures.ts"
-import { nodeOfKind } from "#test/unit/lower/support.ts"
 
 /**
  * Carried state columns (shapes/attach-recursive/carried.ts) on generated recursions, carries exactly the origin the

@@ -54,6 +54,8 @@ import { f as field } from "#test/support/fixtures/ir/desc.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { Id } from "#test/support/ids.ts"
 import { checkedIn, checking } from "#test/support/policy.ts"
+import { fieldOf } from "#test/support/unit/schema/field-sketch.ts"
+import { bareContract, rawContract } from "#test/support/unit/schema/support.ts"
 import {
 	type CastSite,
 	contractCaseGen,
@@ -66,8 +68,6 @@ import {
 	type VariantCase,
 	variantCaseGen
 } from "#test/unit/derived/fields.fixtures.ts"
-import { fieldOf } from "#test/unit/schema/field-sketch.ts"
-import { bareContract, rawContract } from "#test/unit/schema/support.ts"
 
 /**
  * Derived field inference gives back the descriptor of every declarable field type.

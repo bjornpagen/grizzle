@@ -32,6 +32,7 @@ import { array, type Gen } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { callCounts } from "#test/support/kernel/calls.ts"
+import { theoryOf } from "#test/support/unit/analysis/theory/support.ts"
 import {
 	type Box,
 	boxGen,
@@ -44,7 +45,6 @@ import {
 	schemaOfBox,
 	schemaOfCopies
 } from "#test/unit/analysis/theory/region-facts.fixtures.ts"
-import { theoryOf } from "#test/unit/analysis/theory/support.ts"
 
 /** A box's schema and three instances drawn over it, those its containments could all be made to hold over. */
 const caseGen: Gen<{ readonly box: Box; readonly instances: ReadonlyArray<Instance> }> = (s) => {

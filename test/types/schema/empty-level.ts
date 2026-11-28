@@ -2,7 +2,7 @@ import { defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Effect, String as Str } from "effect"
 import type { Refused } from "#compiler/core/refusals.ts"
 import { preludeAt, preludeFrom, preludeModule } from "#test/support/prelude.ts"
-import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/batch/batch.ts"
+import { batchOwned, caseOwned, type Entry, type Program } from "#test/support/types/batch/batch.ts"
 
 /**
  * The empty level program: a read of no relation over schema.empty, and the reads and commits a role that holds nothing

@@ -22,6 +22,7 @@ import { boolean, element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option } from "effect"
 import { OpId } from "#compiler/ir/expr.ts"
+import { nodesOf } from "#test/support/unit/lower/rewrite/support.ts"
 import {
 	accountKey,
 	type Containment,
@@ -36,7 +37,6 @@ import {
 	seenDatabases,
 	unkeyed
 } from "#test/unit/lower/rewrite/eliminate.fixtures.ts"
-import { nodesOf } from "#test/unit/lower/rewrite/support.ts"
 
 /** The complete proof an Account match goes exactly when an admitted containment and a key of its target prove it neither filters nor multiplies. */
 export const theCompleteProofAnAccountMatchGoesExactlyWhenAnAdmittedContainmentAndAKeyOfItsTargetProveItNeitherFiltersNorMultiplies =

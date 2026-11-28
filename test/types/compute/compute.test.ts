@@ -16,7 +16,7 @@ import {
 	computeSituations,
 	computeSteeredCases
 } from "#test/support/agreement/compute.ts"
-import { agreement, boxAgreement } from "#test/types/batch/agreement.ts"
+import { agreement, boxAgreement } from "#test/support/types/batch/agreement.ts"
 import { computeKept } from "#test/types/compute/compute.dictionary.ts"
 
 /**

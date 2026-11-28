@@ -2,7 +2,7 @@
 
 import { type Gen, subset } from "@bjornpagen/testing/gen"
 import { Array as Arr, Order, Record as Rec } from "effect"
-import { fixtureTemplate } from "#test/pg/reads/support.ts"
+import { fixtureTemplate } from "#test/support/pg/reads/support.ts"
 import {
 	attemptsOf,
 	type Binder,
@@ -10,7 +10,7 @@ import {
 	type Form,
 	forms,
 	ParentBinds
-} from "#test/unit/check/parent-binds.fixtures.ts"
+} from "#test/support/unit/check/parent-binds.fixtures.ts"
 
 interface AttemptFact {
 	readonly child: number

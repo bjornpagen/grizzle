@@ -3,7 +3,7 @@ import { regex } from "arkregex"
 import { Array as Arr, Effect, Option, Order, String as Str } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { fileText, joinPath, repoRoot } from "#test/support/files.ts"
-import { batchOwned, type Part, type ProgramModule } from "#test/types/batch/batch.ts"
+import { batchOwned, type Part, type ProgramModule } from "#test/support/types/batch/batch.ts"
 
 /**
  * A generated program's prelude (test/support/programs): the one module of real export statements a type

@@ -47,14 +47,14 @@ import { flightOf, servableWrite } from "#compiler/write/program/served.ts"
 import { refused, succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { checking } from "#test/support/policy.ts"
-import { descOf, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
+import { descOf, parsedOf } from "#test/support/unit/write/changeset/fixtures.ts"
 import {
 	type CopyFeature,
 	copyFeatures,
 	copyGen,
 	copyingOf,
 	verdictOf
-} from "#test/unit/write/owner-copies.fixtures.ts"
+} from "#test/support/unit/write/owner-copies.fixtures.ts"
 
 /** A member's copy of its owner's field reads the owner's rows as its family statement holds them, a stamp only where that statement takes it. */
 export const aMembersCopyOfItsOwnersFieldReadsTheOwnersRowsAsItsFamilyStatementHoldsThemAStampOnlyWhereThatStatementTakesIt =

@@ -31,7 +31,7 @@ import {
 	opExpr
 } from "#test/pg/lower-conservative/vocabulary.fixtures.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
-import { temporaryLibrary } from "#test/unit/compute/support.ts"
+import { temporaryLibrary } from "#test/support/unit/compute/support.ts"
 
 /** The conservative vocabulary on PostgreSQL 19 names a builtin operator for every operator form. */
 export const theConservativeVocabularyOnPostgreSQL19NamesABuiltinOperatorForEveryOperatorForm =

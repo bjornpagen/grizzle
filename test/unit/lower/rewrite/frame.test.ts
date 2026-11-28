@@ -70,8 +70,15 @@ import { standInNames } from "#test/support/kernel/naming.ts"
 import { defaultGenConfig, queryCaseGen } from "#test/support/oracle/gen/case.ts"
 import { schemaCodes } from "#test/support/oracle/gen/schema.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
+import { Posting, Q, T } from "#test/support/unit/lower/conservative/fixtures.ts"
+import {
+	caseQuery,
+	ledgerCatalog,
+	passContext,
+	type Ran,
+	runPasses
+} from "#test/support/unit/lower/rewrite/support.ts"
 import { upTo } from "#test/support/up-to.ts"
-import { Posting, Q, T } from "#test/unit/lower/conservative/fixtures.ts"
 import {
 	chainNeed,
 	type FinishFeature,
@@ -93,13 +100,6 @@ import {
 	type StructureFeature,
 	structureSites
 } from "#test/unit/lower/rewrite/frame.fixtures.ts"
-import {
-	caseQuery,
-	ledgerCatalog,
-	passContext,
-	type Ran,
-	runPasses
-} from "#test/unit/lower/rewrite/support.ts"
 
 /** A DAG's roots a root stays at its position among the DAG's roots when a rewrite replaces it, the query's root first. */
 export const aDAGsRootsARootStaysAtItsPositionAmongTheDAGsRootsWhenARewriteReplacesItTheQuerysRootFirst =

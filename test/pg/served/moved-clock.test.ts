@@ -32,7 +32,6 @@ import { Array as Arr, Effect, Ref } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
-import { openedIn } from "#test/pg/reads/support.ts"
 import {
 	judgedAt,
 	liveWhenJudged,
@@ -47,6 +46,7 @@ import {
 	toSpan
 } from "#test/pg/served/moved-clock.fixtures.ts"
 import { writeAnswerOf } from "#test/support/calls.ts"
+import { openedIn } from "#test/support/pg/reads/support.ts"
 import { movedServedFixture } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"

@@ -17,7 +17,6 @@ import type { Draft } from "#compiler/deploy/diff/plan.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import { splitStatements, statedAdvice } from "#compiler/plan/migration.ts"
 import { printStatement } from "#compiler/sql/print.ts"
-import { apply, noFurther, openMigrator } from "#test/pg/migrate/support.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import {
@@ -39,6 +38,7 @@ import {
 import { asDrafted, compile, draftedAt, fromSnapshot, generate } from "#test/support/migrate/kit.ts"
 import { review } from "#test/support/migrate/review.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
+import { apply, noFurther, openMigrator } from "#test/support/pg/migrate/support.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** The shapes of the box: a chain of n nodes, each the parent of the next, or a star, one root over n − 1 children. */

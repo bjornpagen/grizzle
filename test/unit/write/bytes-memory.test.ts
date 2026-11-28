@@ -33,6 +33,7 @@ import { compileWrite } from "#compiler/write/program/compile.ts"
 import { flightOf, servableWrite } from "#compiler/write/program/served.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { checking } from "#test/support/policy.ts"
+import { descOf, parsedOf } from "#test/support/unit/write/changeset/fixtures.ts"
 import { upTo } from "#test/support/up-to.ts"
 import {
 	carried,
@@ -49,7 +50,6 @@ import {
 	valueLength,
 	valueNeed
 } from "#test/unit/write/bytes-memory.fixtures.ts"
-import { descOf, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
 
 /**
  * A write of large bytes values refuses a member past the message from its lengths alone, allocating none of it, and

@@ -7,9 +7,9 @@
  */
 import { word } from "@bjornpagen/testing/dictionary"
 import { finite } from "@bjornpagen/testing/gen"
+import { boxAgreement } from "#test/support/types/batch/agreement.ts"
 import { untypedBox } from "#test/types/api/untyped.dictionary.ts"
 import { untypedProgram } from "#test/types/api/untyped.ts"
-import { boxAgreement } from "#test/types/batch/agreement.ts"
 
 /**
  * Over every builder by every typing of the lists and records it captures, and the Object.values leak, refuses exactly

@@ -7,7 +7,7 @@ import {
 	insertAllComputedVerdict
 } from "#test/support/agreement/insert-all-computed.ts"
 import { preludeAt, preludeFrom, preludeModule } from "#test/support/prelude.ts"
-import { caseOwned, type Entry, type Program } from "#test/types/batch/batch.ts"
+import { caseOwned, type Entry, type Program } from "#test/support/types/batch/batch.ts"
 
 /**
  * The insertAllComputed program: every case of the insertAllComputed box (test/support/agreement/insert-all-computed.ts),

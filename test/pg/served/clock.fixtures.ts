@@ -10,8 +10,8 @@ import { Logic } from "#compiler/public/compute.ts"
 import { contract, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
-import { fixtureTemplate } from "#test/pg/reads/support.ts"
 import type { Generated } from "#test/support/install-migrate.ts"
+import { fixtureTemplate } from "#test/support/pg/reads/support.ts"
 import type { SubstrateTemplate } from "#test/support/substrate/substrate.ts"
 
 /**

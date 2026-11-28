@@ -17,7 +17,7 @@
  * member, the handle's read of each array member's level below the extension among them. And every program typechecks
  * with no diagnostic: the handle's once takes the package parameter beside every array member's facts, each fact
  * holding a field named `params`, as pantry's Reference does. Oracle: the compiler's own counts and diagnostics
- * (test/types/batch/measured.ts), compared across the two schemas.
+ * (test/support/types/batch/measured.ts), compared across the two schemas.
  *
  * What the record forms cost beside it, which the law leaves free, measured when insertAllComputed came to share
  * insertAll's InsertAt (one implementation, at main's ruling over a copy of its skeleton):
@@ -40,10 +40,10 @@
  *   rows less the computed fields, which MemberFit walks where insertAll's identical rows take its shortcut); both forms
  *   invariant in schema size by this gate
  * @decision keep the one InsertAt: main ruled one implementation over insertAll's +4 a member; no gate pins an absolute
- *   count, which moves with every declaration the checker meets (test/types/batch/measured.ts)
+ *   count, which moves with every declaration the checker meets (test/support/types/batch/measured.ts)
  * @revalidate a TypeScript upgrade, a change of InsertAt, InsertOf, MemberFit or ComputedRow, or pantry's width past 116
  */
-import { costGate } from "#test/types/batch/measured.ts"
+import { costGate } from "#test/support/types/batch/measured.ts"
 import { memberForms } from "#test/types/changeset/budget/members.dictionary.ts"
 import { memberCost, memberFormName } from "#test/types/changeset/budget/members.ts"
 

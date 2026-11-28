@@ -42,9 +42,9 @@ import {
 	shelveInput,
 	shelvingConfig,
 	underNone
-} from "#test/unit/adapter/services.fixtures.ts"
-import { answered, fileRoutes, heartbeatGen } from "#test/unit/http/routes.fixtures.ts"
-import { answer, read } from "#test/unit/live/leading.fixtures.ts"
+} from "#test/support/unit/adapter/services.fixtures.ts"
+import { answered, fileRoutes, heartbeatGen } from "#test/support/unit/http/routes.fixtures.ts"
+import { answer, read } from "#test/support/unit/live/leading.fixtures.ts"
 
 /**
  * The installation's live source opens under its layer's own services, never a watch's, and each watch's read runs

@@ -24,9 +24,9 @@ import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { login } from "#compiler/public/schema.ts"
 import { defineConfig } from "#index.ts"
-import { offlineOwner } from "#test/pg/cli/support.ts"
 import { Reports, Work } from "#test/support/agreement/changeset-schema.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
+import { offlineOwner } from "#test/support/pg/cli/support.ts"
 import {
 	caseGen,
 	counts,

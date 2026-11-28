@@ -7,9 +7,9 @@ import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, derived, mutable, on, relation, schema, unit } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { type SeatTemplate, seatTemplate } from "#test/pg/fin/installed.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
+import { type SeatTemplate, seatTemplate } from "#test/support/pg/fin/installed.ts"
 
 const Tag = str.regex("^[a-z]{1,4}$")
 

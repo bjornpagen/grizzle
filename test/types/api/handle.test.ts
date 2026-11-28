@@ -8,9 +8,9 @@
  */
 import { word } from "@bjornpagen/testing/dictionary"
 import { finite } from "@bjornpagen/testing/gen"
+import { boxAgreement } from "#test/support/types/batch/agreement.ts"
 import { handleBox } from "#test/types/api/handle.dictionary.ts"
 import { handleProgram } from "#test/types/api/handle.ts"
-import { boxAgreement } from "#test/types/batch/agreement.ts"
 
 /**
  * Over every kind of served program, a function over MemberHandle<typeof p> admits exactly p's handles off a role of its

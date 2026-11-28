@@ -41,7 +41,7 @@ import { runProgram } from "@bjornpagen/testing/commands"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
-import { workspace } from "#test/pg/cli/support.ts"
+import { workspace } from "#test/support/pg/cli/support.ts"
 import {
 	machine,
 	type ProjectFeature,

@@ -16,7 +16,7 @@ import {
 	type RowCase,
 	rowCaseGen,
 	rowSchemaOf
-} from "#test/unit/physical/row-functions.fixtures.ts"
+} from "#test/support/unit/physical/row-functions.fixtures.ts"
 
 /**
  * A case: one of the row-function boxes (row-functions.fixtures.ts), a relation contained in a closed relation over a

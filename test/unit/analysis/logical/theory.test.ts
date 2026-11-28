@@ -39,6 +39,7 @@ import {
 	type AuthoredStatementDesc as StatementDesc
 } from "#test/support/fixtures/ir/desc.ts"
 import * as W from "#test/support/fixtures/ir/work.ts"
+import { declaredGen } from "#test/support/unit/ir/types.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { noImmediate, theoryResultOf, theoryUnder } from "#test/unit/analysis/logical/support.ts"
 import {
@@ -68,7 +69,6 @@ import {
 	t,
 	violatedSorted
 } from "#test/unit/analysis/logical/theory.fixtures.ts"
-import { declaredGen } from "#test/unit/ir/types.ts"
 
 /** Span laws refuses a containment pairing more than one span field, whatever else it pairs, and admits one. */
 export const spanLawsRefusesAContainmentPairingMoreThanOneSpanFieldWhateverElseItPairsAndAdmitsOne =

@@ -8,7 +8,7 @@ import {
 	type Measured,
 	type Measuring,
 	measuredEach
-} from "#test/types/batch/measured.ts"
+} from "#test/support/types/batch/measured.ts"
 
 /**
  * The depth programs (depth.test.ts): a chain of levels, each a schema.extend over the one below it, as qti-pie's
@@ -93,7 +93,7 @@ const doubling = (n: number): readonly [number, number, number] => [n, 2 * n, 4 
  * @unit types and instantiations, each the second difference (f(32) − f(16)) − 2(f(16) − f(8)) of a chain's whole
  *   program's count
  * @scope each depth program of test/types/schema/budget/depth.ts, checked alone by one checker against the engine's and
- *   the shell's declarations (test/types/batch/measured.ts)
+ *   the shell's declarations (test/support/types/batch/measured.ts)
  * @evidence the gate's own counts, which it prints in each failure: `pnpm exec toolchain-test run
  *   test/types/schema/budget/depth.test.ts` with the chain's quadratics set to -1, in ~/.cache/grizzle/TYPECOST (lane
  *   TYPECOST's workspace)

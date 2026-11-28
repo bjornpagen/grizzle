@@ -42,7 +42,7 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { regex } from "arkregex"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { callCounts } from "#test/support/kernel/calls.ts"
-import { stringsOver } from "#test/unit/text/generators.ts"
+import { stringsOver } from "#test/support/unit/text/generators.ts"
 
 type NamesFeature =
 	| "an NCName"

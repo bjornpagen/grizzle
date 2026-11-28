@@ -25,7 +25,8 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Order } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { compiledOf } from "#test/unit/analysis/theory/rule-query.fixtures.ts"
+import { compiledOf } from "#test/support/unit/analysis/theory/rule-query.fixtures.ts"
+import { readsOf } from "#test/support/unit/derived/storage.fixtures.ts"
 import {
 	canonicalSchemaOf,
 	joinedName,
@@ -34,7 +35,6 @@ import {
 	type Naming,
 	namingCase
 } from "#test/unit/derived/canonical.fixtures.ts"
-import { readsOf } from "#test/unit/derived/storage.fixtures.ts"
 
 type CanonicalFeature = `named ${Naming}`
 

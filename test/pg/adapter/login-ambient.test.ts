@@ -56,10 +56,10 @@ import {
 	UuidRelation,
 	walk
 } from "#test/pg/adapter/login-ambient.fixtures.ts"
-import { installed } from "#test/pg/reads/support.ts"
 import { ambientFeatures } from "#test/support/ambient.ts"
 import { writeAnswerOf, oneOf, rowsOf } from "#test/support/calls.ts"
 import { installedSchemas, replaceMigrated } from "#test/support/install-migrate.ts"
+import { installed } from "#test/support/pg/reads/support.ts"
 import { pickFrom } from "#test/support/pick.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"

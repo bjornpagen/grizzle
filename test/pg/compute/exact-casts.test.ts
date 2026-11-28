@@ -30,8 +30,8 @@ import {
 	parsedOf,
 	rowsGen
 } from "#test/pg/compute/exact-casts.fixtures.ts"
-import { openedIn } from "#test/pg/reads/support.ts"
 import { rowsOf, writeAnswerOf } from "#test/support/calls.ts"
+import { openedIn } from "#test/support/pg/reads/support.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 const evaluator = Result.getOrThrow(rowEvaluator(ExactCasts))

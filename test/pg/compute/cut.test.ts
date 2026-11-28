@@ -29,7 +29,7 @@ import {
 	hostCut,
 	referenceCut
 } from "#test/pg/compute/cut.fixtures.ts"
-import { inInstallation, textCell } from "#test/pg/compute/support.ts"
+import { inInstallation, textCell } from "#test/support/pg/compute/support.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** Each cut at each site, over a bounded text and over any text. */

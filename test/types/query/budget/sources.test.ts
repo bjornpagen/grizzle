@@ -12,9 +12,9 @@
  * schema, by every relation each later instantiation of the rule's types walks. A derived relation's type holds no
  * query (types/derived/derived.ts DefinitionView), so however its shown source is spelled, holding it holds nothing the
  * schema's size moves. And every program typechecks with no diagnostic. Oracle: the compiler's own counts and
- * diagnostics (test/types/batch/measured.ts), compared across the two schemas.
+ * diagnostics (test/support/types/batch/measured.ts), compared across the two schemas.
  */
-import { costGate } from "#test/types/batch/measured.ts"
+import { costGate } from "#test/support/types/batch/measured.ts"
 import { matchedSources } from "#test/types/query/budget/sources.dictionary.ts"
 import { matchCost, sourceKindName } from "#test/types/query/budget/sources.ts"
 

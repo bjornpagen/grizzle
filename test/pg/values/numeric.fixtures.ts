@@ -11,7 +11,7 @@ import { Decimal, integerOfDecimal, normalizeNumeric } from "#compiler/scalar/va
 import { succeeded } from "#test/support/assert.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import type { CaseSession } from "#test/support/substrate/session.ts"
-import { decimalGen, numericText, orderOf } from "#test/unit/values/support.ts"
+import { decimalGen, numericText, orderOf } from "#test/support/unit/values/support.ts"
 
 interface Case {
 	readonly ord: number

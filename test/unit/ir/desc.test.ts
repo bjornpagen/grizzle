@@ -46,6 +46,7 @@ import { refusalLoc, succeeded } from "#test/support/assert.ts"
 import { descFromJson } from "#test/support/describe.ts"
 import type { AuthoredExprDesc as ExprDesc } from "#test/support/fixtures/ir/desc.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
+import { fail } from "#test/support/unit/ir/fixture.ts"
 import {
 	budgetRule,
 	chain,
@@ -90,7 +91,6 @@ import {
 	versioned,
 	wholePlaces
 } from "#test/unit/ir/desc.fixtures.ts"
-import { fail } from "#test/unit/ir/fixture.ts"
 
 /**
  * Descriptions locates every node a JavaScript author leaves unlocated by its path, and keeps a stated location.

@@ -37,16 +37,11 @@ import { noFunctions } from "#test/support/oracle/reference/functions.ts"
 import { equal } from "#test/support/oracle/reference/values.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
 import {
-	claimedVariants,
-	type LogicalFeature,
-	logicalUnsound
-} from "#test/unit/analysis/logical/support.ts"
-import {
 	FragmentReference,
 	propsOf,
 	soundness,
 	uniqueOn
-} from "#test/unit/analysis/physical/support.ts"
+} from "#test/support/unit/analysis/physical/support.ts"
 import {
 	type Child,
 	descOf,
@@ -56,7 +51,7 @@ import {
 	planOps,
 	plansUpTo,
 	printPlan
-} from "#test/unit/analysis/small/plans.ts"
+} from "#test/support/unit/analysis/small/plans.ts"
 import {
 	closedName,
 	contextsOf,
@@ -68,7 +63,12 @@ import {
 	subsetsOf,
 	type Variant,
 	variants
-} from "#test/unit/analysis/small/universe.ts"
+} from "#test/support/unit/analysis/small/universe.ts"
+import {
+	claimedVariants,
+	type LogicalFeature,
+	logicalUnsound
+} from "#test/unit/analysis/logical/support.ts"
 
 /** What the universe showed of one plan in one context, accumulated over every database it may see. */
 interface Truth {

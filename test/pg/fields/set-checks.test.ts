@@ -30,10 +30,10 @@ import {
 	type Situation,
 	situationOf
 } from "#test/pg/fields/set-checks.fixtures.ts"
-import { openedIn } from "#test/pg/reads/support.ts"
 import { writeAnswerOf, rowsOf } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { byCodePoints } from "#test/support/key-order.ts"
+import { openedIn } from "#test/support/pg/reads/support.ts"
 import { refusedLaws } from "#test/support/refused.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 

@@ -38,6 +38,10 @@ import {
 	wholeEntriesOf
 } from "#compiler/public/schema.ts"
 import { defineConfig } from "#index.ts"
+import { throwsRefused } from "#test/support/assert.ts"
+import { readCatalog } from "#test/support/catalog/read.ts"
+import { Id } from "#test/support/ids.ts"
+import { parsedName } from "#test/support/kernel/naming.ts"
 import {
 	cliOver,
 	configName,
@@ -45,11 +49,7 @@ import {
 	ownerOn,
 	servedFromFile,
 	workspace
-} from "#test/pg/cli/support.ts"
-import { throwsRefused } from "#test/support/assert.ts"
-import { readCatalog } from "#test/support/catalog/read.ts"
-import { Id } from "#test/support/ids.ts"
-import { parsedName } from "#test/support/kernel/naming.ts"
+} from "#test/support/pg/cli/support.ts"
 import { rolePrefix } from "#test/support/substrate/names.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"

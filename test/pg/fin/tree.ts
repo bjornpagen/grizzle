@@ -2,16 +2,16 @@
  * The tree relation of the fin suites, declared with grizzle's `tree` former, and the SQL a direct writer, the owner,
  * reads and writes its rows by, each column addressed by its role in the installed table (installed.ts): its fields by
  * name and its drawn law column ‹s›, its successor among its siblings. A row is the substrate's TreeRow
- * (test/pg/substrate/tree.ts), written keyed by
+ * (test/support/pg/substrate/tree.ts), written keyed by
  * its root value `doc` and its start, its `parent` the parent's start: the substrate's `parentStart`.
  */
 import { Array as Arr, Option } from "effect"
 import { drawn, natural, pg } from "#compiler/public/fields.ts"
 import { fin, on, relation, schema, tree } from "#compiler/public/schema.ts"
-import type { Catalogued, Seat } from "#test/pg/fin/installed.ts"
-import { sameRoles } from "#test/pg/fin/installed.ts"
-import type { TreeRow } from "#test/pg/substrate/tree.ts"
 import type { TreeNative } from "#test/support/families/tree.ts"
+import type { Catalogued, Seat } from "#test/support/pg/fin/installed.ts"
+import { sameRoles } from "#test/support/pg/fin/installed.ts"
+import type { TreeRow } from "#test/support/pg/substrate/tree.ts"
 
 /** The tree relation: keyed by its root field `doc` and its start, its parent the parent's start, all five drawn. */
 const Node = relation(

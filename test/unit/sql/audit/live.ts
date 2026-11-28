@@ -32,15 +32,6 @@ import { ownLogin, rostersOf } from "#compiler/schema/own.ts"
 import type { Expr, Select, SqlStatement } from "#compiler/sql/ast.ts"
 import { and, eq, lit, types } from "#compiler/sql/build.ts"
 import { costChosen, emitText } from "#compiler/sql/emit.ts"
-import {
-	batches,
-	reasons,
-	rota,
-	signals,
-	staffing,
-	tree
-} from "#test/pg/laws/projections/schemas.ts"
-import { ledger } from "#test/pg/laws/tagged-arms/schemas.ts"
 import { succeeded } from "#test/support/assert.ts"
 import {
 	admitGenerated,
@@ -79,6 +70,15 @@ import {
 	witnessRoot
 } from "#test/support/oracle/mutants/cases.ts"
 import { elementAt } from "#test/support/oracle/pick.ts"
+import {
+	batches,
+	reasons,
+	rota,
+	signals,
+	staffing,
+	tree
+} from "#test/support/pg/laws/projections/schemas.ts"
+import { ledger } from "#test/support/pg/laws/tagged-arms/schemas.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
 import { owning } from "#test/support/policy.ts"
 import {
@@ -91,9 +91,8 @@ import {
 	shopV3,
 	shopV3Declared,
 	shopV4
-} from "#test/unit/deploy/schemas.ts"
-import { sqlCatalog } from "#test/unit/sql/audit/catalog.ts"
-import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
+} from "#test/support/unit/deploy/schemas.ts"
+import { uuidOf } from "#test/support/unit/write/changeset/fixtures.ts"
 import {
 	Code,
 	Counter,
@@ -111,7 +110,8 @@ import {
 	Seat,
 	Stock,
 	shopCompile
-} from "#test/unit/write/put/support.ts"
+} from "#test/support/unit/write/put/support.ts"
+import { sqlCatalog } from "#test/unit/sql/audit/catalog.ts"
 
 /**
  * The Live statements of the audit suite: what the statement and text audits must admit, and what their Wild
@@ -131,7 +131,7 @@ import {
  *   grants, which seed the search with what grizzle ships;
  * - drafted: the statements a migration drafted along a fixture chain holds, read from its draft's typed plan: the
  *   dictionary's other half, a source of its own so a generator weights it apart from the installations;
- * - written: a write program over the shop fixture (test/unit/write/put/support.ts), one drawn action or none on each
+ * - written: a write program over the shop fixture (test/support/unit/write/put/support.ts), one drawn action or none on each
  *   of its relations that cover the put targets and a described put of Stock on top or not, compiled: every statement
  *   of its optimized and its conservative artifact.
  *

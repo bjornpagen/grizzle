@@ -614,7 +614,7 @@ type SchemaHead =
 
 /**
  * What runs one catalog statement with its parameters and returns its rows positionally: an owner connection
- * (readCatalog), or the migration session after an apply (test/pg/migrate/support.ts checkedAdmission).
+ * (readCatalog), or the migration session after an apply (test/support/pg/migrate/support.ts checkedAdmission).
  */
 export type CatalogStatement<E> = (
 	sql: string,

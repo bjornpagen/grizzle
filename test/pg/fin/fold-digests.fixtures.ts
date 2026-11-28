@@ -35,9 +35,9 @@ import {
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { btreeMaxItemSize } from "#compiler/schema/representability.ts"
-import { fixtureTemplate } from "#test/pg/reads/support.ts"
 import { Id } from "#test/support/ids.ts"
-import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
+import { fixtureTemplate } from "#test/support/pg/reads/support.ts"
+import { uuidOf } from "#test/support/unit/write/changeset/fixtures.ts"
 
 /** A text of no bound: every running text and piece, so a running text outgrows PostgreSQL's B-tree entry. */
 const Text = str.regex("^.*$", "su")

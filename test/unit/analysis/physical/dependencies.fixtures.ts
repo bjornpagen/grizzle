@@ -17,7 +17,7 @@ import { conservativeMeta } from "#compiler/ir/rel.ts"
 import { ownedFixture } from "#test/support/evidence.ts"
 import { Ir, SchemaModel } from "#test/support/fixtures/ir/build.ts"
 import { f, key, on, relation, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
-import { physical, propsOf, snapshotOver } from "#test/unit/analysis/physical/support.ts"
+import { physical, propsOf, snapshotOver } from "#test/support/unit/analysis/physical/support.ts"
 
 const columnsPool = ["a", "b", "c", "d", "e", "f"] as const
 

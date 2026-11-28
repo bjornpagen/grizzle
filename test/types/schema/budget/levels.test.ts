@@ -10,10 +10,10 @@
  * relations as under 50, so the level grows with its base and with its derived relations apart, never with their
  * product; and so does what the ReturnType read costs beyond the level's value's type. A derived relation's type that
  * held its definition's query held the whole base, which the checker instantiated again for each derived relation
- * wherever it instantiated the level. Oracle: the compiler's own counts and diagnostics (test/types/batch/measured.ts),
+ * wherever it instantiated the level. Oracle: the compiler's own counts and diagnostics (test/support/types/batch/measured.ts),
  * compared across the corners.
  */
-import { costGate } from "#test/types/batch/measured.ts"
+import { costGate } from "#test/support/types/batch/measured.ts"
 import { levelCorners } from "#test/types/schema/budget/levels.dictionary.ts"
 import { levelCost } from "#test/types/schema/budget/levels.ts"
 

@@ -35,7 +35,7 @@ import {
 	expectedKind,
 	type LeadingFeature,
 	read
-} from "#test/unit/live/leading.fixtures.ts"
+} from "#test/support/unit/live/leading.fixtures.ts"
 
 /**
  * The live leadership ends every waiting read with a typed error at any end of its candidacy, a defect's and an

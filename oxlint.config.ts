@@ -287,6 +287,68 @@ const FIELD_READINGS = [
 ] as const
 
 /**
+ * The test tiers, each a directory of test/ run as a tier of its own (test.config.ts, scripts/tiers.sh): a module of
+ * one imports its own tier and the shared layer alone, test/support and bench's shared harness (SHARED_BENCH), and no
+ * other tier's, so no tier's tests lean on another's. A test directory, test/<tier>/<directory>, reads its own modules
+ * and the shared layer's: a module two directories read is shared test code, and lives in test/support (CONTRIBUTING.md,
+ * "Test layering").
+ */
+const TEST_TIERS = ["unit", "pg", "types", "schedules"] as const
+
+/** One pattern of a restriction's imports, as the preset takes them. */
+type RestrictedPattern = Restriction["restrictedImports"]["patterns"][number]
+
+/**
+ * bench's modules the shared layer holds where they are: the harness a test reads beside a bench, which measures time,
+ * as bench's own code does and test scope's lint refuses, so it stays under bench/ (CONTRIBUTING.md, "Test layering").
+ */
+const SHARED_BENCH = [
+	"#bench/cold/identity.ts",
+	"#bench/cold/stats.ts",
+	"#bench/compile/schema.ts",
+	"#bench/harness/explain.ts",
+	"#bench/harness/gate.ts",
+	"#bench/harness/load.ts",
+	"#bench/harness/outcome.ts",
+	"#bench/harness/phases.ts",
+	"#bench/harness/rules.ts",
+	"#bench/harness/runner.ts",
+	"#bench/harness/session.ts",
+	"#bench/harness/transaction.ts",
+	"#bench/harness/variant.ts",
+	"#bench/harness/wal.ts",
+	"#bench/query/support/kit.ts",
+	"#bench/query/support/plans.ts",
+	"#bench/write/support/writes.ts"
+] as const
+
+/**
+ * The imports a module of `own` may not make: another tier's, none of which test/support, bench and the scripts import;
+ * and, for a tier, bench's modules outside its shared harness, which bench alone imports.
+ */
+const tierLayering = (
+	own: (typeof TEST_TIERS)[number] | "shared"
+): ReadonlyArray<RestrictedPattern> => [
+	{
+		group: Arr.map(
+			Arr.filter(TEST_TIERS, (tier) => tier !== own),
+			(tier) => `#test/${tier}/**`
+		),
+		message:
+			'A test tier imports its own tier and the shared layer alone, test/support and bench\'s shared harness: a module another tier or test/support reads is shared test code, and moves into test/support (CONTRIBUTING.md, "Test layering").'
+	},
+	...(own === "shared"
+		? []
+		: [
+				{
+					group: ["#bench/**", ...Arr.map(SHARED_BENCH, (module) => `!${module}`)],
+					message:
+						"A test reads bench's shared harness alone (SHARED_BENCH): any other bench module is bench's own, which no test imports."
+				}
+			])
+]
+
+/**
  * The engine's imports: no Effect at run time, no Node module but `crypto`, the one a module of `hashing` may import,
  * no driver and no platform SDK; and `readings`, the readings of a descriptor its module may not import.
  */
@@ -339,11 +401,30 @@ const RESTRICTIONS: ReadonlyArray<Restriction> = [
 		restrictedProperties: []
 	},
 	{
-		paths: ["test/", "bench/", "scripts/", "packages/pg/"],
+		paths: ["packages/pg/"],
 		restrictedImports: { paths: [SCHEMA_IMPORTS.path], patterns: [SCHEMA_IMPORTS.pattern] },
 		restrictedGlobals: [TEXT_DECODER],
 		restrictedProperties: []
 	},
+	{
+		/** The shared layer and what imports it from outside the tiers: test/support, bench and the scripts import no tier. */
+		paths: ["test/support/", "bench/", "scripts/"],
+		restrictedImports: {
+			paths: [SCHEMA_IMPORTS.path],
+			patterns: [SCHEMA_IMPORTS.pattern, ...tierLayering("shared")]
+		},
+		restrictedGlobals: [TEXT_DECODER],
+		restrictedProperties: []
+	},
+	...Arr.map(TEST_TIERS, (tier) => ({
+		paths: [`test/${tier}/`],
+		restrictedImports: {
+			paths: [SCHEMA_IMPORTS.path],
+			patterns: [SCHEMA_IMPORTS.pattern, ...tierLayering(tier)]
+		},
+		restrictedGlobals: [TEXT_DECODER],
+		restrictedProperties: []
+	})),
 	{
 		/**
 		 * Reference props, the props oracle's second implementation: today's slice of the logical analysis, copied whole, so
@@ -354,6 +435,7 @@ const RESTRICTIONS: ReadonlyArray<Restriction> = [
 			paths: [SCHEMA_IMPORTS.path],
 			patterns: [
 				SCHEMA_IMPORTS.pattern,
+				...tierLayering("shared"),
 				{
 					group: ["#compiler/logical/*"],
 					message:
@@ -367,7 +449,7 @@ const RESTRICTIONS: ReadonlyArray<Restriction> = [
 	{
 		/** The README's application decodes a foreign HTTP body with Effect Schema: the app's choice, which the README shows. */
 		paths: ["test/types/examples/fixtures/readme.ts"],
-		restrictedImports: { paths: [], patterns: [] },
+		restrictedImports: { paths: [], patterns: tierLayering("types") },
 		restrictedGlobals: [TEXT_DECODER],
 		restrictedProperties: []
 	},
@@ -599,8 +681,16 @@ export default defineConfig(
 					...CASE_LISTS.searches,
 					{ module: "#test/support/oracle/runner.ts", name: "oracleCheck", space: { argument: 0 } },
 					{ module: "#test/support/oracle/runner.ts", name: "oracleKill", space: { argument: 0 } },
-					{ module: "#test/types/batch/agreement.ts", name: "agreement", space: { argument: 0 } },
-					{ module: "#test/types/batch/agreement.ts", name: "boxAgreement", space: { argument: 0 } }
+					{
+						module: "#test/support/types/batch/agreement.ts",
+						name: "agreement",
+						space: { argument: 0 }
+					},
+					{
+						module: "#test/support/types/batch/agreement.ts",
+						name: "boxAgreement",
+						space: { argument: 0 }
+					}
 				],
 				generators: CASE_LISTS.generators,
 				mints: CASE_LISTS.mints,
@@ -615,7 +705,7 @@ export default defineConfig(
 							"A session's turn (connectOnce's `turn`): one connection's wire carries one statement and its answer at a time, so a session's statements take turns on it."
 					},
 					{
-						file: "test/pg/fin/installed.ts",
+						file: "test/support/pg/fin/installed.ts",
 						reason:
 							"seatPool makes its seats one at a time: two installations migrating at once into one database fail, one of them with XX000 (tuple concurrently updated) in its publish step."
 					},

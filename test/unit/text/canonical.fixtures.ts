@@ -5,7 +5,7 @@ import type { RegexNode } from "@bjornpagen/grizzle-text/regex/ir"
 import { element, type Gen, oneOf } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import type { Json } from "#compiler/core/canonical.ts"
-import { families, nestedPattern, patternOver } from "#test/unit/text/generators.ts"
+import { families, nestedPattern, patternOver } from "#test/support/unit/text/generators.ts"
 
 type Alt = Extract<RegexNode, { readonly kind: "alt" }>
 

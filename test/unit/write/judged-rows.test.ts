@@ -48,8 +48,8 @@ import { Id } from "#test/support/ids.ts"
 import { type ModelValue, evaluate } from "#test/support/oracle/evaluate/catalog.ts"
 import { patternMember } from "#test/support/oracle/reference/evaluate.ts"
 import { checking } from "#test/support/policy.ts"
+import { descOf, parsedOf, uuidOf } from "#test/support/unit/write/changeset/fixtures.ts"
 import { withinMessage } from "#test/support/worlds/execute/offline.ts"
-import { descOf, parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 
 /** Every field is named as its column, so the reference reads a CHECK's column by its name. */
 const T = relation(

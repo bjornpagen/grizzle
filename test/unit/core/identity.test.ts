@@ -3,7 +3,7 @@
  *
  * - one schema installed under two schema names installs alike: every name that depends on the installation is
  *   `<schema>__<name>` or hashed, so the two install scripts are one script once the installation is abstracted
- *   (test/pg/migrate/support.ts installationAbstraction), whatever the two names, one a prefix of the other included;
+ *   (test/support/pg/migrate/support.ts installationAbstraction), whatever the two names, one a prefix of the other included;
  *   and every object named by its definition's digest is named alike, its definition read in no schema
  *   (sql/type-schemas.ts digestedHooks), where the definitions fixture's contracts over a contract, over a closed id
  *   and calling Xml.isPattern, its CHECK's row function calling a closed relation's constant and its generated set
@@ -45,11 +45,11 @@ import {
 	type TemporaryKind
 } from "#compiler/core/identity.ts"
 import type { IdentityKind } from "#compiler/core/ids.ts"
-import { installationAbstraction } from "#test/pg/migrate/support.ts"
 import { refused, succeeded } from "#test/support/assert.ts"
 import { installationSql } from "#test/support/compile.ts"
 import { f, relation } from "#test/support/fixtures/ir/desc.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { installationAbstraction } from "#test/support/pg/migrate/support.ts"
 import { ownedInput, owning } from "#test/support/policy.ts"
 import {
 	admitsAll,

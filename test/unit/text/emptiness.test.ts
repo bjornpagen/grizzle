@@ -28,6 +28,7 @@ import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { jsMatcher } from "#test/support/regex.ts"
+import { type Flags } from "#test/support/unit/text/generators.ts"
 import {
 	caseGen,
 	classEmptiedGen,
@@ -39,7 +40,6 @@ import {
 	patternNfa,
 	searchOf
 } from "#test/unit/text/emptiness.fixtures.ts"
-import { type Flags } from "#test/unit/text/generators.ts"
 
 /** A pattern no text matches is never in the IR, refused by analyzeText and admitted by matchPattern as matching no text, exactly when no way through its NFA can match. Its budget is its suite's before it was a property (test/unit/text/emptiness.test.ts at 4ca3036a): 600 runs and 1000 steered cases. */
 export const aPatternNoTextMatchesIsNeverInTheIRRefusedByAnalyzeTextAndMatchedByNoTextExactlyWhenNoWayThroughItsNFACanMatch =

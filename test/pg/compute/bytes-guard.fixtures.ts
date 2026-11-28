@@ -11,7 +11,7 @@ import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { generatedField } from "#compiler/schema/relation.ts"
 import { regexField } from "#compiler/text/field.ts"
 import { Id } from "#test/support/ids.ts"
-import { stringsOver } from "#test/unit/text/generators.ts"
+import { stringsOver } from "#test/support/unit/text/generators.ts"
 
 /** The guard over the cast: the text's bytes within [low, high], or none. */
 type Guard =

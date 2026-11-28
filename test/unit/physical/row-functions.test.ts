@@ -38,7 +38,7 @@ import {
 	leadInstallationOf,
 	type LeadCase,
 	rowCaseGen
-} from "#test/unit/physical/row-functions.fixtures.ts"
+} from "#test/support/unit/physical/row-functions.fixtures.ts"
 
 type RowFeature =
 	| "a CHECK calling a row function"

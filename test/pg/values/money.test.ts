@@ -37,7 +37,7 @@ import {
 } from "#test/pg/values/money.fixtures.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
-import { orderOf } from "#test/unit/values/support.ts"
+import { orderOf } from "#test/support/unit/values/support.ts"
 
 /**
  * Money agreement with PostgreSQL round-trips every int64 minor-unit count through the numeric wire form.

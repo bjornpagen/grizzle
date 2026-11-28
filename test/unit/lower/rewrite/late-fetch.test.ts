@@ -23,14 +23,6 @@ import { succeeded } from "#test/support/assert.ts"
 import { genCatalog } from "#test/support/evidence.ts"
 import { schemaCodes } from "#test/support/oracle/gen/schema.ts"
 import {
-	accountKey,
-	bounded,
-	type Evidence,
-	fetchedUnder,
-	type LateFetchFeature,
-	shapes
-} from "#test/unit/lower/rewrite/late-fetch.fixtures.ts"
-import {
 	agrees,
 	caseQuery,
 	lowerConservatively,
@@ -38,7 +30,15 @@ import {
 	passContext,
 	rulesOf,
 	runPasses
-} from "#test/unit/lower/rewrite/support.ts"
+} from "#test/support/unit/lower/rewrite/support.ts"
+import {
+	accountKey,
+	bounded,
+	type Evidence,
+	fetchedUnder,
+	type LateFetchFeature,
+	shapes
+} from "#test/unit/lower/rewrite/late-fetch.fixtures.ts"
 import { wideCaseGen } from "#test/unit/lower/rewrite/wide.ts"
 
 /** Late payload fetch selects the narrow key under the bound, then joins the payload back through the key. */

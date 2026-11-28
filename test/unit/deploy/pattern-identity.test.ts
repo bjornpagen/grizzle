@@ -8,7 +8,7 @@
  * the installation installs.
  *
  * The oracle is a specification: two installations are one by identity exactly when their patterns' language keys are
- * equal. The space: a pattern admitted over each family's alphabet (test/unit/text/generators.ts), written again in a
+ * equal. The space: a pattern admitted over each family's alphabet (test/support/unit/text/generators.ts), written again in a
  * group, beside an empty piece, as an alternation of itself, or beside a code point no alphabet holds.
  *
  * An installation keeps one spelling of each language it installs (ir/pattern.ts installedSpellings), its history as a

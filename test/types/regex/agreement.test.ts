@@ -8,7 +8,7 @@
  * (types/fields/source.ts): nothing scans a source at run time, so the program's value of it is a constant of that
  * type, which stops typechecking once the budget moves.
  */
-import { agreement } from "#test/types/batch/agreement.ts"
+import { agreement } from "#test/support/types/batch/agreement.ts"
 import { regexCases, regexNotes, regexProgram, regexRequired } from "#test/types/regex/agreement.ts"
 
 /**

@@ -6,10 +6,10 @@
  * key needs are one walk of the head's entries.
  *
  * Properties: every program typechecks with no diagnostic, and each query the larger program adds costs at most its
- * shape's measured instantiations. Oracle: the compiler's own counts (test/types/batch/measured.ts), against the bound
+ * shape's measured instantiations. Oracle: the compiler's own counts (test/support/types/batch/measured.ts), against the bound
  * measured when the keys were cut (keys.ts addedAtMost).
  */
-import { costGate } from "#test/types/batch/measured.ts"
+import { costGate } from "#test/support/types/batch/measured.ts"
 import { keyedQueries } from "#test/types/query/budget/keys.dictionary.ts"
 import { keyedCost, keyedShapeName } from "#test/types/query/budget/keys.ts"
 

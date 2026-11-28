@@ -20,7 +20,7 @@ import { bigint } from "@bjornpagen/testing/values"
 import { Effect } from "effect"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { refused, succeeded } from "#test/support/assert.ts"
-import { baseParams, lowerWith, spelledExpr, v } from "#test/unit/compute/support.ts"
+import { baseParams, lowerWith, spelledExpr, v } from "#test/support/unit/compute/support.ts"
 import {
 	Cents,
 	checkMode,

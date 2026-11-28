@@ -11,15 +11,20 @@
  * its relation parameters' headings were written over. One relation parameter read under two headings whose `value`
  * fields differ is refused at the call that passes a value of one: the relation parameter's rows are each heading's,
  * intersected.
- * Oracle: the compiler's own counts and diagnostics (test/types/batch/measured.ts), compared step against step and
+ * Oracle: the compiler's own counts and diagnostics (test/support/types/batch/measured.ts), compared step against step and
  * base against base.
  */
 import { assert, defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Effect, Option, String as Str } from "effect"
 import { incrementsDoNotGrow } from "#test/support/growth.ts"
 import type { PreludeAt } from "#test/support/prelude.ts"
-import { assertClean, costGate, type Measuring, measuredEach } from "#test/types/batch/measured.ts"
-import { entriesFrom } from "#test/types/query/budget/generate.ts"
+import {
+	assertClean,
+	costGate,
+	type Measuring,
+	measuredEach
+} from "#test/support/types/batch/measured.ts"
+import { entriesFrom } from "#test/support/types/query/budget/generate.ts"
 import { guardCases } from "#test/types/query/budget/guards.dictionary.ts"
 import {
 	bases,

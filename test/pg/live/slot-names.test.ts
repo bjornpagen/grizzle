@@ -5,7 +5,7 @@
  * alone was one cluster-wide name for both, and the second database's leader met the first's slot, 42710 (TESTRESET4,
  * 2026-11-23, test/pg/net/network.test.ts on clones of the campus template).
  *
- * A case takes two clones of the campus template (test/pg/net/network.fixtures.ts), whose login serves live reads;
+ * A case takes two clones of the campus template (test/support/pg/net/network.fixtures.ts), whose login serves live reads;
  * builds the login's served layer over the one it draws first and watches a read there to its first event, which comes
  * once the leader its registration starts has made the slot (adapter/live/listen.ts), then, with that layer still open,
  * does the same over the other.
@@ -20,7 +20,7 @@ import { property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Layer, Option, Stream } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { identifierOf, identity, liveSlotOf } from "#compiler/core/identity.ts"
-import { campusAt, campusTemplate } from "#test/pg/net/network.fixtures.ts"
+import { campusAt, campusTemplate } from "#test/support/pg/net/network.fixtures.ts"
 import { servedGenerated } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { tokenOf } from "#test/support/worlds.ts"

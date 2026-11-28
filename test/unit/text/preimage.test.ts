@@ -33,7 +33,7 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { regex } from "arkregex"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { jsMatcher } from "#test/support/regex.ts"
-import { stringsOver, wholeLanguageGen, wordOf } from "#test/unit/text/generators.ts"
+import { stringsOver, wholeLanguageGen, wordOf } from "#test/support/unit/text/generators.ts"
 
 type PreimageFeature =
 	| "replace held"

@@ -25,7 +25,7 @@ import { Array as Arr, Effect } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { source, text } from "#test/pg/values/text.fixtures.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
-import { orderOf } from "#test/unit/values/support.ts"
+import { orderOf } from "#test/support/unit/values/support.ts"
 
 /**
  * Text agreement with PostgreSQL orders by code point exactly as ORDER BY ... COLLATE pg_catalog.pg_c_utf8 does.

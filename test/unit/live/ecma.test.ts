@@ -25,8 +25,8 @@ import { array } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { schemaAdmits } from "#test/support/openapi/validator.ts"
+import { walkGen } from "#test/support/unit/text/generators.ts"
 import { bmpLast, endsAstral, type Feature, patternSpace } from "#test/unit/live/ecma.fixtures.ts"
-import { walkGen } from "#test/unit/text/generators.ts"
 
 /**
  * A refined text's ECMA-262 pattern compiles under u and holds of exactly the texts the pattern's automaton accepts.

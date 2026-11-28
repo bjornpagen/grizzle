@@ -10,7 +10,7 @@
  * gap), hold their second difference at its measured value. Oracle: the compiler's own counts, compared across the
  * depths.
  */
-import { costGate } from "#test/types/batch/measured.ts"
+import { costGate } from "#test/support/types/batch/measured.ts"
 import { depthShapes } from "#test/types/schema/budget/depth.dictionary.ts"
 import { depthCost } from "#test/types/schema/budget/depth.ts"
 

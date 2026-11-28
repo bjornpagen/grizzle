@@ -6,7 +6,7 @@
  */
 import { word } from "@bjornpagen/testing/dictionary"
 import { finite } from "@bjornpagen/testing/gen"
-import { boxAgreement } from "#test/types/batch/agreement.ts"
+import { boxAgreement } from "#test/support/types/batch/agreement.ts"
 import { closedKeysBox } from "#test/types/evidence/closed-keys.dictionary.ts"
 import { closedKeysProgram } from "#test/types/evidence/closed-keys.ts"
 

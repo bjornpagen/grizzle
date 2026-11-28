@@ -29,7 +29,7 @@ import {
 	type Sink,
 	sink,
 	testPg
-} from "#test/unit/compute/support.ts"
+} from "#test/support/unit/compute/support.ts"
 
 /**
  * A selection an equality of a column to a literal decides, the equality first and read again below it, so the

@@ -9,7 +9,7 @@ import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import type { TermTyping } from "#compiler/scalar/compute/typing.ts"
 import { decimalTextMaxBytes } from "#compiler/scalar/lexical.ts"
 import { describedDesc } from "#compiler/schema/protocol.ts"
-import { baseParams, field, spelledExpr, typeWith, v } from "#test/unit/compute/support.ts"
+import { baseParams, field, spelledExpr, typeWith, v } from "#test/support/unit/compute/support.ts"
 
 /**
  * A text operand's byte bound: a few bytes, around decimalTextMaxBytes, or past it by up to two hundred thousand bytes,

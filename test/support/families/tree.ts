@@ -25,7 +25,7 @@
  */
 import { deepEquals } from "@bjornpagen/testing/assert"
 import { Array as Arr, Option, Order } from "effect"
-import type { TreeRow } from "#test/pg/substrate/tree.ts"
+import type { TreeRow } from "#test/support/pg/substrate/tree.ts"
 
 /** A tree as its caller nests it: a node's kind and its children in slot order. */
 export interface Node {

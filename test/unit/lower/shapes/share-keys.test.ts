@@ -37,7 +37,8 @@ import {
 } from "#compiler/lower/shapes/share/statements.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { byCodePoints } from "#test/support/key-order.ts"
-import { tableUnits } from "#test/unit/ir/dag-digest.fixtures.ts"
+import { tableUnits } from "#test/support/unit/ir/dag-digest.fixtures.ts"
+import { placedPlain, present } from "#test/support/unit/lower/support.ts"
 import {
 	attachedBelowItsParent,
 	depthGen,
@@ -52,7 +53,6 @@ import {
 	twiceAndCopies,
 	twoClasses
 } from "#test/unit/lower/shapes/share-keys.fixtures.ts"
-import { placedPlain, present } from "#test/unit/lower/support.ts"
 
 type Planned = "carried" | "none carried" | "a copy" | "no copy"
 

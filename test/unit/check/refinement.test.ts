@@ -34,7 +34,7 @@ import { sameRegex, wildcardText } from "#compiler/scalar/compute/types.ts"
 import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { refused, succeeded } from "#test/support/assert.ts"
 import { checkAuthored, checking, checkOptions } from "#test/support/policy.ts"
-import { queryDesc } from "#test/unit/check/dsl.ts"
+import { queryDesc } from "#test/support/unit/check/dsl.ts"
 import {
 	armOf,
 	closedCaseGen,

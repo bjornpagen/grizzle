@@ -4,8 +4,8 @@ import { constant, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record } from "effect"
 import { makeIdSupply } from "#compiler/core/ids.ts"
 import { isRecord } from "#compiler/core/record.ts"
-import { everyKind } from "#test/unit/ir/fixture.ts"
-import { generatedDags } from "#test/unit/ir/population.ts"
+import { everyKind } from "#test/support/unit/ir/fixture.ts"
+import { generatedDags } from "#test/support/unit/ir/population.ts"
 
 /** A DAG of the every-kind fixture or a generated one, the generated four times in five. */
 export const dags = weighted([

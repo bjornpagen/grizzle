@@ -6,7 +6,7 @@
  * not, bounds under EXISTS, closures acyclic or not), and noninjective key expressions; each read in a snapshot or a
  * transaction, its root delivered as it is or as an ordered result over its whole heading, every choice drawn with the
  * case. The plan's realization is evaluated by the fragment evaluator, which keeps exactly the repeats each fragment's
- * SQL would deliver (test/unit/analysis/physical/support.ts FragmentReference), and checked against the brute-force
+ * SQL would deliver (test/support/unit/analysis/physical/support.ts FragmentReference), and checked against the brute-force
  * reference, which deduplicates every node as the conservative lowering does:
  *
  * - the program's result has no repeated row and is exactly the reference set;

@@ -44,7 +44,7 @@ import {
 import { Id } from "#test/support/ids.ts"
 import { checking } from "#test/support/policy.ts"
 import { type PreludeAt, preludeModule } from "#test/support/prelude.ts"
-import { batchOwned, caseOwned, type Program } from "#test/types/batch/batch.ts"
+import { batchOwned, caseOwned, type Program } from "#test/support/types/batch/batch.ts"
 
 /**
  * The admission agreement: types against the engine, over every position a constant may stand in and every kind of

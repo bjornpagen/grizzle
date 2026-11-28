@@ -14,7 +14,7 @@ import {
 	relation,
 	type SchemaDesc
 } from "#test/support/fixtures/ir/desc.ts"
-import { schemaOf } from "#test/unit/analysis/theory/support.ts"
+import { schemaOf } from "#test/support/unit/analysis/theory/support.ts"
 
 /**
  * One case of the box: three relations over an integer `c` and an instant `at`, P(c, at), Q(c, at, v) and X(c, at), and

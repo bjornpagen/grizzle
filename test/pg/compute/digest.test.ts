@@ -26,7 +26,7 @@ import {
 	sqlNotes,
 	type Value
 } from "#test/pg/compute/digest.fixtures.ts"
-import { textCell } from "#test/pg/compute/support.ts"
+import { textCell } from "#test/support/pg/compute/support.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**

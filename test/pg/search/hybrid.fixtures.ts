@@ -10,14 +10,6 @@ import { query, v } from "#compiler/public/query.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
-import { fixtureSpec, fixtureTemplate } from "#test/pg/reads/support.ts"
-import {
-	dimensions,
-	generator,
-	textRows,
-	unitVector,
-	vectorText
-} from "#test/pg/vector/ann/support.ts"
 import {
 	type Installed,
 	loadMigrated,
@@ -25,6 +17,14 @@ import {
 } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import type { FactSet } from "#test/support/oracle/install/load.ts"
+import { fixtureSpec, fixtureTemplate } from "#test/support/pg/reads/support.ts"
+import {
+	dimensions,
+	generator,
+	textRows,
+	unitVector,
+	vectorText
+} from "#test/support/pg/vector/ann/support.ts"
 import { countedAsVacuumed } from "#test/support/substrate/fill.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"

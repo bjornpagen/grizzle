@@ -27,7 +27,7 @@ import {
 	withinBound
 } from "#test/pg/text/bounded.fixtures.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
-import { values } from "#test/unit/compute/text.fixtures.ts"
+import { values } from "#test/support/unit/compute/text.fixtures.ts"
 
 /** The text PostgreSQL prints a boolean as. */
 const printed = (value: unknown): string => (value === true ? "true" : "false")

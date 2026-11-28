@@ -25,11 +25,11 @@ import { servedFile } from "#compiler/served/json.ts"
 import type { FunctionName, SqlStatement } from "#compiler/sql/ast.ts"
 import { lex } from "#compiler/sql/lexer.ts"
 import { defineConfig } from "#index.ts"
-import { offlineOwner } from "#test/pg/cli/support.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { jsonOf } from "#test/support/chunked.ts"
 import { repoRoot } from "#test/support/files.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
+import { offlineOwner } from "#test/support/pg/cli/support.ts"
 
 /**
  * What a role's change and read members are: a read-back of a ChangeSet that writes nothing, delivering an option; a

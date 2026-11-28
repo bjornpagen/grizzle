@@ -23,7 +23,6 @@ import {
 	type StatementsWithin
 } from "#compiler/public/schema.ts"
 import { builtArgumentsOf, schemaBuilder as builtSchema } from "#compiler/schema/schema.ts"
-import { apply, noFurther, openMigrator } from "#test/pg/migrate/support.ts"
 import { type AmbientSession, ambientOwner, ordinarySession } from "#test/support/ambient.ts"
 import { templateNeedBudget } from "#test/support/budgets.ts"
 import type { SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
@@ -45,6 +44,7 @@ import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { fromEmpty, fromSnapshot, type Previous } from "#test/support/migrate/kit.ts"
 import type { RealInstallPlan } from "#test/support/oracle/install/real.ts"
 import type { SqlError } from "#test/support/pg.ts"
+import { apply, noFurther, openMigrator } from "#test/support/pg/migrate/support.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import {
 	dropRole,
@@ -306,7 +306,7 @@ const schemaNameOf = (options: MigrateOptions) =>
  * A fixture is installed the way a deployment installs it: its schema value is rebuilt under a unique name (roles are
  * cluster-wide) or a reserved word, its first migration is generated from the
  * empty snapshot (with its logins' workloads) and applied by the real runner (packages/grizzle/src/adapter/migrate) as the migration
- * identity, which checks, runs, records and drift-checks each folder (test/pg/migrate/support.ts), and the generated
+ * identity, which checks, runs, records and drift-checks each folder (test/support/pg/migrate/support.ts), and the generated
  * snapshot is the one the application knows. Every generated folder is reviewed first by the one reviewer
  * (test/support/migrate/review.ts), every candidate rename kept or chosen as the caller says and every placeholder
  * given the caller's value, so no later version runs a placeholder raw. Each version states its

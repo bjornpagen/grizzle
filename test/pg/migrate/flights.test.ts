@@ -42,11 +42,11 @@ import {
 	historyGen,
 	versions
 } from "#test/pg/migrate/flights.fixtures.ts"
-import { kept, parsedTarget, reviewedSource } from "#test/pg/migrate/support.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { firstCodes } from "#test/support/compile.ts"
 import { atName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { draftChain, fromEmpty } from "#test/support/migrate/kit.ts"
+import { kept, parsedTarget, reviewedSource } from "#test/support/pg/migrate/support.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 import { tappedSession } from "#test/support/wire-tap.ts"
 

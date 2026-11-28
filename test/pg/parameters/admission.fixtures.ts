@@ -8,8 +8,8 @@ import { ChangeSet } from "#compiler/public/changeset.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { fixtureTemplate } from "#test/pg/reads/support.ts"
 import { Id, toId } from "#test/support/ids.ts"
+import { fixtureTemplate } from "#test/support/pg/reads/support.ts"
 import { upTo } from "#test/support/up-to.ts"
 
 /** A pattern a stored field declares. */

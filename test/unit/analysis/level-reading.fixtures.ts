@@ -11,10 +11,10 @@ import {
 	type StorageCase,
 	storageCase,
 	storageSchemaOf
-} from "#test/unit/derived/storage.fixtures.ts"
+} from "#test/support/unit/derived/storage.fixtures.ts"
 
 /**
- * A case: a storage case (test/unit/derived/storage.fixtures.ts), its base and above it the derived relation of its
+ * A case: a storage case (test/support/unit/derived/storage.fixtures.ts), its base and above it the derived relation of its
  * shape, one level, and `above` levels over that one, one over another, each declaring nothing of its own, the highest
  * the installation: each level a prefix of the installation's chain, as metis's logins' levels are of its schema's, all
  * sharing the base.

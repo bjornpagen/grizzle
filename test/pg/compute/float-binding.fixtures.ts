@@ -23,9 +23,6 @@ import type { FieldDesc } from "#compiler/ir/desc.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
-/** What the properties of float-binding.test.ts read: its terms, its ledger and the judgments of each lowering. */
-import { inInstallation } from "#test/pg/compute/support.ts"
-import { optimizedLowering } from "#test/pg/recursion/lowering/support.ts"
 import { filledSql } from "#test/support/compile.ts"
 import type {
 	AuthoredExprDesc as ExprDesc,
@@ -54,9 +51,12 @@ import {
 	reference,
 	type RunnerSide
 } from "#test/support/oracle/runner.ts"
+/** What the properties of float-binding.test.ts read: its terms, its ledger and the judgments of each lowering. */
+import { inInstallation } from "#test/support/pg/compute/support.ts"
+import { optimizedLowering } from "#test/support/pg/recursion/lowering/support.ts"
 import { checkAuthored, checking, checkOptions } from "#test/support/policy.ts"
 import type { RolledBack } from "#test/support/substrate/substrate.ts"
-import * as D from "#test/unit/check/dsl.ts"
+import * as D from "#test/support/unit/check/dsl.ts"
 
 type Width = "float8" | "float4"
 

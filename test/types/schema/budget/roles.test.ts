@@ -14,9 +14,9 @@
  * instantiates whole costs more over the larger base, by every relation it walks, for each relation or law the second
  * program adds. The control pays what using the level costs anywhere (roles.ts), so the difference is the role's. And
  * every program typechecks with no diagnostic. Oracle: the compiler's own counts and diagnostics
- * (test/types/batch/measured.ts), compared across the two bases.
+ * (test/support/types/batch/measured.ts), compared across the two bases.
  */
-import { costGate } from "#test/types/batch/measured.ts"
+import { costGate } from "#test/support/types/batch/measured.ts"
 import { roleDimensions } from "#test/types/schema/budget/roles.dictionary.ts"
 import { roleCost, roleDimensionName } from "#test/types/schema/budget/roles.ts"
 

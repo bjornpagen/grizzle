@@ -28,7 +28,7 @@ import {
 	compiledModel,
 	modelOf,
 	nativesOf
-} from "#test/unit/laws/model/natives.ts"
+} from "#test/support/unit/laws/model/natives.ts"
 
 interface Shape {
 	readonly source: "every" | "selected"

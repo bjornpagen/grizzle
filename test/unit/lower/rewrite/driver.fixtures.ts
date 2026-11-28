@@ -24,7 +24,7 @@ import { allenNormalForm, simplificationRules } from "#compiler/lower/optimize/s
 import { succeeded } from "#test/support/assert.ts"
 import type { CountedFunction } from "#test/support/kernel/calls.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
-import { Posting, Q, T } from "#test/unit/lower/conservative/fixtures.ts"
+import { Posting, Q, T } from "#test/support/unit/lower/conservative/fixtures.ts"
 
 /**
  * The cells `roots` reach in the order a walk of them visits them, as ir/dag.ts topoOrder walks a DAG: from each root in

@@ -21,15 +21,6 @@ import { isNoTransaction, noTransactionMarker } from "#compiler/deploy/render/ma
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import { snapshotGuardName } from "#compiler/physical/ddl/ledger.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
-import {
-	apply,
-	kept,
-	noFurther,
-	openMigrator,
-	refusal,
-	reviewedSource,
-	sameCatalog
-} from "#test/pg/migrate/support.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { readCatalog } from "#test/support/catalog/read.ts"
 import { chunked, joined } from "#test/support/chunked.ts"
@@ -57,6 +48,15 @@ import {
 	noDeclarations,
 	type Previous
 } from "#test/support/migrate/kit.ts"
+import {
+	apply,
+	kept,
+	noFurther,
+	openMigrator,
+	refusal,
+	reviewedSource,
+	sameCatalog
+} from "#test/support/pg/migrate/support.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import {
 	openTask,
@@ -66,7 +66,7 @@ import {
 	shopV3Declared,
 	shopV4,
 	taskKinds
-} from "#test/unit/deploy/schemas.ts"
+} from "#test/support/unit/deploy/schemas.ts"
 
 /**
  * The schema the chain's first draft abandons, as the ledger suite's chain does (test/pg/migrate/ledger.test.ts): every

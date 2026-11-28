@@ -17,7 +17,7 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { Array as Arr, Option } from "effect"
 import type { RecordsShape, StatedShape } from "#test/support/agreement/records.ts"
 import { statedPath, statedShapeGen } from "#test/support/agreement/records.ts"
-import { agreement } from "#test/types/batch/agreement.ts"
+import { agreement } from "#test/support/types/batch/agreement.ts"
 import { recordsProgram } from "#test/types/schema/records.ts"
 
 /** What a shape reaches: each delivery below the books, a third level, a repeated name, a moved place. */

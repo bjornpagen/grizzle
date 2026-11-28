@@ -33,7 +33,7 @@ import {
 	caseGen as previewCaseGen,
 	type PreviewCase,
 	previewInput
-} from "#test/pg/write/preview/preview.fixtures.ts"
+} from "#test/support/pg/write/preview/preview.fixtures.ts"
 
 /** A situation a case reaches. */
 export type PreviewCostFeature =

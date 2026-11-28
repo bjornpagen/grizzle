@@ -53,7 +53,7 @@ import {
 	rule,
 	take,
 	vars
-} from "#test/unit/check/dsl.ts"
+} from "#test/support/unit/check/dsl.ts"
 import {
 	type MemberCase,
 	memberCaseGen,

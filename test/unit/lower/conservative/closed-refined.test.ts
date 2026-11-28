@@ -28,6 +28,7 @@ import { flight } from "#compiler/lower/conservative/types.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { patternMember } from "#test/support/oracle/reference/evaluate.ts"
 import { auditStatementViolations } from "#test/support/oracle/verify/sql.ts"
+import { T } from "#test/support/unit/lower/conservative/fixtures.ts"
 import {
 	caseGen,
 	domainName,
@@ -35,7 +36,6 @@ import {
 	lowered,
 	namesType
 } from "#test/unit/lower/conservative/closed-refined.fixtures.ts"
-import { T } from "#test/unit/lower/conservative/fixtures.ts"
 
 /** A Closed source's refined payload is delivered uncast where the pattern admits every literal, and cast to its domain where one is outside. */
 export const aClosedSourcesRefinedPayloadIsDeliveredUncastWhereThePatternAdmitsEveryLiteralAndCastToItsDomainWhereOneIsOutside =

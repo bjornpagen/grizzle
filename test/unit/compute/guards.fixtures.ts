@@ -17,7 +17,7 @@ import {
 	type TestField,
 	type TestOperand,
 	testPg
-} from "#test/unit/compute/support.ts"
+} from "#test/support/unit/compute/support.ts"
 
 export const kinds: Arr.NonEmptyReadonlyArray<PreconditionKind> = [
 	"nonzero",

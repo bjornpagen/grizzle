@@ -42,7 +42,6 @@ import {
 import { str } from "#compiler/public/text.ts"
 import { type ParamMap } from "#compiler/types/core/phantom.ts"
 import { changeSetOver } from "#compiler/write/changeset/value.ts"
-import { fixtureTemplate, openedIn } from "#test/pg/reads/support.ts"
 import { writeAnswerOf, rowsOf, writeOnce } from "#test/support/calls.ts"
 import { type Generated } from "#test/support/install-migrate.ts"
 import { namesOf, type LawNames, lawNamesOf } from "#test/support/kernel/naming.ts"
@@ -62,6 +61,7 @@ import {
 	valueText,
 	violations
 } from "#test/support/laws/model.ts"
+import { fixtureTemplate, openedIn } from "#test/support/pg/reads/support.ts"
 import { refusedEntries } from "#test/support/refused.ts"
 import { member, openServedDb } from "#test/support/served-db.ts"
 import type { SubstrateCase } from "#test/support/substrate/substrate.ts"

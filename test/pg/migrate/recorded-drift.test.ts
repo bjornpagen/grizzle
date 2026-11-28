@@ -43,9 +43,9 @@ import {
 	type RecordedFeature,
 	versionOf
 } from "#test/pg/migrate/recorded-drift.fixtures.ts"
-import { refusal } from "#test/pg/migrate/support.ts"
 import { migrated, noObservation } from "#test/support/installed.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
+import { refusal } from "#test/support/pg/migrate/support.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** The drift check of a recorded snapshot admits a migrated database whose every source digests to its record, and finds a planted source and a planted constant. */

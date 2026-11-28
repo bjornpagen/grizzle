@@ -1,15 +1,19 @@
 import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { Array as Arr } from "effect"
 import { type PreludeAt, preludeProgram } from "#test/support/prelude.ts"
-import { type EqualSteps, equalSteps, type GrowthDimension } from "#test/types/batch/measured.ts"
+import {
+	type EqualSteps,
+	equalSteps,
+	type GrowthDimension
+} from "#test/support/types/batch/measured.ts"
 import {
 	type Over,
 	type RefusalProbe,
 	twinPrefix,
 	twinProbesOf,
 	twinProgram
-} from "#test/types/batch/twins.ts"
-import { entriesFrom } from "#test/types/query/budget/generate.ts"
+} from "#test/support/types/batch/twins.ts"
+import { entriesFrom } from "#test/support/types/query/budget/generate.ts"
 
 /**
  * The family-scale program, one type test of families, trees, folds and nested additions at scale

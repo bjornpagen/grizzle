@@ -50,14 +50,14 @@ import {
 } from "#bench/harness/explain.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
+import { succeeded } from "#test/support/assert.ts"
+import { installGenerated } from "#test/support/install-migrate.ts"
 import {
 	declaredUnlikeNames,
 	installationOf,
 	servedOf
-} from "#test/pg/served/result-order.fixtures.ts"
-import { ordinarySession } from "#test/support/ambient.ts"
-import { succeeded } from "#test/support/assert.ts"
-import { installGenerated } from "#test/support/install-migrate.ts"
+} from "#test/support/pg/served/result-order.fixtures.ts"
 import { member, withServedDb } from "#test/support/served-db.ts"
 import { countedAsVacuumed } from "#test/support/substrate/fill.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"

@@ -33,6 +33,7 @@ import { bindGroups, named, record } from "#compiler/schema/record.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { codebookFor, firstCodes, schemaInputOf } from "#test/support/compile.ts"
 import { lengthHashedKeyings, longFamily } from "#test/support/kernel/long-keys.ts"
+import { Paging } from "#test/support/unit/page/fixtures.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { outputRows } from "#test/support/wire.ts"
 import {
@@ -64,7 +65,6 @@ import {
 	uuids,
 	windowProgram
 } from "#test/unit/adapter/answers.fixtures.ts"
-import { Paging } from "#test/unit/page/fixtures.ts"
 
 /** An attachment's delivery delivers what its proof allows and is a defect naming the attachment past it, never a first of several. */
 export const anAttachmentsDeliveryDeliversWhatItsProofAllowsAndIsADefectNamingTheAttachmentPastItNeverAFirstOfSeveral =

@@ -16,7 +16,12 @@ import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { lawful } from "#test/support/families/tree.ts"
-import { type HostFacts, lawOfShape, uuidOf, violates } from "#test/unit/analysis/theory/support.ts"
+import {
+	type HostFacts,
+	lawOfShape,
+	uuidOf,
+	violates
+} from "#test/support/unit/analysis/theory/support.ts"
 import {
 	namedOf,
 	rOf,

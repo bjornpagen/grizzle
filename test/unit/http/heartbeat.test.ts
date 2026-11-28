@@ -4,7 +4,7 @@
  * from the least delay a Node timer waits to the longest it keeps builds a handler; anything else is refused when the
  * handler is built, naming HttpConfig.heartbeatMs and the timer's range.
  *
- * Each case: the shelving login's layer (test/unit/adapter/services.fixtures.ts), which connects nothing while it is
+ * Each case: the shelving login's layer (test/support/unit/adapter/services.fixtures.ts), which connects nothing while it is
  * built, and a handler of it built with one heartbeat: each end of the range, 0, -1, one past the longest, a fraction,
  * NaN, infinity, a text, or none.
  *
@@ -20,7 +20,7 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect, Exit, Formatter, Layer } from "effect"
 import { DbLayer } from "#adapter/public/layer.ts"
 import { httpHandler } from "#http/index.ts"
-import { ShelvingServed, shelvingConfig } from "#test/unit/adapter/services.fixtures.ts"
+import { ShelvingServed, shelvingConfig } from "#test/support/unit/adapter/services.fixtures.ts"
 
 type HeartbeatFeature = "a timer's delay built" | "a delay no timer keeps refused"
 

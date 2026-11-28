@@ -15,7 +15,6 @@ import {
 	writing,
 	flightAims
 } from "#test/pg/adapter/flight.fixtures.ts"
-import { until } from "#test/pg/adapter/support.ts"
 import { caseGen } from "#test/support/flight/cases.ts"
 import type { Interruption } from "#test/support/flight/drive.ts"
 import {
@@ -31,6 +30,7 @@ import {
 } from "#test/support/flight/model.ts"
 import { observationsOf, plannedBySql, runScripted } from "#test/support/flight/run.ts"
 import { runAlone } from "#test/support/pg.ts"
+import { until } from "#test/support/pg/adapter/support.ts"
 import { testSql } from "#test/support/sql.ts"
 import { clearRows, tablesGroup } from "#test/support/substrate/replace.ts"
 import { freshSchema, Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"

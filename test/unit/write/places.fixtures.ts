@@ -22,7 +22,7 @@ import { succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { asDrafted, compile, installedStatements } from "#test/support/migrate/kit.ts"
 import { checking } from "#test/support/policy.ts"
-import { descOf } from "#test/unit/write/changeset/fixtures.ts"
+import { descOf } from "#test/support/unit/write/changeset/fixtures.ts"
 
 /** A stage decision of a child, at its clock of child `child`. */
 const Stage = relation("Stage", { child: pg.integer, at: instant }, ["child", "at"])

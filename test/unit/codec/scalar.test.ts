@@ -24,6 +24,7 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { Vector } from "#compiler/scalar/values/vector.ts"
 import { faulted, succeeded } from "#test/support/assert.ts"
+import { codecOf, kindCodes } from "#test/support/unit/codec/support.ts"
 import { paramText } from "#test/support/wire.ts"
 import {
 	absences,
@@ -40,7 +41,6 @@ import {
 	vector3,
 	vectorComponents
 } from "#test/unit/codec/scalar.fixtures.ts"
-import { codecOf, kindCodes } from "#test/unit/codec/support.ts"
 import { asVector } from "#test/unit/codec/values.ts"
 
 /**

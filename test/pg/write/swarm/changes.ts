@@ -31,18 +31,6 @@ import {
 	type Step
 } from "#test/pg/write/swarm/oracle.ts"
 import {
-	type BuiltRelation,
-	type BuiltSwarm,
-	callerFields,
-	countName,
-	familyOf,
-	idOfUuid,
-	plainFact,
-	plainName,
-	swarmFacts,
-	type SwarmSpec
-} from "#test/pg/write/swarm/spec.ts"
-import {
 	followUpMembers,
 	followUpRows,
 	groupEntries,
@@ -56,6 +44,18 @@ import {
 	type WrittenRow,
 	writtenRows
 } from "#test/support/families/fill.ts"
+import {
+	type BuiltRelation,
+	type BuiltSwarm,
+	callerFields,
+	countName,
+	familyOf,
+	idOfUuid,
+	plainFact,
+	plainName,
+	swarmFacts,
+	type SwarmSpec
+} from "#test/support/pg/write/swarm/spec.ts"
 
 /** A fact as a ChangeSet states it. */
 type Fact = { readonly [field: string]: unknown }

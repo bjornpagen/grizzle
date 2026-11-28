@@ -19,7 +19,7 @@ import {
 	select,
 	unit
 } from "#compiler/public/schema.ts"
-import { type Seat, seatTemplate } from "#test/pg/fin/installed.ts"
+import { type Seat, seatTemplate } from "#test/support/pg/fin/installed.ts"
 import { attempt } from "#test/support/substrate.ts"
 
 const lowKey = Symbol("Low")

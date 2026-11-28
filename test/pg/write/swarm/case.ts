@@ -25,6 +25,13 @@ import {
 	type SwarmCase
 } from "#test/pg/write/swarm/oracle.ts"
 import {
+	type FillSpec,
+	followUpGen,
+	followUpRows,
+	type InstanceRow,
+	keyOfRelation
+} from "#test/support/families/fill.ts"
+import {
 	familyOf,
 	featuresGen,
 	holderOf,
@@ -35,14 +42,7 @@ import {
 	type SwarmFeature,
 	type SwarmSpec,
 	swarmSpecGen
-} from "#test/pg/write/swarm/spec.ts"
-import {
-	type FillSpec,
-	followUpGen,
-	followUpRows,
-	type InstanceRow,
-	keyOfRelation
-} from "#test/support/families/fill.ts"
+} from "#test/support/pg/write/swarm/spec.ts"
 import { upTo } from "#test/support/up-to.ts"
 
 /** Element of a non-empty list drawn uniformly. */

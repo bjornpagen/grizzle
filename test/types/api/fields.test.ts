@@ -7,9 +7,9 @@
  */
 import { word } from "@bjornpagen/testing/dictionary"
 import { finite } from "@bjornpagen/testing/gen"
+import { boxAgreement } from "#test/support/types/batch/agreement.ts"
 import { fieldsBox } from "#test/types/api/fields.dictionary.ts"
 import { fieldsProgram } from "#test/types/api/fields.ts"
-import { boxAgreement } from "#test/types/batch/agreement.ts"
 
 /** Every public reader that takes a field refuses a term in its place. */
 export const fields = boxAgreement(finite(word(fieldsBox)), {

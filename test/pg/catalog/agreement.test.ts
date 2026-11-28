@@ -27,7 +27,6 @@ import {
 	rulesOf,
 	selectsNegativeZero
 } from "#test/pg/catalog/agreement.fixtures.ts"
-import { appliedRules, catalogLowering, labOptions, oracleCase } from "#test/pg/catalog/support.ts"
 import {
 	conservative,
 	defaultRunOptions,
@@ -35,6 +34,12 @@ import {
 	runLabelledOracle
 } from "#test/support/oracle/runner.ts"
 import { OracleSeat } from "#test/support/oracle/seat.ts"
+import {
+	appliedRules,
+	catalogLowering,
+	labOptions,
+	oracleCase
+} from "#test/support/pg/catalog/support.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**

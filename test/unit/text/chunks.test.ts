@@ -49,7 +49,7 @@ import {
 	jsonCaseGen,
 	type SqlCase,
 	sqlCaseGen
-} from "#test/unit/text/chunks.fixtures.ts"
+} from "#test/support/unit/text/chunks.fixtures.ts"
 
 type JsonSituation =
 	| "a pair cut between chunks"

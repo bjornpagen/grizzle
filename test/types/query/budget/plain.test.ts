@@ -6,10 +6,10 @@
  * never store.
  *
  * Properties: every program typechecks with no diagnostic, and each query the larger program adds costs at most its
- * shape's measured instantiations. Oracle: the compiler's own counts (test/types/batch/measured.ts), against the bound
+ * shape's measured instantiations. Oracle: the compiler's own counts (test/support/types/batch/measured.ts), against the bound
  * measured when the phantom was cut (plain.ts addedAtMost).
  */
-import { costGate } from "#test/types/batch/measured.ts"
+import { costGate } from "#test/support/types/batch/measured.ts"
 import { plainQueries } from "#test/types/query/budget/plain.dictionary.ts"
 import { plainCost, plainShapeName } from "#test/types/query/budget/plain.ts"
 

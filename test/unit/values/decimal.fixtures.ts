@@ -31,7 +31,7 @@ import {
 } from "#compiler/scalar/values/fault.ts"
 import { faulted, succeeded } from "#test/support/assert.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
-import { decimalGen } from "#test/unit/values/support.ts"
+import { decimalGen } from "#test/support/unit/values/support.ts"
 
 /**
  * An exact spelling numeric_in reads, with the one text of the value it reads (numeric_out of trim_scale(value)) and

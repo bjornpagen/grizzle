@@ -46,6 +46,8 @@ import {
 	runner,
 	snapshotFilesOf
 } from "#test/pg/cli/cli.fixtures.ts"
+import { succeeded } from "#test/support/assert.ts"
+import { readCatalog } from "#test/support/catalog/read.ts"
 import {
 	commandConnections,
 	configName,
@@ -57,9 +59,7 @@ import {
 	type SchemaSpec,
 	workspace,
 	writeConfig
-} from "#test/pg/cli/support.ts"
-import { succeeded } from "#test/support/assert.ts"
-import { readCatalog } from "#test/support/catalog/read.ts"
+} from "#test/support/pg/cli/support.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** Grizzle generate, check and migrate over drawn configurations every declared schema keeps its own directory, snapshot and ledger, is admitted and round-trips, by every executor and connection. */

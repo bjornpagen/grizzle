@@ -50,14 +50,6 @@ import {
 	ofParam,
 	required
 } from "#test/pg/migrate/param-domains.fixtures.ts"
-import {
-	apply,
-	checkedAdmission,
-	keeping,
-	noFurther,
-	openMigrator,
-	sameCatalog
-} from "#test/pg/migrate/support.ts"
 import { generatedDraft } from "#test/support/install-migrate.ts"
 import { fullVersion } from "#test/support/installed.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
@@ -73,6 +65,14 @@ import {
 	type Stored,
 	versionOf
 } from "#test/support/migrate/param-domains.ts"
+import {
+	apply,
+	checkedAdmission,
+	keeping,
+	noFurther,
+	openMigrator,
+	sameCatalog
+} from "#test/support/pg/migrate/support.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**

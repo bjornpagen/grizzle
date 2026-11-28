@@ -9,7 +9,7 @@ import type { QueryCase } from "#test/support/oracle/gen/case.ts"
 import { bool, canonicallySpelled, float8, int4 } from "#test/support/oracle/gen/domain.ts"
 import type { StoredRow } from "#test/support/oracle/gen/facts.ts"
 import { normalQuery } from "#test/support/oracle/gen/query.ts"
-import { Q, type RelationSpec } from "#test/unit/lower/conservative/fixtures.ts"
+import { Q, type RelationSpec } from "#test/support/unit/lower/conservative/fixtures.ts"
 
 /** Which arms of the union project the parameter p as its column k: both, only the first, or only the second. */
 const armsHolding = ["both", "first", "second"] as const

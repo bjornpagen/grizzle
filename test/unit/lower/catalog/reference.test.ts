@@ -22,10 +22,10 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import { rewriteCatalog } from "#compiler/lower/shapes/catalog/rewrite.ts"
-import { factsGen, labOptions, oracleCase } from "#test/pg/catalog/support.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { factsGen, labOptions, oracleCase } from "#test/support/pg/catalog/support.ts"
+import { agrees } from "#test/support/unit/lower/rewrite/support.ts"
 import { entries, judged, type JudgedFeature } from "#test/unit/lower/catalog/reference.fixtures.ts"
-import { agrees } from "#test/unit/lower/rewrite/support.ts"
 
 /**
  * The catalog's rewrites against their compositions, by the reference deliver one keyed set of rows over drawn lab

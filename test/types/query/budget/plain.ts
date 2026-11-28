@@ -3,7 +3,7 @@ import { assert, defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Effect } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { type PreludeAt, preludeProgram } from "#test/support/prelude.ts"
-import { assertClean, type Measuring, measuredEach } from "#test/types/batch/measured.ts"
+import { assertClean, type Measuring, measuredEach } from "#test/support/types/batch/measured.ts"
 
 /**
  * The plain-query programs (plain.test.ts): queries that attach nothing, each one rule over P of a schema of three
@@ -78,7 +78,7 @@ const step = 20
  * @owner the query facade's type cost gates (test/types/query/budget/plain.ts)
  * @unit instantiations a query adds
  * @scope one query of the shape, checked by one checker against the engine's and the shell's declarations, as
- *   test/types/batch/measured.ts checks a program
+ *   test/support/types/batch/measured.ts checks a program
  * @evidence ~/.cache/grizzle-release/RECORDS-ATTACH-tools/pin (write.ts writes this module's program through the
  *   gates' prelude, run.sh checks it at 20 and 40 queries as measured.ts checks a program: tsgo --checkers 1
  *   --extendedDiagnostics, referencing packages/engine and packages/grizzle) and its runs

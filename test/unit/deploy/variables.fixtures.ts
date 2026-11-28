@@ -26,8 +26,8 @@ import { quoteIdent } from "#compiler/core/text.ts"
 import { splitStatements } from "#compiler/deploy/render/markers.ts"
 import { resolveVariables } from "#compiler/deploy/render/variables.ts"
 import { defineConfig } from "#index.ts"
-import { shopV1 } from "#test/pg/cli/fixture.ts"
-import { cliOver, configName, offlineOwner, workspace } from "#test/pg/cli/support.ts"
+import { shopV1 } from "#test/support/pg/cli/fixture.ts"
+import { cliOver, configName, offlineOwner, workspace } from "#test/support/pg/cli/support.ts"
 
 type Spelling = "lowercase" | "capitalized" | "capitals"
 

@@ -67,7 +67,7 @@ import {
 	sumBound,
 	sumKey,
 	treeQuery
-} from "#test/unit/program/records.fixtures.ts"
+} from "#test/support/unit/program/records.fixtures.ts"
 
 /** The declaration a field holds (schema/relation.ts describeDeclared). */
 const declaration = (field: unknown, what: string) =>

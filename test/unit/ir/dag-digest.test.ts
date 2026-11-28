@@ -28,7 +28,7 @@ import {
 	digestCaseGen,
 	tableDigest,
 	tableUnits
-} from "#test/unit/ir/dag-digest.fixtures.ts"
+} from "#test/support/unit/ir/dag-digest.fixtures.ts"
 
 /** Every sub-query's digest from its DAG's templates is its normal form's table's digest, and each node's and expression's template is written once for all of them. */
 export const everySubQuerysDigestFromItsDAGsTemplatesIsItsNormalFormsTablesDigestAndEachTemplateIsWrittenOnceForAllOfThem =

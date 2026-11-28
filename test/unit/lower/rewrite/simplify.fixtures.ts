@@ -12,7 +12,7 @@ import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { simplifyPass } from "#compiler/lower/optimize/simplify/index.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { validateDag } from "#test/support/oracle/dag-validate.ts"
-import { Account, Posting, Q, T, uuidOf } from "#test/unit/lower/conservative/fixtures.ts"
+import { Account, Posting, Q, T, uuidOf } from "#test/support/unit/lower/conservative/fixtures.ts"
 import {
 	deliversAlikeOn,
 	factSubsets,
@@ -23,7 +23,7 @@ import {
 	type Ran,
 	rulesOf,
 	runPasses
-} from "#test/unit/lower/rewrite/support.ts"
+} from "#test/support/unit/lower/rewrite/support.ts"
 
 /** A uuid literal of the ledger fixture's n-th id (conservative/fixtures.ts uuidOf). */
 export const u = (n: number): TypedLiteral => ({ kind: "uuid", value: uuidOf(n) })

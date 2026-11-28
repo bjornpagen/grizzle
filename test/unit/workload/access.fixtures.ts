@@ -7,7 +7,7 @@ import type { Source } from "@bjornpagen/testing/source"
 import { regex } from "arkregex"
 import { Array as Arr, Record as Rec } from "effect"
 import type { AccessPath } from "#compiler/ir/products.ts"
-import { workPrograms } from "#test/unit/workload/fixtures.ts"
+import { workPrograms } from "#test/support/unit/workload/fixtures.ts"
 
 /**
  * A readable label of a path, `task(account, priority desc, id) btree for page seek`: its method decides its keys'

@@ -30,16 +30,21 @@ import { planFiles } from "#compiler/deploy/phases/files.ts"
 import { readDecodedMeta, statedLocks } from "#compiler/deploy/render/folder.ts"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
 import {
-	carryChain,
-	planOf,
-	resolveRenamedDraw,
-	renamedDrawGen
-} from "#test/pg/migrate-gen/support.ts"
-import {
 	lockDifference,
 	type ProbedTransaction,
 	probingSession
 } from "#test/pg/migrate/lock-demand.fixtures.ts"
+import { succeeded } from "#test/support/assert.ts"
+import { parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { installedStatements } from "#test/support/migrate/kit.ts"
+import { factStatements } from "#test/support/oracle/install/load.ts"
+import { transaction } from "#test/support/oracle/install/transaction.ts"
+import {
+	carryChain,
+	planOf,
+	resolveRenamedDraw,
+	renamedDrawGen
+} from "#test/support/pg/migrate-gen/support.ts"
 import {
 	apply,
 	carried,
@@ -47,12 +52,7 @@ import {
 	drafted,
 	factSetOf,
 	noFurther
-} from "#test/pg/migrate/support.ts"
-import { succeeded } from "#test/support/assert.ts"
-import { parsedSchemaName } from "#test/support/kernel/naming.ts"
-import { installedStatements } from "#test/support/migrate/kit.ts"
-import { factStatements } from "#test/support/oracle/install/load.ts"
-import { transaction } from "#test/support/oracle/install/transaction.ts"
+} from "#test/support/pg/migrate/support.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 import { tappedSession } from "#test/support/wire-tap.ts"
 

@@ -14,8 +14,13 @@ import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.
 import { succeeded } from "#test/support/assert.ts"
 import { evaluate } from "#test/support/oracle/evaluate/catalog.ts"
 import { patternMember } from "#test/support/oracle/reference/evaluate.ts"
-import { baseParams, lowerWith, plainRender, renderSql } from "#test/unit/compute/support.ts"
-import { boundedColumn, textColumn } from "#test/unit/compute/text.fixtures.ts"
+import {
+	baseParams,
+	lowerWith,
+	plainRender,
+	renderSql
+} from "#test/support/unit/compute/support.ts"
+import { boundedColumn, textColumn } from "#test/support/unit/compute/text.fixtures.ts"
 
 /** A text, what it replaces and what it puts in each place. */
 export interface ReplaceCase {

@@ -5,7 +5,7 @@
  * an upkeep or a guard of several statements whose statements each minted their own aliases would hold `r1` twice, an
  * item for it meeting two relations, matched in one and failed or misapplied in the other.
  *
- * Each case: one of the scaling dimensions' schemas at a size of one to three (test/unit/laws/scaling.fixtures.ts),
+ * Each case: one of the scaling dimensions' schemas at a size of one to three (test/support/unit/laws/scaling.fixtures.ts),
  * installed as generate installs it (installationOf), and every routine of its manifest, bound and advised.
  *
  * Oracle: the specification, every alias of a routine declared once across its statements.
@@ -15,7 +15,7 @@ import { assert } from "@bjornpagen/testing/assert"
 import { finite } from "@bjornpagen/testing/gen"
 import { property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
-import { installationOf, scaled } from "#test/unit/laws/scaling.fixtures.ts"
+import { installationOf, scaled } from "#test/support/unit/laws/scaling.fixtures.ts"
 import {
 	readingStatements,
 	repeatedAliases,

@@ -53,7 +53,8 @@ import {
 	plantedOf,
 	plantsFeatures
 } from "#test/pg/cli/drift.fixtures.ts"
-import { worlds } from "#test/pg/cli/fixture.ts"
+import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { worlds } from "#test/support/pg/cli/fixture.ts"
 import {
 	cliOver,
 	configName,
@@ -61,8 +62,7 @@ import {
 	driftMismatches,
 	ownerOn,
 	workspace
-} from "#test/pg/cli/support.ts"
-import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
+} from "#test/support/pg/cli/support.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** Grizzle drift over a world's objects passes on a fresh installation, refuses any set of hand changes to a world's objects naming each, and passes once they are undone. */

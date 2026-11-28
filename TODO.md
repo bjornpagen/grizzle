@@ -578,7 +578,7 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
   (adapter/witness/classify.ts ReportedNames), has no unit-level oracle, since no test installation writes through a
   query entry; the MemberAt and ArrayMember relation stays the caller's string spelling at the input boundary.
 - **The type tier's stall guard reads whole seconds of CPU on Linux (PGLINUX, 2026-11-12):**
-  test/types/batch/compiler.ts:165 reads a tree's CPU time with `ps -A -o pid=,ppid=,time=`, which procps-ng 4.0.4
+  test/support/types/batch/compiler.ts:165 reads a tree's CPU time with `ps -A -o pid=,ppid=,time=`, which procps-ng 4.0.4
   prints as hh:mm:ss with no fraction, where macOS printed hundredths. The guard's own property draws windows of 1000
   to 3000 ms (test/types/batch/batch.test.ts:574), so a short clean check could read no progress for a whole window
   and be judged stalled. Unverified (not run). /proc/<pid>/stat gives the time in 10 ms ticks.
@@ -670,7 +670,7 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
   roster.
 - **CLAIMS-03, the read-once face:** parked at ~/.cache/grizzle-release/CLAIMS/parked-CLAIMS-03.patch. Thirteen other
   Cause.pretty renderers print a bare error name with no data: test/unit/adapter/layer.test.ts (three),
-  test/unit/adapter/flight-bound.test.ts, test/pg/oracle/public/run.ts (three), test/pg/migrate/support.ts,
+  test/unit/adapter/flight-bound.test.ts, test/pg/oracle/public/run.ts (three), test/support/pg/migrate/support.ts,
   bench/harness/runner.ts (four) and packages/grizzle/src/cli/run.ts's internal error.
 - **REDTESTS-04, grizzleActor through the approved recordingDriver:** grizzleActor learns a Db session's backend from a
   recording driver (BackendKeyData), per layer build. Parked at

@@ -9,7 +9,7 @@ import { catchCompileError } from "#compiler/core/canonical.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { queryValueDesc } from "#compiler/query/build/query.ts"
 import { type HalfOpen, windowSpans } from "#test/support/oracle/allen.ts"
-import { Booking, Schedule } from "#test/unit/query/fixtures.ts"
+import { Booking, Schedule } from "#test/support/unit/query/fixtures.ts"
 
 /** The relations a mask holds, in bit order: the relation of each set bit, by the declared order. */
 export const relationsOf = (mask: number): ReadonlyArray<AllenRelation> =>

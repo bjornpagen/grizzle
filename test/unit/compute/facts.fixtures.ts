@@ -9,7 +9,7 @@ import type { OpenExpr } from "#compiler/ir/open.ts"
 import { type Fact, factNames } from "#compiler/ir/proof.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import type { ScalarTerm } from "#compiler/scalar/compute/term.ts"
-import { type TestField, testPg } from "#test/unit/compute/support.ts"
+import { type TestField, testPg } from "#test/support/unit/compute/support.ts"
 
 /** The small literals a comparison draws: zero, the units and a value past them on either side. */
 type Small = -5 | -1 | 0 | 1 | 5

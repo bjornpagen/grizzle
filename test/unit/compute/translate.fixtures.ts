@@ -25,7 +25,7 @@ import { succeeded } from "#test/support/assert.ts"
 import type { ModelValue } from "#test/support/oracle/evaluate/catalog.ts"
 import { evaluate } from "#test/support/oracle/evaluate/catalog.ts"
 import { patternMember } from "#test/support/oracle/reference/evaluate.ts"
-import { type LeafBinding, testPg } from "#test/unit/compute/support.ts"
+import { type LeafBinding, testPg } from "#test/support/unit/compute/support.ts"
 import {
 	families,
 	type FiniteLanguage,
@@ -33,7 +33,7 @@ import {
 	type Flags,
 	patternOver,
 	stringsOver
-} from "#test/unit/text/generators.ts"
+} from "#test/support/unit/text/generators.ts"
 
 export const textColumn: LeafBinding = { kind: "column", type: testPg.text.scalar }
 

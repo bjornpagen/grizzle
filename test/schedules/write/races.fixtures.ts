@@ -47,7 +47,6 @@ import type { IdentifiedLaw } from "#compiler/types/changeset/changeset.ts"
 import type { ParamMap } from "#compiler/types/core/phantom.ts"
 import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
 import type { PutChoice } from "#compiler/write/put/choose.ts"
-import { defaultPool, poolFor, rowsOn } from "#test/pg/adapter/support.ts"
 import {
 	columnsOf,
 	type DirectAnswer,
@@ -66,6 +65,30 @@ import {
 	type State,
 	type Statement
 } from "#test/schedules/write/model.ts"
+import { writeAnswerOf, type WriteAnswer, writeOnce } from "#test/support/calls.ts"
+import { nonEmptyList } from "#test/support/oracle/pick.ts"
+import type { SqlError } from "#test/support/pg.ts"
+import { defaultPool, poolFor, rowsOn } from "#test/support/pg/adapter/support.ts"
+import { refusedEntries } from "#test/support/refused.ts"
+import { openActors } from "#test/support/schedules/actors.ts"
+import { type Retried, untilAnswered } from "#test/support/schedules/grizzle.ts"
+import {
+	allowed,
+	every,
+	exploreInterleavings,
+	type Footprint,
+	interleaveStep,
+	type Interleaving,
+	type Judgment,
+	movesOf,
+	noSerialOrderJudgment,
+	type OpStep,
+	refusedJudgment,
+	relationsFootprint,
+	type Strategy,
+	type Txn
+} from "#test/support/schedules/interleave.ts"
+import { beginSerializableAction, type StepOutcome } from "#test/support/schedules/types.ts"
 import {
 	Badge,
 	badgeCode,
@@ -87,30 +110,7 @@ import {
 	Seat,
 	servedChanges,
 	Zed
-} from "#test/schedules/write/support.ts"
-import { writeAnswerOf, type WriteAnswer, writeOnce } from "#test/support/calls.ts"
-import { nonEmptyList } from "#test/support/oracle/pick.ts"
-import type { SqlError } from "#test/support/pg.ts"
-import { refusedEntries } from "#test/support/refused.ts"
-import { openActors } from "#test/support/schedules/actors.ts"
-import { type Retried, untilAnswered } from "#test/support/schedules/grizzle.ts"
-import {
-	allowed,
-	every,
-	exploreInterleavings,
-	type Footprint,
-	interleaveStep,
-	type Interleaving,
-	type Judgment,
-	movesOf,
-	noSerialOrderJudgment,
-	type OpStep,
-	refusedJudgment,
-	relationsFootprint,
-	type Strategy,
-	type Txn
-} from "#test/support/schedules/interleave.ts"
-import { beginSerializableAction, type StepOutcome } from "#test/support/schedules/types.ts"
+} from "#test/support/schedules/write/support.ts"
 import type { PsqlProcessError, TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import { Substrate, type TextRows } from "#test/support/substrate/substrate.ts"
 import { type FrontendMessage, makeTap } from "#test/support/wire-tap.ts"

@@ -20,6 +20,7 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect, Formatter, Result } from "effect"
 import { rowEvaluator } from "#adapter/public/host.ts"
 import { Sha256 } from "#compiler/public/fields.ts"
+import { hexOf } from "#test/support/unit/values/support.ts"
 import {
 	type DigestPair,
 	digestPairs,
@@ -32,7 +33,6 @@ import {
 	Pairs,
 	pairForms
 } from "#test/unit/values/sha256.fixtures.ts"
-import { hexOf } from "#test/unit/values/support.ts"
 
 /**
  * A digest's hex is its bytes, two lowercase hex digits a byte, and fromHex reads back exactly the text toHex writes.

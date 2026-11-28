@@ -36,7 +36,7 @@ import { array, boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { jsMatcher } from "#test/support/regex.ts"
-import { admittedPatternOver, families, stringsOver } from "#test/unit/text/generators.ts"
+import { admittedPatternOver, families, stringsOver } from "#test/support/unit/text/generators.ts"
 
 type FoldFeature =
 	| "firstIn held"

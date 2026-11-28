@@ -35,9 +35,9 @@ import {
 	readsInstall,
 	readsTemplate
 } from "#test/pg/parameters/read-admission.fixtures.ts"
-import { openedIn } from "#test/pg/reads/support.ts"
 import { bareRecord } from "#test/support/assert.ts"
 import { rowsOf } from "#test/support/calls.ts"
+import { openedIn } from "#test/support/pg/reads/support.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 

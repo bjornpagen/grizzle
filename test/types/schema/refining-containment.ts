@@ -1,7 +1,7 @@
 import { Array as Arr, Effect } from "effect"
 import type { Refused } from "#compiler/core/refusals.ts"
 import { preludeAt, preludeFrom, preludeModule } from "#test/support/prelude.ts"
-import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/batch/batch.ts"
+import { batchOwned, caseOwned, type Entry, type Program } from "#test/support/types/batch/batch.ts"
 
 /**
  * The refining-containment programs: a containment of a field of one type into a field of another, each pg.bigint,

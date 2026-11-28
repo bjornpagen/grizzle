@@ -22,7 +22,7 @@ import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
 import { keyBuilder, onBuilder } from "#compiler/schema/statements.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
-import { requesting } from "#test/unit/physical/fixtures.ts"
+import { requesting } from "#test/support/unit/physical/fixtures.ts"
 import {
 	btreeTupleBytes,
 	type Datum,
@@ -33,7 +33,7 @@ import {
 	type KeyFieldSketch,
 	ownValue,
 	postgresBtreeMaxItem
-} from "#test/unit/schema/representability.fixtures.ts"
+} from "#test/support/unit/schema/representability.fixtures.ts"
 
 /**
  * The uses a workload's B-tree request is drawn under, each with what it does with its keys: a lookup binds each by

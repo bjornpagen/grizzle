@@ -27,7 +27,7 @@ import { canonicalFacts } from "#test/support/oracle/gen/facts.ts"
 import { type GenParam, normalQuery } from "#test/support/oracle/gen/query.ts"
 import { type GenRelation, type GenSchema, schemaName } from "#test/support/oracle/gen/schema.ts"
 import { elementAt } from "#test/support/oracle/pick.ts"
-import { plainRegion, Q } from "#test/unit/lower/conservative/fixtures.ts"
+import { plainRegion, Q } from "#test/support/unit/lower/conservative/fixtures.ts"
 
 const relation = (
 	name: string,

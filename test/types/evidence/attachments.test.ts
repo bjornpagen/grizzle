@@ -19,7 +19,7 @@ import {
 	attachRequired,
 	transactionFaults
 } from "#test/support/agreement/attachments.ts"
-import { agreement } from "#test/types/batch/agreement.ts"
+import { agreement } from "#test/support/types/batch/agreement.ts"
 
 /**
  * Over drawn attachments, the types admit a stated delivery exactly as the engine proves it, and infer the engine's

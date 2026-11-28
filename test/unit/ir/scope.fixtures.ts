@@ -28,8 +28,8 @@ import {
 import { succeeded } from "#test/support/assert.ts"
 import { toTable } from "#test/support/dag.ts"
 import { pickFrom, pickGen, pickIndex } from "#test/support/pick.ts"
-import { heading, scalarTypes } from "#test/unit/ir/fixture.ts"
-import { generatedDags } from "#test/unit/ir/population.ts"
+import { heading, scalarTypes } from "#test/support/unit/ir/fixture.ts"
+import { generatedDags } from "#test/support/unit/ir/population.ts"
 
 /** The node `id` of a table. */
 const nodeOf = (d: DagTable, id: NodeId): TableNode =>

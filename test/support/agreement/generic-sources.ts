@@ -47,7 +47,7 @@ import {
 } from "#test/support/agreement/generic-schema.ts"
 import { compileTemplate, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { preludeAt, preludeFrom, preludeModule } from "#test/support/prelude.ts"
-import { caseOwned, type Entry, type Program } from "#test/types/batch/batch.ts"
+import { caseOwned, type Entry, type Program } from "#test/support/types/batch/batch.ts"
 
 /**
  * The generic-source agreement: every statement builder written inside a helper generic over the relations its source

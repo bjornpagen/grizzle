@@ -24,8 +24,8 @@ import { check } from "#cli/check.ts"
  * never reaches.
  */
 import { silentPhases } from "#compiler/core/phase.ts"
-import { cliOver, configName, resolvedConfig, workspace } from "#test/pg/cli/support.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { cliOver, configName, resolvedConfig, workspace } from "#test/support/pg/cli/support.ts"
 import {
 	type CheckFeature,
 	config,

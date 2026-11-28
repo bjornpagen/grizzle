@@ -50,7 +50,7 @@ import {
 	type QueryForm,
 	type RewriteAgreement,
 	runPasses
-} from "#test/unit/lower/rewrite/support.ts"
+} from "#test/support/unit/lower/rewrite/support.ts"
 
 /**
  * The optimizer's population for the rewrite passes: wide payload of unbounded text alone (the reference evaluator

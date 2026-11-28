@@ -34,10 +34,16 @@ import { storedLiteral } from "#compiler/scalar/literal.ts"
 import { converterOf } from "#compiler/scalar/values/convert.ts"
 import { Decimal, normalizeNumeric, parseNumeric } from "#compiler/scalar/values/decimal.ts"
 import { faulted } from "#test/support/assert.ts"
+import { codecOf } from "#test/support/unit/codec/support.ts"
+import {
+	baseParams,
+	lowerWith,
+	param,
+	spelledExpr,
+	testPg
+} from "#test/support/unit/compute/support.ts"
+import { preconditionOf } from "#test/support/unit/compute/totality.fixtures.ts"
 import { outputText } from "#test/support/wire.ts"
-import { codecOf } from "#test/unit/codec/support.ts"
-import { baseParams, lowerWith, param, spelledExpr, testPg } from "#test/unit/compute/support.ts"
-import { preconditionOf } from "#test/unit/compute/totality.fixtures.ts"
 import { described } from "#test/unit/scalar/descriptors.fixtures.ts"
 import {
 	type ScaleFeature,

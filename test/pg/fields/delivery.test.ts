@@ -36,9 +36,9 @@ import {
 	showDrawn,
 	type Stored
 } from "#test/pg/fields/delivery.fixtures.ts"
-import { openedIn } from "#test/pg/reads/support.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { strictDelivered } from "#test/support/kernel/strict.ts"
+import { openedIn } from "#test/support/pg/reads/support.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { outputRows } from "#test/support/wire.ts"
 

@@ -9,7 +9,7 @@ import {
 	workloadProgram,
 	workloadRequired
 } from "#test/support/agreement/workloads.ts"
-import { agreement } from "#test/types/batch/agreement.ts"
+import { agreement } from "#test/support/types/batch/agreement.ts"
 
 /**
  * Over drawn workloads, the types admit exactly what the engine builds, plans and compiles, and keep each program's

@@ -6,10 +6,10 @@ import {
 	mutabilityGen,
 	type RoleCase,
 	roleCaseGen
-} from "#test/unit/physical/insert-grants.fixtures.ts"
+} from "#test/support/unit/physical/insert-grants.fixtures.ts"
 
 /** A case: two roles over the shops schema, each relation it writes under a drawn list, and each drawn relation open or
- * closed (test/unit/physical/insert-grants.fixtures.ts). */
+ * closed (test/support/unit/physical/insert-grants.fixtures.ts). */
 export interface ModesCase {
 	readonly clerk: RoleCase
 	readonly keeper: RoleCase

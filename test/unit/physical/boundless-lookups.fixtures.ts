@@ -10,7 +10,7 @@ import { query, v } from "#compiler/public/query.ts"
 import { derived, relation, schema, sealed, unit } from "#compiler/public/schema.ts"
 import { Id } from "#test/support/ids.ts"
 import { owning } from "#test/support/policy.ts"
-import { requesting } from "#test/unit/physical/fixtures.ts"
+import { requesting } from "#test/support/unit/physical/fixtures.ts"
 
 /** Each account's notes, keyed by the account first, sealed at founding, so a relation over them stands in the unit. */
 const Note = relation("Note", { account: Id, at: natural, body: bytes, label: bytes }, [

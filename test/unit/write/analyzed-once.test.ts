@@ -38,13 +38,13 @@ import { type FixtureSchema, frontendOptions } from "#test/support/compile.ts"
 import { toTable } from "#test/support/dag.ts"
 import { Work } from "#test/support/fixtures/api/work.ts"
 import { checking } from "#test/support/policy.ts"
-import { descOf, switchToManual } from "#test/unit/write/changeset/fixtures.ts"
+import { descOf, switchToManual } from "#test/support/unit/write/changeset/fixtures.ts"
 import {
 	boundTakeWriteOf,
 	chainWriteOf,
 	readersOf,
 	Shared
-} from "#test/unit/write/shared-imports.fixtures.ts"
+} from "#test/support/unit/write/shared-imports.fixtures.ts"
 
 type Feature = "no take restated" | "a take restated" | "one member" | "several members"
 

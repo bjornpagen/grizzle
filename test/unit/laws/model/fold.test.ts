@@ -34,6 +34,7 @@ import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import type { LawModel } from "#compiler/laws/model/model.ts"
+import { modelOf, onRelation } from "#test/support/unit/laws/model/natives.ts"
 import {
 	checkShape,
 	type Feature,
@@ -44,7 +45,6 @@ import {
 	removalGen,
 	shapeGen
 } from "#test/unit/laws/model/fold.fixtures.ts"
-import { modelOf, onRelation } from "#test/unit/laws/model/natives.ts"
 
 /** A fold's natives are §2.3's: its copies on two axes, its combine and its identity pins a hidden accumulator is named by its fold's law: removing a fold renames none of another fold's. */
 export const aFoldsNativesAre23sItsCopiesOnTwoAxesItsCombineAndItsIdentityPinsAHiddenAccumulatorIsNamedByItsFoldsLawRemovingAFoldRenamesNoneOfAnotherFolds =

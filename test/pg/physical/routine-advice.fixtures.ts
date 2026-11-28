@@ -9,11 +9,11 @@ import { emit, costChosen } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 import { adviceSettingName } from "#compiler/sql/print.ts"
 import type { PgConnection } from "#test/support/pg.ts"
-import { planGen } from "#test/unit/sql/advice.fixtures.ts"
+import { planGen } from "#test/support/unit/sql/advice.fixtures.ts"
 
 /**
  * A case: the routine's own advice, the printed advice of a drawn plan (sql/advice.ts printAdvice over
- * test/unit/sql/advice.fixtures.ts planGen), and the advice its caller's transaction is in force under, another plan's
+ * test/support/unit/sql/advice.fixtures.ts planGen), and the advice its caller's transaction is in force under, another plan's
  * or none.
  */
 export interface RoutineCase {

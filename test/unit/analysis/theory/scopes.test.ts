@@ -31,6 +31,7 @@ import {
 	stampAt
 } from "#compiler/ir/instant.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { theoryResult } from "#test/support/unit/analysis/theory/support.ts"
 import {
 	modelOf,
 	names,
@@ -39,7 +40,6 @@ import {
 	scopesNotes,
 	scopesSchema
 } from "#test/unit/analysis/theory/scopes.fixtures.ts"
-import { theoryResult } from "#test/unit/analysis/theory/support.ts"
 
 /** Every clock of a unit's relations shares the unit's one head, keyed by its heading, every other clock its own child's, and the fact the provers read names each clock's head and the fields that hold its key. */
 export const everyClockOfAUnitsRelationsSharesTheUnitsOneHeadKeyedByItsHeadingAndEveryOtherClockItsOwnChilds =

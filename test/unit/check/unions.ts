@@ -21,17 +21,6 @@ import type {
 } from "#test/support/fixtures/ir/desc.ts"
 import { argumentsOf } from "#test/support/list.ts"
 import {
-	type DrawnRelation,
-	type DrawnSchema,
-	drawnSchemaGen,
-	type ColumnKind,
-	type Handle,
-	handles,
-	kindOf,
-	relationAt,
-	rosterName
-} from "#test/unit/check/drawn.ts"
-import {
 	imported,
 	lit,
 	match,
@@ -46,7 +35,18 @@ import {
 	typedLit,
 	varRef,
 	varsAt
-} from "#test/unit/check/dsl.ts"
+} from "#test/support/unit/check/dsl.ts"
+import {
+	type DrawnRelation,
+	type DrawnSchema,
+	drawnSchemaGen,
+	type ColumnKind,
+	type Handle,
+	handles,
+	kindOf,
+	relationAt,
+	rosterName
+} from "#test/unit/check/drawn.ts"
 
 /**
  * Unions of rules over a drawn schema, and the checker's rules for them restated as a model: heading groups, column

@@ -2,7 +2,7 @@
 
 import { element } from "@bjornpagen/testing/gen"
 import { conservativeMeta } from "#compiler/ir/rel.ts"
-import { Q, T, Task } from "#test/unit/lower/conservative/fixtures.ts"
+import { Q, T, Task } from "#test/support/unit/lower/conservative/fixtures.ts"
 
 type Param = "account" | "other"
 

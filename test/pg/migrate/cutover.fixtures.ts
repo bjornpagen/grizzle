@@ -59,7 +59,6 @@ import {
 import { printObjectName } from "#compiler/sql/print.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import { changeSetOver } from "#compiler/write/changeset/value.ts"
-import { apply, checkedAdmission, openMigrator, sameCatalog } from "#test/pg/migrate/support.ts"
 import { ambientOwner, ordinarySession } from "#test/support/ambient.ts"
 import { writeOnce } from "#test/support/calls.ts"
 import { filledSql } from "#test/support/compile.ts"
@@ -90,6 +89,12 @@ import { type Placeholder, readsBack, review } from "#test/support/migrate/revie
 import { type RewriteObserver, rewriteObserver } from "#test/support/migrate/rewrites.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
+import {
+	apply,
+	checkedAdmission,
+	openMigrator,
+	sameCatalog
+} from "#test/support/pg/migrate/support.ts"
 import { member, withServedDb } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { fullWorld } from "#test/support/worlds.ts"

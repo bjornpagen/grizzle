@@ -6,7 +6,7 @@
  */
 import { word } from "@bjornpagen/testing/dictionary"
 import { finite } from "@bjornpagen/testing/gen"
-import { boxAgreement } from "#test/types/batch/agreement.ts"
+import { boxAgreement } from "#test/support/types/batch/agreement.ts"
 import { exactFieldsBox } from "#test/types/schema/exact-fields.dictionary.ts"
 import { exactFieldsProgram } from "#test/types/schema/exact-fields.ts"
 

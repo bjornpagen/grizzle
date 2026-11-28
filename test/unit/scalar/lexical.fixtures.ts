@@ -35,7 +35,7 @@ import {
 	startedTargetGen,
 	typeTargetGen
 } from "#test/support/lexical.ts"
-import { admittedPatternOver } from "#test/unit/text/generators.ts"
+import { admittedPatternOver } from "#test/support/unit/text/generators.ts"
 
 export const nfaOf = (source: string): Nfa => buildNfa(succeeded(parsePattern(source, "u")))
 

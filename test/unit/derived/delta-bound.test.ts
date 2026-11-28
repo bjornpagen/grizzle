@@ -39,7 +39,7 @@ import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect, Formatter } from "effect"
 import { succeeded } from "#test/support/assert.ts"
-import { compiledOf } from "#test/unit/analysis/theory/rule-query.fixtures.ts"
+import { compiledOf } from "#test/support/unit/analysis/theory/rule-query.fixtures.ts"
 import {
 	deltaSchemaOf,
 	holdingOf,

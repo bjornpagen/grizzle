@@ -44,10 +44,10 @@ import {
 	vector,
 	vectorTypeOf
 } from "#test/pg/values/carriers.fixtures.ts"
-import { exactVectorText, vectorInVerdict } from "#test/pg/vector/support.ts"
+import { exactVectorText, vectorInVerdict } from "#test/support/pg/vector/support.ts"
 import { pgErrorFields } from "#test/support/substrate/errors.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
-import { orderOf } from "#test/unit/values/support.ts"
+import { orderOf } from "#test/support/unit/values/support.ts"
 
 /**
  * Span and vector agreement with PostgreSQL orders spans as range_cmp does.

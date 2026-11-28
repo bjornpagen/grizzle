@@ -18,12 +18,17 @@ import { relationBuilder } from "#compiler/schema/relation.ts"
 import { roleBuilder as role } from "#compiler/schema/world.ts"
 import { servedPath } from "#compiler/served/forms.ts"
 import { defineConfig } from "#index.ts"
-import { cliOver, configName, offlineConnection, offlineOwner } from "#test/pg/cli/support.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
 import { callCounts, type CountedFunction } from "#test/support/kernel/calls.ts"
 import { offlineDecoders, servedSourcedLayer } from "#test/support/live-layer.ts"
 import { clusterPool } from "#test/support/pg.ts"
+import {
+	cliOver,
+	configName,
+	offlineConnection,
+	offlineOwner
+} from "#test/support/pg/cli/support.ts"
 import { ownedInput } from "#test/support/policy.ts"
 import { upTo } from "#test/support/up-to.ts"
 

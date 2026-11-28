@@ -18,11 +18,11 @@ import type { Direction } from "#compiler/core/order.ts"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import { type CatalogResult } from "#compiler/lower/shapes/catalog/rewrite.ts"
-import * as Q from "#test/pg/catalog/queries.ts"
-import { type Facts, factsGen, labFacts } from "#test/pg/catalog/support.ts"
 import { aimedSteered } from "#test/support/aims.ts"
 import type { QueryDesc } from "#test/support/fixtures/ir/desc.ts"
-import * as D from "#test/unit/check/dsl.ts"
+import * as Q from "#test/support/pg/catalog/queries.ts"
+import { type Facts, factsGen, labFacts } from "#test/support/pg/catalog/support.ts"
+import * as D from "#test/support/unit/check/dsl.ts"
 
 /** The facts with a price of the first sitting's student, below 105, on the sitting's day and on the day before. */
 const withPricedSitting = (f: Facts, amount: number): Facts => {

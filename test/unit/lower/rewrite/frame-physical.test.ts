@@ -23,8 +23,13 @@ import { conservativeMeta } from "#compiler/ir/rel.ts"
 import { existencePass } from "#compiler/lower/optimize/existence/index.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { callCounts } from "#test/support/kernel/calls.ts"
-import { Posting, Q } from "#test/unit/lower/conservative/fixtures.ts"
-import { ledgerCatalog, passContext, queryOf, runPasses } from "#test/unit/lower/rewrite/support.ts"
+import { Posting, Q } from "#test/support/unit/lower/conservative/fixtures.ts"
+import {
+	ledgerCatalog,
+	passContext,
+	queryOf,
+	runPasses
+} from "#test/support/unit/lower/rewrite/support.ts"
 
 type Situation = "a spine of one projection" | "a spine of eight projections"
 

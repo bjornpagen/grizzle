@@ -31,7 +31,7 @@ import type { PlBlock, PlFunction, PlStatement } from "#compiler/sql/ast.ts"
 import { eq, lit, types } from "#compiler/sql/build.ts"
 import { lexemesOf } from "#compiler/sql/lexer.ts"
 import { functionSource, printCommands, sqlText, writeDoBlock } from "#compiler/sql/print.ts"
-import { generatedGen, installed } from "#test/unit/physical/install.fixtures.ts"
+import { generatedGen, installed } from "#test/support/unit/physical/install.fixtures.ts"
 import { lineResolution } from "#test/unit/sql/plpgsql-lines.fixtures.ts"
 
 type LinesFeature =

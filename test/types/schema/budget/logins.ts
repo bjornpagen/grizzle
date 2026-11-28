@@ -1,7 +1,11 @@
 import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { Array as Arr } from "effect"
 import { type PreludeAt, preludeProgram } from "#test/support/prelude.ts"
-import { type EqualSteps, equalSteps, type GrowthDimension } from "#test/types/batch/measured.ts"
+import {
+	type EqualSteps,
+	equalSteps,
+	type GrowthDimension
+} from "#test/support/types/batch/measured.ts"
 
 /**
  * The login-scale program (test/types/schema/budget/logins.test.ts): a login over a schema written as qti-pie's pantry

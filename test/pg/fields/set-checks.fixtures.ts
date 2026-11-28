@@ -5,7 +5,7 @@ import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Bits, bits, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { check, closed, relation, schema } from "#compiler/public/schema.ts"
-import { fixtureTemplate } from "#test/pg/reads/support.ts"
+import { fixtureTemplate } from "#test/support/pg/reads/support.ts"
 
 const handles = ["a", "b", "c"] as const
 type Handle = (typeof handles)[number]

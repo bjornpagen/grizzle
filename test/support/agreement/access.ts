@@ -60,7 +60,7 @@ import {
 	caseOwned,
 	type Entry as ProgramEntry,
 	type Program
-} from "#test/types/batch/batch.ts"
+} from "#test/support/types/batch/batch.ts"
 
 /**
  * The access agreement: logins of roles drawn over ./access-schema.ts, each role's Task entry reading a context at a

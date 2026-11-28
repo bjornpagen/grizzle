@@ -33,8 +33,8 @@ import { canonicalText, parseValue } from "#compiler/scalar/values/identity.ts"
 import { readArrayLiteral } from "#test/support/arrays.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { carriers, type Feature, forgedCases, pairOf, pairs } from "#test/support/forged.ts"
+import { kindCodes } from "#test/support/unit/codec/support.ts"
 import { textOfParam } from "#test/support/wire.ts"
-import { kindCodes } from "#test/unit/codec/support.ts"
 
 /** A forged carrier instance is refused, or admitted as the PostgreSQL value it holds, so one value is one fact whatever its caller writes later. Its budget is its suite's before it was a property (test/unit/values/forged.test.ts at 4ca3036a): 1500 runs and 3000 steered cases. */
 export const aForgedCarrierInstanceIsRefusedOrAdmittedAsThePostgreSQLValueItHoldsSoOneValueIsOneFactWhateverItsCallerWritesLater =

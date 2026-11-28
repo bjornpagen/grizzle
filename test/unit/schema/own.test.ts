@@ -64,6 +64,13 @@ import {
 } from "#test/support/fixtures/ir/desc.ts"
 import { Id } from "#test/support/ids.ts"
 import {
+	rawClosedId,
+	rawContract,
+	rawPg,
+	rawSpan,
+	type Row
+} from "#test/support/unit/schema/support.ts"
+import {
 	Account,
 	answers,
 	atLeast,
@@ -111,7 +118,6 @@ import {
 	Work,
 	wrapped
 } from "#test/unit/schema/own.fixtures.ts"
-import { rawClosedId, rawContract, rawPg, rawSpan, type Row } from "#test/unit/schema/support.ts"
 
 /** The owned product fingerprints canonical content: order, repeats and locations drop out, meaning does not, and the canonical description owns to it. Its budget is its suite's before it was a property (test/unit/schema/own.test.ts at 4ca3036a): 200 runs and 200 steered cases. */
 export const theOwnedProductFingerprintsCanonicalContentOrderRepeatsAndLocationsDropOutMeaningDoesNotAndTheCanonicalDescriptionOwnsToIt =

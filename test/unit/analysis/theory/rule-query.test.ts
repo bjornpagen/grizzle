@@ -80,7 +80,7 @@ import {
 	textCase,
 	type TextReached,
 	textSchemaOf
-} from "#test/unit/analysis/theory/rule-query.fixtures.ts"
+} from "#test/support/unit/analysis/theory/rule-query.fixtures.ts"
 
 /** A rule over a query compiles whenever the builders admit it, a literal bound anywhere in a definition it reads. */
 export const aRuleOverAQueryCompilesWheneverTheBuildersAdmitItALiteralBoundAnywhereInADefinitionItReads =

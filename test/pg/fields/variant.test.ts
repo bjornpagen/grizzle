@@ -53,9 +53,9 @@ import {
 	variantsInstall,
 	variantsTemplate
 } from "#test/pg/fields/variant.fixtures.ts"
-import { openedIn } from "#test/pg/reads/support.ts"
 import { rowsOf, writeAnswerOf } from "#test/support/calls.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
+import { openedIn } from "#test/support/pg/reads/support.ts"
 import { refusedLaws } from "#test/support/refused.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 

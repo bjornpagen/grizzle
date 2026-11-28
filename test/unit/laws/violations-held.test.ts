@@ -28,7 +28,7 @@ import { type TheoryViolations, theoryViolations } from "#compiler/laws/model/vi
 import { succeeded } from "#test/support/assert.ts"
 import { type FixtureSchema, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { Plans, Work } from "#test/support/fixtures/api/work.ts"
-import { Shared } from "#test/unit/write/shared-imports.fixtures.ts"
+import { Shared } from "#test/support/unit/write/shared-imports.fixtures.ts"
 
 type Feature = "a schema with a closed relation" | "a schema without one"
 

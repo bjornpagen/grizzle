@@ -30,6 +30,11 @@ import {
 } from "#compiler/deploy/render/folder.ts"
 import { manifestFileName, snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
 import { defineConfig } from "#index.ts"
+import { failed, succeeded } from "#test/support/assert.ts"
+import { fixtureNeedBudget } from "#test/support/budgets.ts"
+import { chunked, joined } from "#test/support/chunked.ts"
+import { parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { migrationFolders } from "#test/support/migrate/kit.ts"
 import {
 	cli,
 	configName,
@@ -38,12 +43,7 @@ import {
 	unconnected,
 	workspace,
 	writeConfig
-} from "#test/pg/cli/support.ts"
-import { failed, succeeded } from "#test/support/assert.ts"
-import { fixtureNeedBudget } from "#test/support/budgets.ts"
-import { chunked, joined } from "#test/support/chunked.ts"
-import { parsedSchemaName } from "#test/support/kernel/naming.ts"
-import { migrationFolders } from "#test/support/migrate/kit.ts"
+} from "#test/support/pg/cli/support.ts"
 
 export type Kind =
 	| "snapshot of another schema"

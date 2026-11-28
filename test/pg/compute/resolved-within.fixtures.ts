@@ -13,9 +13,13 @@ import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { regexField } from "#compiler/text/field.ts"
-import { fixtureTemplate } from "#test/pg/reads/support.ts"
 import { climbsOf, resolvedReference } from "#test/support/oracle/evaluate/uri.ts"
-import { referenceCaseGen, rfcExamples, type UriFeature } from "#test/unit/text/uri.fixtures.ts"
+import { fixtureTemplate } from "#test/support/pg/reads/support.ts"
+import {
+	referenceCaseGen,
+	rfcExamples,
+	type UriFeature
+} from "#test/support/unit/text/uri.fixtures.ts"
 
 /** A text within 512 bytes: every base and reference, so a target is within 1,025, which a query holds. */
 const Uri = str.bytes(512, regexField<string>("^.*$", ["su"]))

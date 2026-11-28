@@ -14,10 +14,15 @@ import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.
 import { sameBytes } from "#compiler/scalar/values/bytes.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { baseParams, lowerWith, plainRender, renderSql } from "#test/unit/compute/support.ts"
-import { textColumn } from "#test/unit/compute/text.fixtures.ts"
-import { referenceCaseGen } from "#test/unit/text/uri.fixtures.ts"
-import { patternGen } from "#test/unit/text/xsd.fixtures.ts"
+import {
+	baseParams,
+	lowerWith,
+	plainRender,
+	renderSql
+} from "#test/support/unit/compute/support.ts"
+import { textColumn } from "#test/support/unit/compute/text.fixtures.ts"
+import { referenceCaseGen } from "#test/support/unit/text/uri.fixtures.ts"
+import { patternGen } from "#test/support/unit/text/xsd.fixtures.ts"
 
 /**
  * The library functions the host evaluates, whose NULLs the host decides: every one but wall, a zone's wall clock by

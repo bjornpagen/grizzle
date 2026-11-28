@@ -14,7 +14,7 @@ import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Record as Rec } from "effect"
-import { parsedOf } from "#test/unit/write/changeset/fixtures.ts"
+import { parsedOf } from "#test/support/unit/write/changeset/fixtures.ts"
 import {
 	baseOf,
 	caseGen,

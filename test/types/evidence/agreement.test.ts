@@ -57,7 +57,7 @@ import {
 	faultsRequired,
 	reorderedVerdicts
 } from "#test/support/agreement/queries.ts"
-import { agreement, boxAgreement } from "#test/types/batch/agreement.ts"
+import { agreement, boxAgreement } from "#test/support/types/batch/agreement.ts"
 import { argumentBox, admissionBox } from "#test/types/evidence/agreement.dictionary.ts"
 
 /**

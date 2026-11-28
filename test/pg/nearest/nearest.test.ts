@@ -41,7 +41,7 @@ import {
 	shownVector,
 	take
 } from "#test/pg/nearest/nearest.fixtures.ts"
-import { openedIn } from "#test/pg/reads/support.ts"
+import { openedIn } from "#test/support/pg/reads/support.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 

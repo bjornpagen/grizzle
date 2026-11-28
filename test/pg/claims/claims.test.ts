@@ -22,7 +22,7 @@
  *   reads a member, inside every derivation.
  *
  * Oracle: the specification, the world and the laws over every row, stated over the drawn state (claims.fixtures.ts); the
- * plans by EXPLAIN's reading of each scan's index condition (test/pg/physical/plan-bindings.ts scanBindings).
+ * plans by EXPLAIN's reading of each scan's index condition (test/support/pg/physical/plan-bindings.ts scanBindings).
  *
  * Features: a student's, a no-one's and a coach's reads; a clocked read of a child the claims do not bind; a whole read
  * of a relation in no unit; an outsideWorld fact; an assignment refused at another child's number; a sequence's owner
@@ -77,9 +77,9 @@ import {
 	worldOf,
 	writeOutcome
 } from "#test/pg/claims/claims.fixtures.ts"
-import { scanBindings } from "#test/pg/physical/plan-bindings.ts"
 import { rowsOf, writeAnswerOf } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
+import { scanBindings } from "#test/support/pg/physical/plan-bindings.ts"
 import { refusedEntries } from "#test/support/refused.ts"
 import { servedGenerated } from "#test/support/served-db.ts"
 import { ownerSession, Substrate, worldSession } from "#test/support/substrate/substrate.ts"

@@ -1,6 +1,6 @@
 import { Array as Arr, Effect } from "effect"
 import { preludeAt, preludeFrom, preludeModule } from "#test/support/prelude.ts"
-import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/batch/batch.ts"
+import { batchOwned, caseOwned, type Entry, type Program } from "#test/support/types/batch/batch.ts"
 
 /**
  * The roster-in program: a sitting's status, a closed id of the five-handle roster Status, and the status it mirrors,

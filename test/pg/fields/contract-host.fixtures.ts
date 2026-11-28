@@ -17,7 +17,7 @@ import {
 import { query, v } from "#compiler/public/query.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { fixtureTemplate } from "#test/pg/reads/support.ts"
+import { fixtureTemplate } from "#test/support/pg/reads/support.ts"
 
 /** A holding's tone, a closed roster's handle. */
 const Tones = closed.ordered("Tones", ["low", "mid", "high"])

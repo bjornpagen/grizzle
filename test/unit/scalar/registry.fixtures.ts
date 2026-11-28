@@ -83,8 +83,8 @@ import { contractDescriptor, spanDescriptor } from "#test/support/fixtures/descr
 import { scalarOf as registryTypeOf, undeclared } from "#test/support/fixtures/ir/scalar.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { referencePatterns } from "#test/support/oracle/reference/evaluate.ts"
-import type { DescriptorSketch } from "#test/unit/scalar/support.ts"
-import { numericText, plantedStringGen } from "#test/unit/values/support.ts"
+import type { DescriptorSketch } from "#test/support/unit/scalar/support.ts"
+import { numericText, plantedStringGen } from "#test/support/unit/values/support.ts"
 
 /** A descriptor's capabilities, as describeField reads them. */
 export const caps = (field: unknown) =>

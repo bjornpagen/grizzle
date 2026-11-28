@@ -19,8 +19,8 @@ import { OptimizedDelivery, optimizedDispatch, ShapeState } from "#compiler/lowe
 import { noKeys } from "#compiler/lower/shapes/share/keyed.ts"
 import type { EmittedSql } from "#compiler/sql/ast.ts"
 import { costChosen, sentText } from "#compiler/sql/emit.ts"
-import { asc, Q, T, Task } from "#test/unit/lower/conservative/fixtures.ts"
-import { shapedFacts, testOptions } from "#test/unit/lower/shapes/support.ts"
+import { asc, Q, T, Task } from "#test/support/unit/lower/conservative/fixtures.ts"
+import { shapedFacts, testOptions } from "#test/support/unit/lower/shapes/support.ts"
 
 /**
  * One arm of a program: a region a filter bounds by a parameter, which the region's lowering asks for its only reader

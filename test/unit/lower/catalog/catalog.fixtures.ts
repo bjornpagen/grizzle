@@ -20,14 +20,14 @@ import { type CatalogOptions } from "#compiler/lower/shapes/catalog/context.ts"
 import { CatalogEditor } from "#compiler/lower/shapes/catalog/edit.ts"
 import { type CatalogResult, rewriteCatalog } from "#compiler/lower/shapes/catalog/rewrite.ts"
 import { plainType } from "#compiler/scalar/native.ts"
-import * as Q from "#test/pg/catalog/queries.ts"
-import { checkedQuery, lab } from "#test/pg/catalog/support.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { catalogDispatch } from "#test/support/compile.ts"
 import type { AuthoredExprDesc as ExprDesc, QueryDesc } from "#test/support/fixtures/ir/desc.ts"
 import { localVectorSchema, productionNames } from "#test/support/kernel/naming.ts"
 import { schemaCodes } from "#test/support/oracle/gen/schema.ts"
-import * as D from "#test/unit/check/dsl.ts"
+import * as Q from "#test/support/pg/catalog/queries.ts"
+import { checkedQuery, lab } from "#test/support/pg/catalog/support.ts"
+import * as D from "#test/support/unit/check/dsl.ts"
 
 export const int8 = plainType("int8")
 

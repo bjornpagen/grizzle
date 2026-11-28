@@ -15,7 +15,7 @@ import { capabilitiesOf } from "#compiler/scalar/registry.ts"
 import { AnalyzedPatterns } from "#compiler/text/refinement.ts"
 import { succeeded, throwsDefect } from "#test/support/assert.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
-import { declaredTypeGen, setTypeGen } from "#test/unit/ir/types.ts"
+import { declaredTypeGen, setTypeGen } from "#test/support/unit/ir/types.ts"
 
 /** The int8 carrier, no contract. */
 const int8: ScalarType = { carrier: "int8", caps: capabilitiesOf("int8"), contract: undefined }

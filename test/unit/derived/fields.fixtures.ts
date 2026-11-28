@@ -15,12 +15,12 @@ import { Array as Arr } from "effect"
 import type { OpenExpr } from "#compiler/ir/open.ts"
 import { type TextSearchConfiguration, textSearchConfigurations } from "#compiler/ir/search.ts"
 import { numericMaxFractionDigits, numericMaxIntegerDigits } from "#compiler/scalar/values/fault.ts"
-import { upTo } from "#test/support/up-to.ts"
 import {
 	fieldSketchGen,
 	type PgMember,
 	type SketchedField
-} from "#test/unit/schema/field-sketch.ts"
+} from "#test/support/unit/schema/field-sketch.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /** A relation of drawn fields: each roster's handle count, and its fields' types, each contract named by its field. */
 interface DeclaredCase {

@@ -40,10 +40,10 @@ import {
 import { defaultGenConfig, type QueryCase, queryCaseGen } from "#test/support/oracle/gen/case.ts"
 import { schemaCodes } from "#test/support/oracle/gen/schema.ts"
 import { unitCarrierName } from "#test/support/sql.ts"
+import { everyKind, fixtureCodes } from "#test/support/unit/ir/fixture.ts"
+import { Account, Q, T, Task } from "#test/support/unit/lower/conservative/fixtures.ts"
+import * as Cases from "#test/support/unit/lower/conservative/queries.ts"
 import { upTo } from "#test/support/up-to.ts"
-import { everyKind, fixtureCodes } from "#test/unit/ir/fixture.ts"
-import { Account, Q, T, Task } from "#test/unit/lower/conservative/fixtures.ts"
-import * as Cases from "#test/unit/lower/conservative/queries.ts"
 
 /**
  * The names a hand-built DAG lowers under: production's stand-ins for its relations, under Kind's codes, and the domain

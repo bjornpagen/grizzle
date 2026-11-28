@@ -12,7 +12,7 @@ import {
 	type Entry,
 	type Part,
 	type Program
-} from "#test/types/batch/batch.ts"
+} from "#test/support/types/batch/batch.ts"
 import {
 	type Family,
 	type Flags,
@@ -20,11 +20,11 @@ import {
 	patternOver,
 	stringsOver,
 	walkGen
-} from "#test/unit/text/generators.ts"
+} from "#test/support/unit/text/generators.ts"
 
 /**
  * The containment programs of test/types/text/regex.test.ts: a case is one family of the regex differential tests
- * (test/unit/text/generators.ts) and two of its patterns, each handwritten or generated, each admitted one with the
+ * (test/support/unit/text/generators.ts) and two of its patterns, each handwritten or generated, each admitted one with the
  * members ECMAScript accepts among the case's strings over the family's alphabet and walks over the pattern's own host
  * NFA, assigned to `Infer<typeof str.regex(...)>`; and, where both are admitted, their conjunction by str.and with the
  * values both accept, assigned to `Infer<typeof str.and(...)>`. A program must typecheck with no diagnostic at all, so

@@ -23,6 +23,7 @@ import { outputTextOf } from "#compiler/core/decoder.ts"
 import type { Cell } from "#compiler/core/wire.ts"
 import { arrayElements, fusedElement, fusedTexts } from "#compiler/runtime/lower/fused.ts"
 import { strictArrayText } from "#test/support/kernel/strict.ts"
+import { present } from "#test/support/unit/lower/support.ts"
 import { outputRows, outputText } from "#test/support/wire.ts"
 import {
 	arrayOut,
@@ -32,7 +33,6 @@ import {
 	quoted,
 	textGen
 } from "#test/unit/lower/shapes/attach.fixtures.ts"
-import { present } from "#test/unit/lower/support.ts"
 
 /**
  * The fused attachment codec reads each child's texts back from the column PostgreSQL writes, the correlated ones from

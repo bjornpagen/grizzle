@@ -40,7 +40,7 @@ import {
 	oracleState
 } from "#test/support/oracle/addwins.ts"
 import { type FactTexts, identityOrder } from "#test/support/oracle/delta.ts"
-import { codesOf, compiled, cs, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
+import { codesOf, compiled, cs, parsedOf } from "#test/support/unit/write/changeset/fixtures.ts"
 
 /** The classes of Bucket's key generation: m is a's remainder modulo them. */
 const classes = 3

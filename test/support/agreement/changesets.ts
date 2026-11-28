@@ -67,13 +67,13 @@ import { messageOf } from "#test/support/message.ts"
 import { refinedMember } from "#test/support/oracle/refinement.ts"
 import { checking } from "#test/support/policy.ts"
 import { preludeAt, preludeFrom, preludeModule } from "#test/support/prelude.ts"
-import { upTo } from "#test/support/up-to.ts"
 import {
 	batchOwned,
 	caseOwned,
 	type Entry as ProgramEntry,
 	type Program
-} from "#test/types/batch/batch.ts"
+} from "#test/support/types/batch/batch.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /**
  * The ChangeSet population: ChangeSets drawn over Work (./changeset-schema.ts), each read twice, as TypeScript source

@@ -20,8 +20,8 @@ import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import { Id } from "#test/support/ids.ts"
 import { messageOf } from "#test/support/message.ts"
 import { identifiers, preludeAt, preludeFrom, preludeModule } from "#test/support/prelude.ts"
+import { batchOwned, caseOwned, type Entry, type Program } from "#test/support/types/batch/batch.ts"
 import { upTo } from "#test/support/up-to.ts"
-import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/batch/batch.ts"
 
 /**
  * The recursion agreement: recursive queries, query(Graph).recursive(name, { row, base, rec }), drawn over

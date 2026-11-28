@@ -6,7 +6,7 @@
  * into, is placed and deduplicated in time linear in its distinct parts.
  *
  * The box, exhausted: one insert of the top of a chain of 2, 8, 32, 128 or 512 bound queries, each level two rules
- * that read the level below (test/unit/write/shared-imports.fixtures.ts), unioned with the same insert built again,
+ * that read the level below (test/support/unit/write/shared-imports.fixtures.ts), unioned with the same insert built again,
  * equal and of no object in common, and with a variant reading one filter more. At 32 levels the chain's canonical text
  * would be about 2^32 times a level's, past the longest string a process holds; at 512 its Description nests 3,601
  * containers deep, which the identity text walks on the heap (core/canonical.ts writeIdentityText), the small stack the
@@ -43,7 +43,7 @@ import {
 	chainReadersOf,
 	chainVariantWriteOf,
 	chainWriteOf
-} from "#test/unit/write/shared-imports.fixtures.ts"
+} from "#test/support/unit/write/shared-imports.fixtures.ts"
 
 /** The depths of the box: 2, 8, 32, 128, 512 and 2,048, each four times the one before. */
 const depthGen: Gen<number> = map(int(0, 5), (i) => 2 * 4 ** i)

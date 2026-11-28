@@ -10,7 +10,7 @@ import {
 	type Subject
 } from "#test/support/agreement/delete-where.ts"
 import { preludeAt, preludeFrom, preludeModule } from "#test/support/prelude.ts"
-import { caseOwned, type Entry, type Program } from "#test/types/batch/batch.ts"
+import { caseOwned, type Entry, type Program } from "#test/support/types/batch/batch.ts"
 
 /**
  * The deleteWhere program: every case of the deleteWhere box (test/support/agreement/delete-where.ts), its call written

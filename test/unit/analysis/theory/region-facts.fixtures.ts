@@ -22,7 +22,7 @@ import {
 	schemaOf,
 	type TestTheory,
 	violates
-} from "#test/unit/analysis/theory/support.ts"
+} from "#test/support/unit/analysis/theory/support.ts"
 
 /** The box's four plain relations, each of the fields k, x and y. */
 const plain = ["A", "B", "C", "D"] as const

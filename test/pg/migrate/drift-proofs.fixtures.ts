@@ -19,7 +19,7 @@ import { triggerDisabled } from "#test/support/drift/hand-change.ts"
 import { atName } from "#test/support/kernel/naming.ts"
 import { draftChain, fromEmpty, noDeclarations } from "#test/support/migrate/kit.ts"
 import { testSql } from "#test/support/sql.ts"
-import { shopV1, shopV2, shopV3, shopV3Declared } from "#test/unit/deploy/schemas.ts"
+import { shopV1, shopV2, shopV3, shopV3Declared } from "#test/support/unit/deploy/schemas.ts"
 
 /** The shop's versions, each over the one before (flights.fixtures.ts). */
 export const versions = [

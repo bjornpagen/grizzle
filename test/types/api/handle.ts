@@ -1,6 +1,6 @@
 import { Array as Arr, Effect, String as Str } from "effect"
 import { preludeAt, preludeFrom, preludeModule } from "#test/support/prelude.ts"
-import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/batch/batch.ts"
+import { batchOwned, caseOwned, type Entry, type Program } from "#test/support/types/batch/batch.ts"
 
 /**
  * The member-handle program: the box of every kind of served program a handle runs (a query, a paged ordered query, a

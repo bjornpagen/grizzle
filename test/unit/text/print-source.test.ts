@@ -29,8 +29,8 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
+import { wholeLanguageGen } from "#test/support/unit/text/generators.ts"
 import { dfaLimits } from "#test/unit/text/emptiness.fixtures.ts"
-import { wholeLanguageGen } from "#test/unit/text/generators.ts"
 
 type SourceFeature = "the empty language" | "an anchored language" | "an unanchored language"
 

@@ -40,7 +40,6 @@ import {
 	committedCategory,
 	type EscapeFeature,
 	escapeGen,
-	generatedRuns,
 	initialName,
 	type NameFeature,
 	nameCharacter,
@@ -52,7 +51,8 @@ import {
 	refusedGen,
 	wordsGen,
 	type XsdFeature
-} from "#test/unit/text/xsd.fixtures.ts"
+} from "#test/support/unit/text/xsd.fixtures.ts"
+import { generatedRuns } from "#test/unit/text/xsd-runs.fixtures.ts"
 
 /** The reader's language holds exactly the words each drawn pattern's meaning holds, by Appendix F's definitions. */
 export const xsdPatternReadsEveryDrawnPatternAsAppendixFDefinesItsLanguage = property.explore(
@@ -149,7 +149,7 @@ export const xsdPatternReadsEveryDrawnPatternAsAppendixFDefinesItsLanguage = pro
 		],
 		kills: [
 			{
-				file: "test/unit/text/xsd.fixtures.ts",
+				file: "test/support/unit/text/xsd.fixtures.ts",
 				original: "\tconst root = compiled(oracle, { n: 0 })\n",
 				replacement:
 					'\tconst backtracking = compiledPattern(oracleText(oracle), "v")\n\treturn (word) => backtracking.test(word)\n\tconst root = compiled(oracle, { n: 0 })\n',

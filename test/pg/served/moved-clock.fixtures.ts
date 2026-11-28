@@ -8,7 +8,7 @@ import { contract, instant, mintOf, pg } from "#compiler/public/fields.ts"
 import { param, query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { clocked } from "#compiler/public/workload.ts"
-import { fixtureTemplate } from "#test/pg/reads/support.ts"
+import { fixtureTemplate } from "#test/support/pg/reads/support.ts"
 
 const spanKey = Symbol("Span")
 /** A lease's budget, bounded, so a reading plus it fits a bigint under its guard. */

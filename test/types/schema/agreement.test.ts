@@ -13,7 +13,7 @@ import {
 	schemaProgram,
 	schemaRequired
 } from "#test/support/agreement/schemas.ts"
-import { agreement, boxAgreement } from "#test/types/batch/agreement.ts"
+import { agreement, boxAgreement } from "#test/support/types/batch/agreement.ts"
 import { schemaKeptBox } from "#test/types/schema/agreement.dictionary.ts"
 
 /**

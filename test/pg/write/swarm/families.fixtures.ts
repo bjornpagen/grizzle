@@ -15,14 +15,6 @@ import {
 	type SwarmCase
 } from "#test/pg/write/swarm/oracle.ts"
 import {
-	type BuiltSwarm,
-	familyOf,
-	nonEmptyRelations,
-	type SwarmFeature,
-	swarmInstanceGen,
-	type SwarmSpec
-} from "#test/pg/write/swarm/spec.ts"
-import {
 	familyNamed,
 	generationOfV,
 	type InstanceRow,
@@ -32,6 +24,14 @@ import {
 	writesVerdict
 } from "#test/support/families/fill.ts"
 import { installMigrated } from "#test/support/install-migrate.ts"
+import {
+	type BuiltSwarm,
+	familyOf,
+	nonEmptyRelations,
+	type SwarmFeature,
+	swarmInstanceGen,
+	type SwarmSpec
+} from "#test/support/pg/write/swarm/spec.ts"
 import { tableState } from "#test/support/substrate/state.ts"
 import { upTo } from "#test/support/up-to.ts"
 
@@ -45,7 +45,7 @@ import { upTo } from "#test/support/up-to.ts"
  * three strata mixing plain inserts, puts and deletes with family inserts (nested, one member per fact, every fact
  * twice), deletes, moves, recounts, owner column changes, a query's insert, a put from a query and a delete of
  * everything, its rows as arrays or each top relation whole by a field-equality selection (ChangeSet.deleteWhere), at up
- * to 150 facts and more (test/pg/write/swarm/spec.ts and case.ts).
+ * to 150 facts and more (test/support/pg/write/swarm/spec.ts and case.ts).
  *
  * Every ChangeSet is served as an application writes it (changes.ts): the first member of an op and relation an array
  * member and every further one a query member over a relation parameter of its own, but where the served compile

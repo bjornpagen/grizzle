@@ -18,7 +18,6 @@ import { installOptions } from "#compiler/physical/install/compile.ts"
 import { parseSchemaInput } from "#compiler/program/input.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
-import { type CaseSketch, type GenSchema, unitLocalSketchGen } from "#test/pg/derived/oracle/gen.ts"
 import {
 	check as checkDesc,
 	contained,
@@ -35,6 +34,11 @@ import {
 	type AuthoredStatementDesc as StatementDesc
 } from "#test/support/fixtures/ir/desc.ts"
 import { ReportsDesc, WorkDesc } from "#test/support/fixtures/ir/work.ts"
+import {
+	type CaseSketch,
+	type GenSchema,
+	unitLocalSketchGen
+} from "#test/support/pg/derived/oracle/gen.ts"
 import { pickGen, pickIndex } from "#test/support/pick.ts"
 import { ownedInput, ownInput } from "#test/support/policy.ts"
 

@@ -4,8 +4,6 @@ import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { type Oracle } from "@bjornpagen/testing/property"
 import { Array as Arr, Option } from "effect"
-import { FOLD_SPECS, type FoldSpec, type FoldVerdict } from "#test/pg/fin/folds.ts"
-import { type EndFeature, seatTemplate } from "#test/pg/fin/installed.ts"
 import {
 	type FoldFamily,
 	type FoldStored,
@@ -15,6 +13,8 @@ import {
 	identityOf,
 	type Planes
 } from "#test/support/families/fold.ts"
+import { FOLD_SPECS, type FoldSpec, type FoldVerdict } from "#test/support/pg/fin/folds.ts"
+import { type EndFeature, seatTemplate } from "#test/support/pg/fin/installed.ts"
 import { upTo } from "#test/support/up-to.ts"
 
 /** A single junk accumulator of a family (the header's kinds), at a slot and a plane where it names one. */

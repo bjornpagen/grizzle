@@ -37,10 +37,10 @@ import {
 	space,
 	wrongLength
 } from "#test/pg/fields/sha256.fixtures.ts"
-import { probe } from "#test/pg/physical/checks.ts"
-import { openedIn } from "#test/pg/reads/support.ts"
 import { rowsOf, writeAnswerOf } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
+import { probe } from "#test/support/pg/physical/checks.ts"
+import { openedIn } from "#test/support/pg/reads/support.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
 /** A digest's bytes as hex, a failure where a value read back is no array of bytes. */

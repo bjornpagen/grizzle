@@ -6,7 +6,7 @@ import { workload } from "#compiler/public/workload.ts"
 import { jsonOf } from "#test/support/chunked.ts"
 import { Id } from "#test/support/ids.ts"
 import { compiledLogin } from "#test/support/served-login.ts"
-import { firstCodes } from "#test/unit/live/openapi.fixtures.ts"
+import { firstCodes } from "#test/support/unit/live/openapi.fixtures.ts"
 
 /** The login whose OpenAPI document the client is opened over: one role reading one query of one relation. */
 const Item = relation("Item", { id: Id, n: pg.integer }, ["id"])

@@ -7,7 +7,7 @@ import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, derived, on, relation, schema, select } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { seatTemplate } from "#test/pg/fin/installed.ts"
+import { seatTemplate } from "#test/support/pg/fin/installed.ts"
 
 /** A text of up to 8 letters, a type other than BText's x, of up to 3. */
 const Longer = str.regex("^[a-z]{1,8}$")

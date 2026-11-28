@@ -17,7 +17,7 @@ import { succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { Id } from "#test/support/ids.ts"
 import { checking } from "#test/support/policy.ts"
-import { descOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
+import { descOf, uuidOf } from "#test/support/unit/write/changeset/fixtures.ts"
 
 /** Doc(id, nodes drawn): the owner of a counted family of Node. */
 const Doc = relation("Doc", { id: Id, nodes: drawn(natural) }, ["id"])

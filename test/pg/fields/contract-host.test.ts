@@ -30,9 +30,9 @@ import {
 	notes,
 	space
 } from "#test/pg/fields/contract-host.fixtures.ts"
-import { openedIn } from "#test/pg/reads/support.ts"
 import { rowsOf, writeAnswerOf } from "#test/support/calls.ts"
 import { exactValue } from "#test/support/equivalence.ts"
+import { openedIn } from "#test/support/pg/reads/support.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 const byId = Order.mapInput(Order.Number, (row: { readonly id: number }) => row.id)

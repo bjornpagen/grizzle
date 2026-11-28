@@ -24,7 +24,6 @@ import { agree, exact, ordered } from "@bjornpagen/testing/oracle"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
-import { inInstallation } from "#test/pg/compute/support.ts"
 import {
 	batchGen,
 	createLibrary,
@@ -32,7 +31,8 @@ import {
 	testedSql,
 	type XsdPatternFeature
 } from "#test/pg/compute/xsd-pattern.fixtures.ts"
-import { truth } from "#test/pg/text/differential.fixtures.ts"
+import { inInstallation } from "#test/support/pg/compute/support.ts"
+import { truth } from "#test/support/pg/text/differential.fixtures.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**

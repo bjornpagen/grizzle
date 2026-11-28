@@ -16,7 +16,7 @@ import {
 	Q,
 	T,
 	uuidOf
-} from "#test/unit/lower/conservative/fixtures.ts"
+} from "#test/support/unit/lower/conservative/fixtures.ts"
 import {
 	deliversAlikeOn,
 	factSubsets,
@@ -27,7 +27,7 @@ import {
 	queryOf,
 	type Ran,
 	runPasses
-} from "#test/unit/lower/rewrite/support.ts"
+} from "#test/support/unit/lower/rewrite/support.ts"
 
 /** A uuid literal of the ledger fixture's n-th id (conservative/fixtures.ts uuidOf). */
 const u = (n: number): TypedLiteral => ({ kind: "uuid", value: uuidOf(n) })

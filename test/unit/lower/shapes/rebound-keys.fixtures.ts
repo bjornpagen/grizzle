@@ -20,7 +20,7 @@ import { compileWrite } from "#compiler/write/program/compile.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { compileTemplate, realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { checking } from "#test/support/policy.ts"
-import { descOf } from "#test/unit/write/changeset/fixtures.ts"
+import { descOf } from "#test/support/unit/write/changeset/fixtures.ts"
 
 /** A learner's id as the ledger keys it, a text of a byte bound, as metis's LearnerId. */
 const Learner = str.bytes(69, str.regex("^.+$", "su"))

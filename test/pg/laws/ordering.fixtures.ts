@@ -9,16 +9,16 @@ import { Range } from "#compiler/public/compute.ts"
 import { contract, mintOf, pg, span } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { check, derived, relation, schema } from "#compiler/public/schema.ts"
+import { succeeded } from "#test/support/assert.ts"
+import { asDataStep } from "#test/support/data-step.ts"
+import type { PgErrorFields } from "#test/support/pg.ts"
 import {
 	type Seat,
 	type SeatCase,
 	type SeatTemplate,
 	seatIn,
 	seatTemplate
-} from "#test/pg/fin/installed.ts"
-import { succeeded } from "#test/support/assert.ts"
-import { asDataStep } from "#test/support/data-step.ts"
-import type { PgErrorFields } from "#test/support/pg.ts"
+} from "#test/support/pg/fin/installed.ts"
 import { firstRefusalOf, refusalOf } from "#test/support/substrate.ts"
 
 const secondsKey = Symbol("Seconds")

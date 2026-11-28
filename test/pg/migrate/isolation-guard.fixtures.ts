@@ -26,20 +26,20 @@ import {
 	wholeEntriesOf
 } from "#compiler/public/schema.ts"
 import { defineConfig } from "#index.ts"
-import { offlineOwner } from "#test/pg/cli/support.ts"
-import {
-	type Aim,
-	apply,
-	checkedAdmission,
-	openMigrator,
-	sameCatalog
-} from "#test/pg/migrate/support.ts"
 import { ambientOwner, ordinarySession } from "#test/support/ambient.ts"
 import { installationSql } from "#test/support/compile.ts"
 import { repoRoot } from "#test/support/files.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { draftedAt, noDeclarations } from "#test/support/migrate/kit.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
+import { offlineOwner } from "#test/support/pg/cli/support.ts"
+import {
+	type Aim,
+	apply,
+	checkedAdmission,
+	openMigrator,
+	sameCatalog
+} from "#test/support/pg/migrate/support.ts"
 import { attemptChecked } from "#test/support/substrate.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 

@@ -10,9 +10,9 @@ import { query, v } from "#compiler/public/query.ts"
 import { mutable, relation, schema, unit } from "#compiler/public/schema.ts"
 import { floatBits } from "#compiler/scalar/compute/float.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
-import { fixtureTemplate } from "#test/pg/reads/support.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
 import type { SqlError } from "#test/support/pg.ts"
+import { fixtureTemplate } from "#test/support/pg/reads/support.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**

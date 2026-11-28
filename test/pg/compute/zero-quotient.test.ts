@@ -19,7 +19,6 @@ import { agree, exact, ordered } from "@bjornpagen/testing/oracle"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
-import { inInstallation, textCell } from "#test/pg/compute/support.ts"
 import {
 	batchGen,
 	byZero,
@@ -32,6 +31,7 @@ import {
 	quotientSql,
 	type ZeroQuotientFeature
 } from "#test/pg/compute/zero-quotient.fixtures.ts"
+import { inInstallation, textCell } from "#test/support/pg/compute/support.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**

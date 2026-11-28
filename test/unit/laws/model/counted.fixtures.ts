@@ -24,8 +24,13 @@ import {
 	type SchemaDesc
 } from "#test/support/fixtures/ir/desc.ts"
 import type { ModelValue } from "#test/support/oracle/evaluate/catalog.ts"
+import {
+	drawnColumn,
+	modelOf,
+	type Row,
+	type State
+} from "#test/support/unit/laws/model/natives.ts"
 import { upTo } from "#test/support/up-to.ts"
-import { drawnColumn, modelOf, type Row, type State } from "#test/unit/laws/model/natives.ts"
 
 /**
  * A counted family's natives admit exactly grizzle's plans and refuse every lawless state (fin.md §4.2, §4.5, w4-w7

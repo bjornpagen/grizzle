@@ -17,7 +17,6 @@ import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { Db } from "#adapter/public/db.ts"
-import { openedIn } from "#test/pg/reads/support.ts"
 import {
 	expected,
 	type Feature,
@@ -31,6 +30,7 @@ import {
 	setText,
 	sketchGen
 } from "#test/pg/reads/zero-merge.fixtures.ts"
+import { openedIn } from "#test/support/pg/reads/support.ts"
 import { planShapeOn } from "#test/support/plan-shapes.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"

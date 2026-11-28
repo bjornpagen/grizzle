@@ -1,7 +1,7 @@
 /**
  * A check over a chain of unions is judged on PostgreSQL 19 as its violation query reads it. Top is a chain one to four
  * deep of unions of two rules over Node, each rule reading the level below once or twice, the first at kind 0 and the
- * second at every kind but 0, under a check that every row's kind is at most 100 (test/unit/physical/judge-size.fixtures.ts
+ * second at every kind but 0, under a check that every row's kind is at most 100 (test/support/unit/physical/judge-size.fixtures.ts
  * unionSchemaOf). Node is keyed by its document first, so the check is judged whole over the documents a transaction
  * wrote. Each level is one node per unit at each set of values it is read at, bound to the values its importer bound
  * (check/checker.ts #bindValue), which every rule of the level above reads: a node correlated to values the unit's own

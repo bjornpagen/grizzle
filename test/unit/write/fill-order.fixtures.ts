@@ -68,7 +68,7 @@ import {
 import { Id } from "#test/support/ids.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { checking, owning } from "#test/support/policy.ts"
-import { descOf, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
+import { descOf, parsedOf } from "#test/support/unit/write/changeset/fixtures.ts"
 
 /** What a drawn schema reaches: admitted, refused by each cause, each shape the engine once refused, and a follow-up written. */
 export type FillSituation =

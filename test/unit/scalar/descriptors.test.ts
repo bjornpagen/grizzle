@@ -4,7 +4,7 @@
  *
  * - descriptor identity and distinct types: two spellings of the pg namespace are two descriptors of two types, and two
  *   descriptors one type exactly when their parts name one; a
- *   descriptor's Description decodes to itself, keys in order. Oracle: the sketches' own parts (test/unit/scalar/support.ts), a specification.
+ *   descriptor's Description decodes to itself, keys in order. Oracle: the sketches' own parts (test/support/unit/scalar/support.ts), a specification.
  * - typmods: numeric(p, s) and vector(n) admit exactly what PostgreSQL's rules admit, at every integer near their
  *   bounds and every wild argument, and refuse every other argument and arity as MalformedDescription. Oracle:
  *   PostgreSQL's published rules, restated from the published limits (vectorMaxDimensions, the integer carriers'
@@ -41,6 +41,12 @@ import { succeeded, throwsRefused } from "#test/support/assert.ts"
 import { spanDescriptor } from "#test/support/fixtures/descriptors.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import {
+	descriptorGen,
+	descriptorOf,
+	spanCarrierOf,
+	typeKeyOf
+} from "#test/support/unit/scalar/support.ts"
+import {
 	admits,
 	boundsReached,
 	type ClosedIdFeature,
@@ -72,7 +78,6 @@ import {
 	type VectorFeature,
 	vectorSpace
 } from "#test/unit/scalar/descriptors.fixtures.ts"
-import { descriptorGen, descriptorOf, spanCarrierOf, typeKeyOf } from "#test/unit/scalar/support.ts"
 
 /** Two spellings of the pg namespace are two descriptors of two types. */
 export const twoSpellingsAreTwoDescriptorsOfTwoTypes = property.exhaust(finite(plainPairGen), {

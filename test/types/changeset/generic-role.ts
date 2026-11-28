@@ -1,7 +1,7 @@
 import { Array as Arr, Effect } from "effect"
 import type { Refused } from "#compiler/core/refusals.ts"
 import { preludeAt, preludeFrom, preludeModule } from "#test/support/prelude.ts"
-import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/batch/batch.ts"
+import { batchOwned, caseOwned, type Entry, type Program } from "#test/support/types/batch/batch.ts"
 
 /**
  * The generic-role programs: a ChangeSet over a level taken over a role by ChangeSet.over, the role given built, or as a

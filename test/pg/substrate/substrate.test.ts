@@ -5,7 +5,7 @@
  * Each case runs in a database of its own (Substrate.fresh), cloned from the base template for it and dropped after it.
  *
  * The released-roles property draws a schema and who creates roles under its prefix: the substrate, which gives each
- * role a finalizer of its own, an installation, a shop generated and migrated into it (test/pg/cli/fixture.ts shopV1)
+ * role a finalizer of its own, an installation, a shop generated and migrated into it (test/support/pg/cli/fixture.ts shopV1)
  * whose migration creates its world roles `reader` and `writer` with no finalizer, both, or neither. Once the schema's
  * scope closes, no role under its prefix remains on the substrate's member, the one the case's database is on, where
  * its roles live, cluster-wide: the schema's release sweeps every `<schema>_*` role, so a role an installation created
@@ -18,7 +18,6 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
-import { shopV1 } from "#test/pg/cli/fixture.ts"
 import {
 	releaseAims,
 	type ReleaseFeature,
@@ -28,6 +27,7 @@ import {
 } from "#test/pg/substrate/substrate.fixtures.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { installGenerated } from "#test/support/install-migrate.ts"
+import { shopV1 } from "#test/support/pg/cli/fixture.ts"
 import { freshSchema, Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** A schema's release drops every role under its prefix, the ones an installation created among them. */

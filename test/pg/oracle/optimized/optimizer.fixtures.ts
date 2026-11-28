@@ -11,7 +11,7 @@ import { aggregateOpId, aggregateResult } from "#test/support/oracle/gen/ops.ts"
 import { normalQuery } from "#test/support/oracle/gen/query.ts"
 import { type GenRelation, schemaName } from "#test/support/oracle/gen/schema.ts"
 import { literalOfValue } from "#test/support/oracle/reference/values.ts"
-import { type AggregateSpec, Q } from "#test/unit/lower/conservative/fixtures.ts"
+import { type AggregateSpec, Q } from "#test/support/unit/lower/conservative/fixtures.ts"
 
 /**
  * The features the optimizer's population must reach, beyond the rules: pipelined attachments and heading groups run

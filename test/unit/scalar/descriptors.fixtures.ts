@@ -44,8 +44,12 @@ import {
 import { closedBuilder } from "#compiler/schema/relation.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { fieldIdentity } from "#test/support/fixtures/descriptors.ts"
+import {
+	type DescriptorSketch,
+	descriptorGen,
+	endpointGen
+} from "#test/support/unit/scalar/support.ts"
 import { plainSketches } from "#test/unit/scalar/descriptors.dictionary.ts"
-import { type DescriptorSketch, descriptorGen, endpointGen } from "#test/unit/scalar/support.ts"
 
 /** int4's greatest value, the greatest width an integer endpoint's span admits. */
 const int4Greatest = Number(integerRanges.int4[1])

@@ -11,7 +11,7 @@ import { Agree, Cell } from "#test/support/agreement/schema.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import { Id } from "#test/support/ids.ts"
 import { type PreludeAt, preludeModule } from "#test/support/prelude.ts"
-import { batchOwned, caseOwned, type Program } from "#test/types/batch/batch.ts"
+import { batchOwned, caseOwned, type Program } from "#test/support/types/batch/batch.ts"
 
 /**
  * The argument agreement: every shape of a query's parameters against every form of argument a caller may pass as the

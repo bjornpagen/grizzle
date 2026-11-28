@@ -15,8 +15,8 @@ import { ChangeSet } from "#compiler/public/changeset.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { mutable, relation, schema, unit } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { fixtureTemplate } from "#test/pg/reads/support.ts"
 import { Id } from "#test/support/ids.ts"
+import { fixtureTemplate } from "#test/support/pg/reads/support.ts"
 
 const Body = str.regex("^.*$", "su")
 const Note = relation("Note", { id: Id, body: Body }, ["id"])

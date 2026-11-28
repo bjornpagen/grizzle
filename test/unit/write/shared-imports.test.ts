@@ -59,7 +59,7 @@ import { topoOrder } from "#compiler/ir/dag.ts"
 import type { RelNode } from "#compiler/ir/rel.ts"
 import { EvaluationKeys } from "#compiler/lower/conservative/call/keys.ts"
 import { callCounts } from "#test/support/kernel/calls.ts"
-import { compiled } from "#test/unit/write/changeset/fixtures.ts"
+import { compiled } from "#test/support/unit/write/changeset/fixtures.ts"
 import {
 	chainWriteOf,
 	depthGen,
@@ -71,7 +71,7 @@ import {
 	readersGen,
 	readersOf,
 	Shared
-} from "#test/unit/write/shared-imports.fixtures.ts"
+} from "#test/support/unit/write/shared-imports.fixtures.ts"
 
 /** The scans of `relation` among `nodes`. */
 const scansOf = (nodes: ReadonlyArray<RelNode>, relation: string): number =>

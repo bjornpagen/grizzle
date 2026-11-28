@@ -4,6 +4,7 @@ import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { foldApplied } from "#test/support/families/fold.ts"
+import { brokenBy, immediate } from "#test/support/unit/laws/model/natives.ts"
 import {
 	caseGen,
 	drawnNeed,
@@ -13,7 +14,6 @@ import {
 	statementsOf,
 	stateOf
 } from "#test/unit/laws/model/counted.fixtures.ts"
-import { brokenBy, immediate } from "#test/unit/laws/model/natives.ts"
 
 /** A counted family's natives admit grizzle's plans and refuse every lawless state swap-with-last and appends pass every immediate native at each statement's end. */
 export const aCountedFamilysNativesAdmitGrizzlesPlansAndRefuseEveryLawlessStateSwapWithLastAndAppendsPassEveryImmediateNativeAtEachStatementsEnd =

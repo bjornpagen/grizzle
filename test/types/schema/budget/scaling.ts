@@ -2,7 +2,7 @@ import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { Array as Arr } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { type PreludeAt, preludeProgram } from "#test/support/prelude.ts"
-import { type EqualSteps, equalSteps } from "#test/types/batch/measured.ts"
+import { type EqualSteps, equalSteps } from "#test/support/types/batch/measured.ts"
 
 /**
  * The schema-scale programs, one per schema dimension, each checked at three sizes an equal step apart (scaling.test.ts),

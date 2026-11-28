@@ -27,7 +27,6 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Order, String as Str } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import type { LawId } from "#compiler/core/ids.ts"
-import { openedIn } from "#test/pg/reads/support.ts"
 import {
 	Doc,
 	docLines,
@@ -66,6 +65,7 @@ import {
 } from "#test/pg/write/generated-pk/generated-pk.fixtures.ts"
 import { rowsOf, writeAnswerOf } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
+import { openedIn } from "#test/support/pg/reads/support.ts"
 import { refusedEntries } from "#test/support/refused.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"

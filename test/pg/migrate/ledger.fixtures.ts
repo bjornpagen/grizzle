@@ -51,16 +51,6 @@ import { codeOf } from "#compiler/ir/codes.ts"
 import { lawsOfConstraint } from "#compiler/ir/products.ts"
 import { folderOrdinal, ledgerTableName, snapshotGuardName } from "#compiler/physical/ddl/ledger.ts"
 import { catalogExpr } from "#compiler/sql/print.ts"
-import {
-	apply,
-	writtenTexts,
-	id,
-	kept,
-	noFurther,
-	openMigrator,
-	refusal,
-	reviewedSource
-} from "#test/pg/migrate/support.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { type InstalledCatalog, readCatalog } from "#test/support/catalog/read.ts"
 import { chunked, joined } from "#test/support/chunked.ts"
@@ -75,9 +65,25 @@ import {
 	parsedMigrationName
 } from "#test/support/migrate/kit.ts"
 import type { SqlError } from "#test/support/pg.ts"
+import {
+	apply,
+	writtenTexts,
+	id,
+	kept,
+	noFurther,
+	openMigrator,
+	refusal,
+	reviewedSource
+} from "#test/support/pg/migrate/support.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
-import { books1, shopV1, shopV2, shopV3, shopV3Declared } from "#test/unit/deploy/schemas.ts"
+import {
+	books1,
+	shopV1,
+	shopV2,
+	shopV3,
+	shopV3Declared
+} from "#test/support/unit/deploy/schemas.ts"
 
 /** The model's state: the folders the ledger recorded complete, and, when it holds the next one unfinished, how many of
  * its files it recorded (none when a no-transaction file of it failed before any file was recorded). */

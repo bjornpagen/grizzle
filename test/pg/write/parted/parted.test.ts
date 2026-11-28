@@ -30,7 +30,6 @@ import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Result, String as Str } from "effect"
 import { changeApplication, variantOf } from "#adapter/db/handles.ts"
-import { openedIn } from "#test/pg/reads/support.ts"
 import {
 	boxGen,
 	changesOf,
@@ -47,6 +46,7 @@ import {
 	wholeChange
 } from "#test/pg/write/parted/parted.fixtures.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
+import { openedIn } from "#test/support/pg/reads/support.ts"
 import { member, withServedDb } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 

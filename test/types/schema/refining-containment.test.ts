@@ -1,6 +1,6 @@
 import { word } from "@bjornpagen/testing/dictionary"
 import { finite } from "@bjornpagen/testing/gen"
-import { boxAgreement } from "#test/types/batch/agreement.ts"
+import { boxAgreement } from "#test/support/types/batch/agreement.ts"
 /**
  * A containment across refining types (test/types/schema/refining-containment.ts): a field of each of ten types
  * contained in a field of each, pg.bigint, natural, a contract over pg.bigint, a contract over natural, a clock

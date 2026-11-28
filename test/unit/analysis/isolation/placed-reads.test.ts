@@ -7,7 +7,7 @@
  * (perf/perf-phys/qti-cert-holders-218.md). The work is counted (test/support/kernel/calls.ts): the calls of
  * placedRead.
  *
- * The box: certify.test.ts's shared cases (test/unit/analysis/isolation/certify.fixtures.ts sharedCaseGen), certified
+ * The box: certify.test.ts's shared cases (test/support/unit/analysis/isolation/certify.fixtures.ts sharedCaseGen), certified
  * over their shared facts and over their expansions (flatFacts), which the certifier judges alike (certify.test.ts).
  *
  * Oracle: a bound read off the expansion: the shared facts place no more reads than their expansion does, every
@@ -26,7 +26,7 @@ import {
 	flatFacts,
 	sharedCaseGen,
 	sharedCertified
-} from "#test/unit/analysis/isolation/certify.fixtures.ts"
+} from "#test/support/unit/analysis/isolation/certify.fixtures.ts"
 import { sharedRead } from "#test/unit/analysis/isolation/placed-reads.fixtures.ts"
 
 type Situation = "a read of a query CTE taking one mode at two instances" | "a case of no such read"

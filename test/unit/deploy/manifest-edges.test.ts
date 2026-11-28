@@ -29,8 +29,8 @@ import {
 	noDeclarations
 } from "#test/support/migrate/kit.ts"
 import { printedNames } from "#test/support/migrate/proofs.ts"
-import { setChanges, setsSchema } from "#test/unit/deploy/schemas.ts"
-import { generatedGen } from "#test/unit/physical/install.fixtures.ts"
+import { setChanges, setsSchema } from "#test/support/unit/deploy/schemas.ts"
+import { generatedGen } from "#test/support/unit/physical/install.fixtures.ts"
 
 type EdgeFeature = "an object naming another" | "a set's domain a table's cast names"
 

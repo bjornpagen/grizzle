@@ -12,7 +12,7 @@ import {
 	schemaOf,
 	theoryOf,
 	uuidOf
-} from "#test/unit/analysis/theory/support.ts"
+} from "#test/support/unit/analysis/theory/support.ts"
 
 const byNumber = Order.Number
 

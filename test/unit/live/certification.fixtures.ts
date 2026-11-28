@@ -20,12 +20,12 @@ import {
 } from "#compiler/public/schema.ts"
 import type { AnyWorkload } from "#compiler/types/db/workload.ts"
 import { defineConfig } from "#index.ts"
-import { offlineOwner } from "#test/pg/cli/support.ts"
-import { sittingShape } from "#test/pg/isolation/support/shapes.ts"
 import { repoRoot } from "#test/support/files.ts"
 import { platformAt } from "#test/support/fixtures/api/platform.ts"
 import { Id } from "#test/support/ids.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
+import { offlineOwner } from "#test/support/pg/cli/support.ts"
+import { sittingShape } from "#test/support/pg/isolation/support/shapes.ts"
 
 /** The fixtures: the sitting shape with its learner's members and the importer's extension or not, and the platform. */
 type Fixture =

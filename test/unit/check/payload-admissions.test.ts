@@ -29,7 +29,7 @@ import { str } from "#compiler/public/text.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { callCounts } from "#test/support/kernel/calls.ts"
 import { ownedInput } from "#test/support/policy.ts"
-import { admittedPatternOver, families } from "#test/unit/text/generators.ts"
+import { admittedPatternOver, families } from "#test/support/unit/text/generators.ts"
 
 type AdmissionFeature = "one pattern" | "several patterns"
 

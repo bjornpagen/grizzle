@@ -36,7 +36,12 @@ import {
 	situations,
 	catalogueEvaluator
 } from "#test/pg/compute/catalogue.fixtures.ts"
-import { caseChunk, compareAnswers, type PgAnswer, runCases } from "#test/pg/compute/support.ts"
+import {
+	caseChunk,
+	compareAnswers,
+	type PgAnswer,
+	runCases
+} from "#test/support/pg/compute/support.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**

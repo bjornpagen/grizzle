@@ -16,7 +16,6 @@ import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { compiledExpr, noParamLeaf } from "#compiler/scalar/compute/evaluate.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { regexField } from "#compiler/text/field.ts"
-import { inInstallation } from "#test/pg/compute/support.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { installationSql } from "#test/support/compile.ts"
 import { installationNamesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
@@ -26,8 +25,15 @@ import {
 	decimalTextOf
 } from "#test/support/oracle/evaluate/double-text.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
+import { inInstallation } from "#test/support/pg/compute/support.ts"
 import { owning } from "#test/support/policy.ts"
-import { baseParams, lowerWith, spelledExpr, testPg, v } from "#test/unit/compute/support.ts"
+import {
+	baseParams,
+	lowerWith,
+	spelledExpr,
+	testPg,
+	v
+} from "#test/support/unit/compute/support.ts"
 
 export type Feature =
 	| "a special spelling"

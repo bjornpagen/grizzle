@@ -48,7 +48,7 @@ import {
 } from "#test/support/laws/boxes.ts"
 import { lawBox } from "#test/support/laws/generated.ts"
 import { pickFrom, pickGen, pickIndex } from "#test/support/pick.ts"
-import { rawContract } from "#test/unit/schema/support.ts"
+import { rawContract } from "#test/support/unit/schema/support.ts"
 
 /** Every statement of a schema description, at every level. */
 export const levelStatements = (desc: SchemaDesc): ReadonlyArray<StatementDesc> => [

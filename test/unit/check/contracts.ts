@@ -11,7 +11,6 @@ import {
 	type SchemaDesc,
 	value
 } from "#test/support/fixtures/ir/desc.ts"
-import { qtyDesc } from "#test/unit/check/drawn.ts"
 import {
 	cast,
 	match,
@@ -21,7 +20,8 @@ import {
 	rule,
 	typedLit,
 	vars
-} from "#test/unit/check/dsl.ts"
+} from "#test/support/unit/check/dsl.ts"
+import { qtyDesc } from "#test/unit/check/drawn.ts"
 
 /**
  * Contracts a query declares by casting a literal into them, beside a schema that declares Qty, a contract over integer

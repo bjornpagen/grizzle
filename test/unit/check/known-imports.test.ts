@@ -27,6 +27,7 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
+import { compiled } from "#test/support/unit/write/changeset/fixtures.ts"
 import {
 	type Before,
 	type Depth,
@@ -34,7 +35,6 @@ import {
 	knownGen,
 	writeOf
 } from "#test/unit/check/known-imports.fixtures.ts"
-import { compiled } from "#test/unit/write/changeset/fixtures.ts"
 
 /** A closed import read again in one check journals its record, so a member adopting an import types its every parameter. */
 export const aClosedImportReadAgainInOneCheckJournalsItsRecordSoAMemberAdoptingAnImportTypesItsEveryParameter =

@@ -7,9 +7,9 @@
  */
 import { word } from "@bjornpagen/testing/dictionary"
 import { finite } from "@bjornpagen/testing/gen"
+import { boxAgreement } from "#test/support/types/batch/agreement.ts"
 import { namesBox } from "#test/types/api/names.dictionary.ts"
 import { namesProgram } from "#test/types/api/names.ts"
-import { boxAgreement } from "#test/types/batch/agreement.ts"
 
 /**
  * Over every constructor that names a relation by every spelling of its name, refuses exactly the names no one string

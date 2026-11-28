@@ -1,6 +1,6 @@
 /**
  * The plan-shape law reads every scan of a rule judge's statement, a scan inside a SubPlan among them
- * (test/pg/physical/plan-bindings.ts judgeScans, scanBindings): PostgreSQL keeps a judge's NOT EXISTS as a correlated
+ * (test/support/pg/physical/plan-bindings.ts judgeScans, scanBindings): PostgreSQL keeps a judge's NOT EXISTS as a correlated
  * SubPlan beneath the scan whose Filter runs it, as it plans LC-WRITERS' whole judge, and a law that read only the
  * scan would never see how the SubPlan reads the other side.
  *
@@ -53,14 +53,14 @@ export const theLawReadsAScanASubPlanRunsAndFindsOneThatUnderBinds = property.ex
 		kept: [],
 		kills: [
 			{
-				file: "test/pg/physical/plan-bindings.ts",
+				file: "test/support/pg/physical/plan-bindings.ts",
 				original:
 					"\t\t\t\t...Arr.flatMap(node.children, (sub) => (plansApart(sub) ? visit(sub, []) : []))\n",
 				replacement: "",
 				why: "A scan's SubPlans are skipped, as before: the law never reads the SubPlan's scan of R0, so its read by doc alone passes."
 			},
 			{
-				file: "test/pg/physical/plan-bindings.ts",
+				file: "test/support/pg/physical/plan-bindings.ts",
 				original: '\t\tconst sides = splitTop(Str.replaceAll(qualifiedEquality, " = ")(c), " = ")',
 				replacement: '\t\tconst sides = splitTop(c, " = ")',
 				why: "An equality PostgreSQL prints by its operator's schema read as no equality, as before: the SubPlan's index condition on f_0 binds nothing, and serving's key lookup on a vector key read through its key's B-tree was judged to bind no column of it (serving's generated-workload red at e42937e8b, Rel0x0 keyed by a vector)."

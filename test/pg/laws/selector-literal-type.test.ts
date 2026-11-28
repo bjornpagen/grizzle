@@ -25,7 +25,6 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
-import { seatIn } from "#test/pg/fin/installed.ts"
 import {
 	aims,
 	B_OF,
@@ -38,6 +37,7 @@ import {
 	selectorLiteralTemplate,
 	sketchGen
 } from "#test/pg/laws/selector-literal-type.fixtures.ts"
+import { seatIn } from "#test/support/pg/fin/installed.ts"
 import { attempt, momentText, refusalText } from "#test/support/substrate.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 

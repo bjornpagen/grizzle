@@ -25,6 +25,12 @@ import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Order, String as Str } from "effect"
 import { refused, refusedKey, refusedKeys, succeeded } from "#test/support/assert.ts"
 import {
+	btreeTupleBytes,
+	datumOf,
+	type KeyFieldSketch,
+	postgresBtreeMaxItem
+} from "#test/support/unit/schema/representability.fixtures.ts"
+import {
 	fieldName,
 	installLookup,
 	keyAdmitted,
@@ -33,12 +39,6 @@ import {
 	lookupSchema,
 	lookupVerdict
 } from "#test/unit/physical/lookup-entries.fixtures.ts"
-import {
-	btreeTupleBytes,
-	datumOf,
-	type KeyFieldSketch,
-	postgresBtreeMaxItem
-} from "#test/unit/schema/representability.fixtures.ts"
 
 /** What a created index's comment says of the keys it leaves out, its display's tail (core/identity.ts accessIndex). */
 const filteredTail = " filtered beside it, not indexed: no byte bound fits the entry"

@@ -11,11 +11,16 @@ import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
-import { fixtureTemplate } from "#test/pg/reads/support.ts"
-import { dimensions, generator, unitVector, vectorText } from "#test/pg/vector/ann/support.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import type { FactSet } from "#test/support/oracle/install/load.ts"
+import { fixtureTemplate } from "#test/support/pg/reads/support.ts"
+import {
+	dimensions,
+	generator,
+	unitVector,
+	vectorText
+} from "#test/support/pg/vector/ann/support.ts"
 import { countedAsVacuumed } from "#test/support/substrate/fill.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -28,7 +33,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  *   Seen(learner, lesson) a plain relation a record reads beside a search.
  * - The population is drawn per case: the counts of lessons, catalogs, items and learners, and every vector from a drawn
  *   number (populationFacts), unit vectors of exact binary32 components, so a stored vector reads back as the very
- *   value written, as the approximate-retrieval fixture draws its own (test/pg/vector/ann/support.ts).
+ *   value written, as the approximate-retrieval fixture draws its own (test/support/pg/vector/ann/support.ts).
  * - A probe names an item that is stored or one that is not, a catalog, which may hold no lesson, and a learner.
  */
 const Embedding = pg.vector(dimensions)

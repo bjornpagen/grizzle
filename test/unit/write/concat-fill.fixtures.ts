@@ -22,7 +22,7 @@ import {
 	relation,
 	type SchemaDesc
 } from "#test/support/fixtures/ir/desc.ts"
-import { compiledModel } from "#test/unit/laws/model/natives.ts"
+import { compiledModel } from "#test/support/unit/laws/model/natives.ts"
 
 /** The texts a member's piece takes: none, one ASCII letter, and one character past the Basic Multilingual Plane. */
 const pieces = ["", "a", "\u{1F600}"] as const

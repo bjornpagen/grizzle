@@ -25,6 +25,7 @@ import { maxStringLength } from "#compiler/core/canonical.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { lengthHashedKeyings, longFamily } from "#test/support/kernel/long-keys.ts"
+import { descOf, parsedOf } from "#test/support/unit/write/changeset/fixtures.ts"
 import {
 	type BoundCase,
 	type BoundFeature,
@@ -35,7 +36,6 @@ import {
 	notesOf,
 	pastLongestStringDeadline
 } from "#test/unit/write/changeset/bound-identity.fixtures.ts"
-import { descOf, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
 
 /** A ChangeSet's bound values are one parameter when equal and two named in their canonical texts' order otherwise, past the longest string too. */
 export const aChangeSetsBoundValuesAreOneParameterWhenEqualAndTwoNamedInTheirCanonicalTextsOrderOtherwisePastTheLongestStringToo =

@@ -40,7 +40,6 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import type { Advice } from "#compiler/sql/advice.ts"
 import { carrierSetting, settingCarrier } from "#compiler/sql/carriers.ts"
 import { lexemesOf } from "#compiler/sql/lexer.ts"
-import { defaultPool, poolFor } from "#test/pg/adapter/support.ts"
 import {
 	bindsDoc,
 	bindsKey,
@@ -71,6 +70,7 @@ import { ordinarySession } from "#test/support/ambient.ts"
 import { readOnce, writeAnswerOf, writeOnce } from "#test/support/calls.ts"
 import { type Installed, installGenerated } from "#test/support/install-migrate.ts"
 import type { SqlError } from "#test/support/pg.ts"
+import { defaultPool, poolFor } from "#test/support/pg/adapter/support.ts"
 import { member, openServedDb } from "#test/support/served-db.ts"
 import type { RoleSetupError } from "#test/support/served-role.ts"
 import { testSql } from "#test/support/sql.ts"

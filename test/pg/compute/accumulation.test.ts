@@ -23,14 +23,6 @@ import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Effect, Formatter } from "effect"
-import * as Q from "#test/pg/catalog/queries.ts"
-import {
-	type Facts,
-	appliedRules,
-	catalogLowering,
-	labOptions,
-	oracleCase
-} from "#test/pg/catalog/support.ts"
 import {
 	accumulationCases,
 	judged,
@@ -42,6 +34,14 @@ import {
 import { CurrentPerturbation } from "#test/support/oracle/perturb.ts"
 import { conservative } from "#test/support/oracle/runner.ts"
 import { OracleSeat } from "#test/support/oracle/seat.ts"
+import * as Q from "#test/support/pg/catalog/queries.ts"
+import {
+	type Facts,
+	appliedRules,
+	catalogLowering,
+	labOptions,
+	oracleCase
+} from "#test/support/pg/catalog/support.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**

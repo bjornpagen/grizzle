@@ -4,7 +4,6 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Result, Stream } from "effect"
 import { memberCalls } from "#adapter/db/handles.ts"
 import { isRecord } from "#compiler/core/record.ts"
-import { openedIn } from "#test/pg/reads/support.ts"
 import {
 	bigintOf,
 	caseGen,
@@ -17,6 +16,7 @@ import {
 	perHour
 } from "#test/pg/served/clock.fixtures.ts"
 import { readOnce, writeOnce } from "#test/support/calls.ts"
+import { openedIn } from "#test/support/pg/reads/support.ts"
 import { member, withServedDb } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 

@@ -64,7 +64,7 @@ import {
 	type Feature,
 	unseen,
 	documentsGen
-} from "#test/unit/live/openapi.fixtures.ts"
+} from "#test/support/unit/live/openapi.fixtures.ts"
 
 /**
  * A login's OpenAPI document validates, is canonical, and holds one operation per program, its events its shape's.
@@ -209,7 +209,7 @@ export const aLoginsOpenAPIDocumentIsShortEachTextDependingOnWhatItMayDependOnAl
 		],
 		kills: [
 			{
-				file: "test/unit/live/openapi.fixtures.ts",
+				file: "test/support/unit/live/openapi.fixtures.ts",
 				original: '\t\t[sketch, source.draw(lawLevelGen), "first\'s"]',
 				replacement: '\t\t[sketch, source.draw(lawLevelGen), "drawn"]',
 				why: "The aim's second document draws a login of its own, so no witness sees a role's tag again but by the tape's luck; the property fails on its unreached tag's description seen again."

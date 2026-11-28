@@ -9,7 +9,7 @@ import {
 	equalSteps,
 	type Measuring,
 	measuredEach
-} from "#test/types/batch/measured.ts"
+} from "#test/support/types/batch/measured.ts"
 
 /**
  * The login-list program (login-lists.test.ts): a list of logins as an installation states them, as metis's packages/database
@@ -89,7 +89,7 @@ export const loginListName = (dimension: (typeof loginListsItems)[number]): stri
  * @owner the login-list cost gate (test/types/schema/budget/login-lists.ts)
  * @unit instantiations a login adds
  * @scope one login of two roles and two workloads of eighteen programs each in the list, checked by one checker against
- *   the engine's and the shell's declarations, as test/types/batch/measured.ts checks a program
+ *   the engine's and the shell's declarations, as test/support/types/batch/measured.ts checks a program
  * @evidence login-lists.test.ts run with the bound at 0, whose assertion states what a login adds, at grizzle main
  *   a080f0837 with the cut and with the cut reverted (LoginRoles' roles carrying ProgramsOf<R, Ws>)
  * @observed 2026-11-23, 12:30 to 13:00 UTC

@@ -25,10 +25,10 @@ import {
 	unit
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { int4, setOf, Tag } from "#test/pg/fin/folds.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { type FoldMonoid, foldStoredOf } from "#test/support/families/fold.ts"
 import { fullWorldTemplate } from "#test/support/installed.ts"
+import { int4, setOf, Tag } from "#test/support/pg/fin/folds.ts"
 
 /**
  * A counted SET keyed by three fields and a name, its owner keyed by (text, text, int), with folds over it, under

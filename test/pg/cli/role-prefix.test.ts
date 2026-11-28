@@ -5,7 +5,7 @@
  * PostgreSQL's roles are the cluster's and an installation is one database's, so an installation is its database and
  * its role prefix (DbConnection.rolePrefix). A case draws the second installation's role space, another prefix or
  * none, beside the first's prefix, and whether a role of the first holds a privilege on an object of another database
- * when it is uninstalled. It generates the shop (test/pg/cli/fixture.ts shopV1: the login `server`, its roles `reader` and
+ * when it is uninstalled. It generates the shop (test/support/pg/cli/fixture.ts shopV1: the login `server`, its roles `reader` and
  * `writer`) once, then migrates the one output into two fresh databases (test/support/pg.ts freshDatabase), each
  * configuration's connection naming its database and its prefix. Every prefix is an allocated name
  * (test/support/substrate/names.ts uniqueSchemaName), so a role a dead run leaves is the sweep's.

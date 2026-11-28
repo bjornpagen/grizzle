@@ -12,7 +12,7 @@
  */
 import { word } from "@bjornpagen/testing/dictionary"
 import { finite } from "@bjornpagen/testing/gen"
-import { boxAgreement } from "#test/types/batch/agreement.ts"
+import { boxAgreement } from "#test/support/types/batch/agreement.ts"
 import { finiteBox } from "#test/types/compute/finite.dictionary.ts"
 import { finiteProgram } from "#test/types/compute/finite.ts"
 

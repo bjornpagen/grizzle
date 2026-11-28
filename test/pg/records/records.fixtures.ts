@@ -10,7 +10,6 @@ import { Bits, Decimal, Money, Vector } from "#compiler/public/fields.ts"
 import { natural } from "#compiler/public/fields.ts"
 import { recordsQuery, schema } from "#compiler/public/schema.ts"
 import type { QueryValue } from "#compiler/query/build/query.ts"
-import { fullWorld } from "#test/support/worlds.ts"
 import {
 	cellQueryOver,
 	heldPairs,
@@ -20,7 +19,8 @@ import {
 	literals,
 	type RecordsCell,
 	Tier
-} from "#test/unit/program/records.fixtures.ts"
+} from "#test/support/unit/program/records.fixtures.ts"
+import { fullWorld } from "#test/support/worlds.ts"
 
 /** Each column a case's queries store, and each kind of head literal they write again. */
 export type RecordsFeature =

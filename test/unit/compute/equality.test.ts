@@ -26,7 +26,7 @@ import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { comparisonHolds, evaluatorOrder } from "#compiler/scalar/compute/evaluate.ts"
 import { compareValues, type HostValue, hostOf } from "#compiler/scalar/values/identity.ts"
 import { callCounts } from "#test/support/kernel/calls.ts"
-import { T } from "#test/unit/lower/conservative/fixtures.ts"
+import { T } from "#test/support/unit/lower/conservative/fixtures.ts"
 
 /**
  * A type of the dictionary, with values of it and how its equality is decided: by its values' identity, each value one

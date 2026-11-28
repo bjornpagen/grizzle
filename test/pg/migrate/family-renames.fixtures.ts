@@ -32,16 +32,6 @@ import type { ExprDesc } from "#compiler/ir/desc.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
-import {
-	type Aim,
-	apply,
-	checkedAdmission,
-	kept,
-	openMigrator,
-	refusedIn,
-	migrationRefusedLaws,
-	reviewedSource
-} from "#test/pg/migrate/support.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { numbered, treeOfParents } from "#test/support/families/tree.ts"
 import {
@@ -77,6 +67,16 @@ import {
 } from "#test/support/migrate/kit.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import type { SqlError } from "#test/support/pg.ts"
+import {
+	type Aim,
+	apply,
+	checkedAdmission,
+	kept,
+	openMigrator,
+	refusedIn,
+	migrationRefusedLaws,
+	reviewedSource
+} from "#test/support/pg/migrate/support.ts"
 import { owning } from "#test/support/policy.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"

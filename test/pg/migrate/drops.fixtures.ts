@@ -14,7 +14,6 @@ import { quoteIdent } from "#compiler/core/text.ts"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import type { ExprDesc, FieldDesc } from "#compiler/ir/desc.ts"
 import { printType } from "#compiler/sql/print.ts"
-import { type Aim, sameCatalog } from "#test/pg/migrate/support.ts"
 import {
 	check,
 	contained,
@@ -34,6 +33,7 @@ import { migrated } from "#test/support/installed.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { Placeholder } from "#test/support/migrate/review.ts"
+import { type Aim, sameCatalog } from "#test/support/pg/migrate/support.ts"
 import { attempt, refusalText } from "#test/support/substrate.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 

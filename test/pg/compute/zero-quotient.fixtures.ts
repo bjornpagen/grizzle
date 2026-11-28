@@ -14,7 +14,7 @@ import {
 	plainRender,
 	renderSql,
 	testPg
-} from "#test/unit/compute/support.ts"
+} from "#test/support/unit/compute/support.ts"
 
 /** What a dividend of a batch reached: its class, and its carrier. */
 export type ZeroQuotientFeature =

@@ -8,7 +8,7 @@ import {
 	flagsGen,
 	patternOver,
 	stringsOver
-} from "#test/unit/text/generators.ts"
+} from "#test/support/unit/text/generators.ts"
 
 export type Feature =
 	| "a pattern under u"

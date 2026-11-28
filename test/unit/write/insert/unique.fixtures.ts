@@ -16,7 +16,7 @@ import { flightOf, servableWrite } from "#compiler/write/program/served.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
 import { checking } from "#test/support/policy.ts"
-import { descOf, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
+import { descOf, parsedOf } from "#test/support/unit/write/changeset/fixtures.ts"
 import { writeNamesOf } from "#test/unit/write/insert/support.ts"
 
 /** Booking(id, room, during, ref): a room held over a span, keyed by id. */

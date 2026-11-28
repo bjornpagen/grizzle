@@ -13,7 +13,7 @@ import { succeeded } from "#test/support/assert.ts"
 import { compileTemplateOver, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { Id } from "#test/support/ids.ts"
 import { preludeAt, preludeFrom, preludeModule } from "#test/support/prelude.ts"
-import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/batch/batch.ts"
+import { batchOwned, caseOwned, type Entry, type Program } from "#test/support/types/batch/batch.ts"
 
 /**
  * The take-bound program: the box of every bound a query takes its rows by, Ordered.take(k) and a search's take

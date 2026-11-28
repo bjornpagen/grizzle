@@ -50,7 +50,7 @@ import {
 	rosterOf,
 	schemaOf,
 	sizesGen
-} from "#test/unit/physical/fin.fixtures.ts"
+} from "#test/support/unit/physical/fin.fixtures.ts"
 
 /** A slotted closed relation's planned constants packs exactly the dependent sum, each row at its key's position. */
 export const aSlottedClosedRelationsPlannedConstantsPacksExactlyTheDependentSumEachRowAtItsKeysPosition =

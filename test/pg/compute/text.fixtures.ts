@@ -11,12 +11,12 @@ import { Text } from "#compiler/public/compute.ts"
 import { closedId, pg } from "#compiler/public/fields.ts"
 import { check, closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { judged, probe } from "#test/pg/physical/checks.ts"
 import { installationNamesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import type { PgConnection } from "#test/support/pg.ts"
+import { judged, probe } from "#test/support/pg/physical/checks.ts"
 import { owning } from "#test/support/policy.ts"
 import { jsMatcher } from "#test/support/regex.ts"
-import { admittedPatternOver, families, stringsOver } from "#test/unit/text/generators.ts"
+import { admittedPatternOver, families, stringsOver } from "#test/support/unit/text/generators.ts"
 
 /** The dictionary a case installs: each domain's pattern, the literal pattern of its Tagged rows, and the probe texts. */
 interface Dictionary {

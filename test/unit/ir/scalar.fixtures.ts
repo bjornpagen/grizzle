@@ -39,7 +39,7 @@ import { succeeded } from "#test/support/assert.ts"
 import { f } from "#test/support/fixtures/ir/desc.ts"
 import { plainType, scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { definedOpOf } from "#test/support/oracle/gen/ops.ts"
-import { scalarTypes } from "#test/unit/ir/fixture.ts"
+import { scalarTypes } from "#test/support/unit/ir/fixture.ts"
 
 /** The largest finite 32-bit float. */
 export const floatMax = 3.4028234663852886e38

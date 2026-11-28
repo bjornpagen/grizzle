@@ -10,9 +10,14 @@ import { compiledExpr, noParamLeaf } from "#compiler/scalar/compute/evaluate.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { baseParams, lowerWith, plainRender, renderSql } from "#test/unit/compute/support.ts"
-import { textColumn } from "#test/unit/compute/text.fixtures.ts"
-import { patternGen, refusedGen } from "#test/unit/text/xsd.fixtures.ts"
+import {
+	baseParams,
+	lowerWith,
+	plainRender,
+	renderSql
+} from "#test/support/unit/compute/support.ts"
+import { textColumn } from "#test/support/unit/compute/text.fixtures.ts"
+import { patternGen, refusedGen } from "#test/support/unit/text/xsd.fixtures.ts"
 
 /** What drew a text of a batch, and how the reader judged it. */
 export type XsdPatternFeature =

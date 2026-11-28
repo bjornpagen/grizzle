@@ -30,15 +30,24 @@ import type { ExprDesc } from "#compiler/ir/desc.ts"
 import { textBoundsOf } from "#compiler/ir/scalar.ts"
 import { refused, succeeded } from "#test/support/assert.ts"
 import { resolvedReference } from "#test/support/oracle/evaluate/uri.ts"
-import { baseParams, type LeafBinding, lowerWith, testPg } from "#test/unit/compute/support.ts"
+import {
+	baseParams,
+	type LeafBinding,
+	lowerWith,
+	testPg
+} from "#test/support/unit/compute/support.ts"
 import {
 	escaped,
 	type Row,
 	textColumn,
 	values,
 	variable
-} from "#test/unit/compute/text.fixtures.ts"
-import { referenceCaseGen, rfcExamples, type UriFeature } from "#test/unit/text/uri.fixtures.ts"
+} from "#test/support/unit/compute/text.fixtures.ts"
+import {
+	referenceCaseGen,
+	rfcExamples,
+	type UriFeature
+} from "#test/support/unit/text/uri.fixtures.ts"
 
 type ResolveFeature = UriFeature | "one of the RFC's examples" | "a target at its bound"
 

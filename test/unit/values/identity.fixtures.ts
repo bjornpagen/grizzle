@@ -32,7 +32,7 @@ import {
 import { Money } from "#compiler/scalar/values/money.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
-import { plantedStringGen } from "#test/unit/values/support.ts"
+import { plantedStringGen } from "#test/support/unit/values/support.ts"
 
 /**
  * One carrier's admission, stated from its documented host type and range: what a value is stored as, the fault it

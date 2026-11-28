@@ -12,7 +12,13 @@ import { query } from "#compiler/public/query.ts"
 import { key, login, on, relation, role, schema, unit } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
 import { defineConfig } from "#index.ts"
-import { cliOver, configName, connectionOf, ownerOn, workspace } from "#test/pg/cli/support.ts"
+import {
+	cliOver,
+	configName,
+	connectionOf,
+	ownerOn,
+	workspace
+} from "#test/support/pg/cli/support.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**

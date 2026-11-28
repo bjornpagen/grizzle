@@ -1,6 +1,6 @@
 /**
  * A role's grants are its lists, relation by relation, as PostgreSQL 19's catalog holds them: two roles over the shops
- * schema of test/unit/physical/insert-grants.fixtures.ts (Items counted under Stores, Slots ordered under Shelves, the
+ * schema of test/support/unit/physical/insert-grants.fixtures.ts (Items counted under Stores, Slots ordered under Shelves, the
  * open Ticket), each writing each relation whole, through a query entry or not at all, each written relation under its
  * insert list or its write list, each owner and Item open or closed, installed through their first migration in a
  * login of their own. A role naming a closed relation under its write list is refused when it is built
@@ -55,7 +55,7 @@ import {
 	schemaOf,
 	tablePrivileges,
 	written
-} from "#test/unit/physical/insert-grants.fixtures.ts"
+} from "#test/support/unit/physical/insert-grants.fixtures.ts"
 
 /** Each role's grants on each table are its lists' as the catalog holds them, and PostgreSQL refuses an inserting role's UPDATE and DELETE. */
 export const eachRolesCatalogGrantsAreItsListsRelationByRelationAndPostgreSQLRefusesAnInsertingRolesChange =

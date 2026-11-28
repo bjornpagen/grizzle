@@ -17,7 +17,7 @@ import { compileInstallation } from "#compiler/program/install.ts"
 import type { SchemaArtifacts } from "#compiler/program/schema.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
-import { type HostFacts, referenceRows } from "#test/unit/analysis/theory/support.ts"
+import { type HostFacts, referenceRows } from "#test/support/unit/analysis/theory/support.ts"
 import {
 	type Facts,
 	factsGen,
@@ -26,7 +26,7 @@ import {
 	unionSchemaOf,
 	unions,
 	widthOf
-} from "#test/unit/laws/union-import.schema.ts"
+} from "#test/support/unit/laws/union-import.schema.ts"
 
 const keyOf = (shape: Shape): string => `${shape.level}: ${shape.union}`
 

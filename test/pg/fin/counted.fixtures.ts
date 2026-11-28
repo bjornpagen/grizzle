@@ -4,6 +4,7 @@ import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Record as Rec } from "effect"
 import type { AnySchema } from "#compiler/public/schema.ts"
+import { type FoldStatement } from "#test/support/families/fold.ts"
 /**
  * Counted swap-with-last through grizzle's lowering, on PostgreSQL 19 (fin.md §4.2, §11, "Counted swap-with-last
  * with the deferred closure FK"): a counted family hides its index ‹i› and its fold's accumulators, so removing a
@@ -35,9 +36,8 @@ import {
 	orCountedOf,
 	type Standing,
 	sumCountedOf
-} from "#test/pg/fin/folds.ts"
-import { type EndFeature, seatTemplate } from "#test/pg/fin/installed.ts"
-import { type FoldStatement } from "#test/support/families/fold.ts"
+} from "#test/support/pg/fin/folds.ts"
+import { type EndFeature, seatTemplate } from "#test/support/pg/fin/installed.ts"
 import { upTo } from "#test/support/up-to.ts"
 
 /**

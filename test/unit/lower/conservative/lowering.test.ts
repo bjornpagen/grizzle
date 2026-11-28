@@ -43,14 +43,15 @@ import {
 	auditTextViolations,
 	guardedTermsOf
 } from "#test/support/oracle/verify/sql.ts"
-import { upTo } from "#test/support/up-to.ts"
 import {
 	Account,
 	Posting,
 	Q,
 	type RelationSpec,
 	Task
-} from "#test/unit/lower/conservative/fixtures.ts"
+} from "#test/support/unit/lower/conservative/fixtures.ts"
+import { present } from "#test/support/unit/lower/support.ts"
+import { upTo } from "#test/support/up-to.ts"
 import {
 	type ArmFeature,
 	attachedArms,
@@ -74,7 +75,6 @@ import {
 	type Resolution,
 	type Subject
 } from "#test/unit/lower/conservative/lowering.fixtures.ts"
-import { present } from "#test/unit/lower/support.ts"
 
 /** The kind table lowers every node of the every-kind fixture, audited, unless it reads what the lowering refuses. */
 export const theKindTableLowersEveryNodeOfTheEveryKindFixtureAuditedUnlessItReadsWhatTheLoweringRefuses =

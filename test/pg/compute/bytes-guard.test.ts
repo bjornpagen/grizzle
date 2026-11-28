@@ -32,10 +32,10 @@ import {
 	sourceBytes,
 	sourceHolds
 } from "#test/pg/compute/bytes-guard.fixtures.ts"
-import { inInstallation } from "#test/pg/compute/support.ts"
-import { probe } from "#test/pg/physical/checks.ts"
 import { installationSql } from "#test/support/compile.ts"
 import { installationNamesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { inInstallation } from "#test/support/pg/compute/support.ts"
+import { probe } from "#test/support/pg/physical/checks.ts"
 import { ownedInput } from "#test/support/policy.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 

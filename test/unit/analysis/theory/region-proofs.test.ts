@@ -22,6 +22,7 @@ import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { canonicalEquals } from "#compiler/core/canonical.ts"
 import { incrementsDoNotGrow } from "#test/support/growth.ts"
 import { everyCallCount } from "#test/support/kernel/calls.ts"
+import type { TestTheory } from "#test/support/unit/analysis/theory/support.ts"
 import {
 	brokenDocs,
 	chainTheory,
@@ -46,7 +47,6 @@ import {
 	wholeRuleOver,
 	withUnrelated
 } from "#test/unit/analysis/theory/region-proofs.fixtures.ts"
-import type { TestTheory } from "#test/unit/analysis/theory/support.ts"
 
 /**
  * The region of `t`'s whole rule over `transition`, its every broken document held to be among it, and its rules over

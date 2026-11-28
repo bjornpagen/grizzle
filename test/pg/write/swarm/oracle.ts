@@ -21,26 +21,6 @@ import type { LawId } from "#compiler/core/ids.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import type { Statement } from "#compiler/public/schema.ts"
 import {
-	type BuiltSwarm,
-	callerFields,
-	copyName,
-	countName,
-	endName,
-	familyOf,
-	fieldNames,
-	holderOf,
-	maskUnion,
-	maxIdentity,
-	namedIdName,
-	namedValueName,
-	nestedOnly,
-	type PlainRow,
-	plainName,
-	samePlain,
-	swarmFacts,
-	type SwarmSpec
-} from "#test/pg/write/swarm/spec.ts"
-import {
 	type FillSpec,
 	type FollowUp,
 	followUpMembers,
@@ -62,6 +42,26 @@ import {
 	type HostState,
 	violations
 } from "#test/support/laws/model.ts"
+import {
+	type BuiltSwarm,
+	callerFields,
+	copyName,
+	countName,
+	endName,
+	familyOf,
+	fieldNames,
+	holderOf,
+	maskUnion,
+	maxIdentity,
+	namedIdName,
+	namedValueName,
+	nestedOnly,
+	type PlainRow,
+	plainName,
+	samePlain,
+	swarmFacts,
+	type SwarmSpec
+} from "#test/support/pg/write/swarm/spec.ts"
 import type { StateRow } from "#test/support/substrate/state.ts"
 
 /** Where a plain write runs: in a stratum before the family stratum, in it, or after it (ChangeSet.sequence). */

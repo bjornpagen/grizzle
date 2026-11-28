@@ -36,7 +36,7 @@ import {
 	type Ran,
 	type RewriteAgreement,
 	runPasses
-} from "#test/unit/lower/rewrite/support.ts"
+} from "#test/support/unit/lower/rewrite/support.ts"
 
 /**
  * The guard searches: a rewrite pass over generated queries that hold the shapes its guards are about, held to the

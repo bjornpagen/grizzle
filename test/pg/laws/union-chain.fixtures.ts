@@ -15,7 +15,11 @@ import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
 import { refusalOf } from "#test/support/substrate.ts"
-import { Node, type Unions, unionSchemaOf } from "#test/unit/physical/judge-size.fixtures.ts"
+import {
+	Node,
+	type Unions,
+	unionSchemaOf
+} from "#test/support/unit/physical/judge-size.fixtures.ts"
 
 /** The chains installed: one to four levels of unions of two rules, each rule reading the level below once or twice. */
 const chains = {

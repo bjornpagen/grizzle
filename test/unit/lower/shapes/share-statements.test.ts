@@ -40,6 +40,7 @@ import {
 } from "#compiler/lower/shapes/share/statements.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
+import { placedPlain, present } from "#test/support/unit/lower/support.ts"
 import {
 	attachedJobs,
 	attachmentFilters,
@@ -54,7 +55,6 @@ import {
 	repeated,
 	repeatedGen
 } from "#test/unit/lower/shapes/share-statements.fixtures.ts"
-import { placedPlain, present } from "#test/unit/lower/support.ts"
 
 /** Sub-queries carried across a stratum's statements carry pick once, every copy through the carrier, exactly when enough statements read it. */
 export const subQueriesCarriedAcrossAStratumsStatementsCarryPickOnceEveryCopyThroughTheCarrierExactlyWhenEnoughStatementsReadIt =

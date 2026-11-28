@@ -32,11 +32,15 @@ import {
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { admitRole, contextDescOf } from "#compiler/schema/world.ts"
-import { buildSchema } from "#test/pg/derived/oracle/gen.ts"
 import { Id } from "#test/support/ids.ts"
+import { buildSchema } from "#test/support/pg/derived/oracle/gen.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
-import { fieldSketchGen, pgField, type SketchedField } from "#test/unit/schema/field-sketch.ts"
-import { rawClosedId, regex } from "#test/unit/schema/support.ts"
+import {
+	fieldSketchGen,
+	pgField,
+	type SketchedField
+} from "#test/support/unit/schema/field-sketch.ts"
+import { rawClosedId, regex } from "#test/support/unit/schema/support.ts"
 
 const Kind = closed.ordered("Kind", ["Draft", "Live"])
 

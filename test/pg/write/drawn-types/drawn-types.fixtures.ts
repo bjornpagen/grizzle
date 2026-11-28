@@ -22,7 +22,7 @@ import {
 	select,
 	unit
 } from "#compiler/public/schema.ts"
-import { fixtureTemplate } from "#test/pg/reads/support.ts"
+import { fixtureTemplate } from "#test/support/pg/reads/support.ts"
 
 /** The one series, and whether a test holds an issued number. */
 const Series = closed.unordered("DrawnSeries", ["test"])

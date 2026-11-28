@@ -25,7 +25,7 @@ import {
 	printOnceFeatures,
 	type StatementShape,
 	statementOf as printOnceStatementOf
-} from "#test/unit/sql/print-once.fixtures.ts"
+} from "#test/support/unit/sql/print-once.fixtures.ts"
 import { checkText, pairGen } from "#test/unit/sql/printed-blocks.fixtures.ts"
 import {
 	flattenedByHand,

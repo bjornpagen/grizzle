@@ -40,8 +40,8 @@ import {
 	generate,
 	noDeclarations
 } from "#test/support/migrate/kit.ts"
+import { admittedPatternOver, families } from "#test/support/unit/text/generators.ts"
 import { rowStepsOf, statementsOf } from "#test/unit/deploy/renames.fixtures.ts"
-import { admittedPatternOver, families } from "#test/unit/text/generators.ts"
 
 /**
  * How a case writes its pattern again: as a spelling of the same language, the pattern in a group, beside an empty

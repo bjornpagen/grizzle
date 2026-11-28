@@ -34,7 +34,7 @@ import {
 import { openedDescs } from "#test/support/open.ts"
 import type { ModelValue } from "#test/support/oracle/evaluate/catalog.ts"
 import { ownedInput } from "#test/support/policy.ts"
-import { generatedOn, lawColumnsOf } from "#test/unit/laws/model/natives.ts"
+import { generatedOn, lawColumnsOf } from "#test/support/unit/laws/model/natives.ts"
 
 /**
  * A fixed target's references, in the index set and columns the installation plans. A fixed target, a containment's

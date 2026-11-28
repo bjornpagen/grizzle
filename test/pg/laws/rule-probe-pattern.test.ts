@@ -29,7 +29,6 @@
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
-import { seatIn } from "#test/pg/fin/installed.ts"
 import {
 	after,
 	Disagreed,
@@ -44,6 +43,7 @@ import {
 	text
 } from "#test/pg/laws/rule-probe-pattern.fixtures.ts"
 import { asDataStep, refusedByRecheck } from "#test/support/data-step.ts"
+import { seatIn } from "#test/support/pg/fin/installed.ts"
 import { attempt, momentText, refusalText } from "#test/support/substrate.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 

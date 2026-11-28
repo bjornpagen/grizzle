@@ -6,9 +6,9 @@
  * Properties: every program typechecks with no diagnostic; each step adds types and instantiations; and its
  * instantiations grow no faster than linearly, exactly (test/support/growth.ts incrementsDoNotGrow): the second step adds
  * no more than the first, so no unit costs more for the units before it. Its types, which the checker interns, are not
- * judged by the law (test/types/batch/measured.ts). Oracle: the compiler's own counts, compared step against step.
+ * judged by the law (test/support/types/batch/measured.ts). Oracle: the compiler's own counts, compared step against step.
  */
-import { growthGate } from "#test/types/batch/measured.ts"
+import { growthGate } from "#test/support/types/batch/measured.ts"
 import { queryDimensions } from "#test/types/query/budget/scaling.dictionary.ts"
 
 /**

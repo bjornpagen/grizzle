@@ -1,7 +1,7 @@
 import { defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Effect, String as Str } from "effect"
 import { preludeAt, preludeFrom, preludeModule } from "#test/support/prelude.ts"
-import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/batch/batch.ts"
+import { batchOwned, caseOwned, type Entry, type Program } from "#test/support/types/batch/batch.ts"
 
 /**
  * The declared-call program: the box of what a call of a declared function passes at an argument of a closed id, a

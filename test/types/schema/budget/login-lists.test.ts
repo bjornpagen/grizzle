@@ -8,7 +8,7 @@
  * costs at most its measured instantiations, its roles carrying no programs (login-lists.ts addedAtMost). Oracle: the
  * compiler's own counts, step against step and against a login's measured bound.
  */
-import { costGate } from "#test/types/batch/measured.ts"
+import { costGate } from "#test/support/types/batch/measured.ts"
 import { loginLists } from "#test/types/schema/budget/login-lists.dictionary.ts"
 import { loginListCost, loginListName } from "#test/types/schema/budget/login-lists.ts"
 

@@ -16,8 +16,8 @@ import {
 import { processMeter } from "#cli/main.ts"
 import type { PhaseMeter } from "#cli/phases.ts"
 import { type PhaseEdge, type PhaseName, phaseNames } from "#compiler/core/phase.ts"
-import { cliMetered, configName, workspace } from "#test/pg/cli/support.ts"
 import { fixtureNeedBudget } from "#test/support/budgets.ts"
+import { cliMetered, configName, workspace } from "#test/support/pg/cli/support.ts"
 import { config } from "#test/unit/cli/served.fixtures.ts"
 
 /**

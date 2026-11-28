@@ -36,7 +36,7 @@ import { succeeded } from "#test/support/assert.ts"
 import { frontendOptions } from "#test/support/compile.ts"
 import { Plans, plansWorlds, Work } from "#test/support/fixtures/api/work.ts"
 import { checking } from "#test/support/policy.ts"
-import { descOf, switchToManual } from "#test/unit/write/changeset/fixtures.ts"
+import { descOf, switchToManual } from "#test/support/unit/write/changeset/fixtures.ts"
 
 type Feature = "one front end" | "several front ends" | "a role over the base"
 

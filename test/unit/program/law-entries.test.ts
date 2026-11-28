@@ -54,7 +54,7 @@ import { encodeRefusalDetail } from "#test/support/oracle/write/detail.ts"
 import { refusedEntries } from "#test/support/refused.ts"
 import { nothingReported, serverError } from "#test/support/server-error.ts"
 import { snapshotJson } from "#test/support/snapshot-json.ts"
-import { keyValueGen } from "#test/unit/adapter/witness.fixtures.ts"
+import { keyValueGen } from "#test/support/unit/adapter/witness.fixtures.ts"
 import {
 	builtInstallationOf,
 	catalogAt,

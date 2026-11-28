@@ -36,7 +36,7 @@ import {
 	planGen,
 	readsBare,
 	statedAtoms
-} from "#test/unit/sql/advice.fixtures.ts"
+} from "#test/support/unit/sql/advice.fixtures.ts"
 
 /** A plan's advice parses as pg_plan_advice reads it, and holds exactly the atoms the plan states. */
 export const aPlansAdviceParsesAsPgPlanAdviceReadsItAndHoldsExactlyTheAtomsThePlanStates =

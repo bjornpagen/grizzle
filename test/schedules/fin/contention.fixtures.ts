@@ -17,11 +17,11 @@ import {
 	unit
 } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
-import { familyStoredOf } from "#test/pg/fin/family.ts"
 import { writeAnswerOf } from "#test/support/calls.ts"
 import { theorem } from "#test/support/families/theorem.ts"
 import { type Generated } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
+import { familyStoredOf } from "#test/support/pg/fin/family.ts"
 import { openActors } from "#test/support/schedules/actors.ts"
 import { untilAnswered } from "#test/support/schedules/grizzle.ts"
 import {

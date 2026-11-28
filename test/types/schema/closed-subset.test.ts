@@ -1,6 +1,6 @@
 import { word } from "@bjornpagen/testing/dictionary"
 import { finite } from "@bjornpagen/testing/gen"
-import { boxAgreement } from "#test/types/batch/agreement.ts"
+import { boxAgreement } from "#test/support/types/batch/agreement.ts"
 /**
  * A closed id of a subset of its roster (test/types/schema/closed-subset.ts): a field `closedId(C, { only })` or
  * `closedId(C, { except })` holds exactly the handles its subset states, so an addition at any other handle is refused

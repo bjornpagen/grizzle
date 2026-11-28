@@ -19,7 +19,6 @@ import { type Case as CaseOf, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { admitCidr, admitInet } from "#compiler/scalar/values/net.ts"
-import { textCell } from "#test/pg/compute/support.ts"
 import {
 	cases,
 	type Feature,
@@ -33,6 +32,7 @@ import {
 } from "#test/pg/net/containment.fixtures.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { netHolds } from "#test/support/oracle/reference/net.ts"
+import { textCell } from "#test/support/pg/compute/support.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** A drawn text as grizzle holds the value it spells: the one text inet_out or cidr_out prints of it. */

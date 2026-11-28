@@ -21,7 +21,7 @@ import { succeeded } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import * as search from "#test/support/fixtures/api/search.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
-import { codecOf } from "#test/unit/codec/support.ts"
+import { codecOf } from "#test/support/unit/codec/support.ts"
 
 export const dims = search.DocumentVector.dimensions
 export const lowest = cosineNormMin

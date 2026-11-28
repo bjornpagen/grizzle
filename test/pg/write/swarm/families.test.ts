@@ -32,12 +32,12 @@ import {
 	type Laws,
 	nothingStored
 } from "#test/pg/write/swarm/oracle.ts"
-import { buildSwarm } from "#test/pg/write/swarm/spec.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { writeAnswerOf, writeOnce } from "#test/support/calls.ts"
 import { installFullWorld } from "#test/support/installed.ts"
 import { lawNamesOf, namesOf } from "#test/support/kernel/naming.ts"
 import { oneFlight } from "#test/support/one-flight.ts"
+import { buildSwarm } from "#test/support/pg/write/swarm/spec.ts"
 import { refusedEntries } from "#test/support/refused.ts"
 import { member, openServedDb } from "#test/support/served-db.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"

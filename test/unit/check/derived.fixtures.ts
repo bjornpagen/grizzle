@@ -32,7 +32,7 @@ import {
 	sum,
 	typedLit,
 	vars
-} from "#test/unit/check/dsl.ts"
+} from "#test/support/unit/check/dsl.ts"
 
 /** The fields a case declares besides its key, in declaration order. */
 const slotNames = ["b", "Z", "a"] as const

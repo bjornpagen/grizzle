@@ -20,6 +20,7 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { element, finite, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
+import { v } from "#test/support/unit/compute/support.ts"
 import {
 	type Feature,
 	kinds,
@@ -28,7 +29,6 @@ import {
 	widest,
 	writable
 } from "#test/unit/compute/guards.fixtures.ts"
-import { v } from "#test/unit/compute/support.ts"
 
 /** A partial operation's refusal names its precondition and a guard its operand's type writes, which, written, admits the operation. */
 export const aPartialOperationsRefusalNamesItsPreconditionAndAGuardItsOperandsTypeWritesWhichWrittenAdmitsTheOperation =

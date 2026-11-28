@@ -77,13 +77,6 @@ import { loginDescOf } from "#compiler/schema/world.ts"
 import { placeholderToken } from "#compiler/sql/print.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import { defineConfig } from "#index.ts"
-import {
-	cliOver,
-	type CliRun,
-	configName,
-	offlineOwner,
-	resolvedConfig
-} from "#test/pg/cli/support.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { chunked, joined } from "#test/support/chunked.ts"
 import { compileTestWorkload, testCompile } from "#test/support/compile.ts"
@@ -95,6 +88,13 @@ import {
 	migrationFolders,
 	parsedMigrationName
 } from "#test/support/migrate/kit.ts"
+import {
+	cliOver,
+	type CliRun,
+	configName,
+	offlineOwner,
+	resolvedConfig
+} from "#test/support/pg/cli/support.ts"
 import { owning } from "#test/support/policy.ts"
 import { upTo } from "#test/support/up-to.ts"
 

@@ -20,7 +20,7 @@ import {
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { btreeMaxItemSize } from "#compiler/schema/representability.ts"
-import { fixtureTemplate } from "#test/pg/reads/support.ts"
+import { fixtureTemplate } from "#test/support/pg/reads/support.ts"
 
 /** A package's name, as pantry's PackageName is, bounded so a key holds it as itself. */
 const Package = str.bytes(64, str.regex("^[A-Za-z_][A-Za-z0-9_.-]*$"))

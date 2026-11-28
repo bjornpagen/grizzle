@@ -6,7 +6,7 @@ import { ChangeSet } from "#compiler/public/changeset.ts"
 import { accumulated, drawn as drawnField, natural, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { check, counted, fin, fold, Monoid, on, relation, schema } from "#compiler/public/schema.ts"
-import { fixtureTemplate } from "#test/pg/reads/support.ts"
+import { fixtureTemplate } from "#test/support/pg/reads/support.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
 
 /** Inserts into a family owner's primary key through served ChangeSets, as a property against a host model of the key.

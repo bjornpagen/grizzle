@@ -76,20 +76,20 @@ import {
 	versions
 } from "#test/pg/migrate/drift-proofs.fixtures.ts"
 import { driftedOf } from "#test/pg/migrate/recorded-drift.fixtures.ts"
+import { succeeded } from "#test/support/assert.ts"
+import { firstCodes } from "#test/support/compile.ts"
+import { atName, parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { draftChain, fromEmpty, noDeclarations } from "#test/support/migrate/kit.ts"
+import { specifiedProofs, specifiedReplay } from "#test/support/migrate/proofs.ts"
 import {
 	kept,
 	openMigrator,
 	parsedTarget,
 	refusal,
 	reviewedSource
-} from "#test/pg/migrate/support.ts"
-import { succeeded } from "#test/support/assert.ts"
-import { firstCodes } from "#test/support/compile.ts"
-import { atName, parsedSchemaName } from "#test/support/kernel/naming.ts"
-import { draftChain, fromEmpty, noDeclarations } from "#test/support/migrate/kit.ts"
-import { specifiedProofs, specifiedReplay } from "#test/support/migrate/proofs.ts"
+} from "#test/support/pg/migrate/support.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
-import { type SetChange, setChanges, setsSchema } from "#test/unit/deploy/schemas.ts"
+import { type SetChange, setChanges, setsSchema } from "#test/support/unit/deploy/schemas.ts"
 
 /** The drift check replays what no proof proves, and holds every proven object to its stored description. */
 export const driftProofs = property.explore(caseGen, {

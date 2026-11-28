@@ -9,9 +9,9 @@ import { query, v } from "#compiler/public/query.ts"
 import { closed, key, on, relation, schema, select } from "#compiler/public/schema.ts"
 import { selectColumns, type SqlStatement } from "#compiler/sql/ast.ts"
 import { inertVisitor, visitSelect } from "#compiler/sql/transform.ts"
-import { Note, Plans, Task } from "#test/pg/plans/fixture.ts"
 import { Id } from "#test/support/ids.ts"
 import { installationOf } from "#test/support/kernel/naming.ts"
+import { Note, Plans, Task } from "#test/support/pg/plans/fixture.ts"
 
 type Relation = "Note" | "Task" | "Badge"
 

@@ -9,7 +9,7 @@ import { exactInteger, generated, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { fixtureTemplate } from "#test/pg/reads/support.ts"
+import { fixtureTemplate } from "#test/support/pg/reads/support.ts"
 
 /** qti-pie's integer text (its ledger's walks.ts integerText at 7ea6419c), xs:integer's numeral. */
 const integerText = Text.pattern("^[+-]?[0-9]+$")

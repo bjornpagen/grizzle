@@ -58,7 +58,7 @@ import {
 	termMeaningOf,
 	termReferenceValueOf,
 	termRowFeatures
-} from "#test/unit/compute/concat-equation.fixtures.ts"
+} from "#test/support/unit/compute/concat-equation.fixtures.ts"
 
 /**
  * An equation of a text with a concatenation of any number of parts compiles exactly where its two-part analogues do,

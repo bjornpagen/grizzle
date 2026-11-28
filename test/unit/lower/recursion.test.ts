@@ -23,6 +23,8 @@ import { optimizedDispatch, ShapeState } from "#compiler/lower/shapes/index.ts"
 import { recursionLowerer } from "#compiler/lower/shapes/recursion/index.ts"
 import { noKeys } from "#compiler/lower/shapes/share/keyed.ts"
 import { refused } from "#test/support/assert.ts"
+import { conservativeShapeFacts } from "#test/support/unit/lower/shapes/support.ts"
+import { present } from "#test/support/unit/lower/support.ts"
 import {
 	admit,
 	mainAst,
@@ -34,8 +36,6 @@ import {
 	walkBelow,
 	walkBounds
 } from "#test/unit/lower/recursion.fixtures.ts"
-import { conservativeShapeFacts } from "#test/unit/lower/shapes/support.ts"
-import { present } from "#test/unit/lower/support.ts"
 
 /** The form a recursion lowers to (packages/engine/src/lower/shapes/recursion/index.ts) keeps the UNION recursive CTE at every bounded depth, and refuses a plain realization. */
 export const theFormARecursionLowersToPackagesEngineSrcLowerShapesRecursionIndexTsKeepsTheUNIONRecursiveCTEAtEveryBoundedDepthAndRefusesAPlainRealization =

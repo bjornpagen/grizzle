@@ -20,6 +20,7 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
+import { breaks } from "#test/support/unit/laws/model/natives.ts"
 import {
 	axisKey,
 	copyHolds,
@@ -30,7 +31,6 @@ import {
 	type Verdict,
 	verdicts
 } from "#test/unit/laws/model/merge.fixtures.ts"
-import { breaks } from "#test/unit/laws/model/natives.ts"
 
 /** A merged family axis holds exactly when every containment merged into it holds every state of a two-member family with two copies on one axis over three values. */
 export const aMergedFamilyAxisHoldsExactlyWhenEveryContainmentMergedIntoItHoldsEveryStateOfATwoMemberFamilyWithTwoCopiesOnOneAxisOverThreeValues =

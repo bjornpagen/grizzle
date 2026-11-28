@@ -63,7 +63,6 @@ import type { HostValue } from "#compiler/scalar/values/identity.ts"
 import { ownLogin } from "#compiler/schema/own.ts"
 import { loginDescOf, roleBuilder as role } from "#compiler/schema/world.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
-import { apply, kept, noFurther, openMigrator, reviewedSource } from "#test/pg/migrate/support.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { hexOfText, setText, setWidth } from "#test/support/closed/bit-text.ts"
 import {
@@ -86,6 +85,13 @@ import type { ModelValue } from "#test/support/oracle/evaluate/catalog.ts"
 import { type CatalogResult, evaluate } from "#test/support/oracle/evaluate/catalog.ts"
 import { patternMember } from "#test/support/oracle/reference/evaluate.ts"
 import type { SqlError } from "#test/support/pg.ts"
+import {
+	apply,
+	kept,
+	noFurther,
+	openMigrator,
+	reviewedSource
+} from "#test/support/pg/migrate/support.ts"
 import { checking, owning } from "#test/support/policy.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import type { Credentials, RawSession } from "#test/support/substrate/session.ts"

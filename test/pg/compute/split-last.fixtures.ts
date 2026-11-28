@@ -13,7 +13,7 @@ import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { regexField } from "#compiler/text/field.ts"
-import { fixtureTemplate } from "#test/pg/reads/support.ts"
+import { fixtureTemplate } from "#test/support/pg/reads/support.ts"
 
 /**
  * The characters every text is drawn of: a letter, and each separator a read splits at, a comma, a slash, a dot, a

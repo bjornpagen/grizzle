@@ -16,8 +16,16 @@ import { caseSketchGen, resolveCase } from "#test/support/oracle/public/generate
 import { noBindings, Reference, unobserved } from "#test/support/oracle/reference/evaluate.ts"
 import { noFunctions } from "#test/support/oracle/reference/functions.ts"
 import { checkAuthored, checking, checkMemberOf, checkOptions } from "#test/support/policy.ts"
+import {
+	imported,
+	lit,
+	match,
+	plainVar,
+	queryDesc,
+	rule,
+	varRef
+} from "#test/support/unit/check/dsl.ts"
 import { kindOfType, schemaDescOf } from "#test/unit/check/drawn.ts"
-import { imported, lit, match, plainVar, queryDesc, rule, varRef } from "#test/unit/check/dsl.ts"
 import {
 	type MemberFeature,
 	memberDesc,

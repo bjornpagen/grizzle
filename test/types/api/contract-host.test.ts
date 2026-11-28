@@ -12,6 +12,7 @@
  */
 import { word } from "@bjornpagen/testing/dictionary"
 import { finite } from "@bjornpagen/testing/gen"
+import { boxAgreement } from "#test/support/types/batch/agreement.ts"
 import {
 	contractHostBox,
 	contractKeyBox,
@@ -24,7 +25,6 @@ import {
 	contractMintProgram,
 	contractValueProgram
 } from "#test/types/api/contract-host.ts"
-import { boxAgreement } from "#test/types/batch/agreement.ts"
 
 /**
  * A write of a contract, a fact's field or a parameter's argument, takes its host type alone, its key's mint's, and a

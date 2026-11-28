@@ -119,13 +119,13 @@ import { Id, idKey, idName } from "#test/support/ids.ts"
 import { messageOf } from "#test/support/message.ts"
 import { type Leading, leadingHeadings } from "#test/support/open.ts"
 import { checking } from "#test/support/policy.ts"
-import { upTo } from "#test/support/up-to.ts"
 import {
 	batchOwned,
 	caseOwned,
 	type Program,
 	type Entry as ProgramEntry
-} from "#test/types/batch/batch.ts"
+} from "#test/support/types/batch/batch.ts"
+import { upTo } from "#test/support/up-to.ts"
 /**
  * The schema agreement: schemas drawn as data, each with the engine's verdict on it and on probe statements beside it,
  * and the one TypeScript program that states every verdict as types, which the type tier checks

@@ -13,7 +13,6 @@ import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg, span } from "#compiler/public/fields.ts"
 import { key, login, mutable, on, relation, role, schema, unit } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
-import { threeKeys, twoKeys } from "#test/schedules/write/support.ts"
 import { writeAnswerOf, type WriteAnswer } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import type { SqlError } from "#test/support/pg.ts"
@@ -27,6 +26,7 @@ import {
 	type SerialRaceFailed
 } from "#test/support/schedules/serial.ts"
 import { beginSerializableAction } from "#test/support/schedules/types.ts"
+import { threeKeys, twoKeys } from "#test/support/schedules/write/support.ts"
 import type { PsqlProcessError, TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 

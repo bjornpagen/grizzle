@@ -33,8 +33,8 @@ import { codebookOfStates, type RosterState } from "#test/support/closed/generat
 import { Id } from "#test/support/ids.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { ownedInput } from "#test/support/policy.ts"
+import { requesting } from "#test/support/unit/physical/fixtures.ts"
 import { upTo } from "#test/support/up-to.ts"
-import { requesting } from "#test/unit/physical/fixtures.ts"
 
 /**
  * The kinds of key a drawn schema holds, each judged by one check of the compile, in the order the compile meets them:

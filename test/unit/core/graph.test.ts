@@ -31,6 +31,7 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { boolean } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
+import { chainDepth, smallStackRecursion } from "#test/support/unit/ir/dag.fixtures.ts"
 import {
 	type Chain,
 	type ChainWalkFeature,
@@ -48,7 +49,6 @@ import {
 	successorsOf,
 	walked
 } from "#test/unit/core/graph.fixtures.ts"
-import { chainDepth, smallStackRecursion } from "#test/unit/ir/dag.fixtures.ts"
 
 /**
  * stronglyConnected gives every component of mutual reachability the roots reach once, in the order a depth-first

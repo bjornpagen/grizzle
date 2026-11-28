@@ -7,7 +7,7 @@
  * whose import's own match binds the parent variables its bind map reads, were refused at generate before.
  *
  * Each case draws the facts, attempts of two children at two items and marks of those items, and reads every read of
- * the box over them through the installed login: each of the four binders (test/unit/check/parent-binds.fixtures.ts
+ * the box over them through the installed login: each of the four binders (test/support/unit/check/parent-binds.fixtures.ts
  * binders) with each of the two bindings, a scalar parameter or a relation parameter bound to a query's rows, edullm's
  * shape. Every read delivers each attempt with the marks of its child at its item.
  *
@@ -32,11 +32,11 @@ import {
 	parentBindsInstall,
 	parentBindsTemplate
 } from "#test/pg/reads/parent-binds.fixtures.ts"
-import { openedIn } from "#test/pg/reads/support.ts"
 import { rowsOf } from "#test/support/calls.ts"
+import { openedIn } from "#test/support/pg/reads/support.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { ParentBinds } from "#test/support/unit/check/parent-binds.fixtures.ts"
 import { withLayer } from "#test/support/with-layer.ts"
-import { ParentBinds } from "#test/unit/check/parent-binds.fixtures.ts"
 
 /** A delivered child row's mark, as a number: the one cell of each element of an attempt's `marks` array. */
 const markOf = (m: unknown): number =>

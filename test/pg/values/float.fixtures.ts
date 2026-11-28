@@ -20,7 +20,7 @@ import { compareFloat, floatText, toReal } from "#compiler/scalar/values/float.t
 import { pgErrorFields } from "#test/support/substrate/errors.ts"
 import type { CaseSession } from "#test/support/substrate/session.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
-import { orderOf } from "#test/unit/values/support.ts"
+import { orderOf } from "#test/support/unit/values/support.ts"
 
 /** One row of one column, trusted from what PostgreSQL answers. */
 const oneCellOf = (rows: unknown): readonly [readonly [unknown]] =>

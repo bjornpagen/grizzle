@@ -28,6 +28,15 @@ import { contractPredicateTable } from "#compiler/scalar/compute/total.ts"
 import { bareEnv, scalarTypeOf } from "#compiler/scalar/registry.ts"
 import { referencePatterns } from "#test/support/oracle/reference/evaluate.ts"
 import {
+	baseParams,
+	type LeafBinding,
+	lowerWith,
+	param,
+	spelledExpr,
+	testDeclaringContract,
+	v
+} from "#test/support/unit/compute/support.ts"
+import {
 	caseGen,
 	type Feature,
 	guardKinds,
@@ -36,15 +45,6 @@ import {
 	predicateOf,
 	situations
 } from "#test/unit/compute/facts.fixtures.ts"
-import {
-	baseParams,
-	type LeafBinding,
-	lowerWith,
-	param,
-	spelledExpr,
-	testDeclaringContract,
-	v
-} from "#test/unit/compute/support.ts"
 
 /** A contract's facts are exactly the facts its proves declares, each of which its predicate implies. Its budget is its suite's before it was a property (test/unit/compute/facts.test.ts at 4ca3036a): 400 runs and 600 steered cases. */
 export const aContractsFactsAreExactlyTheFactsItsProvesDeclaresEachOfWhichItsPredicateImplies =

@@ -6,7 +6,7 @@
  *
  * - **expressions**: equations of two to five parts drawn as concatenation trees of any bracketing, over text columns,
  *   bounded or not, and bare literals, the whole a column or a literal on either side, `=` or `<>`
- *   (test/unit/compute/concat-equation.fixtures.ts), each lowered as a query and as a check lowers it and run over a
+ *   (test/support/unit/compute/concat-equation.fixtures.ts), each lowered as a query and as a check lowers it and run over a
  *   batch of rows in one statement: texts of one-, two- and four-byte characters, empty ones and NULL. PostgreSQL's
  *   value is the host's and the equation's plain meaning, three-valued, and the reference evaluator's where no operand
  *   is NULL.
@@ -44,7 +44,7 @@ import {
 	loweredEquationGen,
 	narrowTermGen,
 	type TermFeature
-} from "#test/unit/compute/concat-equation.fixtures.ts"
+} from "#test/support/unit/compute/concat-equation.fixtures.ts"
 
 /**
  * An equation of a text with a concatenation of any number of parts, lowered as a query and as a check lowers it, is on

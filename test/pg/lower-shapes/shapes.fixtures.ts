@@ -21,10 +21,10 @@ import { templateNeedBudget } from "#test/support/budgets.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { tablesGroup, type ResetGroup } from "#test/support/substrate/replace.ts"
 import { installTemplate, Substrate } from "#test/support/substrate/substrate.ts"
-import { relations, Task } from "#test/unit/lower/conservative/fixtures.ts"
-import * as Cases from "#test/unit/lower/conservative/queries.ts"
-import type { ConditionalForm } from "#test/unit/lower/shapes/queries.ts"
-import { testOptions } from "#test/unit/lower/shapes/support.ts"
+import { relations, Task } from "#test/support/unit/lower/conservative/fixtures.ts"
+import * as Cases from "#test/support/unit/lower/conservative/queries.ts"
+import type { ConditionalForm } from "#test/support/unit/lower/shapes/queries.ts"
+import { testOptions } from "#test/support/unit/lower/shapes/support.ts"
 
 /** The fixture's physical names, its codebook among them: the names the lowerings under test emit. */
 const namesOf = (schema: string) => testOptions(schema).names

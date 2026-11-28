@@ -10,7 +10,7 @@
  * The box, exhausted: Owner(g, h, s, x, ms, tot), keyed (g, h, s) with `s` a place, owning M1(g, h, s, at, v, cx, ks,
  * gs) at `ms` and M1 owning M2(g, h, s, at, bt, w) at `ks`, each member copying its owner's `x` at `cx`, its `gs`
  * generated over its carried place (`v` where the place is at least 1, else 0), and the owner's `tot` the sum of its
- * members' `v` (test/unit/write/stamped-nesting.fixtures.ts, its fold over every member); members one or two deep;
+ * members' `v` (test/support/unit/write/stamped-nesting.fixtures.ts, its fold over every member); members one or two deep;
  * one owner, two in two groups, or two in one group stated apart; none, one or two members an owner, as many again under
  * each member two deep. Each case installs the schema, serves an insert of Owner's host rows, each leaving its place
  * out, and calls it twice with the case's owners.
@@ -38,7 +38,6 @@ import { namesOf } from "#test/support/kernel/naming.ts"
 import { oneFlight } from "#test/support/one-flight.ts"
 import { member, openServedDb } from "#test/support/served-db.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
-import { fullWorld } from "#test/support/worlds.ts"
 import {
 	featuresOf,
 	ownersOf,
@@ -46,7 +45,8 @@ import {
 	type StampedFeature,
 	stampedSchemaOf,
 	writtenGen
-} from "#test/unit/write/stamped-nesting.fixtures.ts"
+} from "#test/support/unit/write/stamped-nesting.fixtures.ts"
+import { fullWorld } from "#test/support/worlds.ts"
 
 /** The case's rows as PostgreSQL stores them after `calls` calls of its owners, each column's text: each owner at the
  * place its group's calls stamped it, every member at its owner's. */

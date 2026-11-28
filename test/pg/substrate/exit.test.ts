@@ -25,7 +25,7 @@ import { caseGen, childModule, type Feature, leaked } from "#test/pg/substrate/e
 import { testPoolMax } from "#test/support/substrate/connections.ts"
 import { lend } from "#test/support/substrate/shared.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
-import { exitedCleanly } from "#test/unit/dev/consumer.ts"
+import { exitedCleanly } from "#test/support/unit/dev/consumer.ts"
 
 /** No socket, connection or timer is left once the substrate and every Db are released, and the process exits. */
 export const exitsOnceItsScopesClose = property.exhaust(finite(caseGen), {

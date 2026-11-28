@@ -28,7 +28,7 @@ import {
 } from "#test/support/families/fill.ts"
 import { bindingAgrees } from "#test/support/oracle/binding.ts"
 import { checking } from "#test/support/policy.ts"
-import { descOf, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
+import { descOf, parsedOf } from "#test/support/unit/write/changeset/fixtures.ts"
 
 /** The situations a drawn write reaches. */
 export type BindingSituation =

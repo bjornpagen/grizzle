@@ -27,7 +27,7 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option } from "effect"
-import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
+import { uuidOf } from "#test/support/unit/write/changeset/fixtures.ts"
 import {
 	accepted,
 	caseGen,

@@ -2,7 +2,7 @@
 
 import { dictionary } from "@bjornpagen/testing/dictionary"
 import { carriers } from "#compiler/ir/scalar.ts"
-import { spellings } from "#test/unit/scalar/support.ts"
+import { spellings } from "#test/support/unit/scalar/support.ts"
 
 /** Every carrier of the registry, in its order (ir/scalar.ts carriers). */
 export const carrierWords = dictionary(carriers)

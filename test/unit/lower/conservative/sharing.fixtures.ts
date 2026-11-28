@@ -16,7 +16,7 @@ import {
 	auditTextViolations,
 	guardedTermsOf
 } from "#test/support/oracle/verify/sql.ts"
-import { Edge, plainRegion, Q, T } from "#test/unit/lower/conservative/fixtures.ts"
+import { Edge, plainRegion, Q, T } from "#test/support/unit/lower/conservative/fixtures.ts"
 
 export type Placement = "uncorrelated" | "correlated to a parent row" | "correlated to its region"
 

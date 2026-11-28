@@ -15,7 +15,7 @@ import {
 	schemaOf,
 	type TestTheory,
 	theoryOf
-} from "#test/unit/analysis/theory/support.ts"
+} from "#test/support/unit/analysis/theory/support.ts"
 
 /** A box configuration: the owners the two counted families have, their group fields, a fold each, a sequence. */
 interface Shape {

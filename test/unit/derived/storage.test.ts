@@ -51,7 +51,7 @@ import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Effect, Formatter } from "effect"
 import { succeeded } from "#test/support/assert.ts"
-import { compiledOf } from "#test/unit/analysis/theory/rule-query.fixtures.ts"
+import { compiledOf } from "#test/support/unit/analysis/theory/rule-query.fixtures.ts"
 import {
 	derivedName,
 	holdingOf,
@@ -62,7 +62,7 @@ import {
 	holderOf,
 	storageSchemaOf,
 	decidingDelta
-} from "#test/unit/derived/storage.fixtures.ts"
+} from "#test/support/unit/derived/storage.fixtures.ts"
 
 type StorageFeature =
 	| `${"stored" | "live"} ${Shape}`

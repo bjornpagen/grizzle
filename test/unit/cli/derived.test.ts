@@ -29,9 +29,9 @@ import { silentPhases } from "#compiler/core/phase.ts"
 
 import { assert, defined } from "@bjornpagen/testing/assert"
 import { manifestFileName, snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
-import { cliOver, configName, resolvedConfig, workspace } from "#test/pg/cli/support.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { chunked } from "#test/support/chunked.ts"
+import { cliOver, configName, resolvedConfig, workspace } from "#test/support/pg/cli/support.ts"
 import { snapshotJson } from "#test/support/snapshot-json.ts"
 import {
 	baseNeed,

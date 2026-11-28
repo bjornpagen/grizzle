@@ -11,7 +11,7 @@ import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect, FileSystem, Path, String as Str } from "effect"
-import { consumerProject, exitedCleanly, runChild } from "#test/unit/dev/consumer.ts"
+import { consumerProject, exitedCleanly, runChild } from "#test/support/unit/dev/consumer.ts"
 import { type Mirror, mirrorBox, mirrors, mirrorTsconfig } from "#test/unit/dev/package.fixtures.ts"
 
 /**

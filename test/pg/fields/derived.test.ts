@@ -80,12 +80,12 @@ import {
 	snapshotOf,
 	type System
 } from "#test/pg/fields/derived.fixtures.ts"
-import { kept, reviewedSource } from "#test/pg/migrate/support.ts"
 import { ambientOwner, ordinarySession } from "#test/support/ambient.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { type Declaration, holesOf } from "#test/support/closed/generate.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { draftCodes, fromEmpty, fromSnapshot, noDeclarations } from "#test/support/migrate/kit.ts"
+import { kept, reviewedSource } from "#test/support/pg/migrate/support.ts"
 import {
 	baseSubstrate,
 	claimsOfNoFact,

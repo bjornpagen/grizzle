@@ -54,8 +54,8 @@ import {
 	treeId,
 	treeRows
 } from "#test/pg/fin/fold-digests.fixtures.ts"
-import { openedIn } from "#test/pg/reads/support.ts"
 import { rowsOf, writeAnswerOf } from "#test/support/calls.ts"
+import { openedIn } from "#test/support/pg/reads/support.ts"
 import { attemptChecked, refusalText } from "#test/support/substrate.ts"
 import { reportedOwnerOf } from "#test/support/substrate/errors.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"

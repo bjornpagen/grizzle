@@ -19,11 +19,11 @@ import type { IndexResolver } from "#compiler/plan/migration.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
 import { selectMaxEntries } from "#compiler/sql/print.ts"
 import { defineConfig } from "#index.ts"
-import { offlineConnection, offlineOwner } from "#test/pg/cli/support.ts"
 import { jsonOf } from "#test/support/chunked.ts"
 import { offlineDecoders, servedSourcedLayer } from "#test/support/live-layer.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import { clusterPool } from "#test/support/pg.ts"
+import { offlineConnection, offlineOwner } from "#test/support/pg/cli/support.ts"
 import {
 	boxParams,
 	compileCaseDeadline,

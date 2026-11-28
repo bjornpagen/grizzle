@@ -6,7 +6,7 @@
  * meet situation.
  */
 import { bytesProgram, featuresOf, meetCaseGen, meetFeatures } from "#test/support/text/bytes.ts"
-import { agreement } from "#test/types/batch/agreement.ts"
+import { agreement } from "#test/support/types/batch/agreement.ts"
 
 /**
  * A text a byte bound refines has its pattern's type, and meets every text its pattern meets. Its budget, 24 runs and

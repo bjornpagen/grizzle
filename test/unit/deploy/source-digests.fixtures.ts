@@ -1,6 +1,6 @@
 /**
  * What the properties of source-digests.test.ts read: drawn PL/pgSQL functions, each of one to three probes whose
- * queries are print-once's drawn statements (test/unit/sql/print-once.fixtures.ts), each CTE plain, MATERIALIZED, NOT
+ * queries are print-once's drawn statements (test/support/unit/sql/print-once.fixtures.ts), each CTE plain, MATERIALIZED, NOT
  * MATERIALIZED or calling a VOLATILE function and read none, one or two times, a probe's message holding a tab or not;
  * ForwardBranchRule's upkeep's shape, kept; a function's record, its CREATE FUNCTION as a drafted file spells it, and
  * the source PostgreSQL stores of it, read off that text's lexemes.
@@ -31,7 +31,7 @@ import {
 	type StatementShape,
 	statementGen,
 	statementOf
-} from "#test/unit/sql/print-once.fixtures.ts"
+} from "#test/support/unit/sql/print-once.fixtures.ts"
 
 /** One probe of a drawn function: its query's shape, and whether the message it raises holds a tab. */
 export interface ProbeShape {

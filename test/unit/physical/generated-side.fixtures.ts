@@ -22,7 +22,7 @@ import { rowHelpers } from "#compiler/schema/terms.ts"
 import type { ColumnDef, Expr } from "#compiler/sql/ast.ts"
 import { identityHooks, transformExpr } from "#compiler/sql/transform.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
-import { regex } from "#test/unit/schema/support.ts"
+import { regex } from "#test/support/unit/schema/support.ts"
 
 /**
  * A law column over a generated field reads what the field is generated from: PostgreSQL refuses a generation

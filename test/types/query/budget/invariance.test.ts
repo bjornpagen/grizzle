@@ -8,8 +8,8 @@
  * a parameter of another type and an order by a field one arm lacks, raises exactly the diagnostics, codes and
  * refusals, that it raises over the twin. Oracle: the twin, a program at the smallest scale the probes read.
  */
-import { boxAgreement } from "#test/types/batch/agreement.ts"
-import { queryProgram } from "#test/types/query/budget/generate.ts"
+import { boxAgreement } from "#test/support/types/batch/agreement.ts"
+import { queryProgram } from "#test/support/types/query/budget/generate.ts"
 import { queryProbes } from "#test/types/query/budget/invariance.dictionary.ts"
 
 /**

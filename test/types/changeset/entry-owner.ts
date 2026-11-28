@@ -12,7 +12,7 @@ import {
 	roleName
 } from "#test/support/families/entry-owner.ts"
 import { preludeAt, preludeFrom, preludeModule } from "#test/support/prelude.ts"
-import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/batch/batch.ts"
+import { batchOwned, caseOwned, type Entry, type Program } from "#test/support/types/batch/batch.ts"
 
 /**
  * The entry-owner program: every case of the entry-owner box (test/support/families/entry-owner.ts) whose role is

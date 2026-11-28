@@ -18,8 +18,8 @@ import {
 	unit
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import type { Aim } from "#test/pg/migrate/support.ts"
 import { Id } from "#test/support/ids.ts"
+import type { Aim } from "#test/support/pg/migrate/support.ts"
 
 /** What a version holds, each a knob a history turns. */
 export interface Knobs {

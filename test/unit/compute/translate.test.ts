@@ -57,7 +57,8 @@ import {
 	spelledExpr,
 	testPg,
 	v
-} from "#test/unit/compute/support.ts"
+} from "#test/support/unit/compute/support.ts"
+import { stringsOver } from "#test/support/unit/text/generators.ts"
 import {
 	byDefinition,
 	castGen,
@@ -89,7 +90,6 @@ import {
 	variable,
 	vars
 } from "#test/unit/compute/translate.fixtures.ts"
-import { stringsOver } from "#test/unit/text/generators.ts"
 
 /** Text.translate and Text.lowerAscii translate and lowerAscii agree with the map on the host and in the reference. Its budget is its suite's before it was a property (test/unit/compute/translate.test.ts at 4ca3036a): 300 runs and 300 steered cases. */
 export const computesTranslateAndLowerAsciiTranslateAndLowerAsciiAgreeWithTheMapOnTheHostAndInTheReference =

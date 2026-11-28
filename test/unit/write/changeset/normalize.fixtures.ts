@@ -39,7 +39,7 @@ import {
 	oracleState
 } from "#test/support/oracle/addwins.ts"
 import { type FactTexts, identityOrder } from "#test/support/oracle/delta.ts"
-import { codesOf, compiled, cs, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
+import { codesOf, compiled, cs, parsedOf } from "#test/support/unit/write/changeset/fixtures.ts"
 
 /** Pair(k, v, c): primary key k, candidate key c. */
 const Pair = relation("Pair", { k: pg.integer, v: pg.integer, c: pg.integer }, ["k"])

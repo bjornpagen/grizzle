@@ -25,12 +25,12 @@ import {
 	seatsLaw,
 	toSeats
 } from "#test/pg/laws/outcomes/schemas.ts"
-import { fixtureTemplate, openedIn } from "#test/pg/reads/support.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { writeAnswerOf } from "#test/support/calls.ts"
 import { type IdValue, toId } from "#test/support/ids.ts"
 import { type Installed, type Generated } from "#test/support/install-migrate.ts"
 import { namesOf, parsedName } from "#test/support/kernel/naming.ts"
+import { fixtureTemplate, openedIn } from "#test/support/pg/reads/support.ts"
 import { refusedLaws } from "#test/support/refused.ts"
 import { type PgErrorFields, pgErrorFields } from "#test/support/substrate/errors.ts"
 import { type RawSession } from "#test/support/substrate/session.ts"

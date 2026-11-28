@@ -34,8 +34,8 @@ import {
 } from "#test/support/oracle/reference/evaluate.ts"
 import { ReferenceUnsupported, rowIdentity } from "#test/support/oracle/reference/values.ts"
 import { isElisionRule, verifyMultiplicity } from "#test/support/oracle/verify/multiplicity.ts"
-import { FragmentReference, uniqueOn } from "#test/unit/analysis/physical/support.ts"
-import { present } from "#test/unit/lower/support.ts"
+import { FragmentReference, uniqueOn } from "#test/support/unit/analysis/physical/support.ts"
+import { present } from "#test/support/unit/lower/support.ts"
 
 /** What placement reads: the context a case is read in, its catalog, and its result as the only root. */
 interface Env {

@@ -51,8 +51,6 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Order } from "effect"
-import { byMember, foldRead, foldSeatOf } from "#test/pg/fin/folds.ts"
-import { seatOfInstalled } from "#test/pg/fin/installed.ts"
 import {
 	after,
 	before,
@@ -100,6 +98,8 @@ import {
 } from "#test/pg/migrate/backfill.fixtures.ts"
 import { foldStoredOf } from "#test/support/families/fold.ts"
 import { numbered } from "#test/support/families/tree.ts"
+import { byMember, foldRead, foldSeatOf } from "#test/support/pg/fin/folds.ts"
+import { seatOfInstalled } from "#test/support/pg/fin/installed.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
 

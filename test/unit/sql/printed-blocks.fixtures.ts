@@ -6,7 +6,7 @@ import { violationCheck } from "#compiler/physical/ddl/recheck.ts"
 import type { OperandSelect } from "#compiler/sql/ast.ts"
 import { sqlText, writeDoBlock } from "#compiler/sql/print.ts"
 import { wild } from "#test/support/kernel/naming.ts"
-import { cteGen, type StatementShape } from "#test/unit/sql/print-once.fixtures.ts"
+import { cteGen, type StatementShape } from "#test/support/unit/sql/print-once.fixtures.ts"
 
 /** The DO statement a migration prints to check one law over `query` (physical/ddl/recheck.ts violationCheck). */
 export const checkText = (query: OperandSelect): string =>

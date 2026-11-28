@@ -9,9 +9,9 @@ import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { type CatalogResult, evaluate } from "#test/support/oracle/evaluate/catalog.ts"
 import { patternMember } from "#test/support/oracle/reference/evaluate.ts"
-import { codecTypes } from "#test/unit/codec/support.ts"
-import { sink } from "#test/unit/compute/support.ts"
-import { decimalGen } from "#test/unit/values/support.ts"
+import { codecTypes } from "#test/support/unit/codec/support.ts"
+import { sink } from "#test/support/unit/compute/support.ts"
+import { decimalGen } from "#test/support/unit/values/support.ts"
 
 /**
  * The libm error model of numeric power's estimates (test/support/oracle/evaluate/power.ts), restated as this test's

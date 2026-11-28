@@ -33,10 +33,10 @@ import {
 	schemaOf,
 	sorted
 } from "#test/pg/fields/set-padding.fixtures.ts"
-import { installed } from "#test/pg/reads/support.ts"
 import { writeAnswerOf, rowsOf } from "#test/support/calls.ts"
 import { setText, setWidth } from "#test/support/closed/bit-text.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
+import { installed } from "#test/support/pg/reads/support.ts"
 import { ownerSession, Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** The set algebra over a drafted bits domain computes every set with its padding bits 0, accepted by the domain and read back as the model's. */

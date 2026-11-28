@@ -46,8 +46,8 @@ import {
 	termLoweredAt,
 	termMeaningOf,
 	termRowFeatures
-} from "#test/unit/compute/concat-equation.fixtures.ts"
-import { plainRender, renderSql } from "#test/unit/compute/support.ts"
+} from "#test/support/unit/compute/concat-equation.fixtures.ts"
+import { plainRender, renderSql } from "#test/support/unit/compute/support.ts"
 
 /** PostgreSQL's text of a truth value, NULL as null. */
 const printed = (value: boolean | null): string | null =>

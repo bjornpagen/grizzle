@@ -46,7 +46,7 @@ import {
 	runLabelledOracle
 } from "#test/support/oracle/runner.ts"
 import { checkAuthored, checking, checkOptions } from "#test/support/policy.ts"
-import * as D from "#test/unit/check/dsl.ts"
+import * as D from "#test/support/unit/check/dsl.ts"
 
 export type OrderSituation =
 	| "float sum whose IEEE orders disagree"

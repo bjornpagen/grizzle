@@ -12,14 +12,14 @@ import type { CompiledWrite } from "#compiler/write/program/compile.ts"
 import { flightOf, servableWrite } from "#compiler/write/program/served.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { fixtureNeedBudget } from "#test/support/budgets.ts"
-import { parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
+import { parsedOf, uuidOf } from "#test/support/unit/write/changeset/fixtures.ts"
 import {
 	shopChangeSet,
 	shopCompile,
 	shopCompiled,
 	Stock,
 	stockFromParam
-} from "#test/unit/write/put/support.ts"
+} from "#test/support/unit/write/put/support.ts"
 
 /** The members a compiled write collects from a ChangeSet value's inputs. */
 const membersOf = (program: CompiledWrite, value: unknown) =>

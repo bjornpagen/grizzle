@@ -20,7 +20,7 @@ import { compileWrite } from "#compiler/write/program/compile.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
-import { descOf } from "#test/unit/write/changeset/fixtures.ts"
+import { descOf } from "#test/support/unit/write/changeset/fixtures.ts"
 
 /** The two types a count meets: natural, what a count is, and the bigint behind it, another type. */
 export type Side = "natural" | "bigint"

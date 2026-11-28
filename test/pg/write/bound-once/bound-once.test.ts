@@ -44,7 +44,6 @@ import { Array as Arr, Effect, Formatter, Order, Record as Rec, Result } from "e
 import { changeApplication, variantOf } from "#adapter/db/handles.ts"
 import { hasProperties } from "#compiler/core/record.ts"
 import { changeSetDesc } from "#compiler/write/changeset/value.ts"
-import { openedIn } from "#test/pg/reads/support.ts"
 import {
 	boundStrata,
 	callFactsOf,
@@ -72,6 +71,7 @@ import {
 	unskippedTarget
 } from "#test/pg/write/bound-once/bound-once.fixtures.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
+import { openedIn } from "#test/support/pg/reads/support.ts"
 import { member, withServedDb } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 

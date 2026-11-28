@@ -72,9 +72,9 @@ import {
 	versionFor
 } from "#test/pg/migrate/functions.fixtures.ts"
 import { driftedOf } from "#test/pg/migrate/recorded-drift.fixtures.ts"
-import { refusal, sameCatalog } from "#test/pg/migrate/support.ts"
 import { migrated, noObservation } from "#test/support/installed.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
+import { refusal, sameCatalog } from "#test/support/pg/migrate/support.ts"
 import { attempt } from "#test/support/substrate.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 

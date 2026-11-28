@@ -23,9 +23,9 @@ import {
 	outcomeKind,
 	readFeature
 } from "#test/pg/http/stream.fixtures.ts"
-import { installed } from "#test/pg/reads/support.ts"
 import { readStream } from "#test/support/event-stream.ts"
 import { clusterConnection, clusterPool } from "#test/support/pg.ts"
+import { installed } from "#test/support/pg/reads/support.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 import { testVerify } from "#test/support/worlds.ts"

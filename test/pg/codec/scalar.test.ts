@@ -33,6 +33,7 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { isHostValue } from "#compiler/scalar/values/identity.ts"
+import { succeeded } from "#test/support/assert.ts"
 import {
 	anyUuid,
 	caseOf,
@@ -50,11 +51,10 @@ import {
 	sameValue,
 	type RoutableFeature,
 	setupIn
-} from "#test/pg/codec/scalar.fixtures.ts"
-import { fieldOf, storedTextOut, textRows, wireSql } from "#test/pg/codec/support.ts"
-import { succeeded } from "#test/support/assert.ts"
+} from "#test/support/pg/codec/scalar.fixtures.ts"
+import { fieldOf, storedTextOut, textRows, wireSql } from "#test/support/pg/codec/support.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
-import { codecOf } from "#test/unit/codec/support.ts"
+import { codecOf } from "#test/support/unit/codec/support.ts"
 
 /**
  * Exact scalar codecs against PostgreSQL round-trip every carrier exactly through the recordset and a cast parameter.

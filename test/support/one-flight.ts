@@ -2,7 +2,7 @@ import { assert } from "@bjornpagen/testing/assert"
 import { Array as Arr, Effect, Formatter, type Scope } from "effect"
 import type { ServedDbContext } from "#adapter/db/context.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
-import { defaultPool, poolFor, rowsOn } from "#test/pg/adapter/support.ts"
+import { defaultPool, poolFor, rowsOn } from "#test/support/pg/adapter/support.ts"
 import type { Credentials } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import {

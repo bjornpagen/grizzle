@@ -4,7 +4,7 @@ import { Array as Arr, Option, String as Str } from "effect"
 import { ExprId } from "#compiler/core/ids.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import type { NativeOp } from "#compiler/scalar/compute/registry.ts"
-import { T } from "#test/unit/lower/conservative/fixtures.ts"
+import { T } from "#test/support/unit/lower/conservative/fixtures.ts"
 
 /** The namespaces of the exact carriers' own overloads, whose OpIds prefix the numeric signature that implements them. */
 const exactNamespaces = ["exact:", "exactMoney:"] as const

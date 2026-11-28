@@ -7,8 +7,8 @@ import {
 	twinPrefix,
 	twinProbesOf,
 	twinProgram
-} from "#test/types/batch/twins.ts"
-import { entriesFrom } from "#test/types/query/budget/generate.ts"
+} from "#test/support/types/batch/twins.ts"
+import { entriesFrom } from "#test/support/types/query/budget/generate.ts"
 
 /**
  * The statement-scale program, one type test of schema(...), role(...) and the lookups by name at scale. It writes one

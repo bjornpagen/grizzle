@@ -1,6 +1,6 @@
 import { word } from "@bjornpagen/testing/dictionary"
 import { finite } from "@bjornpagen/testing/gen"
-import { boxAgreement } from "#test/types/batch/agreement.ts"
+import { boxAgreement } from "#test/support/types/batch/agreement.ts"
 /**
  * A level over a base parameter (test/types/schema/generic-base.ts): `<B extends SchemaOver<typeof Root>>(base: B) =>
  * schema.extend([base], ...)`, and its weakest bound, AnySchema, compile wherever the level's content keeps the rules

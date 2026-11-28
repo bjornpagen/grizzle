@@ -23,12 +23,11 @@ import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import type { ScalarTerm } from "#compiler/scalar/compute/term.ts"
 import { Decimal, type FiniteDecimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
-import type { EvalCase } from "#test/pg/compute/support.ts"
-import { evaluatorTemplate } from "#test/pg/compute/support.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { constantEnv, evaluate } from "#test/support/oracle/evaluate/catalog.ts"
 import { numericPaddings } from "#test/support/oracle/gen/domain.ts"
-import { upTo } from "#test/support/up-to.ts"
+import type { EvalCase } from "#test/support/pg/compute/support.ts"
+import { evaluatorTemplate } from "#test/support/pg/compute/support.ts"
 import {
 	baseParams,
 	type LeafBinding,
@@ -39,8 +38,9 @@ import {
 	type TestField,
 	testPg,
 	v
-} from "#test/unit/compute/support.ts"
-import { numericText } from "#test/unit/values/support.ts"
+} from "#test/support/unit/compute/support.ts"
+import { numericText } from "#test/support/unit/values/support.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 type Gate = "int2" | "int4" | "int8" | "numeric" | "float8" | "float4" | "money"
 

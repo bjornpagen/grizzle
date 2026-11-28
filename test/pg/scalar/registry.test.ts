@@ -28,7 +28,6 @@ import { regex } from "arkregex"
 import { Array as Arr, Effect, pipe, String as Str } from "effect"
 import { vectorMaxDimensions } from "#compiler/ir/carriers.ts"
 import { pgDescriptors } from "#compiler/scalar/pg.ts"
-import { vectorSchemaOf } from "#test/pg/codec/support.ts"
 import { carrierWords, spellingWords } from "#test/pg/scalar/registry.dictionary.ts"
 import {
 	accepts,
@@ -46,8 +45,9 @@ import {
 	typmodGen,
 	unspanned
 } from "#test/pg/scalar/registry.fixtures.ts"
+import { vectorSchemaOf } from "#test/support/pg/codec/support.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
-import { spelled } from "#test/unit/scalar/support.ts"
+import { spelled } from "#test/support/unit/scalar/support.ts"
 
 /** Descriptors against the PostgreSQL 19 catalog names the type PostgreSQL stores with every spelling of the pg namespace. */
 export const descriptorsAgainstThePostgreSQL19CatalogNamesTheTypePostgreSQLStoresWithEverySpellingOfThePgNamespace =

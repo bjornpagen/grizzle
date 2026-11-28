@@ -25,7 +25,14 @@ import { nodesByLabel } from "#compiler/ir/dag.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import { conservativeMeta, type RelNode } from "#compiler/ir/rel.ts"
 import { fusePass } from "#compiler/lower/optimize/fuse/index.ts"
-import { Account, plainRegion, Posting, Q, T } from "#test/unit/lower/conservative/fixtures.ts"
+import {
+	Account,
+	plainRegion,
+	Posting,
+	Q,
+	T
+} from "#test/support/unit/lower/conservative/fixtures.ts"
+import { nodesOf, rulesOf } from "#test/support/unit/lower/rewrite/support.ts"
 import {
 	type Bound,
 	fused,
@@ -36,7 +43,6 @@ import {
 	uses
 } from "#test/unit/lower/rewrite/fuse.fixtures.ts"
 import { guardSearch, scopedStay } from "#test/unit/lower/rewrite/guarded.ts"
-import { nodesOf, rulesOf } from "#test/unit/lower/rewrite/support.ts"
 
 /** The complete bound tuple survives fusion a fold over an imported stage keeps its bound tuple, (account, amount) or (id, account, amount), through fusion. */
 export const theCompleteBoundTupleSurvivesFusionAFoldOverAnImportedStageKeepsItsBoundTupleAccountAmountOrIdAccountAmountThroughFusion =

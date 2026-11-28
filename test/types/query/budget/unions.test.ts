@@ -12,13 +12,18 @@
  * quadratically (test/support/growth.ts incrementsAtMostDouble): each arm is judged beside every arm before it, as the
  * checker judges every two arms of a union (check/checker.ts Checker.union), and the union's heading, values and keys
  * are read once over every arm, never a type over the union before it. Oracle: the compiler's own counts and
- * diagnostics (test/types/batch/measured.ts), compared step against step.
+ * diagnostics (test/support/types/batch/measured.ts), compared step against step.
  */
 import { defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Effect, Option } from "effect"
 import { incrementsAtMostDouble } from "#test/support/growth.ts"
 import type { PreludeAt } from "#test/support/prelude.ts"
-import { assertClean, costGate, growthGate, measuredEach } from "#test/types/batch/measured.ts"
+import {
+	assertClean,
+	costGate,
+	growthGate,
+	measuredEach
+} from "#test/support/types/batch/measured.ts"
 import { boundMembers, unionArms } from "#test/types/query/budget/unions.dictionary.ts"
 
 /** Each size of a ChangeSet's members typechecks, each step adding types and instantiations, no faster than linearly. */

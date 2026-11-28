@@ -16,8 +16,8 @@ import {
 	schema,
 	unit
 } from "#compiler/public/schema.ts"
-import { fixtureTemplate } from "#test/pg/reads/support.ts"
 import { type SpanKeyedOwner, spanOwnersGen } from "#test/support/families/generate.ts"
+import { fixtureTemplate } from "#test/support/pg/reads/support.ts"
 
 export const SpanOwner = relation(
 	"SpanOwner",

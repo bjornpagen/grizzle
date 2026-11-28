@@ -24,7 +24,7 @@ import { contractParser } from "#adapter/public/contract.ts"
 import { resolveConfig } from "#cli/config.ts"
 import { contractFindings, contractTexts, writeContracts } from "#cli/contracts.ts"
 import { contract, defineConfig, Num, pg, relation, schema } from "#index.ts"
-import { offlineOwner } from "#test/pg/cli/support.ts"
+import { offlineOwner } from "#test/support/pg/cli/support.ts"
 
 type State = "no file" | "the current file" | "an edited file" | "a file of no listed contract"
 

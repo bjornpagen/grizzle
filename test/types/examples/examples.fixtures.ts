@@ -1,5 +1,5 @@
 import { Array as Arr, String as Str } from "effect"
-import { batchOwned, caseOwned, type Owner, type Program } from "#test/types/batch/batch.ts"
+import { batchOwned, caseOwned, type Owner, type Program } from "#test/support/types/batch/batch.ts"
 import { readmeFixture, type StatedRefusal } from "#test/types/examples/documents.ts"
 
 /**

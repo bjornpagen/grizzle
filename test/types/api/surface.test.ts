@@ -6,9 +6,9 @@
  */
 import { word } from "@bjornpagen/testing/dictionary"
 import { finite } from "@bjornpagen/testing/gen"
+import { boxAgreement } from "#test/support/types/batch/agreement.ts"
 import { surfaceBox } from "#test/types/api/surface.dictionary.ts"
 import { surfaceProgram } from "#test/types/api/surface.ts"
-import { boxAgreement } from "#test/types/batch/agreement.ts"
 
 /** The methods of QueryBuilder, Rule, Finished, Query and Ordered are exactly the methods their runtime values carry. */
 export const surface = boxAgreement(finite(word(surfaceBox)), {

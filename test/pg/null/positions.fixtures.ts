@@ -46,7 +46,6 @@ import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.
 import { generatedField, generatedRelation } from "#compiler/schema/relation.ts"
 import { checkBuilder, selectBuilder } from "#compiler/schema/statements.ts"
 import { changeSetOver } from "#compiler/write/changeset/value.ts"
-import { installed } from "#test/pg/reads/support.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { writeAnswerOf, readOnce, type WriteAnswer } from "#test/support/calls.ts"
 import { identicalValue } from "#test/support/equivalence.ts"
@@ -105,6 +104,7 @@ import {
 	worldGen,
 	worldSql
 } from "#test/support/null/language.ts"
+import { installed } from "#test/support/pg/reads/support.ts"
 import { owning } from "#test/support/policy.ts"
 import { refusedLaws } from "#test/support/refused.ts"
 import { member, withServedDb } from "#test/support/served-db.ts"

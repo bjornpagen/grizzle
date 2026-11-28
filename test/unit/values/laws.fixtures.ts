@@ -28,7 +28,7 @@ import { succeeded } from "#test/support/assert.ts"
 import { f, textDesc } from "#test/support/fixtures/ir/desc.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { Id } from "#test/support/ids.ts"
-import { decimalGen, numericText } from "#test/unit/values/support.ts"
+import { decimalGen, numericText } from "#test/support/unit/values/support.ts"
 
 /** Groups of spellings of one Decimal value, and values alone. */
 const decimalGroups: Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<string>> = [

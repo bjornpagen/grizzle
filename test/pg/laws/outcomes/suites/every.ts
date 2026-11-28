@@ -19,10 +19,10 @@ import {
 	relation,
 	schema
 } from "#compiler/public/schema.ts"
-import { fixtureTemplate, openedIn } from "#test/pg/reads/support.ts"
 import { writeAnswerOf } from "#test/support/calls.ts"
 import { type Generated } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
+import { fixtureTemplate, openedIn } from "#test/support/pg/reads/support.ts"
 import { refusedLaws } from "#test/support/refused.ts"
 import { type SubstrateCase } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"

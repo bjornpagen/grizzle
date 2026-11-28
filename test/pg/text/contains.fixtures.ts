@@ -23,7 +23,6 @@ import { type Generated, generatedTemplate } from "#test/support/install-migrate
 import { codeInfix } from "#test/support/oracle/evaluate/catalog.ts"
 import { servedGenerated } from "#test/support/served-db.ts"
 import type { SubstrateCase, TemplateNeed } from "#test/support/substrate/substrate.ts"
-import { fullWorld } from "#test/support/worlds.ts"
 import {
 	baseParams,
 	type LeafBinding,
@@ -31,8 +30,9 @@ import {
 	plainRender,
 	renderSql,
 	testPg
-} from "#test/unit/compute/support.ts"
-import { computeDesc, variable as leaf } from "#test/unit/compute/text.fixtures.ts"
+} from "#test/support/unit/compute/support.ts"
+import { computeDesc, variable as leaf } from "#test/support/unit/compute/text.fixtures.ts"
+import { fullWorld } from "#test/support/worlds.ts"
 
 /** LIKE's three special characters: its two wildcards and its default escape. */
 const likeSpecials = [0x25, 0x5f, 0x5c] as const

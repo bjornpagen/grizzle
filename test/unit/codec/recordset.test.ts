@@ -38,6 +38,7 @@ import type { IdentifiedFact } from "#compiler/ir/products.ts"
 import { arraysEncoder, readArrayLiteral } from "#test/support/arrays.ts"
 import { failed, succeeded } from "#test/support/assert.ts"
 import { callCounts } from "#test/support/kernel/calls.ts"
+import { kindCodes, normalizedBy } from "#test/support/unit/codec/support.ts"
 import { paramText, textOfParam } from "#test/support/wire.ts"
 import {
 	boundCases,
@@ -68,7 +69,6 @@ import {
 	pastTheBoundBox,
 	statements
 } from "#test/unit/codec/recordset.fixtures.ts"
-import { kindCodes, normalizedBy } from "#test/unit/codec/support.ts"
 import { asDecimal } from "#test/unit/codec/values.ts"
 
 /**

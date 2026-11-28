@@ -25,8 +25,8 @@ import { heapTupleMaxBytes } from "#compiler/laws/model/model.ts"
 import { rowBytes, rowColumn, wideRow } from "#compiler/laws/model/rows.ts"
 import { refused } from "#test/support/assert.ts"
 import { f, relation } from "#test/support/fixtures/ir/desc.ts"
+import { compiledModel, modelOf } from "#test/support/unit/laws/model/natives.ts"
 import { upTo } from "#test/support/up-to.ts"
-import { compiledModel, modelOf } from "#test/unit/laws/model/natives.ts"
 import {
 	type BoundFeature,
 	type Column,

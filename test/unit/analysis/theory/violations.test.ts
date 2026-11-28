@@ -16,7 +16,12 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { array, finite, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
-import { type HostFacts, lawOfShape, uuidOf, violates } from "#test/unit/analysis/theory/support.ts"
+import {
+	type HostFacts,
+	lawOfShape,
+	uuidOf,
+	violates
+} from "#test/support/unit/analysis/theory/support.ts"
 import {
 	type Copied,
 	copy,

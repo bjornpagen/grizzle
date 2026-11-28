@@ -32,7 +32,7 @@ import { succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { Id } from "#test/support/ids.ts"
 import { checking } from "#test/support/policy.ts"
-import { descOf, parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
+import { descOf, parsedOf, uuidOf } from "#test/support/unit/write/changeset/fixtures.ts"
 
 /** A path, a chunk's body or a line's note: up to eight letters. */
 const Letters = str.regex("^[a-z]{0,8}$")

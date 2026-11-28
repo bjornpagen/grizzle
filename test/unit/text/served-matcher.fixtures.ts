@@ -3,7 +3,7 @@
 import type { PatternSource } from "@bjornpagen/grizzle-text/regex/parse"
 import { parsePattern } from "@bjornpagen/grizzle-text/regex/parse"
 import { array, element, type Gen } from "@bjornpagen/testing/gen"
-import { families, flagsGen, patternOver, stringsOver } from "#test/unit/text/generators.ts"
+import { families, flagsGen, patternOver, stringsOver } from "#test/support/unit/text/generators.ts"
 
 /** Drawn patterns over one family's alphabet, each with its flags, and texts over the alphabet to judge. */
 interface Served {

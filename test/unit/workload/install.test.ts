@@ -44,7 +44,7 @@ import {
 	type SubFeature,
 	subWorkloadGen,
 	wholeIdents
-} from "#test/unit/workload/install.fixtures.ts"
+} from "#test/support/unit/workload/install.fixtures.ts"
 
 /**
  * The worked example's workload in the installation holds exactly the objects a law stands on or one of the workload's

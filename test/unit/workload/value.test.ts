@@ -31,7 +31,7 @@ import {
 	fixtureLogin,
 	orderedTasks,
 	switchToManualDescribed
-} from "#test/unit/workload/fixtures.ts"
+} from "#test/support/unit/workload/fixtures.ts"
 import {
 	admits,
 	board,

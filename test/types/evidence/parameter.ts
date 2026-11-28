@@ -1,6 +1,6 @@
 import { Array as Arr, Result, String as Str } from "effect"
 import { identifiers } from "#test/support/prelude.ts"
-import { batchOwned, caseOwned, type Program } from "#test/types/batch/batch.ts"
+import { batchOwned, caseOwned, type Program } from "#test/support/types/batch/batch.ts"
 
 /**
  * The parameter program: a child query a function builds, its parent's field taken as an input term,

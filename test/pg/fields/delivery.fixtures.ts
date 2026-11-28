@@ -17,7 +17,7 @@ import { ChangeSet } from "#compiler/public/changeset.ts"
 import { bytes, pg } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { fixtureTemplate } from "#test/pg/reads/support.ts"
+import { fixtureTemplate } from "#test/support/pg/reads/support.ts"
 
 /** `length` bytes of a xorshift stream from `seed`. */
 const streamBytes = (length: number, seed: number): Uint8Array<ArrayBuffer> => {

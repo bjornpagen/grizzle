@@ -40,9 +40,9 @@ import {
 } from "#test/pg/lower-shapes/shapes.fixtures.ts"
 import { replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-import { Task, uuidOf } from "#test/unit/lower/conservative/fixtures.ts"
-import { conditional } from "#test/unit/lower/shapes/queries.ts"
-import { shapedFacts, shapedProgram, testOptions } from "#test/unit/lower/shapes/support.ts"
+import { Task, uuidOf } from "#test/support/unit/lower/conservative/fixtures.ts"
+import { conditional } from "#test/support/unit/lower/shapes/queries.ts"
+import { shapedFacts, shapedProgram, testOptions } from "#test/support/unit/lower/shapes/support.ts"
 
 /**
  * The lowering shapes on PostgreSQL 19 R24: the conditional count and sum agree with the composition on generated groups none, some or all of whose bindings qualify.

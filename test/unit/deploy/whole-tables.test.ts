@@ -22,7 +22,7 @@ import {
 	judgedWhole,
 	wholeCaseGen,
 	type WholeFeature
-} from "#test/unit/deploy/whole-tables.fixtures.ts"
+} from "#test/support/unit/deploy/whole-tables.fixtures.ts"
 
 /** A first migration creates each table of a family schema whole, as the installation's script does, every column and own constraint in its one CREATE TABLE. */
 export const aFirstMigrationCreatesEachTableWholeEveryColumnAndOwnConstraintInItsOneCreateTable =

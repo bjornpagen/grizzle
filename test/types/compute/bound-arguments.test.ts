@@ -9,7 +9,7 @@
 import { word } from "@bjornpagen/testing/dictionary"
 import { finite } from "@bjornpagen/testing/gen"
 import { boundProgram } from "#test/support/agreement/bound-arguments.ts"
-import { boxAgreement } from "#test/types/batch/agreement.ts"
+import { boxAgreement } from "#test/support/types/batch/agreement.ts"
 import { boundBox } from "#test/types/compute/bound-arguments.dictionary.ts"
 
 /** Over every form of rows argument a call passes, admits exactly what the engine compiles, its parameters the engine's. */

@@ -43,6 +43,7 @@ import {
 import { Uuid } from "#compiler/scalar/values/uuid.ts"
 import { faulted, succeeded } from "#test/support/assert.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
+import { hexOf } from "#test/support/unit/values/support.ts"
 import {
 	type AdmissionFeature,
 	admissionSpace,
@@ -62,7 +63,6 @@ import {
 	type Malformed,
 	reordered
 } from "#test/unit/values/identity.fixtures.ts"
-import { hexOf } from "#test/unit/values/support.ts"
 
 /** ParseValue stores every value of each carrier as its host type and range say, and refuses every other by its fault, never throwing; Uuid.parse admits exactly as the uuid carrier does. Its budget is its suite's before it was a property (test/unit/values/identity.test.ts at 4ca3036a): 3000 runs and 3000 steered cases. */
 export const parseValueStoresEveryValueOfEachCarrierAsItsHostTypeAndRangeSayAndRefusesEveryOtherByItsFaultNeverThrowingUuidParseAdmitsExactlyAsTheUuidCarrierDoes =

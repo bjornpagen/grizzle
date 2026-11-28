@@ -213,7 +213,7 @@ const programPatterns = (await import("#compiler/scalar/regex/patterns.ts")).Pro
 const refinement = await import("#compiler/text/refinement.ts")
 const texts = await import("#test/support/text.ts")
 const loc = await import("#compiler/core/loc.ts")
-const generators = await import("#test/unit/text/generators.ts")
+const generators = await import("#test/support/unit/text/generators.ts")
 
 /** Values the trap must not see validated by JavaScript: drawn from every family's alphabet. */
 const probes = (alphabet: ReadonlyArray<number>): Array<string> => {
@@ -266,7 +266,7 @@ const reader = await import("#compiler/codec/read.ts")
 const wire = await import("#test/support/wire.ts")
 const values: Readonly<typeof import("#compiler/scalar/values/float.ts")> =
 	await import("#compiler/scalar/values/float.ts")
-const codecSupport = await import("#test/unit/codec/support.ts")
+const codecSupport = await import("#test/support/unit/codec/support.ts")
 const codecTypes = codecSupport.codecTypes
 const codecTexts: ReadonlyArray<readonly [keyof typeof codecTypes, ReadonlyArray<string>]> = [
 	["int2", ["0", "-32768", "32767", "1", "-1", "12345", "100", "-100"]],

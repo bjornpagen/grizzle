@@ -24,7 +24,7 @@ import {
 	rawPg,
 	regex,
 	wildcard
-} from "#test/unit/schema/support.ts"
+} from "#test/support/unit/schema/support.ts"
 
 /** nbtree.h's BTMaxItemSize at the default block, restated: the most bytes one B-tree entry takes. */
 const postgresBtreeMaxItem = 2704

@@ -2,7 +2,7 @@
  * The compile-target catalog's recognizers (lower/shapes/catalog, rules R26-R31, R41, R42) without a database: each
  * applies exactly where its module's documented preconditions hold, and the composition is kept, applying none of its
  * own, where one fails. Every query is the language's own composition of a construct, checked by the real checker
- * (test/pg/catalog/queries.ts), and every search is exhaustive over the shapes the compositions' parameters span.
+ * (test/support/pg/catalog/queries.ts), and every search is exhaustive over the shapes the compositions' parameters span.
  *
  * - R26 in any spelling: the inclusive lexicographic order is recognized in every spelling and direction and orders its
  *   window as spelled; the strict order and a conjunction of field comparisons are kept.
@@ -40,10 +40,10 @@ import { CatalogEditor } from "#compiler/lower/shapes/catalog/edit.ts"
 import { NoMatch } from "#compiler/lower/shapes/catalog/exprs.ts"
 import { tryBoundNeighbor } from "#compiler/lower/shapes/catalog/neighbor.ts"
 import { catalogPass, rewriteCatalog } from "#compiler/lower/shapes/catalog/rewrite.ts"
-import * as Q from "#test/pg/catalog/queries.ts"
-import { checkedQuery, labOptions } from "#test/pg/catalog/support.ts"
 import { succeeded } from "#test/support/assert.ts"
-import * as D from "#test/unit/check/dsl.ts"
+import * as Q from "#test/support/pg/catalog/queries.ts"
+import { checkedQuery, labOptions } from "#test/support/pg/catalog/support.ts"
+import * as D from "#test/support/unit/check/dsl.ts"
 import {
 	appliedTo,
 	compositions,

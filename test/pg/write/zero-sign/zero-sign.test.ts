@@ -4,7 +4,6 @@ import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { Db } from "#adapter/public/db.ts"
-import { openedIn } from "#test/pg/reads/support.ts"
 import {
 	type Answer,
 	at,
@@ -25,6 +24,7 @@ import {
 } from "#test/pg/write/zero-sign/zero-sign.fixtures.ts"
 import { writeAnswerOf } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
+import { openedIn } from "#test/support/pg/reads/support.ts"
 import { type PlanShape, planShapeGen, planShapeOn } from "#test/support/plan-shapes.ts"
 import { refusedLaws } from "#test/support/refused.ts"
 import { tableState } from "#test/support/substrate/state.ts"

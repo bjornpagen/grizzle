@@ -7,7 +7,7 @@ import {
 	drawnNatural,
 	schemaOf,
 	theoryOf
-} from "#test/unit/analysis/theory/support.ts"
+} from "#test/support/unit/analysis/theory/support.ts"
 
 /** A member of the box: its step value and its two accumulators. */
 interface Stepped {

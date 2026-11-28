@@ -30,7 +30,7 @@ import { succeeded } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
 import { callCounts } from "#test/support/kernel/calls.ts"
 import { ownedInput } from "#test/support/policy.ts"
-import { admittedPatternOver, families } from "#test/unit/text/generators.ts"
+import { admittedPatternOver, families } from "#test/support/unit/text/generators.ts"
 
 type DerivedFeature = "one pattern" | "several patterns" | "a first compile deriving"
 

@@ -19,7 +19,7 @@ import {
 	lowerWith,
 	plainRender,
 	renderSql
-} from "#test/unit/compute/support.ts"
+} from "#test/support/unit/compute/support.ts"
 
 /** `length` bytes of a xorshift stream from `seed`, so a case draws two numbers, not MiB. */
 const streamBytes = (length: number, seed: number): Uint8Array<ArrayBuffer> => {

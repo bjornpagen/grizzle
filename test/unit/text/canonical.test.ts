@@ -19,13 +19,13 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Order } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
+import { flagsGen } from "#test/support/unit/text/generators.ts"
 import {
 	alternations,
 	anyPattern,
 	type Ordered,
 	shapeOf
 } from "#test/unit/text/canonical.fixtures.ts"
-import { flagsGen } from "#test/unit/text/generators.ts"
 
 /** The canonical text and order writes each parsed pattern's IR as JSON.stringify writes its shape, and orders every alternation's arms strictly by that text. Its budget is its suite's before it was a property (test/unit/text/canonical.test.ts at 4ca3036a): 1000 runs and 1000 steered cases. */
 export const theCanonicalTextAndOrderWritesEachParsedPatternsIRAsJSONStringifyWritesItsShapeAndOrdersEveryAlternationsArmsStrictlyByThatText =

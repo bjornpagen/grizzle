@@ -2,7 +2,7 @@ import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { Array as Arr } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { type PreludeAt, preludeProgram } from "#test/support/prelude.ts"
-import { type EqualSteps, equalSteps } from "#test/types/batch/measured.ts"
+import { type EqualSteps, equalSteps } from "#test/support/types/batch/measured.ts"
 
 /**
  * The programs of a union's arms and of a ChangeSet's members read through one (unions.test.ts), each checked at three

@@ -1,7 +1,7 @@
 import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { Array as Arr, Effect } from "effect"
 import { preludeAt, preludeFrom, preludeModule } from "#test/support/prelude.ts"
-import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/batch/batch.ts"
+import { batchOwned, caseOwned, type Entry, type Program } from "#test/support/types/batch/batch.ts"
 
 /**
  * The union-join program: queries of several arms, each further arm judged as it joins beside the arms before it

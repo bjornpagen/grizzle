@@ -21,8 +21,8 @@ import {
 	seriesInstall,
 	seriesTemplate
 } from "#test/pg/compute/series.fixtures.ts"
-import { openedIn } from "#test/pg/reads/support.ts"
 import { rowsOf } from "#test/support/calls.ts"
+import { openedIn } from "#test/support/pg/reads/support.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 

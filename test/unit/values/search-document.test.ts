@@ -34,7 +34,7 @@ import {
 	printed,
 	rawText,
 	stored
-} from "#test/unit/values/search-document.fixtures.ts"
+} from "#test/support/unit/values/search-document.fixtures.ts"
 
 /** A search document's text is admitted exactly where it is tsvectorin's one form of it, as itself, and refused as out of its form or past its size otherwise. */
 export const aSearchDocumentsTextIsAdmittedExactlyWhereItIsTsvectorinsOneFormOfItAsItselfAndRefusedAsOutOfItsFormOrPastItsSizeOtherwise =

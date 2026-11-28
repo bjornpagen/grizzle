@@ -12,7 +12,6 @@ import { compileInstallation } from "#compiler/program/install.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, derived, on, relation, schema } from "#compiler/public/schema.ts"
-import { type Aim, apply, checkedAdmission, openMigrator } from "#test/pg/migrate/support.ts"
 import { ambientOwner, ordinarySession } from "#test/support/ambient.ts"
 import {
 	type DraftedVersion,
@@ -30,6 +29,12 @@ import {
 } from "#test/support/migrate/kit.ts"
 import type { RealInstallPlan } from "#test/support/oracle/install/real.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
+import {
+	type Aim,
+	apply,
+	checkedAdmission,
+	openMigrator
+} from "#test/support/pg/migrate/support.ts"
 import { attemptChecked } from "#test/support/substrate.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 

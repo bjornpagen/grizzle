@@ -38,7 +38,7 @@ import {
 	staffTemplate
 } from "#test/pg/text/contains.fixtures.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
-import { values } from "#test/unit/compute/text.fixtures.ts"
+import { values } from "#test/support/unit/compute/text.fixtures.ts"
 
 /**
  * The SQL a query and a check lower Text.contains to is the host's verdict and the reference's over every kind of needle, the empty one, a longer one and LIKE's special characters among them.

@@ -28,7 +28,7 @@ import {
 } from "#compiler/scalar/values/identity.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
-import { decimalGen } from "#test/unit/values/support.ts"
+import { decimalGen } from "#test/support/unit/values/support.ts"
 
 /** One column type the property sends values of: its label, its type, its PostgreSQL spelling and its values. */
 interface Column {

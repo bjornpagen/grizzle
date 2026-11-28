@@ -2,11 +2,6 @@ import { map } from "@bjornpagen/testing/gen"
 import { Array as Arr, Data, Effect } from "effect"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
-import {
-	feedbackUnionAll,
-	lowerCase,
-	withEncodedParams
-} from "#test/pg/recursion/lowering/support.ts"
 import { partRecursive } from "#test/support/compile.ts"
 import { standInNames } from "#test/support/kernel/naming.ts"
 import {
@@ -21,6 +16,11 @@ import {
 import { schemaCodes } from "#test/support/oracle/gen/schema.ts"
 import { defaultRunOptions, type Lowering, runOracle } from "#test/support/oracle/runner.ts"
 import { OracleSeat } from "#test/support/oracle/seat.ts"
+import {
+	feedbackUnionAll,
+	lowerCase,
+	withEncodedParams
+} from "#test/support/pg/recursion/lowering/support.ts"
 
 /**
  * The diamond 0 -> {1, 2} -> 3 over integer vertices 0, 1, -1, 2 (the first value classes), its edges a pure set,

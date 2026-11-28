@@ -3,7 +3,7 @@ import { assert, defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Effect, Option } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { type PreludeAt, preludeProgram } from "#test/support/prelude.ts"
-import { assertClean, type Measuring, measuredEach } from "#test/types/batch/measured.ts"
+import { assertClean, type Measuring, measuredEach } from "#test/support/types/batch/measured.ts"
 
 /**
  * The level programs (levels.test.ts), each a level built by a function over the level below it and read through

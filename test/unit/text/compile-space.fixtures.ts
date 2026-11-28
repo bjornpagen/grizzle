@@ -39,14 +39,14 @@ import {
 import { analyzeText } from "#compiler/text/refinement.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { jsMatcher } from "#test/support/regex.ts"
-import { upTo } from "#test/support/up-to.ts"
 import {
 	admittedPatternOver,
 	families,
 	flagsGen,
 	nestedPattern,
 	walkGen
-} from "#test/unit/text/generators.ts"
+} from "#test/support/unit/text/generators.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 export const loc = SourceLoc("str.regex", ["Web", "relations", "Link", "fields", "href"])
 

@@ -21,7 +21,7 @@ import { query, v } from "#compiler/public/query.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { Sha256 } from "#compiler/scalar/values/sha256.ts"
-import { fixtureTemplate } from "#test/pg/reads/support.ts"
+import { fixtureTemplate } from "#test/support/pg/reads/support.ts"
 
 /**
  * The tag's roster: seven arms, two of them payload-less, which only their tags tell apart. Unordered, so its codes are

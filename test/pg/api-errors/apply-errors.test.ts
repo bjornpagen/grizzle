@@ -64,8 +64,8 @@ import {
 	encodingAims
 } from "#test/pg/api-errors/apply-errors.fixtures.ts"
 import { tappedPool } from "#test/pg/api-errors/support.ts"
-import { openedIn } from "#test/pg/reads/support.ts"
 import { writeAnswerOf, writeOnce } from "#test/support/calls.ts"
+import { openedIn } from "#test/support/pg/reads/support.ts"
 import { member, openServedDb } from "#test/support/served-db.ts"
 import { tableState } from "#test/support/substrate/state.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"

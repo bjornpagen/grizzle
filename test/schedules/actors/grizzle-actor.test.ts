@@ -23,7 +23,6 @@ import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Ref } from "effect"
-import { rowsOn } from "#test/pg/adapter/support.ts"
 import {
 	type ActorFeature,
 	caseGen,
@@ -32,6 +31,7 @@ import {
 } from "#test/schedules/actors/grizzle-actor.fixtures.ts"
 import { timekeeping } from "#test/support/laws/boxes.ts"
 import { openWriter } from "#test/support/laws/support.ts"
+import { rowsOn } from "#test/support/pg/adapter/support.ts"
 import { grizzleActor } from "#test/support/schedules/actors.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 

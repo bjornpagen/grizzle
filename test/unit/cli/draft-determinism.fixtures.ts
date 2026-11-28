@@ -5,7 +5,6 @@ import { aimed, boolean, constant, element, type Gen, map, weighted } from "@bjo
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, FileSystem, Option, Order, String as Str } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
-import { configName, type ConfigSpec, unconnected, writeConfig } from "#test/pg/cli/support.ts"
 import {
 	binIn,
 	type Cwd,
@@ -21,8 +20,14 @@ import {
 import { digitsOf, millisOf, type Second, secondAt, secondGen } from "#test/support/calendar.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { migrationFolders } from "#test/support/migrate/kit.ts"
+import {
+	configName,
+	type ConfigSpec,
+	unconnected,
+	writeConfig
+} from "#test/support/pg/cli/support.ts"
 
-/** The declared schema every run drafts: the CLI fixture's shop (test/pg/cli/fixture.ts). */
+/** The declared schema every run drafts: the CLI fixture's shop (test/support/pg/cli/fixture.ts). */
 const schemaName = "DraftDet"
 
 /** The schema's directory under a project, `migrations/<its PostgreSQL schema>`. */

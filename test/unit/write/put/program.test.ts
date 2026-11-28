@@ -23,19 +23,19 @@ import { inForce } from "#compiler/runtime/write/transport.ts"
 import { noAdvice } from "#compiler/sql/advice.ts"
 import { flightOf, servableWrite } from "#compiler/write/program/served.ts"
 import { failed } from "#test/support/assert.ts"
-import { parsedOf } from "#test/unit/write/changeset/fixtures.ts"
+import { parsedOf } from "#test/support/unit/write/changeset/fixtures.ts"
+import {
+	shopChangeSet,
+	shopCompile,
+	shopCompiled,
+	stockFromParam
+} from "#test/support/unit/write/put/support.ts"
 import {
 	fact,
 	givenGen,
 	parameterMembers,
 	type ParamFeature
 } from "#test/unit/write/put/program.fixtures.ts"
-import {
-	shopChangeSet,
-	shopCompile,
-	shopCompiled,
-	stockFromParam
-} from "#test/unit/write/put/support.ts"
 
 /**
  * The write program's relation parameters binds a described member's relation parameter from the caller's values, and

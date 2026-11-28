@@ -38,7 +38,7 @@ import {
 	readsDeltasThroughReaders,
 	type UnionReached,
 	unionsGen
-} from "#test/unit/physical/judge-size.fixtures.ts"
+} from "#test/support/unit/physical/judge-size.fixtures.ts"
 
 /** A whole rule's statement over a chain of definitions reads Node's table at its leaf's reader's uses alone, however deep the chain. */
 export const aWholeRulesStatementOverAChainOfDefinitionsReadsTheLeafsRelationOnceHoweverTheChainMultipliesIt =

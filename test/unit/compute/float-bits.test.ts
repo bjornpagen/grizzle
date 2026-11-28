@@ -24,7 +24,7 @@ import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.
 import { succeeded } from "#test/support/assert.ts"
 import { evaluate } from "#test/support/oracle/evaluate/catalog.ts"
 import { patternMember } from "#test/support/oracle/reference/evaluate.ts"
-import { baseParams, lowerWith, testPg } from "#test/unit/compute/support.ts"
+import { baseParams, lowerWith, testPg } from "#test/support/unit/compute/support.ts"
 
 type BitsFeature =
 	| "a double"

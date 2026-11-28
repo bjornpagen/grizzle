@@ -22,6 +22,7 @@ import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { flightOf, servableWrite } from "#compiler/write/program/served.ts"
 import { paramArrayElements } from "#test/support/arrays.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { parsedOf } from "#test/support/unit/write/changeset/fixtures.ts"
 import { upTo } from "#test/support/up-to.ts"
 import {
 	type CountFeature,
@@ -31,7 +32,6 @@ import {
 	program,
 	Shop
 } from "#test/unit/lower/shapes/relparam.fixtures.ts"
-import { parsedOf } from "#test/unit/write/changeset/fixtures.ts"
 
 /**
  * A write's enumerated members lower to arrays, and an input of any count binds every statement with no refusal, each

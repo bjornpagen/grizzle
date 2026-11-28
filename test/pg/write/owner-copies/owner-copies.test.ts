@@ -36,7 +36,6 @@ import { installFullWorld } from "#test/support/installed.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { member, openServedDb } from "#test/support/served-db.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
-import { fullWorld } from "#test/support/worlds.ts"
 import {
 	boundGen,
 	callParams,
@@ -46,7 +45,8 @@ import {
 	copyingOf,
 	nodesOf,
 	path
-} from "#test/unit/write/owner-copies.fixtures.ts"
+} from "#test/support/unit/write/owner-copies.fixtures.ts"
+import { fullWorld } from "#test/support/worlds.ts"
 
 /** Rows of column texts, in one order. */
 const sorted = (rows: ReadonlyArray<ReadonlyArray<string>>) =>

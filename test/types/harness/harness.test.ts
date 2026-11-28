@@ -10,7 +10,7 @@
  * A refusal is stated as the contract states it, `refused`: the probe does not compile, whichever diagnostic the checker
  * elaborates it to. The witnesses reach every fault of both contracts, each at both depths, and their admitted cases.
  */
-import { agreement } from "#test/types/batch/agreement.ts"
+import { agreement } from "#test/support/types/batch/agreement.ts"
 import { doorCases, doorNotes, doorProgram, doorRequired } from "#test/types/harness/door.ts"
 import {
 	vocabularyCases,

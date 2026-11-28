@@ -18,7 +18,7 @@
  * PostgreSQL refuses where the draft drops a column a generated column still reads (2BP01), converts one a generated
  * column reads (0A000), adds a generated column before a column it reads (42703), or sets an expression in the ALTER
  * TABLE that converts a NOT NULL column (XX000); and the migrated catalog equals a fresh installation of the second
- * version, both read from PostgreSQL's catalog (test/pg/migrate/support.ts sameCatalog).
+ * version, both read from PostgreSQL's catalog (test/support/pg/migrate/support.ts sameCatalog).
  *
  * Features: a dropped generated field declared after and before a dropped field it reads; a dropped generated field
  * over a field set aside, converted in place and turned generated; a kept generated field declared before a field set

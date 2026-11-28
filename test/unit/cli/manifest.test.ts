@@ -31,9 +31,9 @@ import { formatOf } from "#compiler/core/format.ts"
  */
 import { silentPhases } from "#compiler/core/phase.ts"
 import { manifestFileName, snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
-import { cliOver, configName, resolvedConfig, workspace } from "#test/pg/cli/support.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { chunked } from "#test/support/chunked.ts"
+import { cliOver, configName, resolvedConfig, workspace } from "#test/support/pg/cli/support.ts"
 import { baseNeed, config, schemaDir } from "#test/unit/cli/derived.fixtures.ts"
 import {
 	type Commit,

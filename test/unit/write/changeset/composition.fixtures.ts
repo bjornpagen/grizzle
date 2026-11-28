@@ -11,7 +11,7 @@ import {
 	type ChangeSetValue
 } from "#compiler/write/changeset/value.ts"
 import { containersOf, freshContainers } from "#test/support/containers.ts"
-import { descOf } from "#test/unit/write/changeset/fixtures.ts"
+import { descOf } from "#test/support/unit/write/changeset/fixtures.ts"
 
 /** The lower level's visits and what its members write of them; the app's stages, a level above. */
 const Visit = relation("Visit", { child: pg.integer, stage: pg.integer }, ["child", "stage"])

@@ -18,8 +18,8 @@ import { succeeded } from "#test/support/assert.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { checking, owning } from "#test/support/policy.ts"
+import { descOf } from "#test/support/unit/write/changeset/fixtures.ts"
 import { upTo } from "#test/support/up-to.ts"
-import { descOf } from "#test/unit/write/changeset/fixtures.ts"
 
 /**
  * A box's step: the write's relations at n, 2n and 3n. A write of one relation is no write of parts alike (its statement

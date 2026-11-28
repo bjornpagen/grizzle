@@ -7,7 +7,7 @@
  */
 import { word } from "@bjornpagen/testing/dictionary"
 import { finite } from "@bjornpagen/testing/gen"
-import { boxAgreement } from "#test/types/batch/agreement.ts"
+import { boxAgreement } from "#test/support/types/batch/agreement.ts"
 import { entryOwnerBox } from "#test/types/changeset/entry-owner.dictionary.ts"
 import { entryOwnerProgram } from "#test/types/changeset/entry-owner.ts"
 

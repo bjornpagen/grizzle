@@ -8,7 +8,7 @@ import { type QueryValue, queryOver, varsOver } from "#compiler/query/build/quer
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
 import type { DeltaValue } from "#compiler/write/delta/source.ts"
-import { fixtureTemplate } from "#test/pg/reads/support.ts"
+import { fixtureTemplate } from "#test/support/pg/reads/support.ts"
 
 /** The items, the marks the call adds to them, and the log it keeps of them, each keyed by its id. */
 export const Item = relation("Item", { id: pg.integer }, ["id"])

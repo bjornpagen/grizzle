@@ -81,7 +81,7 @@ export interface OpenOptions {
  * relations (packages/engine/src/physical/derived), as the fresh installer runs them. Its facts
  * load as the owner in one transaction, so every deferred law judges the loaded state at its COMMIT, and a schema value
  * of the fixture is rebuilt under the installed name (installed.ts rebuild), typed by its relations and statements, so a
- * login of its worlds serves the installed objects and logs in as the installed login (test/pg/reads/support.ts). The
+ * login of its worlds serves the installed objects and logs in as the installed login (test/support/pg/reads/support.ts). The
  * fixture installs with the logins its caller builds under the allocated name; its worlds are rebuilt over the
  * installed name by the caller. Writers are grizzle (the members of a login served from its own served file, through
  * `served` and Db.open of its role) and psql children in a role's world, logged in as its login over verify-full TLS,

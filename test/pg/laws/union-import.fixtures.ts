@@ -22,7 +22,7 @@ import {
 	unionSchemaOf,
 	stored,
 	widthOf
-} from "#test/unit/laws/union-import.schema.ts"
+} from "#test/support/unit/laws/union-import.schema.ts"
 
 /** The shapes installed: a union of one rule, of two and of three, each at its own level and from a level above. */
 const shapes = {

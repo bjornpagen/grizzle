@@ -38,11 +38,11 @@ import { Result as Answered, Array as Arr, Effect, Formatter, Order } from "effe
 import { served } from "#adapter/public/layer.ts"
 import type { AnyLogin } from "#compiler/public/schema.ts"
 import { httpHandler, httpRoutes } from "#http/index.ts"
-import { offlineConnection } from "#test/pg/cli/support.ts"
 import { offlineDecoders, servedSourcedLayer } from "#test/support/live-layer.ts"
 import { resolveCase } from "#test/support/oracle/public/generate.ts"
 import { printCase } from "#test/support/oracle/public/print.ts"
 import { clusterPool } from "#test/support/pg.ts"
+import { offlineConnection } from "#test/support/pg/cli/support.ts"
 import {
 	compiledLogin,
 	drawnLogin,
@@ -51,8 +51,6 @@ import {
 	loginGen,
 	pagedLoginGen
 } from "#test/support/served-login.ts"
-import { withLayer } from "#test/support/with-layer.ts"
-import { testVerify } from "#test/support/worlds.ts"
 import {
 	answered,
 	type Feature,
@@ -65,7 +63,9 @@ import {
 	probesGen,
 	refusedAs,
 	sketchGen
-} from "#test/unit/http/routes.fixtures.ts"
+} from "#test/support/unit/http/routes.fixtures.ts"
+import { withLayer } from "#test/support/with-layer.ts"
+import { testVerify } from "#test/support/worlds.ts"
 
 /**
  * An HTTP handler's routes are exactly the served members, and every request is answered as one stream of events.

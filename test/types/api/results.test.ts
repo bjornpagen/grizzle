@@ -8,9 +8,9 @@
  */
 import { word } from "@bjornpagen/testing/dictionary"
 import { finite } from "@bjornpagen/testing/gen"
+import { boxAgreement } from "#test/support/types/batch/agreement.ts"
 import { resultsBox } from "#test/types/api/results.dictionary.ts"
 import { resultsProgram } from "#test/types/api/results.ts"
-import { boxAgreement } from "#test/types/batch/agreement.ts"
 
 /** Every answer a public reader gives is Effect's Result, and no engine Ok or Err is one. */
 export const results = boxAgreement(finite(word(resultsBox)), {

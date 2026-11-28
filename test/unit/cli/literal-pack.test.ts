@@ -35,15 +35,15 @@ import { compileInstallation } from "#compiler/program/install.ts"
 import type { PackConstant } from "#compiler/sql/ast.ts"
 import { printObjectName, printStatement } from "#compiler/sql/print.ts"
 import { defineConfig } from "#index.ts"
+import { succeeded } from "#test/support/assert.ts"
+import { migrationFolders } from "#test/support/migrate/kit.ts"
 import {
 	cliOver,
 	configName,
 	offlineOwner,
 	resolvedConfig,
 	workspace
-} from "#test/pg/cli/support.ts"
-import { succeeded } from "#test/support/assert.ts"
-import { migrationFolders } from "#test/support/migrate/kit.ts"
+} from "#test/support/pg/cli/support.ts"
 import { owning } from "#test/support/policy.ts"
 import {
 	type Drawn,

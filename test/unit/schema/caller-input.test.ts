@@ -22,6 +22,7 @@ import { carrierUnion } from "#compiler/schema/record.ts"
 import { closedBuilder } from "#compiler/schema/relation.ts"
 import type { Carrier } from "#compiler/types/core/phantom.ts"
 import { throwsRefused } from "#test/support/assert.ts"
+import { type DrawnRoster, fieldOf } from "#test/support/unit/schema/field-sketch.ts"
 import { upTo } from "#test/support/up-to.ts"
 import {
 	type CarrierSketch,
@@ -34,7 +35,6 @@ import {
 	unionCaseGen,
 	type UnionFeature
 } from "#test/unit/schema/caller-input.fixtures.ts"
-import { type DrawnRoster, fieldOf } from "#test/unit/schema/field-sketch.ts"
 
 /** Caller input refuses a union of carriers that meet no column, and unites every other pair. Its budget is its suite's before it was a property (test/unit/schema/caller-input.test.ts at 4ca3036a): 200 runs and 200 steered cases. */
 export const callerInputRefusesAUnionOfCarriersThatMeetNoColumnAndUnitesEveryOtherPair =

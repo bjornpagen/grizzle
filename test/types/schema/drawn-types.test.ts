@@ -1,6 +1,6 @@
 import { word } from "@bjornpagen/testing/dictionary"
 import { finite } from "@bjornpagen/testing/gen"
-import { boxAgreement } from "#test/types/batch/agreement.ts"
+import { boxAgreement } from "#test/support/types/batch/agreement.ts"
 /**
  * A drawn field of each type (test/types/schema/drawn-types.ts): `drawn(c)` takes natural or a contract over an integer,
  * smallint, integer or bigint, and refuses a contract over a numeric or a text and a plain integer; an ordered family's

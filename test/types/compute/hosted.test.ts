@@ -8,7 +8,7 @@
  */
 import { word } from "@bjornpagen/testing/dictionary"
 import { finite } from "@bjornpagen/testing/gen"
-import { boxAgreement } from "#test/types/batch/agreement.ts"
+import { boxAgreement } from "#test/support/types/batch/agreement.ts"
 import { hostedBox } from "#test/types/compute/hosted.dictionary.ts"
 import { hostedProgram } from "#test/types/compute/hosted.ts"
 

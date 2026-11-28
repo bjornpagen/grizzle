@@ -66,7 +66,7 @@ import {
 	unplannedRequest,
 	unservedRead,
 	valueClass
-} from "#test/unit/physical/indexes.fixtures.ts"
+} from "#test/support/unit/physical/indexes.fixtures.ts"
 
 /** The index request engine lands every request on exactly one index, plans alike in any arrival order, and refuses what it cannot create. Its budget is its suite's before it was a property (test/unit/physical/indexes.test.ts at 4ca3036a): 200 runs and 200 steered cases. */
 export const theIndexRequestEngineLandsEveryRequestOnExactlyOneIndexPlansAlikeInAnyArrivalOrderAndRefusesWhatItCannotCreate =

@@ -32,7 +32,7 @@ import {
 	type SparseFeature,
 	sparseCases
 } from "#test/pg/closed/sparse.fixtures.ts"
-import { inInstallation } from "#test/pg/compute/support.ts"
+import { inInstallation } from "#test/support/pg/compute/support.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**

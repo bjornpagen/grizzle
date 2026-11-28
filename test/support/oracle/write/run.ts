@@ -173,7 +173,7 @@ type TargetError = OpenError | ServedRefusal | CompileError | RoleSetupError
  *
  * Installs `schema` under a fresh schema name, in the scope: its roles and logins are released when the scope closes.
  * The schema value and its world are declared again under the installed name over the very same relation values and
- * statements, so the ChangeSets built over those values are the Db's own (test/pg/reads/support.ts does the same for
+ * statements, so the ChangeSets built over those values are the Db's own (test/support/pg/reads/support.ts does the same for
  * the fixtures). Every law of a write schema is native, so the installation leaves nothing to the residual laws'
  * extension. The writer's Db is opened on it by withTarget alone, in a scope of its own.
  *

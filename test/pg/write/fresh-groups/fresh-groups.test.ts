@@ -37,16 +37,6 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import { memberCalls } from "#adapter/db/handles.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
-import {
-	appendedBeside,
-	type Feature,
-	features,
-	type FreshCase,
-	freshCaseGen,
-	outOfKeyOrder,
-	storedRows,
-	writesByDepth
-} from "#test/pg/write/fresh-groups/fresh-groups.fixtures.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { writeAnswerOf, writeOnce } from "#test/support/calls.ts"
 import {
@@ -58,6 +48,16 @@ import {
 } from "#test/support/families/fill.ts"
 import { installFullWorld } from "#test/support/installed.ts"
 import { oneFlight } from "#test/support/one-flight.ts"
+import {
+	appendedBeside,
+	type Feature,
+	features,
+	type FreshCase,
+	freshCaseGen,
+	outOfKeyOrder,
+	storedRows,
+	writesByDepth
+} from "#test/support/pg/write/fresh-groups/fresh-groups.fixtures.ts"
 import { refusedEntries } from "#test/support/refused.ts"
 import { member, openServedDb } from "#test/support/served-db.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"

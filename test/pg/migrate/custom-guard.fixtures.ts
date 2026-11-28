@@ -11,14 +11,14 @@ import { type AnyClosed, type AnyRelation, relation, schema } from "#compiler/pu
 import { closedBuilder } from "#compiler/schema/relation.ts"
 import { roleBuilder as role } from "#compiler/schema/world.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
-import { draftNext, installFirst, setsOf } from "#test/pg/closed/codes.fixtures.ts"
 import type { dataSteps } from "#test/pg/migrate/custom-guard.dictionary.ts"
-import { apply, noFurther, openMigrator } from "#test/pg/migrate/support.ts"
 import { chunked, joined } from "#test/support/chunked.ts"
 import { type RosterState } from "#test/support/closed/generate.ts"
 import { type Version } from "#test/support/install-migrate.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { customDataStep, noDeclarations } from "#test/support/migrate/kit.ts"
+import { draftNext, installFirst, setsOf } from "#test/support/pg/closed/codes.fixtures.ts"
+import { apply, noFurther, openMigrator } from "#test/support/pg/migrate/support.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 export type DataStep = (typeof dataSteps)[number]

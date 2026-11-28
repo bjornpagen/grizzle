@@ -15,9 +15,9 @@ import { query, v } from "#compiler/public/query.ts"
 import { check, derived, login, relation, schema, wholeEntriesOf } from "#compiler/public/schema.ts"
 import { roleBuilder as role } from "#compiler/schema/world.ts"
 import { defineConfig } from "#index.ts"
-import { offlineOwner } from "#test/pg/cli/support.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
-import { file } from "#test/unit/cli/served-certified.fixtures.ts"
+import { offlineOwner } from "#test/support/pg/cli/support.ts"
+import { file } from "#test/support/unit/cli/served-certified.fixtures.ts"
 
 /** A row of a unit, `package` its unit: its id, and the value x it states. Immutable, so its rules are judged whole. */
 const T = relation("T", { package: pg.integer, id: pg.integer, x: pg.integer }, ["package", "id"])

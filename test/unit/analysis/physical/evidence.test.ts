@@ -17,6 +17,13 @@ import { topoOrder } from "#compiler/ir/dag.ts"
 import { conservativeMeta } from "#compiler/ir/rel.ts"
 import { Ir, SchemaModel } from "#test/support/fixtures/ir/build.ts"
 import {
+	keyColumns,
+	owedOf,
+	physical,
+	propsOf,
+	snapshotOver
+} from "#test/support/unit/analysis/physical/support.ts"
+import {
 	type CatalogFeature,
 	crm,
 	evidence,
@@ -24,13 +31,6 @@ import {
 	personKeys,
 	theory
 } from "#test/unit/analysis/physical/evidence.fixtures.ts"
-import {
-	keyColumns,
-	owedOf,
-	physical,
-	propsOf,
-	snapshotOver
-} from "#test/unit/analysis/physical/support.ts"
 
 /** Catalogs resolves each Person key to its constraint, and a scan proves exactly the keys it reads, immediately. */
 export const catalogsResolvesEachPersonKeyToItsConstraintAndAScanProvesExactlyTheKeysItReadsImmediately =

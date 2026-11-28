@@ -27,7 +27,6 @@ import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Effect, Formatter, Array as Arr, String as Str } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { textArrayParam } from "#compiler/codec/recordset.ts"
-import { openedIn } from "#test/pg/reads/support.ts"
 import {
 	features,
 	holdsTwoByteRange,
@@ -40,9 +39,10 @@ import {
 	textsTemplate
 } from "#test/pg/write/text-arrays/text-arrays.fixtures.ts"
 import { writeAnswerOf, rowsOf } from "#test/support/calls.ts"
+import { openedIn } from "#test/support/pg/reads/support.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { uuidOf } from "#test/support/unit/write/changeset/fixtures.ts"
 import { withLayer } from "#test/support/with-layer.ts"
-import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 
 /**
  * Carries every text a write's slots or a read's relation parameter hold to PostgreSQL as the text the host holds, each

@@ -9,6 +9,20 @@ import type {
 	RuleDesc
 } from "#test/support/fixtures/ir/desc.ts"
 import {
+	attach,
+	lit,
+	match,
+	param,
+	parent,
+	queryDesc,
+	ref,
+	relationSource,
+	rule,
+	sum,
+	typedLit,
+	varsAt
+} from "#test/support/unit/check/dsl.ts"
+import {
 	descriptorOf,
 	type DrawnField,
 	type DrawnRelation,
@@ -24,20 +38,6 @@ import {
 	rosterName,
 	valueOf
 } from "#test/unit/check/drawn.ts"
-import {
-	attach,
-	lit,
-	match,
-	param,
-	parent,
-	queryDesc,
-	ref,
-	relationSource,
-	rule,
-	sum,
-	typedLit,
-	varsAt
-} from "#test/unit/check/dsl.ts"
 
 /**
  * ChangeSet members described by queries over a drawn schema, and the member rule restated as a model: an insert's and

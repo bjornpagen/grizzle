@@ -8,7 +8,7 @@ import { generated, pg, sha256 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { fixtureTemplate } from "#test/pg/reads/support.ts"
+import { fixtureTemplate } from "#test/support/pg/reads/support.ts"
 
 /** A text of any length, which no B-tree entry holds. */
 const Path = str.regex("^.*$", "su")

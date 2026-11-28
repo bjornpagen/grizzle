@@ -62,7 +62,7 @@ import {
 	typedLit,
 	varRef,
 	vars
-} from "#test/unit/check/dsl.ts"
+} from "#test/support/unit/check/dsl.ts"
 import { descOf, Graph, lower, nodes, reads, theRecursive } from "#test/unit/recursion/fixtures.ts"
 import {
 	admitted,

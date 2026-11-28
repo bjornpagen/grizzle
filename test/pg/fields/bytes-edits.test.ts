@@ -34,8 +34,8 @@ import {
 	restated,
 	sameBytes
 } from "#test/pg/fields/bytes-edits.fixtures.ts"
-import { openedIn } from "#test/pg/reads/support.ts"
 import { writeAnswerOf, rowsOf } from "#test/support/calls.ts"
+import { openedIn } from "#test/support/pg/reads/support.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**

@@ -9,7 +9,7 @@
  * check replays every constant as its stub (sql/ast.ts StubConstant), which PostgreSQL runs where it evaluates a row
  * function of no parameter as it creates its table.
  *
- * - **Property:** over the row-function boxes (test/unit/physical/row-functions.fixtures.ts), boxes calling each
+ * - **Property:** over the row-function boxes (test/support/unit/physical/row-functions.fixtures.ts), boxes calling each
  *   library function a schema reaches, Text.resolveReference and Crypto.sha256 in a generated field, Xml.isPattern in a
  *   CHECK, and a key over a generated Crypto.sha256 of a text of no byte bound, and a box whose generated set field reads no
  *   column, a closed relation's closed id at a handle it holds a row of or none (installed-functions.fixtures.ts),

@@ -1,7 +1,7 @@
 import { Array as Arr, Effect } from "effect"
 import { relKinds } from "#compiler/ir/rel.ts"
 import { preludeAt, preludeFrom, preludeModule } from "#test/support/prelude.ts"
-import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/batch/batch.ts"
+import { batchOwned, caseOwned, type Entry, type Program } from "#test/support/types/batch/batch.ts"
 
 /**
  * A semi-join's right side (packages/engine/src/ir/rel.ts SemiJoinRight): a node's constructor takes as a semi-join's

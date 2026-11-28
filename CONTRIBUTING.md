@@ -51,6 +51,33 @@ document's package and a shell, the local cluster's package, the dev tools and t
 - **`test/`, `bench/` and `scripts/`** reach the engine's and the shell's modules through the root's `#` subpath
   imports: `#compiler/*` is the engine's `src`, `#adapter/*` and `#cli/*` the shell's, `#index.ts` the shell's entry
   point; the text package and the OpenAPI document's package they import by their names.
+- **Test layering.** The test tiers, `test/unit`, `test/pg`, `test/types` and `test/schedules`, each import their own
+  tier and the shared layer alone: `test/support`, and bench's shared harness, the modules a test reads beside a bench
+  (`oxlint.config.ts` SHARED_BENCH), which measure time, as bench's own code does and test scope's lint refuses, so
+  they stay under `bench/`. `test/support`, `bench/` and `scripts/` import no tier, and a test imports no other bench
+  module. A test directory, `test/<tier>/<directory>`, reads its own modules and the shared layer's: a module two
+  directories or two tiers read is shared test code, and lives in `test/support`, under its tier's name when it came
+  from one (`test/support/unit/compute/support.ts`, `test/support/pg/cli/support.ts`). The root lint holds the
+  tiers (`oxlint.config.ts` TEST_TIERS, `tierLayering`: an import of another tier's module, or of a bench module
+  outside SHARED_BENCH, is `no-restricted-imports`).
+
+  The root's typecheck is one program, checked by one checker (the toolchain's ONE_CHECKER), so each type it needs is
+  built once: `pnpm types` took 97 s at 2.5 GB where 7 checkers took 54 to 63 s at 3.1 GB, with the same CPU, 88 s
+  against 90 (TYPECOST, 2026-11-27). Its wall time would come back by programs checked side by side, one for each group
+  of test directories, each reading `test/support` as declarations, which no program would then check again; but
+  `test/support` emits no declarations today. Built as a composite project it refused 126 of them: 102 TS4023, an
+  inferred type naming an engine type that is not exported (ArrayMember 22, Attachment 17, ParamValue 15, Fixed 15,
+  UnionArm 11, NodeInspectSymbol 6, and about 20 more names once each: the scalar descriptors' `*Type` and
+  `*Descriptor`, Lost, KeyNeeds, HeadEntry, Dep, DescTypes, LiteralRefusal, Migrated); 7 TS5088, an inferred type of
+  cyclic structure (batch.ts checkedBatch, measured.ts measuredEach, cli/support.ts memberAt, fixtures/api/queue.ts
+  queueQueries, substrate.ts lentLayer and isolatedLayer); 5 TS7056, an inferred type longer than the compiler
+  serializes (fixtures/api/platform.ts's schema and programs); 2 TS4026; 2 TS6307 (env.ts reads `pg.config.ts` and
+  `packages/pg/src/pin.ts`, outside the project); and 8 others (TS2305, TS2527). Without declarations each program
+  checks again the support it reads: a split by tier made 39.5 million instantiations where the one program makes
+  23.7 million, about 73 s and 4.3 GB side by side. The fix is grizzle's exported type surface, a design item after
+  PIN 3: no inferred type that names an unexported internal (TS4023), and named level and program types where an
+  inferred one cannot be written (TS7056, TS5088). It is a consumer's fix too: a package such as qti-pie's pantry could
+  then emit declarations, so the ledger reads its level chain once rather than deriving it again in every program.
 - **`.agents/skills/`** is the one agent skills folder: `.claude/skills` and `.cursor/skills` link to it, its `grizzle`
   links the shell's shipped skill, its `indefensible-numbers` the toolchain's
   (`vendor/toolchain/packages/devtools/skills/indefensible-numbers`), pnpm links approved dependencies' skills into it (`skills.dirs` and `permissions` in
@@ -212,7 +239,7 @@ oldest, which every case's transactions then pay for. So one SERIALIZABLE transa
 commits that many, seconds at one worker per core, makes every case slower and its conflicts coarser. No case holds one
 open past its own work, and roles are cluster-wide, so every case allocates unique schema and role names. The type
 tier's properties check their cases a batch at a time, one
-tsgo program per batch written into the batch's own directory (`test/types/batch/batch.ts`).
+tsgo program per batch written into the batch's own directory (`test/support/types/batch/batch.ts`).
 
 Every generated suite draws from one run seed, `TEST_SEED`. The run prints the seed first, and setting it reproduces
 a run; `TEST_REPLAY='<suite>:<steering>:<tape>'` replays one case as its failure printed it, under the steering it was drawn with. Each search runs, in order
@@ -248,7 +275,7 @@ suite's residual risk. A longer search is a fuzz run, `pnpm fuzz <suite>`.
       `test/support/with-layer.ts`, which pipes call data-last;
     - no `@ts-ignore` or `@ts-nocheck`;
     - `@ts-expect-error` only in negative type tests under `test/types/`, each stating exactly the contract of its line
-      (test/types/batch/directives.ts):
+      (test/support/types/batch/directives.ts):
       - `// @ts-expect-error -- refused: why` where the contract is that the line does not compile;
       - `// @ts-expect-error -- refusal: <message>` for a refusal grizzle's types name;
       - `// @ts-expect-error -- twin <label>: why` for one probe written at two places, which must raise the same
@@ -710,7 +737,7 @@ text match. A type agreement's requirements are its property's situations, which
   feature and, where it names a bug a property must catch, a kill on that property, which the kill census
   (`pnpm kills`) judges on each pin.
 - **Type tests** (`test/types`): properties on the toolchain's runner whose cases are entries of a generated program.
-  A batch of cases is one program (`test/types/batch/batch.ts`), checked once by tsgo in the batch's own directory,
+  A batch of cases is one program (`test/support/types/batch/batch.ts`), checked once by tsgo in the batch's own directory,
   armed or disarmed: disarmed, every `@ts-expect-error` must fail with exactly the diagnostic it names, printing
   `Refusal<"<message>">` exactly where the directive names that refusal, and no other line may fail. Each diagnostic
   belongs to whoever answers for its line, one case or the batch, so each case's verdict is its own lines' and a
@@ -720,7 +747,7 @@ text match. A type agreement's requirements are its property's situations, which
   README's and `packages/grizzle/skills/grizzle/SKILL.md`'s `ts` blocks are checked code: each is mirrored line for
   line in `test/types/examples/fixtures/readme.ts` or `skill.ts`, which `pnpm typecheck` checks, the README's refusals
   are a box of their own, and `test/types/examples/blocks.test.ts` holds every block to its fixture, so an edit to a
-  block alone fails. Every tsgo check is under a stall guard (test/types/batch/compiler.ts): a check whose process tree
+  block alone fails. Every tsgo check is under a stall guard (test/support/types/batch/compiler.ts): a check whose process tree
   makes no CPU progress for `stallWindow` fails with CompilerStalled, carrying the goroutine dump tsgo prints on
   SIGQUIT, never hangs.
 - **The type/engine agreements** (`test/support/agreement`): drawn schemas, ChangeSets, workloads, roles' access,

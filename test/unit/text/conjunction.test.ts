@@ -45,6 +45,7 @@ import { analyzeText, type TextRefinement } from "#compiler/text/refinement.ts"
 import { checkedIn } from "#test/support/policy.ts"
 import { textInfo } from "#test/support/text.ts"
 import { refinementBounds } from "#test/support/text.ts"
+import { stringsOver } from "#test/support/unit/text/generators.ts"
 import {
 	includedTogetherGen,
 	type InclusionCase,
@@ -74,7 +75,6 @@ import {
 	smallintForm,
 	walksOf
 } from "#test/unit/text/conjunction.fixtures.ts"
-import { stringsOver } from "#test/unit/text/generators.ts"
 
 /** A pattern automaton's minimization at the text analysis's bounds, what an inclusion compares. */
 const minimal = (nfa: Nfa): DfaOutcome => minimalDfa(nfa, regexDfaLimits)

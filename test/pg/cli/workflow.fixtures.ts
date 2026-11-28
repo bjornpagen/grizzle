@@ -41,7 +41,14 @@ import { assert, defined, lacksText } from "@bjornpagen/testing/assert"
 import { readLedger } from "#adapter/migrate/apply.ts"
 import type { AnyLogin } from "#compiler/public/schema.ts"
 import { placeholderToken } from "#compiler/sql/print.ts"
-import { shopV1, shopV2 } from "#test/pg/cli/fixture.ts"
+import { succeeded } from "#test/support/assert.ts"
+import { oneOf } from "#test/support/calls.ts"
+import { chunked, joined } from "#test/support/chunked.ts"
+import { type IdValue, toId } from "#test/support/ids.ts"
+import { type DecoderCredential, decodersIn, servedSourcedLayer } from "#test/support/live-layer.ts"
+import { migrationFolders } from "#test/support/migrate/kit.ts"
+import { clusterConnection, clusterPool, type SqlError } from "#test/support/pg.ts"
+import { shopV1, shopV2 } from "#test/support/pg/cli/fixture.ts"
 import {
 	cli,
 	type CliRun,
@@ -53,15 +60,8 @@ import {
 	workspace,
 	writeConfig,
 	wrongPassword
-} from "#test/pg/cli/support.ts"
-import { openMigrator } from "#test/pg/migrate/support.ts"
-import { succeeded } from "#test/support/assert.ts"
-import { oneOf } from "#test/support/calls.ts"
-import { chunked, joined } from "#test/support/chunked.ts"
-import { type IdValue, toId } from "#test/support/ids.ts"
-import { type DecoderCredential, decodersIn, servedSourcedLayer } from "#test/support/live-layer.ts"
-import { migrationFolders } from "#test/support/migrate/kit.ts"
-import { clusterConnection, clusterPool, type SqlError } from "#test/support/pg.ts"
+} from "#test/support/pg/cli/support.ts"
+import { openMigrator } from "#test/support/pg/migrate/support.ts"
 import type { BudgetedCluster } from "#test/support/substrate/budget.ts"
 import type { Credentials } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"

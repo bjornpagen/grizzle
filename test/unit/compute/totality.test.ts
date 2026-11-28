@@ -26,7 +26,7 @@ import { ParamId } from "#compiler/core/ids.ts"
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { constantEnv, evaluate } from "#test/support/oracle/evaluate/catalog.ts"
-import { baseParams, lowerWith, param, spelledExpr, v } from "#test/unit/compute/support.ts"
+import { baseParams, lowerWith, param, spelledExpr, v } from "#test/support/unit/compute/support.ts"
 import {
 	declaring,
 	guardedOperations,
@@ -39,7 +39,7 @@ import {
 	refusalSituations,
 	type Subject,
 	violates
-} from "#test/unit/compute/totality.fixtures.ts"
+} from "#test/support/unit/compute/totality.fixtures.ts"
 
 /** Totality refuses a partial operation over literals exactly where their values leave it undefined. Its budget is its suite's before it was a property (test/unit/compute/totality.test.ts at 4ca3036a): 600 runs and 600 steered cases. */
 export const totalityRefusesAPartialOperationOverLiteralsExactlyWhereTheirValuesLeaveItUndefined =

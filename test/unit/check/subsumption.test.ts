@@ -40,7 +40,12 @@ import { succeeded } from "#test/support/assert.ts"
 import { compileTemplate, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { contained, f, on, relation as relationDesc } from "#test/support/fixtures/ir/desc.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
-import { lawOfShape, naturalDesc, schemaOf, theoryOf } from "#test/unit/analysis/theory/support.ts"
+import {
+	lawOfShape,
+	naturalDesc,
+	schemaOf,
+	theoryOf
+} from "#test/support/unit/analysis/theory/support.ts"
 
 type Feature = "a contract column" | "a pattern text column" | "one rule" | "a union of two"
 

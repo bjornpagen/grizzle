@@ -4,7 +4,7 @@
  *
  * A carrier column's values travel as the text of their array (sql/carriers.ts carrierStash's set_config), PostgreSQL's
  * own output of it, and come back through its input (carrierReading's current_setting cast to the array type, unnested
- * in lockstep). The property draws a carried type of every carrier (the codec catalogue, test/unit/codec/wild.fixtures.ts
+ * in lockstep). The property draws a carried type of every carrier (the codec catalogue, test/support/unit/codec/wild.fixtures.ts
  * written, keyed by carrier, so a new carrier is listed there) and the edges of their texts: both zeros of a float, its
  * least subnormal and its greatest, NaN and the infinities, shortest digits; numeric of no typmod at its display scale,
  * NaN and the infinities; spans; a variant's composite; bytea; closed ids and sets; text of any character, the array's

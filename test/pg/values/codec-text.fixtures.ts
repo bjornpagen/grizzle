@@ -34,8 +34,6 @@ import { str } from "#compiler/public/text.ts"
 import { describeFieldOrThrow, type SqlTag } from "#compiler/scalar/registry.ts"
 import { closedBuilder } from "#compiler/schema/relation.ts"
 import type { AccumulatedField, StoredOnlySql } from "#compiler/types/fields/field.ts"
-import { kindHandles, setHandles, setWidths } from "#test/pg/codec/scalar.fixtures.ts"
-import { type SqlNames, textOut, wireSql } from "#test/pg/codec/support.ts"
 import {
 	markHandles,
 	orderCaseOf,
@@ -45,8 +43,10 @@ import {
 } from "#test/pg/values/order.fixtures.ts"
 import { type AnyResult, succeeded } from "#test/support/assert.ts"
 import { Id, idKey } from "#test/support/ids.ts"
+import { kindHandles, setHandles, setWidths } from "#test/support/pg/codec/scalar.fixtures.ts"
+import { type SqlNames, textOut, wireSql } from "#test/support/pg/codec/support.ts"
 import type { CaseSession } from "#test/support/substrate/session.ts"
-import { codecOf } from "#test/unit/codec/support.ts"
+import { codecOf } from "#test/support/unit/codec/support.ts"
 
 /**
  * The kinds of field a relation holds, each of which has a text: a caller's, written by its caller, and each that

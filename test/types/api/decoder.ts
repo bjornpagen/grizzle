@@ -17,7 +17,7 @@ import {
 } from "#test/support/agreement/decoder-logins.ts"
 import { compiledServedFile } from "#test/support/compiled-served.ts"
 import { preludeAt, preludeFrom, preludeModule } from "#test/support/prelude.ts"
-import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/batch/batch.ts"
+import { batchOwned, caseOwned, type Entry, type Program } from "#test/support/types/batch/batch.ts"
 
 /**
  * The decoder agreement: the type of a served login's `decoder` (adapter/types/layer.ts DecoderOf, by its login's

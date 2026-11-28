@@ -43,8 +43,8 @@ import {
 	parsedMigrationName
 } from "#test/support/migrate/kit.ts"
 import { draftFiles } from "#test/support/migrate/review.ts"
+import { shopV1, shopV2, shopV3, shopV3Declared } from "#test/support/unit/deploy/schemas.ts"
 import { upTo } from "#test/support/up-to.ts"
-import { shopV1, shopV2, shopV3, shopV3Declared } from "#test/unit/deploy/schemas.ts"
 
 /** The installation every parse here fills its statements under: the stems role space, as without a role prefix. */
 export const stemsInstallation: InstallationNames = {

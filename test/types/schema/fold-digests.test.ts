@@ -1,6 +1,6 @@
 import { word } from "@bjornpagen/testing/dictionary"
 import { finite } from "@bjornpagen/testing/gen"
-import { boxAgreement } from "#test/types/batch/agreement.ts"
+import { boxAgreement } from "#test/support/types/batch/agreement.ts"
 /**
  * A fold's accumulators at the type level (test/types/schema/fold-digests.ts): a concat fold names each running text by
  * its accumulated field or by its SHA-256 digest, a generated field, which stands in a text's place (ir/family.ts

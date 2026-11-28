@@ -38,7 +38,7 @@ import { textArrayLiteral } from "#compiler/sql/print.ts"
 import { refusalLoc, refused, succeeded } from "#test/support/assert.ts"
 import { installationNamesOf } from "#test/support/kernel/naming.ts"
 import { ownedInput, owning } from "#test/support/policy.ts"
-import { admittedPatternOver, families } from "#test/unit/text/generators.ts"
+import { admittedPatternOver, families } from "#test/support/unit/text/generators.ts"
 
 type PatternFeature = "one pattern" | "several patterns"
 

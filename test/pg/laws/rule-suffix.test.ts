@@ -24,7 +24,6 @@ import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { property, type Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
-import { seatIn } from "#test/pg/fin/installed.ts"
 import {
 	footprintBeside,
 	localityGen,
@@ -34,6 +33,7 @@ import {
 	seekGen,
 	suffixTemplate
 } from "#test/pg/laws/rule-suffix.fixtures.ts"
+import { seatIn } from "#test/support/pg/fin/installed.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**

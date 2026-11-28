@@ -1,6 +1,6 @@
 /** What the properties of compile.test.ts read: its spaces, models and helpers. */
 
-import { flagged, flaggedByTitle } from "#test/unit/page/fixtures.ts"
+import { flagged, flaggedByTitle } from "#test/support/unit/page/fixtures.ts"
 
 export type Union = "flagged" | "flagged by title"
 

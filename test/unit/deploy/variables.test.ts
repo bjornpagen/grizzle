@@ -2,7 +2,7 @@
  * The variables of a drafted migration and their filling (deploy/render/variables.ts resolveVariables), over every statement
  * `grizzle generate` drafts, with no database.
  *
- * A case draws the shop's declared schema name (test/pg/cli/fixture.ts shopV1: the login `server` and its roles
+ * A case draws the shop's declared schema name (test/support/pg/cli/fixture.ts shopV1: the login `server` and its roles
  * `reader` and `writer`, with its workloads), a role space (none or a prefix), a database name, and a variable name
  * of drawn characters. It drafts the first migration through the command line's generate, offline, and reads every
  * statement of every file of the folder as migrate reads them (deploy/render/markers.ts splitStatements).

@@ -26,9 +26,9 @@ import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { queryOver, type QueryValue, varsOver } from "#compiler/query/build/query.ts"
 import type { FinishedValue, RuleValue } from "#compiler/query/build/rule.ts"
-import { fixtureTemplate } from "#test/pg/reads/support.ts"
 import { readOnce } from "#test/support/calls.ts"
 import { schemaAdmits } from "#test/support/openapi/validator.ts"
+import { fixtureTemplate } from "#test/support/pg/reads/support.ts"
 
 /**
  * Union cells on PostgreSQL 19: a union's rows decode to exactly the records its arms decode to, each read alone.

@@ -8,7 +8,7 @@ import { generated, pg, sha256 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { key, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { fixtureTemplate } from "#test/pg/reads/support.ts"
+import { fixtureTemplate } from "#test/support/pg/reads/support.ts"
 
 /**
  * A relation keyed by the digests of its two unbounded texts, as a QTI schema keys a stimulus reference by its package's

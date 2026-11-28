@@ -9,7 +9,7 @@ import { conservativeMeta, type RelDag, type RelNode } from "#compiler/ir/rel.ts
 import { relationalRewrites } from "#compiler/lower/optimize/demand/phases.ts"
 import { prunePass } from "#compiler/lower/optimize/prune/index.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { heading } from "#test/unit/ir/fixture.ts"
+import { heading } from "#test/support/unit/ir/fixture.ts"
 import {
 	type AggregateSpec,
 	Edge,
@@ -18,7 +18,7 @@ import {
 	type RelationSpec,
 	T,
 	uuidOf
-} from "#test/unit/lower/conservative/fixtures.ts"
+} from "#test/support/unit/lower/conservative/fixtures.ts"
 import {
 	deliversAlikeOn,
 	factSubsets,
@@ -29,7 +29,7 @@ import {
 	queryOf,
 	type Ran,
 	runPasses
-} from "#test/unit/lower/rewrite/support.ts"
+} from "#test/support/unit/lower/rewrite/support.ts"
 
 /** A uuid literal of the ledger fixture's n-th id (conservative/fixtures.ts uuidOf). */
 const u = (n: number): TypedLiteral => ({ kind: "uuid", value: uuidOf(n) })

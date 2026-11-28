@@ -29,7 +29,7 @@ import {
 	flagsGen,
 	mostFiniteMembers,
 	patternOver
-} from "#test/unit/text/generators.ts"
+} from "#test/support/unit/text/generators.ts"
 
 export const loc = SourceLoc("str.regex", ["Content", "relations", "Article", "fields", "f"])
 

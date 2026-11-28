@@ -10,7 +10,7 @@ import { schemaName } from "#test/support/oracle/gen/schema.ts"
 import { noBindings, Reference, unobserved } from "#test/support/oracle/reference/evaluate.ts"
 import { noFunctions } from "#test/support/oracle/reference/functions.ts"
 import { asNumber, valueAt } from "#test/support/oracle/reference/values.ts"
-import { Q } from "#test/unit/lower/conservative/fixtures.ts"
+import { Q } from "#test/support/unit/lower/conservative/fixtures.ts"
 
 /**
  * How a case reads its parameter relation: a region binding every column, each fact one binding, or a region binding

@@ -3,7 +3,7 @@ import { assert, defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Effect } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { type PreludeAt, preludeProgram } from "#test/support/prelude.ts"
-import { assertClean, type Measuring, measuredEach } from "#test/types/batch/measured.ts"
+import { assertClean, type Measuring, measuredEach } from "#test/support/types/batch/measured.ts"
 
 /**
  * The served-records programs (served-records.test.ts): over a schema of three relations, `units` times, a query's
@@ -77,7 +77,7 @@ const step = 10
  * @owner the login's type cost gates (test/types/schema/budget/served-records.ts)
  * @unit instantiations a unit adds
  * @scope one unit of the shape (records, their level, their read, a reader role and the login serving the read),
- *   checked by one checker against the engine's and the shell's declarations, as test/types/batch/measured.ts checks a
+ *   checked by one checker against the engine's and the shell's declarations, as test/support/types/batch/measured.ts checks a
  *   program
  * @evidence ~/.cache/grizzle-release/RECORDS-ATTACH-tools/served-pin: served-records.test.ts run with each bound at 0,
  *   whose assertion states the instantiations a unit of each shape adds (served-r1.log, flat records; served-r2.log,

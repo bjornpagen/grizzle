@@ -6,7 +6,7 @@ import { generated, pg, sha256 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { servingWith } from "#test/unit/workload/install.fixtures.ts"
+import { servingWith } from "#test/support/unit/workload/install.fixtures.ts"
 
 /**
  * How a case's read states its text equal to a value: a literal or a parameter its match binds the text to, an

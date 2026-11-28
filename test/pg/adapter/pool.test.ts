@@ -35,7 +35,7 @@ import {
 	rowsOn,
 	substrateLogin,
 	until
-} from "#test/pg/adapter/support.ts"
+} from "#test/support/pg/adapter/support.ts"
 import { superuserClient } from "#test/support/substrate/shared.ts"
 import { freshSchema, Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 

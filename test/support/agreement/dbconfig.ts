@@ -17,7 +17,7 @@ import { loginDescOf } from "#compiler/schema/world.ts"
 import { PlainLogin, WebLogin } from "#test/support/agreement/access-schema.ts"
 import { compiledServedFile } from "#test/support/compiled-served.ts"
 import { preludeAt, preludeFrom, preludeModule } from "#test/support/prelude.ts"
-import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/batch/batch.ts"
+import { batchOwned, caseOwned, type Entry, type Program } from "#test/support/types/batch/batch.ts"
 
 /**
  * The DbConfig agreement: DbLayer.make's config over a served login, as its type states it and as its reader reads it

@@ -8,8 +8,8 @@ import {
 	operandCarriers,
 	type Operands
 } from "#compiler/scalar/compute/registry.ts"
-import { textCell } from "#test/pg/compute/support.ts"
 import type { SqlError } from "#test/support/pg.ts"
+import { textCell } from "#test/support/pg/compute/support.ts"
 import type { CaseSession } from "#test/support/substrate/session.ts"
 
 const vectorSchema = "vector_ext"

@@ -18,7 +18,7 @@ import {
 	testContract,
 	type TestField,
 	testPg
-} from "#test/unit/compute/support.ts"
+} from "#test/support/unit/compute/support.ts"
 
 /**
  * A contract predicate is lowered in the "check" mode, which differs from the "query" mode only in what it reads and

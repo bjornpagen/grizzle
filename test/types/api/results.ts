@@ -1,6 +1,6 @@
 import { Array as Arr, Effect } from "effect"
 import { preludeAt, preludeFrom, preludeModule } from "#test/support/prelude.ts"
-import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/batch/batch.ts"
+import { batchOwned, caseOwned, type Entry, type Program } from "#test/support/types/batch/batch.ts"
 
 /**
  * The public-Result program: the box of every answer a public reader gives that can refuse with a value, each printed

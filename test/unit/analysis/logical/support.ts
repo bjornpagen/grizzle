@@ -41,7 +41,7 @@ import { RecordingReference } from "#test/support/oracle/reference/evaluations.t
 import { noFunctions } from "#test/support/oracle/reference/functions.ts"
 import { equal, type Row, valueIdentity } from "#test/support/oracle/reference/values.ts"
 import { ownedInput } from "#test/support/policy.ts"
-import type { HostFacts } from "#test/unit/analysis/theory/support.ts"
+import type { HostFacts } from "#test/support/unit/analysis/theory/support.ts"
 
 /** No containment into an open relation proved immediate: every one holds in lawful committed snapshots. */
 export const noImmediate: ReadonlySet<LawId> = new Set()

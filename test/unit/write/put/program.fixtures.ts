@@ -1,8 +1,8 @@
 /** What the properties of program.test.ts read: its spaces, models and helpers. */
 
 import { array, constant, type Gen, int, weighted } from "@bjornpagen/testing/gen"
-import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
-import { Item, Stock } from "#test/unit/write/put/support.ts"
+import { uuidOf } from "#test/support/unit/write/changeset/fixtures.ts"
+import { Item, Stock } from "#test/support/unit/write/put/support.ts"
 
 /** The described members whose relation parameter the program binds: Item's insert under items (Item is closed, its
  * facts only inserted), Stock's put under stocks. */

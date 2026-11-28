@@ -40,7 +40,16 @@ import {
 	Posting,
 	Q,
 	type RelationSpec
-} from "#test/unit/lower/conservative/fixtures.ts"
+} from "#test/support/unit/lower/conservative/fixtures.ts"
+import {
+	caseQuery,
+	deliversAlikeOn,
+	ledgerCatalog,
+	passContext,
+	queryOf,
+	rulesOf,
+	runPasses
+} from "#test/support/unit/lower/rewrite/support.ts"
 import {
 	type Account,
 	accountKey,
@@ -71,15 +80,6 @@ import {
 } from "#test/unit/lower/rewrite/existence.fixtures.ts"
 import { reachEdits } from "#test/unit/lower/rewrite/frame.fixtures.ts"
 import { guardSearch, scopedStay } from "#test/unit/lower/rewrite/guarded.ts"
-import {
-	caseQuery,
-	deliversAlikeOn,
-	ledgerCatalog,
-	passContext,
-	queryOf,
-	rulesOf,
-	runPasses
-} from "#test/unit/lower/rewrite/support.ts"
 
 /** An existence-only match becomes a semi-join an occurrence binding nothing of its own becomes a semi-join, its constants with it, the reader's heading and bound tuple kept. */
 export const anExistenceOnlyMatchBecomesASemiJoinAnOccurrenceBindingNothingOfItsOwnBecomesASemiJoinItsConstantsWithItTheReadersHeadingAndBoundTupleKept =

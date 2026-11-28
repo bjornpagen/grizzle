@@ -10,7 +10,7 @@
  *   below), whose stored relations the derived analysis keys, every stored relation's keys keep those rules, a level is
  *   one above the derived relations it reads, and queries over a relation see its keys. Oracle: the rules as a checker (keyRules). Features: the whole heading, at most one fact, a level over a
  *   derived relation, and a negation over a level whose conditional count is numeric (sum(cond(flag, 1, 0)), an exact
- *   numeric the generator must type as one, or it binds that count to a bigint field: test/pg/derived/oracle/gen.ts
+ *   numeric the generator must type as one, or it binds that count to a bigint field: test/support/pg/derived/oracle/gen.ts
  *   aggregated).
  * - Join keys: over generated joins of relations keyed by primary and candidate keys, each matched once, their heads
  *   in a drawn order, every key the view indexes is a minimal set of head columns whose closure, under each relation's
@@ -61,13 +61,13 @@ import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { derivedBuilder as runtimeDerived } from "#compiler/schema/relation.ts"
 import { schemaBuilder as runtimeSchema } from "#compiler/schema/schema.ts"
+import { succeeded } from "#test/support/assert.ts"
+import { analysesOf } from "#test/support/derived.ts"
 import {
 	buildSchema,
 	unitLocalCondNegationSketchGen,
 	unitLocalSketchGen
-} from "#test/pg/derived/oracle/gen.ts"
-import { succeeded } from "#test/support/assert.ts"
-import { analysesOf } from "#test/support/derived.ts"
+} from "#test/support/pg/derived/oracle/gen.ts"
 import { checkedIn } from "#test/support/policy.ts"
 import {
 	aboveOf,

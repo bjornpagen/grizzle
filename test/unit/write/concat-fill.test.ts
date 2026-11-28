@@ -21,7 +21,7 @@ import { columnKey, columnKeyOf } from "#compiler/ir/law.ts"
 import { fillsWhole, type HostNode } from "#compiler/runtime/write/fill.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { cellAt, cellsOf } from "#test/support/cells.ts"
-import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
+import { uuidOf } from "#test/support/unit/write/changeset/fixtures.ts"
 import { caseGen, type FillFeature, fills } from "#test/unit/write/concat-fill.fixtures.ts"
 
 /** The host fill of a concat fold draws the naive left fold of its slots' texts. */

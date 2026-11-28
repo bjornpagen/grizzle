@@ -3,7 +3,6 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { groupingSteps } from "#bench/harness/explain.ts"
-import { explainMain, lowerCase } from "#test/pg/recursion/lowering/support.ts"
 import {
 	caseOf,
 	type CounterFeature,
@@ -27,6 +26,7 @@ import {
 	runLabelledOracle
 } from "#test/support/oracle/runner.ts"
 import { OracleSeat } from "#test/support/oracle/seat.ts"
+import { explainMain, lowerCase } from "#test/support/pg/recursion/lowering/support.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** The Walks example through the optimized lowering each walk's plan has one Recursive Union and no other deduplication (V6). */

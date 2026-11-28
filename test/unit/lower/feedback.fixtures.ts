@@ -22,7 +22,7 @@ import { noKeys } from "#compiler/lower/shapes/share/keyed.ts"
 import { placeOf, refusalLoc } from "#test/support/assert.ts"
 import { localVectorSchema, productionNames } from "#test/support/kernel/naming.ts"
 import { argumentsOf } from "#test/support/list.ts"
-import { heading } from "#test/unit/ir/fixture.ts"
+import { heading } from "#test/support/unit/ir/fixture.ts"
 import {
 	asc,
 	Edge,
@@ -30,9 +30,9 @@ import {
 	Q,
 	Reading,
 	T
-} from "#test/unit/lower/conservative/fixtures.ts"
-import { conservativeShapeFacts } from "#test/unit/lower/shapes/support.ts"
-import { nodeOfKind } from "#test/unit/lower/support.ts"
+} from "#test/support/unit/lower/conservative/fixtures.ts"
+import { conservativeShapeFacts } from "#test/support/unit/lower/shapes/support.ts"
+import { nodeOfKind } from "#test/support/unit/lower/support.ts"
 
 const names = productionNames("Ledger", { kind: "declared" }, localVectorSchema, emptyCodebook)
 

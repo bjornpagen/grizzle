@@ -40,7 +40,13 @@ import { firstCodes } from "#test/support/compile.ts"
 import { atName } from "#test/support/kernel/naming.ts"
 import { draftChain, fromEmpty, noDeclarations } from "#test/support/migrate/kit.ts"
 import { specifiedAfter, specifiedReplay, specifiedTainted } from "#test/support/migrate/proofs.ts"
-import { setsSchema, shopV1, shopV2, shopV3, shopV3Declared } from "#test/unit/deploy/schemas.ts"
+import {
+	setsSchema,
+	shopV1,
+	shopV2,
+	shopV3,
+	shopV3Declared
+} from "#test/support/unit/deploy/schemas.ts"
 
 /** A pair of the shop's versions: the one the proofs were recorded at (0, none) and one at or after it. */
 interface Pair {

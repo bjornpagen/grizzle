@@ -23,7 +23,6 @@ import {
 	select,
 	unit
 } from "#compiler/public/schema.ts"
-import { apply, noFurther, openMigrator, refusal } from "#test/pg/migrate/support.ts"
 import { writeOnce } from "#test/support/calls.ts"
 import {
 	generatedHistory,
@@ -34,6 +33,7 @@ import {
 import { migrated, noObservation } from "#test/support/installed.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
+import { apply, noFurther, openMigrator, refusal } from "#test/support/pg/migrate/support.ts"
 import { member, openServedDb } from "#test/support/served-db.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 

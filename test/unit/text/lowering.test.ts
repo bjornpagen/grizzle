@@ -32,7 +32,7 @@ import {
 	flagsGen,
 	mostFiniteMembers,
 	nestedPattern
-} from "#test/unit/text/generators.ts"
+} from "#test/support/unit/text/generators.ts"
 import {
 	areKey,
 	assertionLoop,

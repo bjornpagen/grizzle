@@ -15,8 +15,8 @@ import {
 import { regex } from "arkregex"
 import { Array as Arr, Option, pipe, String as Str } from "effect"
 import { fusedElement, type FusedLayout } from "#compiler/runtime/lower/fused.ts"
-import { T } from "#test/unit/lower/conservative/fixtures.ts"
-import { present } from "#test/unit/lower/support.ts"
+import { T } from "#test/support/unit/lower/conservative/fixtures.ts"
+import { present } from "#test/support/unit/lower/support.ts"
 
 /**
  * PostgreSQL's array_out of text elements: an element is double-quoted when it is empty, holds a delimiter, brace,

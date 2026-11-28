@@ -13,7 +13,7 @@ import {
 import { fusePass } from "#compiler/lower/optimize/fuse/index.ts"
 import { simplifyPass } from "#compiler/lower/optimize/simplify/index.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { Account, Posting, Q, uuidOf } from "#test/unit/lower/conservative/fixtures.ts"
+import { Account, Posting, Q, uuidOf } from "#test/support/unit/lower/conservative/fixtures.ts"
 import {
 	deliversAlikeOn,
 	factSubsets,
@@ -23,7 +23,7 @@ import {
 	queryOf,
 	type Ran,
 	runPasses
-} from "#test/unit/lower/rewrite/support.ts"
+} from "#test/support/unit/lower/rewrite/support.ts"
 
 /** A uuid literal of the ledger fixture's n-th id (conservative/fixtures.ts uuidOf). */
 const u = (n: number): TypedLiteral => ({ kind: "uuid", value: uuidOf(n) })

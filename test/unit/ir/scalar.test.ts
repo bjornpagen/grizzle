@@ -46,7 +46,8 @@ import { Money } from "#compiler/scalar/values/money.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
 import { placeOf, refusalLoc, succeeded } from "#test/support/assert.ts"
 import { normalizeExprTable } from "#test/support/fixtures/ir/scalar.ts"
-import { fail, scalarTypes } from "#test/unit/ir/fixture.ts"
+import { fail, scalarTypes } from "#test/support/unit/ir/fixture.ts"
+import { scalarTypeGen } from "#test/support/unit/ir/types.ts"
 import {
 	admits,
 	admittedAims,
@@ -72,7 +73,6 @@ import {
 	type TypmodFeature,
 	typmodBoundary
 } from "#test/unit/ir/scalar.fixtures.ts"
-import { scalarTypeGen } from "#test/unit/ir/types.ts"
 
 /**
  * ScalarType decodes every generated type as itself, and refuses each corruption of one at the type it breaks.

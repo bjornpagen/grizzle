@@ -8,7 +8,7 @@
 import { word } from "@bjornpagen/testing/dictionary"
 import { finite } from "@bjornpagen/testing/gen"
 import { genericProgram } from "#test/support/agreement/generic-sources.ts"
-import { boxAgreement } from "#test/types/batch/agreement.ts"
+import { boxAgreement } from "#test/support/types/batch/agreement.ts"
 import { genericBox } from "#test/types/schema/generic.dictionary.ts"
 
 /**

@@ -82,7 +82,6 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
 import { family, type Kill, property, type Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Record as Rec, String as Str } from "effect"
-import type { SeatCase } from "#test/pg/fin/installed.ts"
 import {
 	aimsOf,
 	caseGen,
@@ -100,6 +99,7 @@ import {
 	shapes,
 	touchedOf
 } from "#test/pg/laws/rule-seeding.fixtures.ts"
+import type { SeatCase } from "#test/support/pg/fin/installed.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**

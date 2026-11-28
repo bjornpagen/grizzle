@@ -24,6 +24,7 @@ import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Effect, Formatter } from "effect"
 import { succeeded } from "#test/support/assert.ts"
+import { compiledOf } from "#test/support/unit/analysis/theory/rule-query.fixtures.ts"
 import {
 	closureCase,
 	closureOf,
@@ -31,7 +32,6 @@ import {
 	closureStated,
 	type Shape
 } from "#test/unit/analysis/theory/rule-closures.fixtures.ts"
-import { compiledOf } from "#test/unit/analysis/theory/rule-query.fixtures.ts"
 
 type ClosureFeature = `${Shape} from ${"its head" | "a root"}`
 

@@ -38,7 +38,7 @@ import {
 } from "#test/support/oracle/gen/recursive.ts"
 import { schemaCodes } from "#test/support/oracle/gen/schema.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
-import { present } from "#test/unit/lower/support.ts"
+import { present } from "#test/support/unit/lower/support.ts"
 
 /** The graph example's schema. */
 const text = str.regex("^.*$", "su")

@@ -1,6 +1,6 @@
 /**
  * A query's records on PostgreSQL 19 (program/records.ts records, recordsFacts and recordsQuery): each case installs a
- * base of Item, a relation holding a field of every type a stored column may be (test/unit/program/records.fixtures.ts),
+ * base of Item, a relation holding a field of every type a stored column may be (test/support/unit/program/records.fixtures.ts),
  * and over it a level listing the records of four queries: one rule finding every column beside a head literal, one
  * rule of a drawn subset of the columns beside a drawn literal or none, a union of two rules of one heading, each a
  * literal of its own at one key, which the records store as a column of exactly those literals, and one rule of a drawn
@@ -31,7 +31,7 @@ import { readOnce, writeOnce } from "#test/support/calls.ts"
 import { installGenerated } from "#test/support/install-migrate.ts"
 import { member, openServedDb } from "#test/support/served-db.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
-import { Item } from "#test/unit/program/records.fixtures.ts"
+import { Item } from "#test/support/unit/program/records.fixtures.ts"
 
 /** Each row a query found, inserted into its records and read back at its owner, is the row the query found. */
 export const aRowAQueryFoundReadsBackFromItsRecordsExactlyAsTheQueryFoundIt = property.explore(

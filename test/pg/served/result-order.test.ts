@@ -25,6 +25,9 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Result } from "effect"
 import { memberCalls } from "#adapter/db/handles.ts"
 import { isRecord } from "#compiler/core/record.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
+import { readOnce, writeAnswerOf, writeOnce } from "#test/support/calls.ts"
+import { installGenerated } from "#test/support/install-migrate.ts"
 import {
 	caseGen,
 	expectedOf,
@@ -37,10 +40,7 @@ import {
 	type Row,
 	rowOf,
 	servedOf
-} from "#test/pg/served/result-order.fixtures.ts"
-import { ordinarySession } from "#test/support/ambient.ts"
-import { readOnce, writeAnswerOf, writeOnce } from "#test/support/calls.ts"
-import { installGenerated } from "#test/support/install-migrate.ts"
+} from "#test/support/pg/served/result-order.fixtures.ts"
 import { member, withServedDb } from "#test/support/served-db.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 

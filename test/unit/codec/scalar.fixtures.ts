@@ -30,7 +30,7 @@ import { succeeded } from "#test/support/assert.ts"
 import { f } from "#test/support/fixtures/ir/desc.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import type { StrictFault } from "#test/support/kernel/strict.ts"
-import { codecOf, codecTypes, kindCodes } from "#test/unit/codec/support.ts"
+import { codecOf, codecTypes, kindCodes } from "#test/support/unit/codec/support.ts"
 
 interface Written {
 	readonly value: CarrierHost[Carrier]

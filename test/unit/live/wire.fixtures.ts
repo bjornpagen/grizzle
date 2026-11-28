@@ -47,8 +47,8 @@ import { Money } from "#compiler/scalar/values/money.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { cidrValues, inetValues } from "#test/support/net-values.ts"
+import { printed, raw, stored } from "#test/support/unit/values/search-document.fixtures.ts"
 import { upTo } from "#test/support/up-to.ts"
-import { printed, raw, stored } from "#test/unit/values/search-document.fixtures.ts"
 
 export type Feature =
 	| `the carrier ${Carrier}`

@@ -22,6 +22,12 @@ import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
 import {
+	type HostFacts,
+	theoryOf,
+	uuidOf,
+	violates
+} from "#test/support/unit/analysis/theory/support.ts"
+import {
 	axisColumnsOf,
 	familyAt,
 	familyLawAt,
@@ -35,7 +41,6 @@ import {
 	state,
 	theories
 } from "#test/unit/analysis/theory/independent.fixtures.ts"
-import { type HostFacts, theoryOf, uuidOf, violates } from "#test/unit/analysis/theory/support.ts"
 
 /** Independent families (rows-first §5) two counted families on one member resolve to two families of disjoint axes and law columns. */
 export const independentFamiliesRowsFirst5TwoCountedFamiliesOnOneMemberResolveToTwoFamiliesOfDisjointAxesAndLawColumns =

@@ -18,6 +18,12 @@ import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
 import {
+	type HostFacts,
+	lawOfShape,
+	uuidOf,
+	violates
+} from "#test/support/unit/analysis/theory/support.ts"
+import {
 	type Counting,
 	type FoldFault,
 	hidden,
@@ -27,7 +33,6 @@ import {
 	visibleFault,
 	visibleFoldState
 } from "#test/unit/analysis/theory/folds.fixtures.ts"
-import { type HostFacts, lawOfShape, uuidOf, violates } from "#test/unit/analysis/theory/support.ts"
 
 /** A fold's law with named accumulators, is violated exactly when they are not the naive fold's. */
 export const aFoldsLawWithNamedAccumulatorsIsViolatedExactlyWhenTheyAreNotTheNaiveFolds =

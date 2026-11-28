@@ -11,7 +11,7 @@ import { conjuncts, type Fixed, type NamedValue } from "#compiler/logical/props.
 import { nativeOp } from "#compiler/scalar/compute/registry.ts"
 import { rebuildDag } from "#test/support/dag.ts"
 import { andOp } from "#test/support/oracle/gen/ops.ts"
-import { provedKeys } from "#test/unit/analysis/physical/support.ts"
+import { provedKeys } from "#test/support/unit/analysis/physical/support.ts"
 
 /**
  * The order of a filter's conjuncts is no part of what it means, so neither analysis may read it: a column two

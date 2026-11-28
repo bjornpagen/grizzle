@@ -5,7 +5,6 @@ import { Array as Arr, Effect, Formatter, Layer, Option, String as Str } from "e
 import { Db } from "#adapter/public/db.ts"
 import { partRuns } from "#adapter/reader/execution.ts"
 import { identity } from "#compiler/core/identity.ts"
-import { openedIn } from "#test/pg/reads/support.ts"
 import {
 	type Answer,
 	at,
@@ -43,6 +42,7 @@ import {
 	testCompile
 } from "#test/support/compile.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { openedIn } from "#test/support/pg/reads/support.ts"
 import { conservativeServedJson, servedFixtureOf } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { outputRows } from "#test/support/wire.ts"

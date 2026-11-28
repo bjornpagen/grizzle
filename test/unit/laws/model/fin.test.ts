@@ -38,6 +38,13 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import type { NativeOf } from "#compiler/ir/law.ts"
 import {
+	familyLaw,
+	foreignKeyShapes,
+	loweringOf,
+	modelOf,
+	ridingLaws
+} from "#test/support/unit/laws/model/natives.ts"
+import {
 	checkDisjoint,
 	checkShape,
 	type DisjointFeature,
@@ -52,13 +59,6 @@ import {
 	schemaOf,
 	shapeGen
 } from "#test/unit/laws/model/fin.fixtures.ts"
-import {
-	familyLaw,
-	foreignKeyShapes,
-	loweringOf,
-	modelOf,
-	ridingLaws
-} from "#test/unit/laws/model/natives.ts"
 
 /** A family's natives are §2.1's three axes every family of group width 1 or 2, ordered or counted, with 0 to 2 copies on each axis. */
 export const aFamilysNativesAre21sThreeAxesEveryFamilyOfGroupWidth1Or2OrderedOrCountedWith0To2CopiesOnEachAxis =

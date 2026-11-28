@@ -24,7 +24,6 @@ import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import { parseMigrationName } from "#compiler/plan/migration.ts"
 import { noDeclarations } from "#compiler/plan/migration.ts"
-import { workspace } from "#test/pg/cli/support.ts"
 import {
 	binIn,
 	configFileOf,
@@ -39,6 +38,7 @@ import {
 } from "#test/support/bin-runs.ts"
 import { repoRoot } from "#test/support/files.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { workspace } from "#test/support/pg/cli/support.ts"
 import { type ReadTrace, traceVariable } from "#test/support/read-trace.ts"
 
 /** The declared schema every project drafts. */

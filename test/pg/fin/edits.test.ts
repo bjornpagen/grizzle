@@ -23,8 +23,8 @@ import {
 	spannedInstall,
 	spannedTemplate
 } from "#test/pg/fin/edits.fixtures.ts"
-import { openedIn } from "#test/pg/reads/support.ts"
 import { writeAnswerOf } from "#test/support/calls.ts"
+import { openedIn } from "#test/support/pg/reads/support.ts"
 import { tableState } from "#test/support/substrate/state.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"

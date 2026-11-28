@@ -23,15 +23,15 @@ import {
 	Rate,
 	roundingBatch
 } from "#test/pg/compute/contract.fixtures.ts"
-import { parseAnswer } from "#test/pg/compute/support.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { parseAnswer } from "#test/support/pg/compute/support.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import {
 	adoptedLiteral,
 	plainRender,
 	renderSql,
 	admittedStored
-} from "#test/unit/compute/support.ts"
+} from "#test/support/unit/compute/support.ts"
 
 /**
  * Contract predicates against PostgreSQL 19 domains round a literal stated as a value of the contract to its scale

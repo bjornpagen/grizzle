@@ -2,7 +2,7 @@
  * The migration workflow a user runs, as a state machine over the command line, on PostgreSQL 19.
  *
  * The model is the documented loop (README "Migrations", packages/grizzle/skills/grizzle/SKILL.md "The loop" and "Refusals"): a
- * workspace whose grizzle.config.ts names the shop (test/pg/cli/fixture.ts) at version 1 or 2 with its full workload or
+ * workspace whose grizzle.config.ts names the shop (test/support/pg/cli/fixture.ts) at version 1 or 2 with its full workload or
  * without its customer lookup, a migrations directory, and a database. Its state: the configuration, what the committed
  * snapshot was generated from, the folders written and the folders applied, the folders whose markers the reviewer has
  * not resolved, and a custom folder whose data step fails.

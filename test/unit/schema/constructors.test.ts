@@ -83,6 +83,7 @@ import type { AnyTerm } from "#compiler/types/schema/statements.ts"
 import { faulted, placeOf, refusalLoc, succeeded, throwsRefused } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
 import { pickGen, pickIndex } from "#test/support/pick.ts"
+import { descOf, rawClosedId, type Row } from "#test/support/unit/schema/support.ts"
 import {
 	agrees,
 	built,
@@ -143,7 +144,6 @@ import {
 	tripleFields,
 	wordGen
 } from "#test/unit/schema/constructors.fixtures.ts"
-import { descOf, rawClosedId, type Row } from "#test/unit/schema/support.ts"
 
 /** Relation requires a nonempty name, built descriptors and a nonempty, distinct primary key over its own fields, and keeps none of the caller's inputs. Its budget is its suite's before it was a property (test/unit/schema/constructors.test.ts at 4ca3036a): 300 runs and 300 steered cases. */
 export const relationRequiresANonemptyNameBuiltDescriptorsAndANonemptyDistinctPrimaryKeyOverItsOwnFieldsAndKeepsNoneOfTheCallersInputs =

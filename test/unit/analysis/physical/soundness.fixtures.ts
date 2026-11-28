@@ -28,7 +28,7 @@ import {
 	physical,
 	propsOf,
 	soundness
-} from "#test/unit/analysis/physical/support.ts"
+} from "#test/support/unit/analysis/physical/support.ts"
 
 /** What a case's analysis claimed and its evaluation reached. */
 export const claimFeatures = [

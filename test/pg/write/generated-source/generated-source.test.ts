@@ -26,7 +26,6 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { type Case as CaseOf, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Result } from "effect"
 import { Db } from "#adapter/public/db.ts"
-import { openedIn } from "#test/pg/reads/support.ts"
 import {
 	appliedOf,
 	caseGen,
@@ -42,6 +41,7 @@ import {
 	genqueryTemplate
 } from "#test/pg/write/generated-source/generated-source.fixtures.ts"
 import { writeAnswerOf, rowsOf } from "#test/support/calls.ts"
+import { openedIn } from "#test/support/pg/reads/support.ts"
 import { refusedLaws } from "#test/support/refused.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"

@@ -4,8 +4,8 @@ import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Result } from "effect"
 import { parsePlanTree } from "#bench/harness/explain.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
-import type { CopyIndex } from "#test/pg/physical/copies.ts"
-import { type Asked, judgeScans } from "#test/pg/physical/plan-bindings.ts"
+import type { CopyIndex } from "#test/support/pg/physical/copies.ts"
+import { type Asked, judgeScans } from "#test/support/pg/physical/plan-bindings.ts"
 
 /**
  * A case: how the plan's one SubPlan reads R0, the judge's NOT EXISTS over R0 kept correlated beneath its scan of R1,

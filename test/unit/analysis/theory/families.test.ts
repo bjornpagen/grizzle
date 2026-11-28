@@ -37,6 +37,7 @@ import type { LawDetail, TheoryLaw } from "#compiler/analysis/theory/laws.ts"
 import { type TermDesc, termText } from "#compiler/ir/desc.ts"
 import { refusalLoc, refused, succeeded } from "#test/support/assert.ts"
 import { contained } from "#test/support/fixtures/ir/desc.ts"
+import { relationsOf, theoryOf, theoryResult } from "#test/support/unit/analysis/theory/support.ts"
 import {
 	axisOf,
 	columnText,
@@ -67,7 +68,6 @@ import {
 	treeDesc,
 	treeStatementOf
 } from "#test/unit/analysis/theory/families.fixtures.ts"
-import { relationsOf, theoryOf, theoryResult } from "#test/unit/analysis/theory/support.ts"
 
 /** Riding a family axis (§2.1) a containment rides an axis exactly when §2.1's rule holds, carrying its pairs beyond the key. */
 export const ridingAFamilyAxis21AContainmentRidesAnAxisExactlyWhen21sRuleHoldsCarryingItsPairsBeyondTheKey =

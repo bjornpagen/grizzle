@@ -9,8 +9,8 @@ import { conservativeMeta, type RelNode, type ValidDag } from "#compiler/ir/rel.
 import { shareKey } from "#compiler/lower/shapes/share/index.ts"
 import type { ShareIndex } from "#compiler/lower/shapes/share/statements.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { asc, plainRegion, Q, T, Task } from "#test/unit/lower/conservative/fixtures.ts"
-import { outerCol } from "#test/unit/lower/rewrite/support.ts"
+import { asc, plainRegion, Q, T, Task } from "#test/support/unit/lower/conservative/fixtures.ts"
+import { outerCol } from "#test/support/unit/lower/rewrite/support.ts"
 
 /** A program's statements, each reading the one shared `pick` or a copy of its own, and each bounding its own reads. */
 export interface Sketch {

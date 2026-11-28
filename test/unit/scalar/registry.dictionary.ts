@@ -3,12 +3,12 @@ import { dictionary } from "@bjornpagen/testing/dictionary"
 import { Array as Arr, Record as Rec } from "effect"
 import { carriers, type ScalarType } from "#compiler/ir/scalar.ts"
 import { isPlainCarrier, plainType, wildcardText } from "#test/support/fixtures/ir/scalar.ts"
-import { codecTypes } from "#test/unit/codec/support.ts"
-import { scalarTypes as irFixtureTypes } from "#test/unit/ir/fixture.ts"
+import { codecTypes } from "#test/support/unit/codec/support.ts"
+import { scalarTypes as irFixtureTypes } from "#test/support/unit/ir/fixture.ts"
 import {
 	E as conservativeEndpoints,
 	T as conservativeTypes
-} from "#test/unit/lower/conservative/fixtures.ts"
+} from "#test/support/unit/lower/conservative/fixtures.ts"
 
 /**
  * The ScalarTypes the test fixture modules export (the IR fixture's, the conservative lowering's and the codec's), every

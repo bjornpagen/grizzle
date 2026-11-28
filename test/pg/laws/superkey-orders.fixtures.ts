@@ -3,7 +3,6 @@
 import { assert } from "@bjornpagen/testing/assert"
 import { array, boolean, element, type Gen, int, shuffled, subset } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, Order } from "effect"
-import { type Catalogued, seatOf } from "#test/pg/fin/installed.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
 import {
 	contained,
@@ -17,6 +16,7 @@ import {
 	relation,
 	type SchemaDesc
 } from "#test/support/fixtures/ir/desc.ts"
+import { type Catalogued, seatOf } from "#test/support/pg/fin/installed.ts"
 import { attempt } from "#test/support/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
 
@@ -53,7 +53,7 @@ const columnsOf = (r: Reference): Arr.NonEmptyReadonlyArray<Column> =>
  * The columns of T a fixed target's own UNIQUE holds, a side over its selection (README "Sides"): its guarded term, the
  * one over T's earliest field, its primary key `k` first and every other field after it in declared order
  * (columnsInOrder), generated under its selection, as the seat names a column generated from a field
- * (test/pg/fin/installed.ts), and each other term its field's own column. One guarded column holds the side apart:
+ * (test/support/pg/fin/installed.ts), and each other term its field's own column. One guarded column holds the side apart:
  * UNIQUE NULLS DISTINCT and MATCH SIMPLE pass over a row whose guarded column is NULL, a row outside the selection.
  */
 const ownColumnsOf = (r: Extract<Reference, { readonly kind: "fixed" }>): ReadonlyArray<string> => {

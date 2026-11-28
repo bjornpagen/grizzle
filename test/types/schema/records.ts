@@ -12,7 +12,7 @@ import {
 } from "#test/support/agreement/records.ts"
 import { Shelves } from "#test/support/fixtures/records/shelves.ts"
 import { identifiers, preludeAt, preludeFrom, preludeModule } from "#test/support/prelude.ts"
-import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/batch/batch.ts"
+import { batchOwned, caseOwned, type Entry, type Program } from "#test/support/types/batch/batch.ts"
 
 /**
  * The records program: for each drawn query over Shelves (test/support/agreement/records.ts), its attachments' paths as

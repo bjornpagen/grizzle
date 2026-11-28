@@ -28,13 +28,13 @@ import {
 	CarrierSupply,
 	type WriteCarrier
 } from "#compiler/write/carriers/carriers.ts"
-import { type SqlNames, textRows, wireSql } from "#test/pg/codec/support.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { productionNames } from "#test/support/kernel/naming.ts"
+import { type SqlNames, textRows, wireSql } from "#test/support/pg/codec/support.ts"
 import type { CaseSession } from "#test/support/substrate/session.ts"
-import { kindCodes } from "#test/unit/codec/support.ts"
-import { decoded, written } from "#test/unit/codec/wild.fixtures.ts"
-import { decimalGen } from "#test/unit/values/support.ts"
+import { kindCodes } from "#test/support/unit/codec/support.ts"
+import { decoded, written } from "#test/support/unit/codec/wild.fixtures.ts"
+import { decimalGen } from "#test/support/unit/values/support.ts"
 
 /** A carried type: a scalar type a carrier column holds a value of, and its values. */
 interface Carried {
@@ -127,7 +127,7 @@ const anyNumericValue: Gen<Decimal> = oneOf([
 ])
 
 /**
- * The values of each carrier past the codec catalogue's (test/unit/codec/wild.fixtures.ts written): the edges of a
+ * The values of each carrier past the codec catalogue's (test/support/unit/codec/wild.fixtures.ts written): the edges of a
  * float's text, numeric of no typmod, and text of any characters.
  */
 const edges: Readonly<Partial<Record<Carrier, ReadonlyArray<Carried>>>> = {
@@ -144,7 +144,7 @@ const edges: Readonly<Partial<Record<Carrier, ReadonlyArray<Carried>>>> = {
 	text: [{ label: "text of any characters", type: decodedType("text"), values: anyText }]
 }
 
-/** A descriptor of the codec catalogue's form decoded, with its values (test/unit/codec/wild.fixtures.ts decoded). */
+/** A descriptor of the codec catalogue's form decoded, with its values (test/support/unit/codec/wild.fixtures.ts decoded). */
 function decodedCarried(w: Parameters<typeof decoded>[0]): Carried {
 	const d = decoded(w)
 	return { label: d.label, type: d.type, values: d.live }

@@ -21,7 +21,7 @@ import { noDeclarations } from "#compiler/deploy/diff/plan.ts"
 import { draftMigration } from "#compiler/deploy/render/generate.ts"
 import { emptySnapshot, noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { installationOf, wholeCaseGen } from "#test/unit/deploy/whole-tables.fixtures.ts"
+import { installationOf, wholeCaseGen } from "#test/support/unit/deploy/whole-tables.fixtures.ts"
 
 /** Every object reachable from `root`: its own properties' values, a list's elements, a map's entries, a set's members. */
 const reachable = (root: unknown): ReadonlySet<object> => {

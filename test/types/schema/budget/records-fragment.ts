@@ -3,7 +3,7 @@ import { assert, defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Effect } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { type PreludeAt, preludeProgram } from "#test/support/prelude.ts"
-import { assertClean, type Measuring, measuredEach } from "#test/types/batch/measured.ts"
+import { assertClean, type Measuring, measuredEach } from "#test/support/types/batch/measured.ts"
 
 /**
  * The records-fragment programs (records-fragment.test.ts): over a schema of thirteen relations, `units` times, a
@@ -136,7 +136,7 @@ const step = 10
  * @owner the records' type cost gates (test/types/schema/budget/records-fragment.ts)
  * @unit instantiations a unit adds
  * @scope one unit of the shape (a query, its records and the fragment holding them and their laws), checked by one checker against the engine's and the shell's declarations, as
- *   test/types/batch/measured.ts checks a program
+ *   test/support/types/batch/measured.ts checks a program
  * @evidence ~/.cache/grizzle-release/recnames-tools/ts2589 (a mirror of pantry's documentScanOf and metis's fragment
  *   of its records beside a retirable body, checked as measured.ts checks a program: tsgo --checkers 1
  *   --extendedDiagnostics, before and after; --generateTrace, the relation types several copies of one child and the

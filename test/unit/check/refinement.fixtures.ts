@@ -30,7 +30,15 @@ import {
 import { Id } from "#test/support/ids.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import { checking } from "#test/support/policy.ts"
-import { lit, match, ref, relationSource, rule, typedLit, vars } from "#test/unit/check/dsl.ts"
+import {
+	lit,
+	match,
+	ref,
+	relationSource,
+	rule,
+	typedLit,
+	vars
+} from "#test/support/unit/check/dsl.ts"
 
 const Slug = str.regex("^[a-z][a-z0-9-]*$")
 

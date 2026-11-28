@@ -30,8 +30,8 @@ import { compileWrite } from "#compiler/write/program/compile.ts"
 import { flightOf, servableWrite } from "#compiler/write/program/served.ts"
 import { refused, succeeded } from "#test/support/assert.ts"
 import { checking } from "#test/support/policy.ts"
+import { descOf, parsedOf } from "#test/support/unit/write/changeset/fixtures.ts"
 import { withinMessage } from "#test/support/worlds/execute/offline.ts"
-import { descOf, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
 import {
 	additionsGen,
 	additionsOf,

@@ -2,8 +2,8 @@
 import { array, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { pipe, String as Str } from "effect"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
-import { evaluatorTemplate } from "#test/pg/compute/support.ts"
-import { testContract, testPg } from "#test/unit/compute/support.ts"
+import { evaluatorTemplate } from "#test/support/pg/compute/support.ts"
+import { testContract, testPg } from "#test/support/unit/compute/support.ts"
 
 /**
  * The rounding property's search: the rotating 2 batches of literals and the floor's 1, about the generated sample each

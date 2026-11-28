@@ -43,8 +43,6 @@ import type { AnySchema } from "#compiler/public/schema.ts"
 import { lex, type Token } from "#compiler/sql/lexer.ts"
 import type { AnyLogin, AnyRole } from "#compiler/types/schema/world.ts"
 import { defineConfig } from "#index.ts"
-import { offlineOwner } from "#test/pg/cli/support.ts"
-import { installationAbstraction, sameCatalog } from "#test/pg/migrate/support.ts"
 import {
 	type AmbientOwner,
 	type AmbientSession,
@@ -76,6 +74,8 @@ import {
 } from "#test/support/oracle/install/real.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import { type SqlError, wireSession } from "#test/support/pg.ts"
+import { offlineOwner } from "#test/support/pg/cli/support.ts"
+import { installationAbstraction, sameCatalog } from "#test/support/pg/migrate/support.ts"
 import { schemaDescIn } from "#test/support/policy.ts"
 import type { BudgetedCluster } from "#test/support/substrate/budget.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
@@ -123,7 +123,7 @@ import { templateNeedBudget } from "#test/support/budgets.ts"
  *    certified from its statements when the migration runs the script's statements and otherwise only statements that
  *    leave no object, its privileges in the script's order (runsInstallScript); one it cannot certify is compared in
  *    full: the script runs under another allocated name and the two catalogs, function bodies, trigger events and view
- *    queries included, must be equal (test/pg/migrate/support.ts sameCatalog).
+ *    queries included, must be equal (test/support/pg/migrate/support.ts sameCatalog).
  * 5. The snapshot. The generated snapshot, of the schema rebuilt under the allocated name, stands for the committed
  *    `migrations/<schema>/snapshot.json` the application knows: a layer is given its JSON value (snapshot-json.ts
  *    snapshotValue), as an application's import of the file, and a Db opened on it, of a schema value of that name or

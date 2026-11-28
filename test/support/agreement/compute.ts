@@ -47,7 +47,7 @@ import {
 	caseOwned,
 	type Entry as ProgramEntry,
 	type Program
-} from "#test/types/batch/batch.ts"
+} from "#test/support/types/batch/batch.ts"
 
 /**
  * The scalar population: terms, predicates, aggregates and host values drawn over one relation of every carrier

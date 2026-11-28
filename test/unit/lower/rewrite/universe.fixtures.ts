@@ -29,7 +29,7 @@ import {
 	plansUpTo,
 	printPlan,
 	type PlanStep
-} from "#test/unit/analysis/small/plans.ts"
+} from "#test/support/unit/analysis/small/plans.ts"
 import {
 	contextsOf,
 	databases,
@@ -38,8 +38,8 @@ import {
 	parameterValues,
 	seen,
 	type Variant
-} from "#test/unit/analysis/small/universe.ts"
-import { sameDelivery } from "#test/unit/lower/rewrite/support.ts"
+} from "#test/support/unit/analysis/small/universe.ts"
+import { sameDelivery } from "#test/support/unit/lower/rewrite/support.ts"
 
 /**
  * What a plan of the universe reaches: its operators, the rules the pipeline fired, the context it ran in, and the

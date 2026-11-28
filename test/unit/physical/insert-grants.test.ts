@@ -78,7 +78,7 @@ import {
 	type InsertWorld,
 	worldSpace,
 	written
-} from "#test/unit/physical/insert-grants.fixtures.ts"
+} from "#test/support/unit/physical/insert-grants.fixtures.ts"
 
 /** Roles that write each relation under its list: the declaration, its grants relation by relation, roles stated as their controls and the refusal of programs beyond the grants. */
 export const rolesThatWriteEachRelationUnderItsListTheDeclarationItsGrantsAndTheRefusalOfProgramsBeyondThem =

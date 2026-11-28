@@ -32,7 +32,7 @@ import {
 	relationSource,
 	rule,
 	sum
-} from "#test/unit/check/dsl.ts"
+} from "#test/support/unit/check/dsl.ts"
 
 /**
  * A fold reads each fact its rule matches once, by a key (ir/rel.ts FoldInput, check/checker.ts foldInput), one rule

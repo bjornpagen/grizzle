@@ -11,9 +11,9 @@ import { pg } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { queryOver, type QueryValue, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
+import { heading } from "#test/support/unit/ir/fixture.ts"
+import { asc, Q, T, Task } from "#test/support/unit/lower/conservative/fixtures.ts"
 import { upTo } from "#test/support/up-to.ts"
-import { heading } from "#test/unit/ir/fixture.ts"
-import { asc, Q, T, Task } from "#test/unit/lower/conservative/fixtures.ts"
 
 /**
  * The work queue's shape in miniature: `first` bounds a projection of one account's tasks to its first id, `pick` is a

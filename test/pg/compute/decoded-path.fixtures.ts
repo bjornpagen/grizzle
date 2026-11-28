@@ -13,8 +13,8 @@ import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { regexField } from "#compiler/text/field.ts"
-import { fixtureTemplate } from "#test/pg/reads/support.ts"
 import { decodedPathOf } from "#test/support/oracle/reference/evaluate.ts"
+import { fixtureTemplate } from "#test/support/pg/reads/support.ts"
 
 /** A text within 256 bytes: what every written path is, and what its decoded path is cast into. */
 const Written = str.bytes(256, regexField<string>("^.*$", ["su"]))

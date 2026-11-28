@@ -13,7 +13,7 @@ import { canonicalFacts } from "#test/support/oracle/gen/facts.ts"
 import { definedOpOf } from "#test/support/oracle/gen/ops.ts"
 import { type GenRelation, type GenSchema, schemaName } from "#test/support/oracle/gen/schema.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
-import { present } from "#test/unit/lower/support.ts"
+import { present } from "#test/support/unit/lower/support.ts"
 
 /**
  * Unrefined text: no pattern, so no byte bound, which is what makes a column wide payload (late-fetch widePayload).

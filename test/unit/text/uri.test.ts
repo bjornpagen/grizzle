@@ -25,7 +25,7 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import { climbsOf, resolvedReference } from "#test/support/oracle/evaluate/uri.ts"
-import { referenceCaseGen, type UriFeature } from "#test/unit/text/uri.fixtures.ts"
+import { referenceCaseGen, type UriFeature } from "#test/support/unit/text/uri.fixtures.ts"
 
 /** resolveReference gives every drawn reference's target against every drawn base as RFC 3986 §5.2 defines it. */
 export const resolveReferenceGivesEveryDrawnReferencesTargetAsRFC3986Defines = property.explore(

@@ -5,14 +5,14 @@ import type { Case } from "@bjornpagen/testing/property"
 import { Data, Effect, Formatter } from "effect"
 import { connectListener, connectSession, type Session } from "#adapter/wire/session.ts"
 import { servedSession } from "#compiler/plan/common.ts"
+import { clusterConnection, parsedConnection } from "#test/support/pg.ts"
 import {
 	defaultPool,
 	poolFor,
 	roleDefaults,
 	rowsOn,
 	substrateLogin
-} from "#test/pg/adapter/support.ts"
-import { clusterConnection, parsedConnection } from "#test/support/pg.ts"
+} from "#test/support/pg/adapter/support.ts"
 import { freshSchema, Substrate } from "#test/support/substrate/substrate.ts"
 
 /** Whose session a case opens: a login's, leased from a Db's pool; an owner's; or an owner's listening one. */

@@ -5,7 +5,7 @@ import { Array as Arr, Order, Record as Rec } from "effect"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
-import { fixtureTemplate } from "#test/pg/reads/support.ts"
+import { fixtureTemplate } from "#test/support/pg/reads/support.ts"
 
 /** An item, with its kind: the rows each chain attaches to. */
 const Item = relation("Item", { id: pg.integer, kind: pg.integer }, ["id"])

@@ -30,8 +30,6 @@ import { assert, deepEquals, defined } from "@bjornpagen/testing/assert"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
 import { explain, explainServerStatement, type PlanMode } from "#bench/harness/explain.ts"
-import { constraintOf as familyConstraintOf, familySeatIn } from "#test/pg/fin/family.ts"
-import { type Catalogued, sameRoles, seatIn } from "#test/pg/fin/installed.ts"
 import {
 	byDepth,
 	load,
@@ -48,6 +46,8 @@ import {
 } from "#test/pg/fin/plans.fixtures.ts"
 import { nativesOf, RELATIONS } from "#test/pg/fin/tree.ts"
 import { descendantsOf } from "#test/support/families/tree.ts"
+import { constraintOf as familyConstraintOf, familySeatIn } from "#test/support/pg/fin/family.ts"
+import { type Catalogued, sameRoles, seatIn } from "#test/support/pg/fin/installed.ts"
 import { pickFrom } from "#test/support/pick.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"

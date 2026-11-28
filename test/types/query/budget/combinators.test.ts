@@ -12,9 +12,9 @@
  * the interface's schema walks it at every call, every relation of it and each relation's field record, so its queries
  * cost more over the larger schema; one that reads its schema off the phantom it is called on (types/query/query.ts
  * OverSchema) costs what it does over any schema. And every program typechecks with no diagnostic. Oracle: the
- * compiler's own counts and diagnostics (test/types/batch/measured.ts), compared across the two schemas.
+ * compiler's own counts and diagnostics (test/support/types/batch/measured.ts), compared across the two schemas.
  */
-import { costGate } from "#test/types/batch/measured.ts"
+import { costGate } from "#test/support/types/batch/measured.ts"
 import { combinatorKinds } from "#test/types/query/budget/combinators.dictionary.ts"
 import { combinatorCost, combinatorName } from "#test/types/query/budget/combinators.ts"
 

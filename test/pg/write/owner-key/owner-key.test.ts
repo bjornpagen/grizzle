@@ -4,7 +4,6 @@ import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import type { KeyHost } from "#compiler/types/changeset/changeset.ts"
-import { openedIn } from "#test/pg/reads/support.ts"
 import {
 	expected,
 	CountedMember,
@@ -23,6 +22,7 @@ import {
 } from "#test/pg/write/owner-key/owner-key.fixtures.ts"
 import { writeAnswerOf } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
+import { openedIn } from "#test/support/pg/reads/support.ts"
 import { refusedLaws } from "#test/support/refused.ts"
 import { tableState } from "#test/support/substrate/state.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"

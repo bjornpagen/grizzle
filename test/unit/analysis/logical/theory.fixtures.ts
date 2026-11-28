@@ -47,14 +47,19 @@ import {
 	schemaDesc,
 	schemaSketchGen
 } from "#test/support/oracle/gen/schema.ts"
+import { type HostFacts, uuidOf } from "#test/support/unit/analysis/theory/support.ts"
+import {
+	declaredGen,
+	type DeclaredSketch,
+	numericGen,
+	textGen
+} from "#test/support/unit/ir/types.ts"
 import {
 	type EvidencedTestTheory,
 	noImmediate,
 	theoryUnder,
 	violated
 } from "#test/unit/analysis/logical/support.ts"
-import { type HostFacts, uuidOf } from "#test/unit/analysis/theory/support.ts"
-import { declaredGen, type DeclaredSketch, numericGen, textGen } from "#test/unit/ir/types.ts"
 
 const lawsOf = (t: Theory, shape: string) => Arr.filter(t.laws, (l) => l.shape === shape)
 

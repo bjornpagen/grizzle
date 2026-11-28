@@ -73,7 +73,6 @@ import {
 	preludeFrom,
 	preludeModule
 } from "#test/support/prelude.ts"
-import { upTo } from "#test/support/up-to.ts"
 import {
 	batchOwned,
 	caseOwned,
@@ -81,7 +80,8 @@ import {
 	type Program,
 	type Entry as ProgramEntry,
 	type ProgramModule
-} from "#test/types/batch/batch.ts"
+} from "#test/support/types/batch/batch.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 /**
  * The type/engine agreement: queries drawn over the agreement schema (./schema.ts), each with the engine's verdict on

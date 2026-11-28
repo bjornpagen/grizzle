@@ -16,7 +16,7 @@ import { DagTemplates } from "#compiler/ir/dag-digest.ts"
 import { conservativeMeta } from "#compiler/ir/rel.ts"
 import { shareKey } from "#compiler/lower/shapes/share/index.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { Q, Task } from "#test/unit/lower/conservative/fixtures.ts"
+import { Q, Task } from "#test/support/unit/lower/conservative/fixtures.ts"
 import { params, tasksOf } from "#test/unit/lower/shapes/share.fixtures.ts"
 
 /** The share key is equal for two copies at any allocation exactly when they read the same parameter. */

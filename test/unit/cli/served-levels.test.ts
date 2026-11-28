@@ -26,11 +26,11 @@ import { emptySnapshot, writeRuntimeSnapshot } from "#compiler/deploy/snapshot/b
 import { workload } from "#compiler/program/workload/value.ts"
 import { login } from "#compiler/public/schema.ts"
 import { defineConfig } from "#index.ts"
-import { offlineOwner } from "#test/pg/cli/support.ts"
 import { Reports, Work } from "#test/support/agreement/changeset-schema.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { joined, jsonOf } from "#test/support/chunked.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
+import { offlineOwner } from "#test/support/pg/cli/support.ts"
 import {
 	caseGen,
 	counts,

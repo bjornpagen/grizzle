@@ -3,7 +3,7 @@ import { assert, defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Effect } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { type PreludeAt, preludeProgram } from "#test/support/prelude.ts"
-import { assertClean, type Measuring, measuredEach } from "#test/types/batch/measured.ts"
+import { assertClean, type Measuring, measuredEach } from "#test/support/types/batch/measured.ts"
 
 /**
  * The keyed-rule programs (keys.test.ts): one-rule queries whose evidence reads the keys of what they match
@@ -71,7 +71,7 @@ const step = 10
  * @owner the query facade's type cost gates (test/types/query/budget/keys.ts)
  * @unit instantiations a query adds
  * @scope one query of the shape, checked by one checker against the engine's and the shell's declarations, as
- *   test/types/batch/measured.ts checks a program
+ *   test/support/types/batch/measured.ts checks a program
  * @evidence ~/.cache/grizzle-release/PERF-TYPES-tools/hk (prof.sh, led.sh: the rule's instantiations by alias with an
  *   instrumented TypeScript 5.9, ts5/prof.cjs, over micro programs and W1's grading rule) and keys.test.ts run with
  *   each bound at 0, whose assertion states what a query of each shape adds (PERF-TYPES-tools/keys-*.log,

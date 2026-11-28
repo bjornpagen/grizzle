@@ -5,34 +5,6 @@ import { weighted, type Steered } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Record } from "effect"
 import {
-	carryChain,
-	catalogRenamedDrawGen,
-	directVersion,
-	holdsCatalogName,
-	type IntentSketch,
-	type LegalIntentKind,
-	legalIntents,
-	legalIntentSketchGen,
-	planOf,
-	type RenamedDraw,
-	renamedDrawGen,
-	type RenamedPath,
-	statedRenamedDrawGen,
-	type Version
-} from "#test/pg/migrate-gen/support.ts"
-import {
-	apply,
-	carried,
-	directory,
-	drafted,
-	factSetOf,
-	noFurther,
-	openMigrator,
-	sameCatalog,
-	storedRowsOf,
-	type Traced
-} from "#test/pg/migrate/support.ts"
-import {
 	type AmbientFeature,
 	ambientFeatures,
 	ambientOwner,
@@ -47,6 +19,34 @@ import type { ValueFacts } from "#test/support/oracle/gen/facts.ts"
 import { factStatements } from "#test/support/oracle/install/load.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import { PropertyFailed } from "#test/support/oracle/runner.ts"
+import {
+	carryChain,
+	catalogRenamedDrawGen,
+	directVersion,
+	holdsCatalogName,
+	type IntentSketch,
+	type LegalIntentKind,
+	legalIntents,
+	legalIntentSketchGen,
+	planOf,
+	type RenamedDraw,
+	renamedDrawGen,
+	type RenamedPath,
+	statedRenamedDrawGen,
+	type Version
+} from "#test/support/pg/migrate-gen/support.ts"
+import {
+	apply,
+	carried,
+	directory,
+	drafted,
+	factSetOf,
+	noFurther,
+	openMigrator,
+	sameCatalog,
+	storedRowsOf,
+	type Traced
+} from "#test/support/pg/migrate/support.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 const featureNames = [

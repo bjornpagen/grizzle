@@ -52,7 +52,6 @@ import { reportedOwner } from "#adapter/witness/keylaw.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { lawsOfConstraint } from "#compiler/ir/products.ts"
 import { constraintLawMap } from "#compiler/laws/model/model.ts"
-import { parsedTarget, statementRows, type TextTarget } from "#test/pg/migrate/support.ts"
 import {
 	Assignment,
 	assignmentColumns,
@@ -92,6 +91,7 @@ import {
 } from "#test/schedules/migrate/validate.fixtures.ts"
 import { chunked, joined } from "#test/support/chunked.ts"
 import { lawIdOf, lawNamesOf } from "#test/support/kernel/naming.ts"
+import { parsedTarget, statementRows, type TextTarget } from "#test/support/pg/migrate/support.ts"
 import { type GrizzleActor, openActors } from "#test/support/schedules/actors.ts"
 import {
 	allowed,

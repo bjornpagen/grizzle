@@ -26,7 +26,6 @@ import { quoteIdent } from "#compiler/core/text.ts"
 import type { CallError, CallErrorOf } from "#compiler/live/index.ts"
 import type { WriteOutcome } from "#compiler/live/program.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
-import { openedIn } from "#test/pg/reads/support.ts"
 import {
 	contractOf,
 	Drawn,
@@ -51,6 +50,7 @@ import {
 	toWide
 } from "#test/pg/write/drawn-types/drawn-types.fixtures.ts"
 import { writeAnswerOf, type WriteAnswer } from "#test/support/calls.ts"
+import { openedIn } from "#test/support/pg/reads/support.ts"
 import { refusedEntries } from "#test/support/refused.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"

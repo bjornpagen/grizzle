@@ -34,8 +34,6 @@ import { runProgram } from "@bjornpagen/testing/commands"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect, Formatter, Option, Result } from "effect"
-import { Disagreed, familySeatIn, judgedFamily } from "#test/pg/fin/family.ts"
-import { endGen, endedBy, refusedAtCommitBy } from "#test/pg/fin/installed.ts"
 import {
 	lemmaFamilies,
 	lemmaOracle,
@@ -50,7 +48,6 @@ import {
 	storedOfSketch,
 	writeStatements
 } from "#test/pg/fin/lemmas.fixtures.ts"
-import { emptyStored } from "#test/pg/substrate/fin.ts"
 import {
 	type Form,
 	type Judges,
@@ -62,6 +59,9 @@ import {
 } from "#test/support/families/mutate.ts"
 import { type Families, storedOf, theorem } from "#test/support/families/theorem.ts"
 import { type SqlError } from "#test/support/pg.ts"
+import { Disagreed, familySeatIn, judgedFamily } from "#test/support/pg/fin/family.ts"
+import { endGen, endedBy, refusedAtCommitBy } from "#test/support/pg/fin/installed.ts"
+import { emptyStored } from "#test/support/pg/substrate/fin.ts"
 import { type TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 

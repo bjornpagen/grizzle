@@ -97,10 +97,10 @@ import {
 	respelled,
 	smallStackRecursion,
 	spellingOf
-} from "#test/unit/ir/dag.fixtures.ts"
-import { everyKind, fail, heading, scalarTypes } from "#test/unit/ir/fixture.ts"
-import { generatedDags } from "#test/unit/ir/population.ts"
-import { Q, Task } from "#test/unit/lower/conservative/fixtures.ts"
+} from "#test/support/unit/ir/dag.fixtures.ts"
+import { everyKind, fail, heading, scalarTypes } from "#test/support/unit/ir/fixture.ts"
+import { generatedDags } from "#test/support/unit/ir/population.ts"
+import { Q, Task } from "#test/support/unit/lower/conservative/fixtures.ts"
 
 /**
  * Traversals of generated DAGs order every reachable node after its inputs, and close expressions over their

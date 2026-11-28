@@ -3,7 +3,7 @@ import { Array as Arr, Effect, Option, Order, String as Str } from "effect"
 import type { Refused } from "#compiler/core/refusals.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { preludeAt, preludeFrom, preludeModule } from "#test/support/prelude.ts"
-import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/batch/batch.ts"
+import { batchOwned, caseOwned, type Entry, type Program } from "#test/support/types/batch/batch.ts"
 
 /**
  * The untyped-member program: the box of every builder that captures a list or a record as a type (schema,

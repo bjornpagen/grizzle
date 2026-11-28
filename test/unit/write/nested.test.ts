@@ -38,7 +38,7 @@ import { flightOf, servableWrite } from "#compiler/write/program/served.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { nestedRowsColumn } from "#test/support/compile.ts"
 import { callCounts } from "#test/support/kernel/calls.ts"
-import { parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
+import { parsedOf, uuidOf } from "#test/support/unit/write/changeset/fixtures.ts"
 import {
 	caseGen,
 	chainOf,

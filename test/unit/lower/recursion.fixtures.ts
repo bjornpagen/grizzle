@@ -29,7 +29,7 @@ import { ownedSchemaFixture } from "#test/support/evidence.ts"
 import { Id } from "#test/support/ids.ts"
 import { localVectorSchema, productionNames } from "#test/support/kernel/naming.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
-import { present } from "#test/unit/lower/support.ts"
+import { present } from "#test/support/unit/lower/support.ts"
 
 const Vertex = relation("Vertex", { id: Id, rank: pg.smallint }, ["id"])
 

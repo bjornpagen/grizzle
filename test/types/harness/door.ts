@@ -4,8 +4,8 @@ import type { Source } from "@bjornpagen/testing/source"
 import { Array as Arr, Effect } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { preludeAt, preludeFrom, preludeModule } from "#test/support/prelude.ts"
+import { caseOwned, type Entry, type Program } from "#test/support/types/batch/batch.ts"
 import { upTo } from "#test/support/up-to.ts"
-import { caseOwned, type Entry, type Program } from "#test/types/batch/batch.ts"
 
 /**
  * The assertion door's contract (test/support/assert.ts): assert.equal and assert.deepEqual take their expected value

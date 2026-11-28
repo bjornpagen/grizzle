@@ -26,6 +26,13 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { refused } from "#test/support/assert.ts"
 import {
+	type HostFacts,
+	lawOfShape,
+	theoryResult,
+	uuidOf,
+	violates
+} from "#test/support/unit/analysis/theory/support.ts"
+import {
 	type ConcatFault,
 	concatFault,
 	concatSchema,
@@ -34,13 +41,6 @@ import {
 	type Verdict,
 	visible
 } from "#test/unit/analysis/theory/concat.fixtures.ts"
-import {
-	type HostFacts,
-	lawOfShape,
-	theoryResult,
-	uuidOf,
-	violates
-} from "#test/unit/analysis/theory/support.ts"
 
 /** A concat fold is violated exactly when its accumulators are not the naive fold's. */
 export const aConcatFoldIsViolatedExactlyWhenItsAccumulatorsAreNotTheNaiveFolds = property.exhaust(

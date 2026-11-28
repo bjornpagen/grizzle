@@ -15,9 +15,9 @@
  * which reads the record once, so a record whose first lookup walks the base costs more over the larger one, as
  * edullm's pantry's LOM level's first law over a relation of the levels below it did. Every derived relation and every measured law is passed to a generic call in every program, which resolves its
  * members, a cost of using it anywhere (extension.ts). And every program typechecks with no diagnostic. Oracle: the
- * compiler's own counts and diagnostics (test/types/batch/measured.ts), compared across the two bases.
+ * compiler's own counts and diagnostics (test/support/types/batch/measured.ts), compared across the two bases.
  */
-import { costGate } from "#test/types/batch/measured.ts"
+import { costGate } from "#test/support/types/batch/measured.ts"
 import { extensionDimensions } from "#test/types/schema/budget/extension.dictionary.ts"
 import { extensionCost, extensionDimensionName } from "#test/types/schema/budget/extension.ts"
 

@@ -70,8 +70,8 @@ import {
 	schemaSketchGen
 } from "#test/support/oracle/gen/schema.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
-import { fail } from "#test/unit/ir/fixture.ts"
-import { declaredGen } from "#test/unit/ir/types.ts"
+import { fail } from "#test/support/unit/ir/fixture.ts"
+import { declaredGen } from "#test/support/unit/ir/types.ts"
 
 /** A decimal of its canonical text. */
 const dec = (text: string) => defined(DecimalText.parse(text))

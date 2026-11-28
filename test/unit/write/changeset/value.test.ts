@@ -48,7 +48,7 @@ import { queryOver as query, varsOver as v } from "#compiler/query/build/query.t
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { schemaInputOf } from "#test/support/compile.ts"
-import { parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
+import { parsedOf, uuidOf } from "#test/support/unit/write/changeset/fixtures.ts"
 import {
 	algebraOf,
 	type AlgebraFeature,

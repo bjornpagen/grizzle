@@ -23,8 +23,8 @@ import {
 	type FactTexts,
 	identityOrder
 } from "#test/support/oracle/delta.ts"
+import { codesOf, compiled, cs } from "#test/support/unit/write/changeset/fixtures.ts"
 import { upTo } from "#test/support/up-to.ts"
-import { codesOf, compiled, cs } from "#test/unit/write/changeset/fixtures.ts"
 
 /** The fact of a model id. */
 const fact = (id: string): Fact => ({ id })

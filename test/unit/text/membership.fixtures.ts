@@ -19,7 +19,6 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import { analyzeText, type TextRefinement } from "#compiler/text/refinement.ts"
 import { pickGen } from "#test/support/pick.ts"
 import { jsMatcher } from "#test/support/regex.ts"
-import { patternNfa, searchOf } from "#test/unit/text/emptiness.fixtures.ts"
 import {
 	families,
 	finiteLanguageOver,
@@ -31,7 +30,8 @@ import {
 	stringsOver,
 	walkGen,
 	walkTape
-} from "#test/unit/text/generators.ts"
+} from "#test/support/unit/text/generators.ts"
+import { patternNfa, searchOf } from "#test/unit/text/emptiness.fixtures.ts"
 
 export const testLoc = SourceLoc("str.regex", ["test"])
 

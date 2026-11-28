@@ -61,15 +61,15 @@ import {
 	refusingAlongside,
 	refusingTransaction
 } from "#test/pg/migrate/lock-table.fixtures.ts"
-import { kept, parsedTarget, reviewedSource } from "#test/pg/migrate/support.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { firstCodes } from "#test/support/compile.ts"
 import { sentSql } from "#test/support/flight/scripted.ts"
 import { atName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { draftChain, fromEmpty, noDeclarations } from "#test/support/migrate/kit.ts"
+import { kept, parsedTarget, reviewedSource } from "#test/support/pg/migrate/support.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
+import { shopV1, shopV2 } from "#test/support/unit/deploy/schemas.ts"
 import { tappedSession } from "#test/support/wire-tap.ts"
-import { shopV1, shopV2 } from "#test/unit/deploy/schemas.ts"
 
 /** A migration that runs out of the server's lock table is refused by name at its place, with the server's report and lock-table settings, and commits nothing. */
 export const lockTable = property.explore(aimed(caseGen, [["the ledger's lock", ledgerLockGen]]), {

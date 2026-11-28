@@ -49,16 +49,16 @@ import { steered } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import {
-	legalIntents,
-	resolveLegalIntents,
-	resolveRenamedDraw
-} from "#test/pg/migrate-gen/support.ts"
-import {
 	type Feature,
 	intentsCaseSteered,
 	pathCase,
 	renamedCaseSteered
 } from "#test/pg/migrate/paths.fixtures.ts"
+import {
+	legalIntents,
+	resolveLegalIntents,
+	resolveRenamedDraw
+} from "#test/support/pg/migrate-gen/support.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** Generated migration paths on PostgreSQL renamed paths: every apply admitted against its snapshot, facts carried, A to C as A to B to C. */

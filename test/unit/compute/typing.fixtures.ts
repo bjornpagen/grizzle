@@ -41,7 +41,7 @@ import {
 	type TestField,
 	testPg,
 	testSpan
-} from "#test/unit/compute/support.ts"
+} from "#test/support/unit/compute/support.ts"
 
 /** The heading's columns, of every carrier the catalogue reads, by name. */
 const fields: Readonly<Record<string, TestField>> = {

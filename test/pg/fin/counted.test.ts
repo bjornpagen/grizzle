@@ -37,6 +37,8 @@ import { Array as Arr, Effect, Formatter, Option, Record as Rec, Result } from "
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { guardBracketTexts } from "#compiler/physical/ddl/immutable.ts"
+import { rewrittenWhole, swapWithLast } from "#test/support/families/counted.ts"
+import { foldApplied, foldStoredOf, grizzleFold } from "#test/support/families/fold.ts"
 import {
 	byMember,
 	Disagreed,
@@ -47,10 +49,8 @@ import {
 	type Judging,
 	nothingAround,
 	sentOver
-} from "#test/pg/fin/folds.ts"
-import { endedBy, endGen, refusedAtCommitBy, seatIn } from "#test/pg/fin/installed.ts"
-import { rewrittenWhole, swapWithLast } from "#test/support/families/counted.ts"
-import { foldApplied, foldStoredOf, grizzleFold } from "#test/support/families/fold.ts"
+} from "#test/support/pg/fin/folds.ts"
+import { endedBy, endGen, refusedAtCommitBy, seatIn } from "#test/support/pg/fin/installed.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 import {

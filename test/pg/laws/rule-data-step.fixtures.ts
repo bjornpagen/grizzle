@@ -10,11 +10,11 @@ import { quoteIdent } from "#compiler/core/text.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { check, derived, mutable, relation, schema, unit } from "#compiler/public/schema.ts"
-import { migrationRefusedLaws } from "#test/pg/migrate/support.ts"
 import { migrated } from "#test/support/installed.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { Placeholder } from "#test/support/migrate/review.ts"
+import { migrationRefusedLaws } from "#test/support/pg/migrate/support.ts"
 
 /** The value the data step gives P's row 1: one Small keeps, under 10, and one it breaks. */
 const values = [5, 99] as const

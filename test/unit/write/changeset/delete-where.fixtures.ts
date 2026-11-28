@@ -33,7 +33,7 @@ import { succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { conservativeWrite } from "#test/support/conservative.ts"
 import { checking } from "#test/support/policy.ts"
-import { descOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
+import { descOf, uuidOf } from "#test/support/unit/write/changeset/fixtures.ts"
 
 /** The relations a key names: Task, its world entry over the role, and every kind of delete besides. */
 const keyNames = [

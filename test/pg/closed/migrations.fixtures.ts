@@ -57,14 +57,6 @@ import { closedBuilder } from "#compiler/schema/relation.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
 import { roleBuilder as role } from "#compiler/schema/world.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
-import {
-	apply,
-	kept,
-	noFurther,
-	openMigrator,
-	reviewedSource,
-	type Reviewer
-} from "#test/pg/migrate/support.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { readCatalog } from "#test/support/catalog/read.ts"
 import { hexOfText, setText, setWidth } from "#test/support/closed/bit-text.ts"
@@ -90,6 +82,14 @@ import { migrated } from "#test/support/installed.ts"
 import { lawIdOf, parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { customDataStep, fromSnapshot, noDeclarations } from "#test/support/migrate/kit.ts"
 import type { SqlError } from "#test/support/pg.ts"
+import {
+	apply,
+	kept,
+	noFurther,
+	openMigrator,
+	reviewedSource,
+	type Reviewer
+} from "#test/support/pg/migrate/support.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"

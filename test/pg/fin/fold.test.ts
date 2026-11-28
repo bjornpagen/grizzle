@@ -38,6 +38,7 @@ import {
 	sketchGen,
 	storedOf
 } from "#test/pg/fin/fold.fixtures.ts"
+import { grizzleFold } from "#test/support/families/fold.ts"
 import {
 	byMember,
 	Disagreed,
@@ -48,9 +49,8 @@ import {
 	type Judging,
 	judgedFold,
 	nothingAround
-} from "#test/pg/fin/folds.ts"
-import { endedBy, endGen, refusedAtCommitBy, seatIn } from "#test/pg/fin/installed.ts"
-import { grizzleFold } from "#test/support/families/fold.ts"
+} from "#test/support/pg/fin/folds.ts"
+import { endedBy, endGen, refusedAtCommitBy, seatIn } from "#test/support/pg/fin/installed.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**

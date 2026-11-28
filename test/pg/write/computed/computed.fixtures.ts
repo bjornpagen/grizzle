@@ -17,7 +17,7 @@ import {
 import { param, query } from "#compiler/public/query.ts"
 import { check, contained, fin, on, ordered, relation, schema } from "#compiler/public/schema.ts"
 import { clocked } from "#compiler/public/workload.ts"
-import { fixtureTemplate } from "#test/pg/reads/support.ts"
+import { fixtureTemplate } from "#test/support/pg/reads/support.ts"
 
 const spanKey = Symbol("Span")
 /** A span of time a call adds to its clock's reading, bounded, so the sum fits a bigint under its guard. */

@@ -11,9 +11,9 @@ import { query, v } from "#compiler/public/query.ts"
 import { contained, on, relation, schema, select } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import type { FlightStatement, FlightWrite } from "#compiler/runtime/write/flight.ts"
-import { fixtureTemplate } from "#test/pg/reads/support.ts"
 import { Id } from "#test/support/ids.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
+import { fixtureTemplate } from "#test/support/pg/reads/support.ts"
 
 /** A sidecar's fields: a header's variable and its value, keyed by the header and the variable. */
 const sidecarFields = Object.freeze({

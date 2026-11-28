@@ -42,9 +42,9 @@ import {
 	refine,
 	showGrowth,
 	truth
-} from "#test/pg/text/differential.fixtures.ts"
+} from "#test/support/pg/text/differential.fixtures.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
-import { nestedPattern } from "#test/unit/text/generators.ts"
+import { nestedPattern } from "#test/support/unit/text/generators.ts"
 
 /** Regex membership: ECMAScript, the host NFA, PostgreSQL ARE and the installed domain agree on batches of randomized strings per family. */
 export const regexMembershipAgreeOnBatchesOfRandomizedStringsPerFamily = family(agreements)

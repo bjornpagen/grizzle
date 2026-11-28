@@ -53,6 +53,11 @@ import { isValueFault } from "#compiler/scalar/values/fault.ts"
 import { admittedClosedId } from "#compiler/schema/relation.ts"
 import { faulted, refused, succeeded, throwsRefused } from "#test/support/assert.ts"
 import { contractDescriptor, spanDescriptor } from "#test/support/fixtures/descriptors.ts"
+import {
+	type DescriptorSketch,
+	descriptorGen,
+	descriptorOf
+} from "#test/support/unit/scalar/support.ts"
 import { fixtureTypes } from "#test/unit/scalar/registry.dictionary.ts"
 import {
 	boundarySpace,
@@ -77,7 +82,6 @@ import {
 	someFault,
 	valueDescriptor
 } from "#test/unit/scalar/registry.fixtures.ts"
-import { type DescriptorSketch, descriptorGen, descriptorOf } from "#test/unit/scalar/support.ts"
 
 /**
  * The capabilities a sketch's type has by the rule the registry states: its carrier's, a contract's its base's, and a

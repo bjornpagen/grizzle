@@ -21,12 +21,12 @@ import {
 	unit
 } from "#compiler/public/schema.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
-import { draftNext, installFirst, serverOf } from "#test/pg/closed/codes.fixtures.ts"
 import type { steps } from "#test/pg/migrate/data-step-recheck.dictionary.ts"
-import { apply, noFurther, openMigrator } from "#test/pg/migrate/support.ts"
 import { chunked, joined } from "#test/support/chunked.ts"
 import { type Version } from "#test/support/install-migrate.ts"
 import { customDataStep, noDeclarations } from "#test/support/migrate/kit.ts"
+import { draftNext, installFirst, serverOf } from "#test/support/pg/closed/codes.fixtures.ts"
+import { apply, noFurther, openMigrator } from "#test/support/pg/migrate/support.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 export type Step = (typeof steps)[number]

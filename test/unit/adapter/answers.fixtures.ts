@@ -37,9 +37,9 @@ import {
 	testCompile
 } from "#test/support/compile.ts"
 import { Id } from "#test/support/ids.ts"
+import { ascendingTasks, compiledPageResult, Paging } from "#test/support/unit/page/fixtures.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { outputText } from "#test/support/wire.ts"
-import { ascendingTasks, compiledPageResult, Paging } from "#test/unit/page/fixtures.ts"
 
 /** A child record of one column, `c`. */
 const child = record({ c: { column: textColumn<string>() } })

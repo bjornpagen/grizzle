@@ -21,7 +21,7 @@ import type { GenSchema } from "#test/support/oracle/gen/schema.ts"
 import { noBindings, Reference, unobserved } from "#test/support/oracle/reference/evaluate.ts"
 import { noFunctions } from "#test/support/oracle/reference/functions.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
-import { descOf } from "#test/unit/write/changeset/fixtures.ts"
+import { descOf } from "#test/support/unit/write/changeset/fixtures.ts"
 
 /**
  * A ledger's sittings as edullm's holds them: each child's sittings of a stage, the ends of some, each item session of a

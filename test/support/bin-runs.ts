@@ -7,7 +7,7 @@
 import { assert, defined } from "@bjornpagen/testing/assert"
 import { array, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, FileSystem, String as Str } from "effect"
-import { binWith, configName, workspace } from "#test/pg/cli/support.ts"
+import { binWith, configName, workspace } from "#test/support/pg/cli/support.ts"
 
 /**
  * The time zones a run's process is in, each its own offset from UTC or its own daylight saving: UTC, the first and the

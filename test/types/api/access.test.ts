@@ -6,7 +6,7 @@
  * verdicts.
  */
 import { accessCases, accessProgram, accessRequired } from "#test/support/agreement/access.ts"
-import { agreement } from "#test/types/batch/agreement.ts"
+import { agreement } from "#test/support/types/batch/agreement.ts"
 
 /**
  * Over drawn logins, Db.open needs a token, DbLayer.make a verify, and a workload over a role its contexts exactly as

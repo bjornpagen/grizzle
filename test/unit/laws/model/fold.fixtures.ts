@@ -31,7 +31,6 @@ import {
 	type SchemaDesc
 } from "#test/support/fixtures/ir/desc.ts"
 import { type ModelValue, modelLiteral } from "#test/support/oracle/evaluate/catalog.ts"
-import { upTo } from "#test/support/up-to.ts"
 import {
 	accepts,
 	assertWellFormed,
@@ -42,7 +41,8 @@ import {
 	foreignKeyShapes,
 	modelOf,
 	type Row
-} from "#test/unit/laws/model/natives.ts"
+} from "#test/support/unit/laws/model/natives.ts"
+import { upTo } from "#test/support/up-to.ts"
 
 type Carrier = "int2" | "int4" | "int8" | "natural" | "numeric" | "money" | "set" | "code"
 

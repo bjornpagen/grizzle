@@ -21,6 +21,12 @@ import { quoteIdent } from "#compiler/core/text.ts"
 import { codebookOf } from "#compiler/deploy/snapshot/build.ts"
 import { type Codebook } from "#compiler/ir/codes.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
+import { succeeded } from "#test/support/assert.ts"
+import { setText, setWidth } from "#test/support/closed/bit-text.ts"
+import { type RosterState, codeAt, sizeOf } from "#test/support/closed/generate.ts"
+import { asDataStep } from "#test/support/data-step.ts"
+import { roleNamesOf } from "#test/support/kernel/naming.ts"
+import { noDeclarations } from "#test/support/migrate/kit.ts"
 import {
 	applyNext,
 	type BitsFeature,
@@ -40,13 +46,7 @@ import {
 	stepped,
 	subsetsOf,
 	wireText
-} from "#test/pg/closed/codes.fixtures.ts"
-import { succeeded } from "#test/support/assert.ts"
-import { setText, setWidth } from "#test/support/closed/bit-text.ts"
-import { type RosterState, codeAt, sizeOf } from "#test/support/closed/generate.ts"
-import { asDataStep } from "#test/support/data-step.ts"
-import { roleNamesOf } from "#test/support/kernel/naming.ts"
-import { noDeclarations } from "#test/support/migrate/kit.ts"
+} from "#test/support/pg/closed/codes.fixtures.ts"
 import { expectConstraint, inTransaction } from "#test/support/substrate/expect.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 import { outputText } from "#test/support/wire.ts"

@@ -3,7 +3,7 @@
 import { Array as Arr } from "effect"
 import { readModes } from "#compiler/analysis/isolation/certify.ts"
 import { canonicalTextOf } from "#compiler/core/canonical.ts"
-import { sharedInput } from "#test/unit/analysis/isolation/certify.fixtures.ts"
+import { sharedInput } from "#test/support/unit/analysis/isolation/certify.fixtures.ts"
 
 /**
  * Whether some read of a query CTE of some member of the case takes one mode at two of its instances: the same read of

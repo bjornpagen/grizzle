@@ -42,13 +42,13 @@ import {
 	roleDescOf
 } from "#compiler/schema/world.ts"
 import type { AnyRole } from "#compiler/types/schema/world.ts"
-import { buildSchema, caseSketchGen } from "#test/pg/derived/oracle/gen.ts"
 import { refused, succeeded, throwsRefused } from "#test/support/assert.ts"
 import { queryFromDesc } from "#test/support/describe.ts"
+import { buildSchema, caseSketchGen } from "#test/support/pg/derived/oracle/gen.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
+import { type DrawnRoster, fieldOf } from "#test/support/unit/schema/field-sketch.ts"
+import { descOf } from "#test/support/unit/schema/support.ts"
 import { upTo } from "#test/support/up-to.ts"
-import { type DrawnRoster, fieldOf } from "#test/unit/schema/field-sketch.ts"
-import { descOf } from "#test/unit/schema/support.ts"
 import {
 	admitted,
 	claimable,

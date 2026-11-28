@@ -4,7 +4,7 @@ import { Bits, Decimal } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import type { HeadOf } from "#compiler/types/query/query.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { Item, Rec, Tier } from "#test/unit/program/records.fixtures.ts"
+import { Item, Rec, Tier } from "#test/support/unit/program/records.fixtures.ts"
 
 /** The query: Item's two refined texts, its set over Tier and its numeric of scale 2, beside a head literal. */
 export const textQuery = query(Rec).rule((r) => {

@@ -2,7 +2,7 @@
  * The rewrite pipeline preserves what every query of the small closed universe delivers, on every database the
  * query's context may see.
  *
- * Every plan of the small-scope grammars (test/unit/analysis/small/plans.ts) up to two operators, under every key and
+ * Every plan of the small-scope grammars (test/support/unit/analysis/small/plans.ts) up to two operators, under every key and
  * containment variant and every execution context it can be read in, is checked as a compilation checks it and run
  * through the optimizer's rewrite pipeline (lower/optimize/pipeline.ts rewritePipeline: demand, semantic
  * simplification, the relational rewrites, the compile-target catalog and graph specialization) under the context's
@@ -23,8 +23,8 @@
  * the three-operator space outgrew refused it before any case ran.
  */
 
-import { coreGrammar, extendedGrammar } from "#test/unit/analysis/small/plans.ts"
-import { variants } from "#test/unit/analysis/small/universe.ts"
+import { coreGrammar, extendedGrammar } from "#test/support/unit/analysis/small/plans.ts"
+import { variants } from "#test/support/unit/analysis/small/universe.ts"
 import { exhaustUpTo, searchDepthThree } from "#test/unit/lower/rewrite/universe.fixtures.ts"
 
 /** The rewrite pipeline over a small closed universe every core query of up to two operators delivers what it delivered before the rewrites. */

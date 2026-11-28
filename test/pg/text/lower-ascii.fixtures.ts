@@ -34,7 +34,6 @@ import { namesOf } from "#test/support/kernel/naming.ts"
 import { refusedLaws } from "#test/support/refused.ts"
 import { servedGenerated } from "#test/support/served-db.ts"
 import type { SubstrateCase, TemplateNeed } from "#test/support/substrate/substrate.ts"
-import { fullWorld } from "#test/support/worlds.ts"
 import {
 	baseParams,
 	type LeafBinding,
@@ -44,7 +43,8 @@ import {
 	spelledExpr,
 	testPg,
 	v
-} from "#test/unit/compute/support.ts"
+} from "#test/support/unit/compute/support.ts"
+import { fullWorld } from "#test/support/worlds.ts"
 
 /** Whether a code point is an ASCII capital, A to Z: the one character ASCII's case fold changes. */
 const isCapital = (c: number): boolean => c >= 0x41 && c <= 0x5a

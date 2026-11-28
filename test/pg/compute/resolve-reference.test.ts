@@ -22,10 +22,10 @@ import {
 	pairsBatch,
 	resolveSql
 } from "#test/pg/compute/resolve-reference.fixtures.ts"
-import { inInstallation, textCell } from "#test/pg/compute/support.ts"
 import { resolvedReference } from "#test/support/oracle/evaluate/uri.ts"
+import { inInstallation, textCell } from "#test/support/pg/compute/support.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
-import type { UriFeature } from "#test/unit/text/uri.fixtures.ts"
+import type { UriFeature } from "#test/support/unit/text/uri.fixtures.ts"
 
 const situations = [
 	"a reference with a scheme",

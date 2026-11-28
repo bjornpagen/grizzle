@@ -9,7 +9,11 @@ import { Db } from "#adapter/public/db.ts"
 import { roleNameOf } from "#adapter/served/served.ts"
 import { identifierOf, identity, maxIdentifierBytes } from "#compiler/core/identity.ts"
 import { defineConfig } from "#index.ts"
-import { shopV1 } from "#test/pg/cli/fixture.ts"
+import { writeAnswerOf, oneOf } from "#test/support/calls.ts"
+import { type IdValue, toId } from "#test/support/ids.ts"
+import { decodersIn, servedSourcedLayer } from "#test/support/live-layer.ts"
+import { clusterConnection, clusterPool, freshDatabase } from "#test/support/pg.ts"
+import { shopV1 } from "#test/support/pg/cli/fixture.ts"
 import {
 	cliOver,
 	type CliRun,
@@ -18,11 +22,7 @@ import {
 	ownerOn,
 	servedAt,
 	workspace
-} from "#test/pg/cli/support.ts"
-import { writeAnswerOf, oneOf } from "#test/support/calls.ts"
-import { type IdValue, toId } from "#test/support/ids.ts"
-import { decodersIn, servedSourcedLayer } from "#test/support/live-layer.ts"
-import { clusterConnection, clusterPool, freshDatabase } from "#test/support/pg.ts"
+} from "#test/support/pg/cli/support.ts"
 import { uniqueSchemaName } from "#test/support/substrate/names.ts"
 import { connect, ownerCredentials } from "#test/support/substrate/session.ts"
 import { dropRole, Substrate } from "#test/support/substrate/substrate.ts"

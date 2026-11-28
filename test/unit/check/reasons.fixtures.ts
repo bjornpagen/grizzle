@@ -29,7 +29,7 @@ import {
 	relationSource,
 	rule,
 	vars
-} from "#test/unit/check/dsl.ts"
+} from "#test/support/unit/check/dsl.ts"
 import type { Boundary, FaultRule } from "#test/unit/check/faults.ts"
 import { Qty } from "#test/unit/check/schemas.ts"
 

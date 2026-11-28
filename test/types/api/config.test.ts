@@ -8,8 +8,8 @@
 import { word } from "@bjornpagen/testing/dictionary"
 import { finite } from "@bjornpagen/testing/gen"
 import { configProgram } from "#test/support/agreement/dbconfig.ts"
+import { boxAgreement } from "#test/support/types/batch/agreement.ts"
 import { configBox } from "#test/types/api/config.dictionary.ts"
-import { boxAgreement } from "#test/types/batch/agreement.ts"
 
 /**
  * Over the reader's every setting left out and given a stranger, and every password, verify and driver channel, the

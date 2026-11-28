@@ -34,7 +34,6 @@ import { Array as Arr, Effect, Formatter, Order } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
-import { openedIn } from "#test/pg/reads/support.ts"
 import {
 	type ContentFeature,
 	contentFeatures,
@@ -50,6 +49,7 @@ import {
 	unmarkedOf
 } from "#test/pg/write/insert-all-computed/insert-all-computed.fixtures.ts"
 import { writeAnswerOf } from "#test/support/calls.ts"
+import { openedIn } from "#test/support/pg/reads/support.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 

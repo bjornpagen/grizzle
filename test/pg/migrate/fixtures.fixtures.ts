@@ -27,15 +27,6 @@ import { ownLogin } from "#compiler/schema/own.ts"
 import { installationsOf } from "#compiler/schema/own.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
 import { loginDescOf } from "#compiler/schema/world.ts"
-import {
-	apply,
-	checkedAdmission,
-	kept,
-	noFurther,
-	openMigrator,
-	reviewedSource,
-	sameCatalog
-} from "#test/pg/migrate/support.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { allocatedDesc } from "#test/support/compile.ts"
@@ -61,6 +52,15 @@ import {
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import { clusterConnection, clusterPool } from "#test/support/pg.ts"
+import {
+	apply,
+	checkedAdmission,
+	kept,
+	noFurther,
+	openMigrator,
+	reviewedSource,
+	sameCatalog
+} from "#test/support/pg/migrate/support.ts"
 import { owning } from "#test/support/policy.ts"
 import { snapshotJson } from "#test/support/snapshot-json.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"

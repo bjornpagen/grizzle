@@ -12,7 +12,7 @@ import { theoryViolations } from "#compiler/laws/model/violations.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
 import { probedRule } from "#test/support/probed.ts"
-import { type HostFacts, referenceRows } from "#test/unit/analysis/theory/support.ts"
+import { type HostFacts, referenceRows } from "#test/support/unit/analysis/theory/support.ts"
 import { boxSchemaOf, gates, type Gate, laws } from "#test/unit/laws/every-row.schema.ts"
 
 export interface Case {

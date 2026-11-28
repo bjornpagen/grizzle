@@ -21,7 +21,7 @@ import { inputsOf, type RelNode } from "#compiler/ir/rel.ts"
 import { costClass } from "#compiler/lower/optimize/cte-policy/index.ts"
 import { nodeGraph, readsOutside, subtreeOf } from "#compiler/lower/optimize/demand/editor.ts"
 import { callCounts } from "#test/support/kernel/calls.ts"
-import { generatedDags } from "#test/unit/ir/population.ts"
+import { generatedDags } from "#test/support/unit/ir/population.ts"
 
 type SubtreeFeature =
 	| "a node over a shared input"

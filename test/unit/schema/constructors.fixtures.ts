@@ -51,7 +51,7 @@ import {
 	regex,
 	type Row,
 	wildcard
-} from "#test/unit/schema/support.ts"
+} from "#test/support/unit/schema/support.ts"
 
 export const Kind = closed("Kind", ["Automatic", "Manual"], "ordered", [])
 

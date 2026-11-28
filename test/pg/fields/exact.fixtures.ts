@@ -9,7 +9,7 @@ import { Num } from "#compiler/public/compute.ts"
 import { exactInteger, exactMoney, generated, Money, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { check, mutable, relation, schema, unit } from "#compiler/public/schema.ts"
-import { fixtureTemplate } from "#test/pg/reads/support.ts"
+import { fixtureTemplate } from "#test/support/pg/reads/support.ts"
 
 /**
  * A ledger row: its id, an exact integer `count` and an amount `total`, exact money, and `twice`, the exact integer

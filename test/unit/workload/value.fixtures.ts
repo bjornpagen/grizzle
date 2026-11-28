@@ -30,7 +30,7 @@ import {
 	titlesByPrefix,
 	topThree,
 	urgentAtLeast
-} from "#test/unit/workload/fixtures.ts"
+} from "#test/support/unit/workload/fixtures.ts"
 
 type Kind = "query" | "changeSet"
 

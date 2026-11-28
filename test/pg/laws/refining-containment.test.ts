@@ -29,7 +29,6 @@
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
-import { seatIn } from "#test/pg/fin/installed.ts"
 import {
 	type RefiningFeature,
 	refiningTemplate,
@@ -37,6 +36,7 @@ import {
 	runRefining,
 	space
 } from "#test/pg/laws/refining-containment.fixtures.ts"
+import { seatIn } from "#test/support/pg/fin/installed.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**

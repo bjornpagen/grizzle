@@ -6,8 +6,8 @@ import { unplaced } from "#compiler/analysis/physical/analyze.ts"
 import { observedNodes } from "#compiler/analysis/physical/consumers.ts"
 import { genCatalog } from "#test/support/evidence.ts"
 import { defaultGenConfig, queryCaseGen } from "#test/support/oracle/gen/case.ts"
+import { physical } from "#test/support/unit/analysis/physical/support.ts"
 import { type EndsFeature, pathEnds } from "#test/unit/analysis/physical/consumers.fixtures.ts"
-import { physical } from "#test/unit/analysis/physical/support.ts"
 
 /**
  * The observed nodes are those an observation path's last step observes.

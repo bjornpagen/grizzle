@@ -47,7 +47,7 @@ import {
 	type TestTheory,
 	theoryOf,
 	violates
-} from "#test/unit/analysis/theory/support.ts"
+} from "#test/support/unit/analysis/theory/support.ts"
 
 /** A value of a row: a natural or an integer, as a bigint, or a boolean. */
 type Value = bigint | boolean

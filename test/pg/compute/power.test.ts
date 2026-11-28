@@ -41,14 +41,14 @@ import {
 	pastExpPowers,
 	underflowingFloatPowers
 } from "#test/pg/compute/power.fixtures.ts"
+import { constantEnv, evaluate } from "#test/support/oracle/evaluate/catalog.ts"
 import {
 	caseChunk,
 	compareAnswers,
 	type EvalCase,
 	parseAnswer,
 	runCases
-} from "#test/pg/compute/support.ts"
-import { constantEnv, evaluate } from "#test/support/oracle/evaluate/catalog.ts"
+} from "#test/support/pg/compute/support.ts"
 import { edges, powerBatch } from "#test/support/power-pairs.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import {
@@ -59,7 +59,7 @@ import {
 	spelledExpr,
 	testPg,
 	v
-} from "#test/unit/compute/support.ts"
+} from "#test/support/unit/compute/support.ts"
 
 /**
  * Numeric power against PostgreSQL 19 agrees on the value, display scale and failure of every generated power.

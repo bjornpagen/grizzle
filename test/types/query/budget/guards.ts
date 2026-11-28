@@ -2,7 +2,7 @@ import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { Array as Arr } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { type PreludeAt, preludeProgram } from "#test/support/prelude.ts"
-import { type EqualSteps, equalSteps } from "#test/types/batch/measured.ts"
+import { type EqualSteps, equalSteps } from "#test/support/types/batch/measured.ts"
 
 /**
  * The programs of a write whose guarded inserts negate bound queries over relation parameters that generic helpers

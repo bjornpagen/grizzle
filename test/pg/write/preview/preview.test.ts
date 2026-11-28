@@ -47,7 +47,7 @@ import {
 	type PreviewFeature,
 	previewCase,
 	previewFeatures
-} from "#test/pg/write/preview/preview.fixtures.ts"
+} from "#test/support/pg/write/preview/preview.fixtures.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** The rows a preview gives are the rows the same insertAll stores, fresh and migrated, and its refusals are the write's. */

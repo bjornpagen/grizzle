@@ -16,16 +16,6 @@ import { compileInstallation } from "#compiler/program/install.ts"
 import type { Expr, ObjectName, SqlStatement } from "#compiler/sql/ast.ts"
 import { lit } from "#compiler/sql/build.ts"
 import { printObjectName, printStatement } from "#compiler/sql/print.ts"
-import {
-	apply,
-	keeping,
-	kept,
-	noFurther,
-	refusal,
-	reviewedSource,
-	type Reviewer
-} from "#test/pg/migrate/support.ts"
-import { fixtureLogin } from "#test/pg/physical/support.ts"
 import { succeeded } from "#test/support/assert.ts"
 import type { SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
@@ -44,6 +34,16 @@ import {
 	planStatements,
 	reviewedStatements
 } from "#test/support/migrate/review.ts"
+import {
+	apply,
+	keeping,
+	kept,
+	noFurther,
+	refusal,
+	reviewedSource,
+	type Reviewer
+} from "#test/support/pg/migrate/support.ts"
+import { fixtureLogin } from "#test/support/pg/physical/support.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
 import { owning } from "#test/support/policy.ts"
 

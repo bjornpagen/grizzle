@@ -4,7 +4,7 @@
  * they stand. Here the README's fixture is checked disarmed, whole: each refusal it states fails with the claim its
  * directive names, and nothing else fails. Oracle: the refusals the documentation states.
  */
-import { boxAgreement } from "#test/types/batch/agreement.ts"
+import { boxAgreement } from "#test/support/types/batch/agreement.ts"
 import { statedRefusals } from "#test/types/examples/examples.dictionary.ts"
 import { readmeProgram } from "#test/types/examples/examples.fixtures.ts"
 

@@ -12,8 +12,8 @@ import { conservativeInput } from "#compiler/lower/conservative/types.ts"
 import type { Select } from "#compiler/sql/ast.ts"
 import { identityHooks, transformSelect } from "#compiler/sql/transform.ts"
 import { localVectorSchema, productionNames } from "#test/support/kernel/naming.ts"
-import { fixtureCodes } from "#test/unit/ir/fixture.ts"
-import { Q, T } from "#test/unit/lower/conservative/fixtures.ts"
+import { fixtureCodes } from "#test/support/unit/ir/fixture.ts"
+import { Q, T } from "#test/support/unit/lower/conservative/fixtures.ts"
 
 type Value = "abc" | "Abc"
 

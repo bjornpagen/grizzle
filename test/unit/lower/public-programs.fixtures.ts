@@ -31,8 +31,8 @@ import { messageOf } from "#test/support/message.ts"
 import { validateDag } from "#test/support/oracle/dag-validate.ts"
 import { checkedLowering } from "#test/support/oracle/verify/index.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
+import { present } from "#test/support/unit/lower/support.ts"
 import { upTo } from "#test/support/up-to.ts"
-import { present } from "#test/unit/lower/support.ts"
 
 /** The handle names a drawn roster takes. */
 export const handleNames = ["Red", "Green", "Blue", "Amber", "Teal"] as const

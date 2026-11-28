@@ -27,7 +27,6 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { evaluatorOrder } from "#compiler/scalar/compute/evaluate.ts"
 import { compareValues, evaluatedValue } from "#compiler/scalar/values/identity.ts"
-import { roundTripRuns } from "#test/pg/codec/scalar.fixtures.ts"
 import {
 	batchGen,
 	codecSpecOf,
@@ -39,8 +38,9 @@ import {
 	postgresOrder
 } from "#test/pg/values/order.fixtures.ts"
 import { at } from "#test/support/oracle/pick.ts"
+import { roundTripRuns } from "#test/support/pg/codec/scalar.fixtures.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
-import { orderOf } from "#test/unit/values/support.ts"
+import { orderOf } from "#test/support/unit/values/support.ts"
 
 /**
  * The host's comparison of values orders every carrier's values as PostgreSQL's ORDER BY does, by a codec's codes and
