@@ -89,6 +89,7 @@ import { isInstantType } from "#compiler/ir/instant.ts"
 import type { OwnedFunction } from "#compiler/schema/function-own.ts"
 
 import { int4Max } from "#compiler/core/canonical.ts"
+import { lineageDigests } from "#compiler/ir/digest-lineage.ts"
 import {
 	type ExprSpec,
 	type DefinedOp,
@@ -98,7 +99,6 @@ import {
 	type ScalarExpr,
 	storedColumn
 } from "#compiler/ir/expr.ts"
-import { lineageDigests } from "#compiler/ir/digest-lineage.ts"
 import { headingColumns, textDigestsOf } from "#compiler/ir/law.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import {
