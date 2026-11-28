@@ -2048,7 +2048,7 @@ const statementOutsides = (
 		}
 		const numbers = new TupleMap<readonly [number | undefined, number], number>()
 		const groupsOf: Array<number> = []
-		const readsOf = new Map<string, Array<number>>()
+		const groupReads = new Map<string, Array<number>>()
 		const held = new TupleSet<readonly [number, string]>()
 		for (const { placed: p, group } of of) {
 			const read = numbers.getOrInsertComputed([p.query, p.at.read], () => {
@@ -2060,9 +2060,9 @@ const statementOutsides = (
 			}
 			held.add([read, group])
 			groupsOf[read] = (groupsOf[read] ?? 0) + 1
-			readsOf.getOrInsertComputed(group, () => []).push(read)
+			groupReads.getOrInsertComputed(group, () => []).push(read)
 		}
-		out.set(statement, { placed: of, reads: groupsOf.length, groupsOf, readsOf })
+		out.set(statement, { placed: of, reads: groupsOf.length, groupsOf, readsOf: groupReads })
 	}
 	return out
 }

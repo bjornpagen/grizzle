@@ -1682,10 +1682,9 @@ const takenThrough = (
 		...(body.where === undefined ? [] : [body.where]),
 		...(where === undefined ? [] : [where])
 	])
-	const folded: SelectCore =
-		body.distinct === false
-			? { ...body, targets, where: conditions }
-			: { ...body, distinct: false, rows: "oneRow", targets, where: conditions }
+	const folded: SelectCore = body.distinct
+		? { ...body, distinct: false, rows: "oneRow", targets, where: conditions }
+		: { ...body, targets, where: conditions }
 	return takenThrough(folded, ordered, one) ?? { core: folded, orderBy: ordered }
 }
 
