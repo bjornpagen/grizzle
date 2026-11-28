@@ -227,7 +227,11 @@ class Diagrams {
 		return operation
 	}
 
-	/** The fold's step: the diagram of a vertex, from the diagrams of the vertices it yields. */
+	/**
+	 * The fold's step: the diagram of a vertex, from the diagrams of the vertices it yields.
+	 *
+	 * @yields each vertex the step reads, its diagram sent back
+	 */
 	*#step(v: Vertex): Generator<Vertex, Diagram, Diagram> {
 		switch (v.kind) {
 			case "atom":
@@ -277,7 +281,11 @@ class Diagrams {
 		}
 	}
 
-	/** The negation of `d`: a leaf's at once, a test's by its operation. */
+	/**
+	 * The negation of `d`: a leaf's at once, a test's by its operation.
+	 *
+	 * @yields the operation a test's negation is, its diagram sent back
+	 */
 	*#not(d: Diagram): Generator<Vertex, Diagram, Diagram> {
 		if (d.kind === "leaf") {
 			return this.#leaf(!d.value)
@@ -285,7 +293,11 @@ class Diagrams {
 		return yield this.#operation(`n${d.id}`, { kind: "negate", of: d })
 	}
 
-	/** `a` and `b`, or `a` or `b`: with a leaf, or of one diagram, at once; of two tests, by their operation. */
+	/**
+	 * `a` and `b`, or `a` or `b`: with a leaf, or of one diagram, at once; of two tests, by their operation.
+	 *
+	 * @yields the operation two tests' application is, its diagram sent back
+	 */
 	*#apply(op: "and" | "or", a: Diagram, b: Diagram): Generator<Vertex, Diagram, Diagram> {
 		if (a.kind === "leaf") {
 			return this.#withLeaf(op, a, b)
@@ -308,6 +320,8 @@ class Diagrams {
 	/**
 	 * `d` with `pair`'s sign fixed to `sign`: a leaf or a test of a later pair as it is, a test of `pair` its child at
 	 * `sign`, a test of an earlier pair by its operation.
+	 *
+	 * @yields the operation a test of an earlier pair's restriction is, its diagram sent back
 	 */
 	*#restrict(d: Diagram, pair: number, sign: Sign): Generator<Vertex, Diagram, Diagram> {
 		if (d.kind === "leaf" || d.pair > pair) {

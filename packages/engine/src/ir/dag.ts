@@ -179,6 +179,8 @@ export const emptyDag: LabelledDag = labelledDag(noIds, {
  * the node returned with every edge replaced by its value, so a step reads `values.input`, `values.base` or
  * `values.left` by role. Every other field is the node's own part itself, shared (rel.ts replacedEdges): a reading, and
  * a rebuild of the node from it, allocates only the containers its edges stand in.
+ *
+ * @yields each data edge of the node, in structural order, its value received in its place
  */
 export function* edgeValues<A>(node: RelNode): Generator<RelNode, NodeOver<ValueRefs<A>>, A> {
 	return yield* replacedEdges<LiveRefs, A>(node)

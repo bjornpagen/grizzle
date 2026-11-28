@@ -807,6 +807,8 @@ const commonPgType = (operands: ReadonlyArray<ScalarExpr>, type: ScalarType): Sc
 /**
  * The expression with each argument yielded, in operand order, and the value sent back in its place; its kind's arity
  * kept. Its other fields are carried as they are.
+ *
+ * @yields each argument, in operand order, the value sent back standing in its place
  */
 export function* mapArgs<R extends ArgKinds, S extends ArgKinds>(
 	spec: ExprSpecOver<R>

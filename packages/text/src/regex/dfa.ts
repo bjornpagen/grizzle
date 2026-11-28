@@ -736,7 +736,11 @@ export const membersWithin = (
 	return out.toSorted(compareByCodePoint)
 }
 
-/** Every step out of a state, in edge and code point order: each code point of each edge's set, with its target. */
+/**
+ * Every step out of a state, in edge and code point order: each code point of each edge's set, with its target.
+ *
+ * @yields each step, a code point and its target state, in edge and code point order
+ */
 function* stepsOf(state: CanonicalDfa["states"][number]): Generator<readonly [number, number]> {
 	for (const e of state.edges) {
 		for (const [lo, hi] of e.set) {

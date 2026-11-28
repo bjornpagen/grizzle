@@ -58,7 +58,11 @@ export const partitionOf = (
 			segments.push([lo, following - 1])
 		}
 	}
-	/** The segments of a set, in order: those starting at its intervals' cuts. */
+	/**
+	 * The segments of a set, in order: those starting at its intervals' cuts.
+	 *
+	 * @yields each segment of the set, in order
+	 */
 	const segmentsOf = function* (set: ReadonlyArray<Interval>): Generator<number> {
 		for (const [lo, hi] of set) {
 			const end = indexOf(hi + 1)

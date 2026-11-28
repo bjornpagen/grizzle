@@ -20,9 +20,9 @@ import { defect } from "@bjornpagen/grizzle-text/base/invariant"
  *
  * MATCH SIMPLE, as every foreign key grizzle installs is: a row any of whose columns is null references nothing, so only a
  * row whose every column is non-null can be unmatched. A PERIOD foreign key's row is unmatched where the target rows at
- * its scalars do not cover its span, `NOT coalesce((SELECT range_agg(p.<span>) ... WHERE ... AND p.<span> && c.<span>)
- * @> c.<span>, false)`, as PostgreSQL's PERIOD reference judges it. The least row by its primary key is named, so the
- * witness does not depend on the plan.
+ * its scalars do not cover its span, as PostgreSQL's PERIOD reference judges it:
+ * `NOT coalesce((SELECT range_agg(p.<span>) ... WHERE ... AND p.<span> && c.<span>) @> c.<span>, false)`. The least row
+ * by its primary key is named, so the witness does not depend on the plan.
  *
  * The query runs as the writing role, on its table and its target alone, each of which the role reads whole
  * (program/schema.ts readsWhole): the key it names is one the role can select itself, and no target row is out of its

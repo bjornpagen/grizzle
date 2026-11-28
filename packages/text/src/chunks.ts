@@ -233,7 +233,11 @@ export const joinedParts = (parts: ReadonlyArray<TextChunks>): TextChunks => {
 	return chunks
 }
 
-/** Each chunk's UTF-8, in order, encoded as it is read: together, exactly the text's. */
+/**
+ * Each chunk's UTF-8, in order, encoded as it is read: together, exactly the text's.
+ *
+ * @yields each chunk's UTF-8, in order
+ */
 export const chunkBytes = function* (chunks: TextChunks): Generator<Uint8Array> {
 	for (const chunk of chunks) {
 		yield utf8(chunk)

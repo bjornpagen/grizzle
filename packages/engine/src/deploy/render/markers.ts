@@ -18,7 +18,11 @@ export const confirmMarker = "-- grizzle: confirm"
  * line is no marker `grizzle migrate` refuses: it may stay. */
 export const lossMarker = "-- grizzle: data loss"
 
-/** The lines of a text, a trailing carriage return dropped from each, each read from the text alone. */
+/**
+ * The lines of a text, a trailing carriage return dropped from each, each read from the text alone.
+ *
+ * @yields each line of the text, in order, its trailing carriage return dropped
+ */
 export const textLines = function* (text: TextView): Generator<string> {
 	for (let from = 0; ;) {
 		const end = text.indexOf("\n", from)

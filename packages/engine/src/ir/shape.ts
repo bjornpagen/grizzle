@@ -91,7 +91,11 @@ class DecodePath {
 		return keysTo(this.#place)
 	}
 
-	/** `step` run on the child at `key`. */
+	/**
+	 * `step` run on the child at `key`.
+	 *
+	 * @yields each task its steps hand the driver (a ref's part, which the driver runs on its own stack)
+	 */
 	*at<A>(key: string | number, step: Step<A>): Step<A> {
 		const from = this.#place
 		this.#place = { key, from }
@@ -158,7 +162,11 @@ class Deferred<A> implements Task {
 	}
 }
 
-/** `step`, run by the driver on its own stack, its answer handed back once it ends: how ref reads its shape's part. */
+/**
+ * `step`, run by the driver on its own stack, its answer handed back once it ends: how ref reads its shape's part.
+ *
+ * @yields the task that runs `step` on the driver's own stack, once
+ */
 function* deferred<A>(step: Step<A>): Step<A> {
 	const task = new Deferred(step)
 	yield task
@@ -294,6 +302,8 @@ const abort = (path: DecodePath, what: string): never =>
  * `step` over the container `value` at `path`, inside its place on the path: refused as a cycle when `value` is already
  * on it, so a container that holds itself is refused where it meets itself, while one two others share is read once
  * under each. Every container a shape decodes is read through here.
+ *
+ * @yields each task its steps hand the driver (a ref's part, which the driver runs on its own stack)
  */
 function* within<A>(value: object, path: DecodePath, step: Step<A>): Step<A> {
 	if (path.onPath.has(value)) {
@@ -649,7 +659,11 @@ export const interned = <P, A extends object>(
 		}
 	})
 
-/** The decoded items of an array, in order, frozen. */
+/**
+ * The decoded items of an array, in order, frozen.
+ *
+ * @yields each task its steps hand the driver (a ref's part, which the driver runs on its own stack)
+ */
 function* itemsOf<A>(
 	item: Shape<A>,
 	items: ReadonlyArray<unknown>,
@@ -730,7 +744,11 @@ const distinctOf = <A>(
 	const inner = arrayOf(item)
 	return {
 		expected: `an array of distinct ${what}`,
-		/** Refuses the first item whose key repeats an earlier one's. */
+		/**
+		 * Refuses the first item whose key repeats an earlier one's.
+		 *
+		 * @yields each task its steps hand the driver (a ref's part, which the driver runs on its own stack)
+		 */
 		parse: function* (value, path) {
 			const out = yield* inner.parse(value, path)
 			const repeat = firstRepeat(out, key, what)
@@ -862,7 +880,11 @@ export const nonEmptyUniqueStrings = (what: string): Shape<readonly [string, ...
 		)
 	)
 
-/** A record member's key and value: the key read by `keyShape`, then the value by `item`. */
+/**
+ * A record member's key and value: the key read by `keyShape`, then the value by `item`.
+ *
+ * @yields each task its steps hand the driver (a ref's part, which the driver runs on its own stack)
+ */
 function* recordMember<A>(
 	item: Shape<A>,
 	keyShape: Shape<string>,
@@ -876,7 +898,11 @@ function* recordMember<A>(
 		: yield* item.parse(child, path)
 }
 
-/** A record's decoded members, in its key order, frozen. */
+/**
+ * A record's decoded members, in its key order, frozen.
+ *
+ * @yields each task its steps hand the driver (a ref's part, which the driver runs on its own stack)
+ */
 function* recordMembers<A>(
 	item: Shape<A>,
 	keyShape: Shape<string>,
@@ -957,6 +983,8 @@ const filled = <T>(keys: ReadonlyArray<keyof T & string>, out: Partial<T>): T =>
 
 /**
  * The required fields of `value` decoded in the struct's order; a field named `skip` counts as absent and is refused.
+ *
+ * @yields each task its steps hand the driver (a ref's part, which the driver runs on its own stack)
  */
 function* readRequired<R>(
 	shapes: ShapesOf<R>,
@@ -976,7 +1004,11 @@ function* readRequired<R>(
 	return filled<{ readonly [K in keyof R & string]: R[K] }>(keys, out)
 }
 
-/** The optional fields of `value` that are present, in the struct's order; a field named `skip` counts as absent. */
+/**
+ * The optional fields of `value` that are present, in the struct's order; a field named `skip` counts as absent.
+ *
+ * @yields each task its steps hand the driver (a ref's part, which the driver runs on its own stack)
+ */
 function* readOptional<O>(
 	shapes: ShapesOf<O>,
 	keys: ReadonlyArray<keyof O & string>,
@@ -997,6 +1029,8 @@ function* readOptional<O>(
 /**
  * The stated fields of `value`, in the struct's order, each undefined where the value leaves it out or names the
  * struct's `skip`.
+ *
+ * @yields each task its steps hand the driver (a ref's part, which the driver runs on its own stack)
  */
 function* readStated<U>(
 	shapes: ShapesOf<U>,
@@ -1132,7 +1166,11 @@ export const tagged =
 		const cases: ShapesOf<M> = stated
 		const tags = Object.keys(cases)
 		const isTag = (tag: string): tag is keyof M & string => Object.hasOwn(cases, tag)
-		/** The case `tag` names, decoded from `copy`, what was read of the caller's object: the discriminator, then its fields. */
+		/**
+		 * The case `tag` names, decoded from `copy`, what was read of the caller's object: the discriminator, then its fields.
+		 *
+		 * @yields each task its steps hand the driver (a ref's part, which the driver runs on its own stack)
+		 */
 		const caseOf = function* <K extends keyof M & string>(
 			tag: K,
 			copy: Readonly<Record<string, unknown>>,
@@ -1143,7 +1181,11 @@ export const tagged =
 		}
 		return plain({
 			expected: `an object with ${key} one of ${tags.join(", ")}`,
-			/** The caller's object stands on the path; the case decodes what was read of it. */
+			/**
+			 * The caller's object stands on the path; the case decodes what was read of it.
+			 *
+			 * @yields each task its steps hand the driver (a ref's part, which the driver runs on its own stack)
+			 */
 			parse: function* (value, path) {
 				const object = readObject(value, path)
 				if (object.kind === "other") {
@@ -1161,6 +1203,8 @@ export const tagged =
 /**
  * `step`'s answer, or the mismatch it refuses, taken off `path`, so a union can try its next alternative; an abort and
  * any other throw propagate.
+ *
+ * @yields each task its steps hand the driver (a ref's part, which the driver runs on its own stack)
  */
 function* attempt<A>(step: Step<A>, path: DecodePath): Step<Result.Result<A, Refused>> {
 	try {

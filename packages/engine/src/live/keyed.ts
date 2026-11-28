@@ -62,7 +62,11 @@ export class KeyedList<Row extends object> implements Iterable<Row> {
 		return this.#nodes.get(form)
 	}
 
-	/** Every entry, in order. */
+	/**
+	 * Every entry, in order.
+	 *
+	 * @yields each entry, in order
+	 */
 	*entries(): IterableIterator<Entry<Row>> {
 		for (let node = this.#head; node !== undefined; node = node.next) {
 			yield node

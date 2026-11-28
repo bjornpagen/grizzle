@@ -259,7 +259,11 @@ class Readers {
 	}
 }
 
-/** The copy of `e` with each column reference `remap` replaces, its argument copies first: `e` itself when none changes. */
+/**
+ * The copy of `e` with each column reference `remap` replaces, its argument copies first: `e` itself when none changes.
+ *
+ * @yields each argument of `e`, in operand order, its copy sent back in its place
+ */
 function* copyStep(
 	ed: DagEditor,
 	remap: ColumnRemap,

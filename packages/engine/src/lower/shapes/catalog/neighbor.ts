@@ -440,6 +440,8 @@ const boundRegion = (
 /**
  * Whether a consumer of `cell` keeps only its rows matching a bound set: a semi-join against a bound set over it, or
  * a semi-join, filter or projection whose own readers all do (restrictedAbove, which answers the consumer's).
+ *
+ * @yields each consumer whose own readers' answer it reads (restrictedAbove's), that answer sent back
  */
 function* restricts(consumer: Cell, cell: Cell): Generator<Cell, boolean, boolean> {
 	const n = consumer.current

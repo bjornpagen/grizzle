@@ -1330,7 +1330,11 @@ export const metaSpecOf = (meta: MetaSpec): MetaSpec => ({
 const mapPremise = (p: Premise, name: (id: NodeId) => NodeId): Premise =>
 	p.kind === "node" ? { kind: "node", node: name(p.node) } : p
 
-/** A union's heading group with each arm yielded, in arm order, and the value sent back in its place. */
+/**
+ * A union's heading group with each arm yielded, in arm order, and the value sent back in its place.
+ *
+ * @yields each arm of the group, in arm order, the value sent back standing in its place
+ */
 function* mapGroup<N, M>(g: HeadingGroupOver<N>): Generator<N, HeadingGroupOver<M>, M> {
 	const [first, ...rest] = g.arms
 	const head: M = yield first
@@ -1348,6 +1352,8 @@ function* mapGroup<N, M>(g: HeadingGroupOver<N>): Generator<N, HeadingGroupOver<
  * by `m`, called in the same order. Traversal, folding, tabling, renaming and normalizing are all built on this one
  * generator, so they agree on what a node references and in what order (dag.ts normalizeDag numbers by first
  * occurrence in it).
+ *
+ * @yields each data edge of the node, in its structural order, the value sent back standing in its place
  */
 export function* mapNode<R extends RefKinds, S extends RefKinds>(
 	n: NodeOver<R>,
@@ -1513,6 +1519,8 @@ export interface WithNode<R extends RefKinds, A> extends RefKinds {
  * change and the one constructor's freeze (dag.ts relNode) stops at every part it shares, frozen when it was built;
  * restating every reference as itself (mapNode over keptRefs) copied each container of the node and every record in
  * one.
+ *
+ * @yields each data edge of the node, in structural order, the value sent back standing in its place
  */
 export function* replacedEdges<R extends RefKinds, A>(
 	n: NodeOver<R>
