@@ -153,6 +153,13 @@ const uninstalled = (refusal: ServedRefusal): boolean =>
 	isCompileError(refusal.error) && refusal.error.reason._tag === "UninstalledDomain"
 
 /**
+ * Whether a refusal is of a read through an index the snapshot does not hold (deploy/snapshot/served.ts
+ * snapshotResolver, UninstalledIndex).
+ */
+const unheldIndex = (refusal: ServedRefusal): boolean =>
+	isCompileError(refusal.error) && refusal.error.reason._tag === "UninstalledIndex"
+
+/**
  * The property over one case: its login compiled under its own snapshot and under the dropped installation's, each
  * parameter type it casts to installed or the compile refused as UninstalledDomain, and no two installed domains
  * sharing a CHECK body (see the header).
@@ -173,8 +180,8 @@ export const castsInstalled = (
 		const full = yield* Effect.result(compiledLogin(login, schema.laws.codes))
 		if (Answered.isFailure(full)) {
 			assert.ok(
-				!uninstalled(full.failure),
-				`a login compiles under its own snapshot as far as its parameter types go: ${Formatter.format(full.failure)}\n${printed()}`
+				!uninstalled(full.failure) && !unheldIndex(full.failure),
+				`a login compiles under its own snapshot as far as its parameter types and its indexes go: ${Formatter.format(full.failure)}\n${printed()}`
 			)
 			return
 		}
@@ -231,14 +238,17 @@ export const castsInstalled = (
 		)
 		if (missingDomains.length > 0 || missingContracts.length > 0) {
 			assert.ok(
-				Answered.isFailure(compiled) && uninstalled(compiled.failure),
-				`a login casting a parameter to ${Formatter.format([...missingDomains, ...missingContracts])}, which the installation does not install, is refused as UninstalledDomain\n${printed()}`
+				Answered.isFailure(compiled) &&
+					(uninstalled(compiled.failure) || unheldIndex(compiled.failure)),
+				`a login casting a parameter to ${Formatter.format([...missingDomains, ...missingContracts])}, which the installation does not install, is refused as UninstalledDomain, or as UninstalledIndex where a program it compiles first reads through an index the installation does not hold\n${printed()}`
 			)
-			if (missingContracts.length === 0) {
-				note("an uninstalled pattern domain refused")
-			}
-			if (missingDomains.length === 0) {
-				note("an uninstalled contract refused")
+			if (Answered.isFailure(compiled) && uninstalled(compiled.failure)) {
+				if (missingContracts.length === 0) {
+					note("an uninstalled pattern domain refused")
+				}
+				if (missingDomains.length === 0) {
+					note("an uninstalled contract refused")
+				}
 			}
 			return
 		}

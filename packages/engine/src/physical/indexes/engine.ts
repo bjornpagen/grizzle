@@ -1668,9 +1668,10 @@ const hostIn = (set: IndexSet, entry: Covered): InstalledIndex | undefined => {
  * analysis/schema.ts CheckedSchema installedAs): the index it lands on (`hostIn`), read through the one derivation of
  * what serves a request (`statedOf`, `coveredOf`) on the table `set` records of its relation, as planning lands every
  * request it plans; else why no index serves it: its relation one `set` holds no index of, a request its table cannot
- * state, or one no index of the table serves. The one landing `servingOf` and `resolverOf` read.
+ * state, or one no index of the table serves. The one landing `servingOf` and `resolverOf` read, and a served compile
+ * under a snapshot (deploy/snapshot/served.ts snapshotResolver), whose miss is a refusal of its program.
  */
-const landingIn = (
+export const landingIn = (
 	set: IndexSet,
 	installedAs: (relation: string) => string,
 	request: IndexRequest

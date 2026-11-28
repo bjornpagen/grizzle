@@ -16,9 +16,13 @@
  *   (every parameter its roles' statements declare, test/support/served-reach.ts declaredBy: each pattern parameter's
  *   own pattern domain, at its place, and each contract outside the base down a parameter's type), against the
  *   parameter types the dropped installation's snapshot.json records (derived.params). The compile under that snapshot
- *   is refused as UninstalledDomain exactly when the login casts a parameter to one it lacks, and compiles otherwise.
- * - A login compiles under the snapshot generated with its own workload as far as its parameter types go: no compile of
- *   it there is refused as UninstalledDomain.
+ *   is refused as UninstalledDomain exactly when the login casts a parameter to one it lacks, or as UninstalledIndex
+ *   where a program it compiles before reads through an index the dropped installation does not hold (deploy/snapshot/
+ *   served.ts snapshotResolver: a typed refusal at the program, never a missed index), and is never refused as
+ *   UninstalledDomain otherwise.
+ * - A login compiles under the snapshot generated with its own workload as far as its parameter types and its indexes
+ *   go: no compile of it there is refused as UninstalledDomain or UninstalledIndex, its installation planned for every
+ *   read it makes.
  *
  * - No two domains of the login's installation share a CHECK body: a parameter's pattern domain is a domain over its
  *   pattern's structural text domain, with no CHECK of its own, the installation's own, which it holds for every
@@ -88,6 +92,12 @@ export const aServedCompileUnderASnapshotCastsAParameterOnlyToATypeTheSnapshotsI
 			}
 		],
 		kills: [
+			{
+				file: "packages/engine/src/deploy/snapshot/served.ts",
+				original: "\t\tthrow new Refusal(\n",
+				replacement: "\t\tthrow new Error(\n",
+				why: "A read through an index the snapshot does not hold is a missed index again, not a refusal of its program: a login compiled under the snapshot of an installation that dropped some of its programs dies inside its compile, though the snapshot was planned for another workload, and the property fails."
+			},
 			{
 				file: "packages/engine/src/physical/install/plan.ts",
 				original: '\t\t\tparamNamed:\n\t\t\t\tparams.kind === "unserved"',

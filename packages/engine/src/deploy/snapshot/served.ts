@@ -1,17 +1,13 @@
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { CheckedSchema } from "#compiler/analysis/schema.ts"
-import { fromJson, noRevivers, type Path } from "#compiler/core/canonical.ts"
-import {
-	type CompileError,
-	formatRefused,
-	malformedArtifact,
-	within
-} from "#compiler/core/errors.ts"
+import { fromJson, noRevivers, type Path, Refusal } from "#compiler/core/canonical.ts"
+import { CompileError, formatRefused, malformedArtifact, within } from "#compiler/core/errors.ts"
 import { formatKey, isFormatOf } from "#compiler/core/format.ts"
 import type { HeldName } from "#compiler/core/identity.ts"
 import type { SchemaFingerprint } from "#compiler/core/ids.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
+import { SourceLoc } from "#compiler/core/loc.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import type {
@@ -31,7 +27,7 @@ import type { ReferenceChoice } from "#compiler/laws/model/plan.ts"
 import type { LiveSource } from "#compiler/live/notify.ts"
 import type { NamedClosed } from "#compiler/physical/ddl/constants.ts"
 import type { InstalledParams, TextDomainNames } from "#compiler/physical/ddl/domains.ts"
-import { type IndexSet, resolverOf } from "#compiler/physical/indexes/engine.ts"
+import { type IndexSet, landingIn } from "#compiler/physical/indexes/engine.ts"
 import type { IndexResolver } from "#compiler/physical/indexes/ref.ts"
 import type { CertifiedRole } from "#compiler/physical/install/compile.ts"
 import type { DescribedLaw } from "#compiler/physical/install/plan.ts"
@@ -243,14 +239,32 @@ export const snapshotIndexes = (json: unknown): Result.Result<InstalledIndexes, 
 
 /**
  * The resolver of the installation `snapshot` records (SnapshotDerived `indexSet`, physical/indexes/engine.ts
- * resolverOf), each request's relation read as `schema` installs it: what a served compile from the snapshot resolves
- * every read of its programs by, generate's and an application's alike, by the one coverage rule planning resolves by.
+ * landingIn), each request's relation read as `schema` installs it: what a served compile from the snapshot resolves
+ * every read of its programs by, generate's and an application's alike, by the one coverage rule planning resolves by. A
+ * request no index the snapshot records serves is a program read through an index the installation does not hold,
+ * refused where it is compiled as UninstalledIndex, thrown for the refusal-catching compile of its program: a snapshot
+ * planned for another workload than the one compiled under it, never a missed index of the compile that planned it.
  */
-export const snapshotResolver = (
-	snapshot: ServedSnapshot,
-	schema: Pick<CheckedSchema, "installedAs">
-): IndexResolver =>
-	resolverOf(snapshot.derived.indexSet, (relation) => schema.installedAs(relation))
+export const snapshotResolver =
+	(snapshot: ServedSnapshot, schema: Pick<CheckedSchema, "installedAs">): IndexResolver =>
+	(request) => {
+		const landing = landingIn(
+			snapshot.derived.indexSet,
+			(relation) => schema.installedAs(relation),
+			request
+		)
+		if (landing.kind === "served") {
+			return landing.index
+		}
+		throw new Refusal(
+			CompileError.make({
+				_tag: "UninstalledIndex",
+				at: SourceLoc("served compile", []),
+				request: landing.label,
+				why: landing.why
+			})
+		)
+	}
 
 /**
  * The level each of `roles`, the roles of `login`, runs its writes at in the installation `snapshot` records, by the

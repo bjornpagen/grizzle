@@ -57,6 +57,7 @@ import {
 	type CompileError,
 	defect,
 	draftCodebook,
+	isCompileError,
 	type PreviousRoster,
 	type RosterRenames,
 	type InstalledSource,
@@ -966,8 +967,11 @@ const runtimeSnapshotValue = (
  * schema's own level over the installation's artifacts, and one over a level below, whose ownership is its own
  * (cli/config.ts compileSchema), over that level's, as the snapshot records them. generate stages them beside the
  * snapshot and check holds the committed ones to them, so both compile every login once, from the one text. A login
- * whose workload does not compile is ServedRefused, at the login, its role or its program. The served files are a phase
- * reported to `phases` (`served`), each login's compile a phase inside it (`servedLogin`).
+ * whose workload does not compile is ServedRefused, at the login, its role or its program; one refused as reading
+ * through an index the snapshot does not hold (UninstalledIndex) is a missed index of the draft, whose workload plan
+ * asked its installation for an index for every read the login's programs make (program/workload/reads.ts
+ * readMemberPlans), an internal compiler error. The served files are a phase reported to `phases` (`served`), each
+ * login's compile a phase inside it (`servedLogin`).
  *
  * Only what `sink` returns is kept: a login's texts are the sink's to write or to compare, and none outlives its sink,
  * where every login's were held until the last was compiled and then until the write (metis's installation from
@@ -1009,8 +1013,13 @@ const servedEntries = Effect.fn("eachServedFile")(function* <A, E, R>(
 				{ name: "servedLogin", of: [login.owned.name] },
 				servedEntry(login, snapshot, planned.artifacts, planned.roles, planned.footprints)
 			),
-			(refusal) =>
-				cliError(
+			(refusal) => {
+				if (isCompileError(refusal.error) && refusal.error.reason._tag === "UninstalledIndex") {
+					defect(
+						`a missed index: the draft's own snapshot.json holds every index its workload plan asked for, so ${login.owned.name}'s compile under it reads through none it lacks: ${refusal.error.message}`
+					)
+				}
+				return cliError(
 					new ServedRefused({
 						schema: schema.declared,
 						login: login.login.desc.name,
@@ -1018,6 +1027,7 @@ const servedEntries = Effect.fn("eachServedFile")(function* <A, E, R>(
 						error: refusal.error
 					})
 				)
+			}
 		)
 		return Effect.flatMap(compiled, sink)
 	})

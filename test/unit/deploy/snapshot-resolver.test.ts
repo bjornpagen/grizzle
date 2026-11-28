@@ -15,8 +15,9 @@
  * - a read by a key no request asked resolves through the snapshot to that key's index (the kept case: a put compiled
  *   against an installation whose workload never held it, its probe of the facts it displaces by the key, which the
  *   resolution table of the planned requests alone refused as a missed index);
- * - a read no index of the installation serves is refused as an internal compiler error, never resolved to an index of
- *   its relation.
+ * - a read no index of the installation serves is refused through the snapshot as UninstalledIndex, a refusal of the
+ *   program that reads it, and is a missed index, an internal compiler error, of the installation's own resolver, never
+ *   resolved to an index of its relation.
  *
  * Oracle: the specification of coverage for lookups, and the installation's own resolver, which the snapshot's equals.
  *
@@ -28,6 +29,7 @@ import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, String as Str } from "effect"
+import { catchRefusal } from "#compiler/core/canonical.ts"
 import { derivedOf, emptySnapshot, writeRuntimeSnapshot } from "#compiler/deploy/snapshot/build.ts"
 import { servedSnapshot, snapshotResolver } from "#compiler/deploy/snapshot/served.ts"
 import { type AccessIndexRequest, accessKeyText } from "#compiler/ir/products.ts"
@@ -127,10 +129,15 @@ export const aSnapshotResolvesEveryReadAsTheInstallationItRecordsDoes = property
 					`a read by Ledger's key, which no request planned, resolves through the snapshot to its key's index, not ${key.index.name}`
 				)
 				c.note("a key read no request planned resolved")
+				const refused = catchRefusal(() => resolve(unservedRead))
+				assert.ok(
+					!refused.ok && refused.error.reason._tag === "UninstalledIndex",
+					"a read no index of the installation serves is refused through the snapshot as UninstalledIndex"
+				)
 				assert.throws(
-					() => resolve(unservedRead),
+					() => installation.resolve(unservedRead),
 					(e) => Str.includes("a missed index")(String(e)),
-					"a read no index of the installation serves resolves through the snapshot to none"
+					"a read no index of the installation serves resolves through its own resolver to none"
 				)
 				c.note("an unserved request refused")
 			}),
@@ -156,10 +163,10 @@ export const aSnapshotResolvesEveryReadAsTheInstallationItRecordsDoes = property
 			},
 			{
 				file: "packages/engine/src/physical/indexes/engine.ts",
-				original: "\t\treturn hostIn(set, covered.value)?.ref ?? missed(held)\n",
+				original: "\tconst host = hostIn(set, covered.value)\n",
 				replacement:
-					"\t\treturn (hostIn(set, covered.value) ?? set.indexes.find((c) => c.relation === relation))?.ref ?? missed(held)\n",
-				why: "A read no index serves falls back to an index of its relation, one that does not serve it, where it is an internal compiler error."
+					"\tconst host = hostIn(set, covered.value) ?? set.indexes.find((c) => c.relation === relation)\n",
+				why: "A read no index serves falls back to an index of its relation, one that does not serve it, where it is refused through the snapshot and an internal compiler error of the installation's own resolver."
 			}
 		]
 	}

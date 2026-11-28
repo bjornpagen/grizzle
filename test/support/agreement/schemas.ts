@@ -847,6 +847,7 @@ const reasonKey = (reason: CompileReason): string => {
 		case "NoReadCommittedForm":
 		case "UninstalledDomain":
 		case "UninstalledFunction":
+		case "UninstalledIndex":
 		case "MissingDiscriminant":
 		case "AttachedParentUnbound":
 		case "AttachedPage":

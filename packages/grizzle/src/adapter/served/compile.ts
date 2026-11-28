@@ -11,7 +11,7 @@ import {
 	plannedLoginRoles,
 	workloadReach
 } from "#adapter/served/login.ts"
-import { servedFileOf, type UncoveredProgram } from "#adapter/served/project.ts"
+import { type RefusedProgram, servedFileOf } from "#adapter/served/project.ts"
 import { lawsAbove } from "#adapter/witness/keylaw.ts"
 import {
 	type ChangeRefused,
@@ -206,14 +206,14 @@ export interface ServedEntry {
 	readonly openapi: TextChunks
 }
 
-/** A refusal of the projection: an uncovered read's at its program, any other at the login. */
+/** A refusal of the projection: a refused program's at its program (RefusedProgram), any other at the login. */
 const projectionRefusal = (
-	refused: CompileError | UnservedMember | UncoveredProgram
+	refused: CompileError | UnservedMember | RefusedProgram
 ): ServedRefusal =>
-	refused._tag === "UncoveredProgram"
+	refused._tag === "RefusedProgram"
 		? {
 				place: { kind: "program", role: refused.role, program: refused.program },
-				error: refused.read
+				error: refused.error
 			}
 		: atLogin(refused)
 

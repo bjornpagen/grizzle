@@ -16,6 +16,7 @@ import {
 	writeAdvice
 } from "#compiler/plan/change.ts"
 import {
+	catchRefusal,
 	type CompileError,
 	defect,
 	levelChain,
@@ -353,19 +354,34 @@ const memberClocked = (member: WorkloadForm): ReadonlyArray<ClockParamDecl> => {
  * One role of the login, served: its name, its PostgreSQL role, its level, its contexts, its classifier, its wire, read
  * off its classifier once (live/member.ts roleWire), and its members, each read with its footprint among the login's,
  * `footprints`, and each with its wire, read off its form once (live/member.ts memberWire), which a member whose shape
- * no wire spells refuses.
+ * no wire spells refuses. A member whose advice reads through an index the snapshot does not hold is refused at its
+ * program (RefusedProgram), its resolver's UninstalledIndex thrown where the member's advice resolves it (deploy/
+ * snapshot/served.ts snapshotResolver).
  */
 const roleOf = (
 	role: LayerRole,
 	footprints: ProgramFootprints
-): Result.Result<ServedRoleForm, CompileError | UnservedMember> =>
+): Result.Result<ServedRoleForm, CompileError | UnservedMember | RefusedProgram> =>
 	Result.gen(function* () {
+		const name = role.role.name
 		const forms = yield* Result.all(
 			Arr.map(role.workload, (member) =>
-				memberOf(member, footprints, role.artifacts.names, role.resolve)
+				Result.flatMap(
+					Result.mapError(
+						toResult(
+							catchRefusal(() => memberOf(member, footprints, role.artifacts.names, role.resolve))
+						),
+						(error): RefusedProgram => ({
+							_tag: "RefusedProgram",
+							role: name,
+							program: member.name,
+							error
+						})
+					),
+					(served) => served
+				)
 			)
 		)
-		const name = role.role.name
 		const refusals = refusalsOf(role)
 		const wire = roleWire({ refusals })
 		const members = yield* Result.all(
@@ -418,12 +434,16 @@ const servedAbove = (above: LawsAbove): ServedAbove => ({
 	laws: above.laws
 })
 
-/** A watched read the compile refuses, program `program` of role `role`, whose footprint its source does not decode. */
-export interface UncoveredProgram {
-	readonly _tag: "UncoveredProgram"
+/**
+ * A program the projection refuses, program `program` of role `role`: a watched read whose footprint its source does
+ * not decode (UncoveredRead, `uncoveredOf`), or a member whose advice reads through an index the snapshot does not hold
+ * (its CompileError, UninstalledIndex, `roleOf`).
+ */
+export interface RefusedProgram {
+	readonly _tag: "RefusedProgram"
 	readonly role: string
 	readonly program: string
-	readonly read: UncoveredRead
+	readonly error: UncoveredRead | CompileError
 }
 
 /** How a member's read is called (served/forms.ts ServedReadLive), where it is a read; none for a write. */
@@ -469,7 +489,7 @@ const gapsOf = (
 const uncoveredOf = (
 	roles: ReadonlyArray<ServedRoleForm>,
 	source: ServedSnapshot["derived"]["live"]
-): UncoveredProgram | undefined => {
+): RefusedProgram | undefined => {
 	for (const role of roles) {
 		for (const member of role.members) {
 			const live = readLiveOf(member)
@@ -479,10 +499,10 @@ const uncoveredOf = (
 			const [gap, ...gaps] = gapsOf(live, source)
 			if (gap !== undefined) {
 				return {
-					_tag: "UncoveredProgram",
+					_tag: "RefusedProgram",
 					role: role.name,
 					program: member.name,
-					read: { _tag: "UncoveredRead", gaps: [gap, ...gaps] }
+					error: { _tag: "UncoveredRead", gaps: [gap, ...gaps] }
 				}
 			}
 		}
@@ -495,14 +515,14 @@ const uncoveredOf = (
  * base and that level's index, its PostgreSQL role, its base's schema and the prologue's and session's texts, its live
  * source, the codes of exactly the rosters its roles read, the laws above its base, and its roles. A ledger or login
  * role the naming door refuses is its CompileError, a workload ChangeSet no call can serve its UnservedMember, and a
- * live read the snapshot's live source does not serve its UncoveredProgram, a watching login's over a snapshot with no
+ * live read the snapshot's live source does not serve its RefusedProgram, a watching login's over a snapshot with no
  * source among them. A login with no live read, every read of it answered or none at all, holds none and needs none;
  * every other holds the installation's source, whose version notice ends each of its watches at a migration, a
  * constant read's too.
  */
 export const servedFileOf = (
 	compiled: CompiledLogin
-): Result.Result<ServedFile, CompileError | UnservedMember | UncoveredProgram> =>
+): Result.Result<ServedFile, CompileError | UnservedMember | RefusedProgram> =>
 	Result.gen(function* () {
 		const { login, snapshot } = compiled
 		const [first] = compiled.roles

@@ -353,7 +353,9 @@ const programForm = (
 /**
  * The workload of a role: every program of the login's workloads that runs on the role (programsOn), compiled once for
  * the role, its ChangeSets' variants its login's change compile's, `changes`. A program that does not compile for the
- * role is WorkloadRefused naming it, and so is a workload value no workload(...) built, naming none.
+ * role is WorkloadRefused naming it, a read through an index the snapshot does not hold among its refusals (deploy/
+ * snapshot/served.ts snapshotResolver, thrown where its advice resolves it), and so is a workload value no
+ * workload(...) built, naming none.
  */
 const compileRoleWorkload = (
 	name: string,
@@ -371,7 +373,10 @@ const compileRoleWorkload = (
 		for (const program of running) {
 			forms.push(
 				yield* Result.mapError(
-					programForm(role, changes, witness, program),
+					Result.flatMap(
+						toResult(catchRefusal(() => programForm(role, changes, witness, program))),
+						(form) => form
+					),
 					(error) => new WorkloadRefused({ role: name, program: program.name, error })
 				)
 			)

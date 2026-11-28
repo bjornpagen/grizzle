@@ -551,6 +551,11 @@ const keyRefusalText = (key: KeyRefusal): string => keyFaultText(key.subject, ke
  *   workload calls it (physical/install/plan.ts artifactObjects, ServedTypes `library`): a statement is served only
  *   over the functions its installation holds, so a call of another is refused where it is compiled, never by
  *   PostgreSQL where it runs (42883).
+ * - `UninstalledIndex`: a statement at `at` reads through an index serving `request` (physical/indexes/engine.ts
+ *   servingOf, `why` it serves none) that the installation it is compiled for, as its snapshot.json records it, holds
+ *   none of, since no program of the installation's served workload read so when it was planned: a statement is served
+ *   only through the indexes its installation holds, so a read through another is refused where it is compiled, never
+ *   planned by PostgreSQL around an index it lacks.
  */
 export type CompileReason =
 	| { readonly _tag: "Refused"; readonly at: SourceLoc; readonly refusal: Refused }
@@ -780,6 +785,12 @@ export type CompileReason =
 	  }
 	| { readonly _tag: "UninstalledDomain"; readonly at: SourceLoc; readonly domain: UninstalledType }
 	| { readonly _tag: "UninstalledFunction"; readonly at: SourceLoc; readonly fn: string }
+	| {
+			readonly _tag: "UninstalledIndex"
+			readonly at: SourceLoc
+			readonly request: string
+			readonly why: string
+	  }
 export type CompileReasonTag = CompileReason["_tag"]
 
 /**
@@ -1082,6 +1093,8 @@ export const compileReasonText = (reason: CompileReason): string => {
 			return uninstalledText(reason.domain)
 		case "UninstalledFunction":
 			return `the installation installs no library function ${reason.fn}, which none of its artifacts and no program of its served workload calls: serve the program from a workload of a login of the installation and run grizzle generate`
+		case "UninstalledIndex":
+			return `the ${reason.request} is served by no index ${reason.why}: the program reads through an index snapshot.json does not hold, since no program of the installation's served workload read so when it was planned; serve the program from a workload of a login of the installation and run grizzle generate`
 		case "Misdeclared":
 			return misdeclaredText(reason.misdeclared)
 		case "UndeclaredDrop": {

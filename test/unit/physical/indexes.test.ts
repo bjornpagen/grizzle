@@ -608,8 +608,8 @@ export const everyAccessRequestResolvesByWhatItAsksToTheIndexItLandedOn = proper
 			{
 				file: "packages/engine/src/physical/indexes/engine.ts",
 				original:
-					"\t\tconst table = Object.hasOwn(set.relations, relation) ? set.relations[relation] : undefined\n",
-				replacement: "\t\tconst table = Object.values(set.relations)[0]\n",
+					"\tconst table = Object.hasOwn(set.relations, relation) ? set.relations[relation] : undefined\n",
+				replacement: "\tconst table = Object.values(set.relations)[0]\n",
 				why: "A request resolved on the table of the first relation an index is on, whatever its own: a request of another relation states columns that table does not hold, or holds otherwise, and a copy of it names no index or one that does not serve it."
 			},
 			{
@@ -628,8 +628,8 @@ export const everyAccessRequestResolvesByWhatItAsksToTheIndexItLandedOn = proper
 			},
 			{
 				file: "packages/engine/src/physical/indexes/engine.ts",
-				original: "\t\treturn hostIn(set, covered.value)?.ref ?? missed(held)\n",
-				replacement: "\t\treturn set.indexes[0]?.ref ?? missed(held)\n",
+				original: "\tconst host = hostIn(set, covered.value)\n",
+				replacement: "\tconst host = set.indexes[0]\n",
 				why: "Every request resolved to the installation's first index: a request it does not serve names it all the same, and one no index serves names an index."
 			}
 		]

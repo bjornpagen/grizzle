@@ -31,6 +31,7 @@ import {
 import {
 	type BindContext,
 	bindGroups,
+	catchRefusal,
 	type CallerParamDecl,
 	type ClockBinding,
 	type ClockSource,
@@ -330,24 +331,28 @@ export interface CompiledProgram {
 }
 
 /** The program entry of a ChangeSet for a role, compiled now for the contexts `claims` holds a fact of, against the
- * role's artifacts (served/role.ts RoleContext `artifacts`, `witness`). */
+ * role's artifacts (served/role.ts RoleContext `artifacts`, `witness`): refused as UninstalledIndex where its advice
+ * reads through an index the role's snapshot does not hold (deploy/snapshot/served.ts snapshotResolver). */
 const writeEntry = (
 	role: RoleContext,
 	change: ParsedChangeSet,
 	claims: ReadonlySet<string>
 ): Result.Result<CompiledProgram, CompileError> =>
-	Result.map(
+	Result.flatMap(
 		toResult(compileParsed(role.artifacts, change, claims, "serializable", noClock, role.clock)),
-		(entry) => ({
-			entry: runtimeEntry(
-				servableEntry(entry),
-				role.artifacts.names.codes,
-				role.witness,
-				role.bind,
-				role.resolve
-			),
-			program: entry.compiled
-		})
+		(entry) =>
+			toResult(
+				catchRefusal(() => ({
+					entry: runtimeEntry(
+						servableEntry(entry),
+						role.artifacts.names.codes,
+						role.witness,
+						role.bind,
+						role.resolve
+					),
+					program: entry.compiled
+				}))
+			)
 	)
 
 /**
