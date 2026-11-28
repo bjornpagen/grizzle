@@ -143,6 +143,14 @@ export const aStatementsRefusalIsRetrySafeExactlyWherePostgreSQLRolledBackAPatte
 			kept: [],
 			kills: [
 				{
+					file: "packages/engine/src/live/codec.ts",
+					original:
+						"\tconst out: Record<string, WireJson> = { _tag: error._tag, retry: error.retry }",
+					replacement:
+						"\tconst out: Record<string, WireJson> = { kind: error._tag, retry: error.retry }",
+					why: "The wire writes a call error's tag under another member than the one the client reads, `_tag`, so a refusal sent over HTTP decodes as no error; the wire property fails."
+				},
+				{
 					file: "packages/engine/src/live/events.ts",
 					original:
 						'\ttransient: { retry: "safe", payload: { message: "text", reason: "transientReason" } },',
