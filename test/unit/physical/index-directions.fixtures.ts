@@ -7,6 +7,7 @@ import { type Direction, directions, opposite } from "#compiler/core/order.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
+import { paged } from "#compiler/public/workload.ts"
 import { Id } from "#test/support/ids.ts"
 
 /** A direction vector over the order's three columns, a, b and id, in that order. */
@@ -35,15 +36,18 @@ export const vectorOf = (dirs: ReadonlyArray<Direction>): Vector => [
 
 export const text = (vector: ReadonlyArray<Direction>): string => Arr.join(vector, " ")
 
-/** The program ordering T by `vector`, behind an equality on g when `prefixed`. */
+/** The paged program ordering T by `vector`, behind an equality on g when `prefixed`: its pages read the order from an
+ * index, forward and backward (program/workload/value.ts pagedMember). */
 export const program = (vector: Vector, prefixed: boolean) =>
-	query(Dirs)
-		.rule((r) => {
-			const { id, g, a, b } = v(T, "t")
-			const matched = r.match(T, { id, g, a, b })
-			return (prefixed ? matched.where(r.eq(g, r.param("g", Id))) : matched).find({ id, a, b })
-		})
-		.orderBy(["a", vector[0]], ["b", vector[1]], ["id", vector[2]])
+	paged(
+		query(Dirs)
+			.rule((r) => {
+				const { id, g, a, b } = v(T, "t")
+				const matched = r.match(T, { id, g, a, b })
+				return (prefixed ? matched.where(r.eq(g, r.param("g", Id))) : matched).find({ id, a, b })
+			})
+			.orderBy(["a", vector[0]], ["b", vector[1]], ["id", vector[2]])
+	)
 
 const dirGen = element(directions)
 

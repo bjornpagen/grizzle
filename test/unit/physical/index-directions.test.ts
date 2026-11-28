@@ -1,9 +1,11 @@
 /**
  * Access indexes over one column list in several directions (physical/access): a B-tree serves its order forward and
  * its exact reverse backward, so an access index's identity is its columns and its direction vector's class under
- * reversal. Each drawn case is a workload of ordered programs over one relation's columns (a, b, id), every order
+ * reversal. Each drawn case is a workload of paged ordered programs over one relation's columns (a, b, id), every order
  * stated in full, each in a drawn direction vector, optionally behind an equality on g, whose direction within the seek
- * is free. The installation:
+ * is free: a page reads its order from an index, forward or backward, where a plain ordered read sorts every row it
+ * reads, asking no index. The installation is the one `grizzle generate` drafts serving the workload
+ * (test/support/compiled-served.ts servedInstallation), whose indexes its programs' bound plans ask:
  *
  * - succeeds, so no two indexes share an identifier;
  * - creates one access index on the relation per class of the drawn vectors under reversal, its order keys a, b and
@@ -20,14 +22,8 @@ import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Record } from "effect"
-import { withWorkload } from "#compiler/physical/access/extension.ts"
 import { keyTermText } from "#compiler/physical/indexes/engine.ts"
-import { installOptions } from "#compiler/physical/install/compile.ts"
-import { compileInstallation } from "#compiler/program/install.ts"
-import { workload } from "#compiler/program/workload/value.ts"
-import { succeeded } from "#test/support/assert.ts"
-import { compileTestWorkload, testCompile } from "#test/support/compile.ts"
-import { owning } from "#test/support/policy.ts"
+import { servedInstallation } from "#test/support/compiled-served.ts"
 import {
 	canonical,
 	caseGen,
@@ -58,26 +54,16 @@ export const accessIndexesOverOneColumnListInSeveralDirectionsInstallOneIndexPer
 					const programs = Record.fromEntries(
 						Arr.map(vectors, (vector, i) => [`p${i}`, program(vector, prefixed)])
 					)
-					const plan = succeeded(
-						compileTestWorkload(
-							[{ login: "server", workloads: [workload(Dirs, programs)] }],
-							Dirs,
-							testCompile
-						)
-					)
-					const owned = owning(Dirs)
-					const installed = compileInstallation(owned, withWorkload(installOptions(owned), plan))
-					if (!installed.ok) {
-						throw new Error(
-							`${Arr.join(Arr.map(vectors, text), " | ")}: ${installed.error.message}`
-						)
+					const drafted = servedInstallation(Dirs, programs)
+					if (!drafted.ok) {
+						throw new Error(`${Arr.join(Arr.map(vectors, text), " | ")}: ${drafted.error.message}`)
 					}
-					/** The indexes created for the ordered programs: those serving a seek. */
-					const isSeek = (
-						r: (typeof installed.value.indexes)[number]["requests"][number]
-					): boolean => r.role === "access" && (r.use === "page seek" || r.use === "take seek")
+					const indexes = drafted.value.installation.indexes
+					/** The indexes created for the paged programs: those serving a page's seek. */
+					const isSeek = (r: (typeof indexes)[number]["requests"][number]): boolean =>
+						r.role === "access" && r.use === "page seek"
 					const created = Arr.filter(
-						installed.value.indexes,
+						indexes,
 						(i) => i.index.kind === "created" && i.relation === "T" && Arr.some(i.requests, isSeek)
 					)
 					const classes = new Set(Arr.map(vectors, (vector) => text(canonical(vector))))
