@@ -89,9 +89,9 @@ export const aJoinTheStatementsPartsReadJoinedToACarriedPartIsComputedOnceAtTheK
  * write's compile prints each statement it sends once and nothing else, where each part printed its own text beside
  * the single statement's.
  *
- * The count is work, never time: V8's precise coverage counts each call of sql/emit.ts emitText, the printer's one
- * door, and of the composed statements' text maker, unprintedText (kernel/calls.ts everyCallCount). The box is the
- * property above's, exhausted.
+ * The count is work, never time: V8's precise coverage counts each call of sql/emit.ts printedOf, the printer's one
+ * door, which prints every bound statement, emitText's and emitSelect's, and of the composed statements' text maker,
+ * unprintedText (kernel/calls.ts everyCallCount). The box is the property above's, exhausted.
  *
  * Oracle: specification, one print a statement the artifact sends, and one composition a part (the two inserts).
  *

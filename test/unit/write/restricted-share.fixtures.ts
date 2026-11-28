@@ -1,7 +1,7 @@
 /** What restricted-share.test.ts reads: its schema, its box and the statements of a case's write. */
 
 import { element, type Gen } from "@bjornpagen/testing/gen"
-import { Array as Arr, Effect, String as Str } from "effect"
+import { Array as Arr, Effect, Option, String as Str } from "effect"
 import { Fn } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, type Rule, v } from "#compiler/public/query.ts"
@@ -177,9 +177,10 @@ export const statementsOf = (box: Box): ReadonlyArray<string> =>
 	)
 
 /**
- * The case's write compiled, counted: the statements it sends; the statements it prints (sql/emit.ts emitText, the
- * printer's one door); and the statements its single statement composes as parts, which nothing prints
- * (unprintedText), every call of the module counted (kernel/calls.ts everyCallCount).
+ * The case's write compiled, counted: the statements it sends; the statements it prints (sql/emit.ts printedOf, the
+ * printer's one door, the print of each bound statement, emitText's and emitSelect's alike); and the statements its
+ * single statement composes as parts, which nothing prints (unprintedText), every call of the module counted
+ * (kernel/calls.ts everyCallCount).
  */
 export const printsOf = (box: Box) =>
 	Effect.map(
@@ -196,7 +197,7 @@ export const printsOf = (box: Box) =>
 				)
 			return {
 				sent: statements.length,
-				prints: callsOf("emitText"),
+				prints: callsOf("printedOf"),
 				composed: callsOf("unprintedText")
 			}
 		}
@@ -238,9 +239,24 @@ const partsOf = (sql: string): ReadonlyArray<{ readonly name: string; readonly t
 	)
 
 /**
+ * Whether `text` holds a LATERAL sub-query of a join chain that scans Tag itself: `CROSS JOIN LATERAL (SELECT`, a select
+ * list of columns, no parenthesis in it, then `FROM` Tag.
+ */
+const readsTagLaterally = (text: string): boolean =>
+	Arr.some(Arr.drop(Str.split("CROSS JOIN LATERAL (SELECT ")(text), 1), (after) => {
+		const [list, ...rest] = Str.split(" FROM ")(after)
+		return (
+			!Str.includes("(")(list) &&
+			!Str.includes(")")(list) &&
+			Option.exists(Arr.head(rest), Str.startsWith('"restricted_share"."tag" AS '))
+		)
+	})
+
+/**
  * The part of `sql` that holds the labels once restricted: the text of each MATERIALIZED CTE of the statement's WITH, its
  * name, that scans Tag and Item none, and whether it reads its rows LATERAL per key of its key set, a DISTINCT CTE of its
- * own that reads its readers' keys from their parts.
+ * own that reads its readers' keys from their parts: the join chain's `CROSS JOIN LATERAL` whose sub-query scans Tag
+ * (sql/bind.ts, each level's FROM one chain), never the probe of Label per row of Tag inside it.
  */
 export const labelParts = (
 	sql: string
@@ -252,7 +268,7 @@ export const labelParts = (
 						name: part.name,
 						keptByKeys:
 							Str.includes("AS MATERIALIZED (SELECT DISTINCT ")(part.text) &&
-							Str.includes(", LATERAL (SELECT ")(part.text)
+							readsTagLaterally(part.text)
 					}
 				]
 			: []
