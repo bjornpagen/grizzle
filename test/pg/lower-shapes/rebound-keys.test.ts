@@ -9,29 +9,30 @@
  *
  * On PostgreSQL 19, a ledger in small (rebound-keys.fixtures.ts): learners' claims of their sittings, at another
  * refinement than the ledger's learner, each sitting's presentations of its test's items and its moments, a few dozen
- * learners and then a few hundred, under the statistics a VACUUM counts or under misleading ones stating every row one
- * learner's and every stage distinct (pg_restore_attribute_stats); the read of one claimed sitting's items' last span
- * ends, metis's ItemDuration over presentedSpans.
+ * learners and then a few hundred, each load standing every table in a drawn pg_class state (test/support/advice.ts
+ * PgClassState: never vacuumed, counted empty, analyzed, skewed, large); the read of one claimed sitting's items' last
+ * span ends, metis's ItemDuration over presentedSpans, run under the advice it carries.
  *
  * Oracle: a bound, the read's scans read at most three times the sitting's own rows however many learners stand beside
- * it, and whatever the statistics say: stored relations' rows and CTE scans' with what their filters removed.
+ * it, in every pg_class state: stored relations' rows and CTE scans' with what their filters removed.
  *
- * Features: counted and misleading statistics, beside a few learners and beside many.
+ * Features: each pg_class state, beside a few learners and beside many.
  */
 import type { Reached } from "@bjornpagen/testing/features"
 import { property } from "@bjornpagen/testing/property"
-import { Effect } from "effect"
+import { Array as Arr, Effect } from "effect"
 import {
 	type DurationsFeature,
 	durationsGen,
 	durationsTemplate,
 	runDurations
 } from "#test/pg/lower-shapes/rebound-keys.fixtures.ts"
+import { pgClassStates } from "#test/support/advice.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * A read of one learner's sitting, its learner first bound at another refinement than the ledger's, reads that
- * sitting's rows alone however many learners the store holds beside it, under counted statistics and misleading ones.
+ * sitting's rows alone however many learners the store holds beside it, in every pg_class state.
  *
  * Its budget is the runner's: a new property, with no suite before it to carry a count from.
  */
@@ -39,10 +40,9 @@ export const aReadOfOneLearnersSittingBoundAtAnotherRefinementReadsItsOwnRowsAlo
 	property.explore(durationsGen, {
 		needs: { stored: Substrate.rolledBack(durationsTemplate) },
 		situations: [
-			"counted, beside a few learners",
-			"counted, beside many learners",
-			"misleading, beside a few learners",
-			"misleading, beside many learners"
+			"beside a few learners",
+			"beside many learners",
+			...Arr.map(pgClassStates, (state) => `every table ${state}` as const)
 		] satisfies ReadonlyArray<Reached<DurationsFeature>>,
 		check:
 			({ stored }, c) =>
@@ -53,7 +53,7 @@ export const aReadOfOneLearnersSittingBoundAtAnotherRefinementReadsItsOwnRowsAlo
 				}),
 		oracle: {
 			kind: "universal",
-			name: "bound: the read's scans read at most three times the sitting's own rows, stored relations' and CTE scans' with what their filters removed, beside a few dozen learners and beside a few hundred, under counted and misleading statistics"
+			name: "bound: the read's scans read at most three times the sitting's own rows, stored relations' and CTE scans' with what their filters removed, beside a few dozen learners and beside a few hundred, in every pg_class state"
 		},
 		kept: [],
 		kills: [

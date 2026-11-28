@@ -3,19 +3,19 @@
 import { assert } from "@bjornpagen/testing/assert"
 import { type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Formatter } from "effect"
+import { Effect, Formatter } from "effect"
 import { type PlanNode, rowsRead } from "#bench/harness/explain.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, relation, schema, sealed, unit } from "#compiler/public/schema.ts"
+import { pgClassStates, standIn } from "#test/support/advice.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
 import { standUpJudge, upkeepRuns } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
-import { countedAsVacuumed, rowsBeside, rowsPerPage } from "#test/support/substrate/fill.ts"
 
 const i = pg.integer
 
@@ -109,10 +109,10 @@ const nodesOf = (installed: Installed, c: ImportUpkeepCase, from: number, to: nu
 	`(SELECT 0 UNION ALL SELECT t FROM generate_series(1, ${String(c.targets)}) AS t UNION ALL SELECT 50 + t FROM generate_series(1, ${String(c.targets)}) AS t) AS x(e)`
 
 /**
- * One case in its one transaction, which the case's end rolls back: the judge stood up, `beside` packages written, and as
- * many more as make the nodes a table worth planning, and
- * judged (SET CONSTRAINTS ALL IMMEDIATE, Forward's upkeep storing their rows and the deltas emptied), their tables
- * counted as a VACUUM counts them; then one package founded, and Forward's upkeep's statements explained with
+ * One case in its one transaction, which the case's end rolls back, held in every pg_class state (test/support/advice.ts
+ * PgClassState), each within a savepoint rolled back after it: the judge stood up, `beside` packages written a package
+ * at a time and judged (SET CONSTRAINTS ALL IMMEDIATE, Forward's upkeep storing their rows and the deltas emptied), the
+ * nodes and Forward's table stood in the state (standIn); then one package founded, and Forward's upkeep's statements explained with
  * ANALYZE over its deltas as the judge runs them, its removal's loop, its query and each DELETE of one stale row, and
  * then its INSERT (support/judge.ts upkeepRuns). Every statement of the upkeep reads at most four times the founded package's nodes,
  * its region of the written package and the closed import of targets read at it: the targets' definition read at the
@@ -121,6 +121,7 @@ const nodesOf = (installed: Installed, c: ImportUpkeepCase, from: number, to: nu
 export const runImportUpkeep = (
 	installed: Installed,
 	connection: PgConnection,
+	bare: PgConnection,
 	c: ImportUpkeepCase,
 	k: Case<ImportUpkeepFeature>
 ) =>
@@ -128,40 +129,39 @@ export const runImportUpkeep = (
 		yield* standUpJudge(connection, installed.installation)
 		const names = namesOf(installed)
 		const own = c.documents * c.rules * (1 + 2 * c.targets)
-		/** Forward's rows in a package: each rule's targets. */
-		const forward = c.documents * c.rules * c.targets
-		/**
-		 * Packages enough beside the founded one that a scan of the nodes, and of Forward's table, prices past a seek of
-		 * each of the package's rows of it (fill.ts rowsBeside), so PostgreSQL reads each through an index wherever a
-		 * statement binds its key, never a table of a page or two it scans whole.
-		 */
-		const beside =
-			c.beside +
-			Math.max(
-				Math.ceil(rowsBeside(own, rowsPerPage(5 * 4)) / own),
-				Math.ceil(rowsBeside(forward, rowsPerPage(4 * 4)) / forward)
-			)
-		for (const sql of [
-			nodesOf(installed, c, 2, beside + 1),
-			"SET CONSTRAINTS ALL IMMEDIATE",
-			"SET CONSTRAINTS ALL DEFERRED",
-			...Arr.map([names.table(Node), names.table(Forward)], countedAsVacuumed),
-			nodesOf(installed, c, 1, 1)
-		]) {
-			yield* connection.query(sql, [])
-		}
-		const plans: ReadonlyArray<PlanNode> = yield* upkeepRuns(
-			(sql) => connection.queryValues(sql, []),
-			installed.installation,
-			Forward.name
-		)
+		const run = (statements: ReadonlyArray<string>) =>
+			Effect.forEach(statements, (sql) => connection.query(sql, []), { discard: true })
 		const bound = 4 * own
-		for (const [at, plan] of plans.entries()) {
-			const read = rowsRead(plan)
-			assert.ok(
-				read <= bound,
-				`${Formatter.format(c)}: Forward's upkeep's statement ${String(at)} reads ${String(read)} rows beside ${String(beside)} packages, past its bound ${String(bound)} (the founded package's ${String(own)} nodes)`
+		for (const state of pgClassStates) {
+			yield* bare.query("SAVEPOINT the_state", [])
+			yield* standIn(
+				{ values: connection.queryValues },
+				{
+					tables: [names.table(Node), names.table(Forward)],
+					units: c.beside,
+					load: (from, to) =>
+						run([
+							nodesOf(installed, c, from + 1, to + 1),
+							"SET CONSTRAINTS ALL IMMEDIATE",
+							"SET CONSTRAINTS ALL DEFERRED"
+						])
+				},
+				state
 			)
+			yield* run([nodesOf(installed, c, 1, 1)])
+			const plans: ReadonlyArray<PlanNode> = yield* upkeepRuns(
+				(sql) => connection.queryValues(sql, []),
+				installed.installation,
+				Forward.name
+			)
+			for (const [at, plan] of plans.entries()) {
+				const read = rowsRead(plan)
+				assert.ok(
+					read <= bound,
+					`${Formatter.format(c)}, with every table ${state}: Forward's upkeep's statement ${String(at)} reads ${String(read)} rows beside ${String(c.beside)} packages, past its bound ${String(bound)} (the founded package's ${String(own)} nodes)`
+				)
+			}
+			yield* bare.query("ROLLBACK TO SAVEPOINT the_state", [])
 		}
 		k.note(c.beside < 64 ? "beside a few packages" : "beside hundreds of packages")
 	})

@@ -1,7 +1,7 @@
 /** What magic-sets.test.ts reads: its schema, its reads and one case's run. */
 
 import { assert } from "@bjornpagen/testing/assert"
-import { boolean, type Gen, int } from "@bjornpagen/testing/gen"
+import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { type PlanNode, planNodes } from "#bench/harness/explain.ts"
@@ -9,18 +9,20 @@ import { Fn, type Term } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, fn, key, on, relation, rows, schema, unit } from "#compiler/public/schema.ts"
-import { fullWorldRole, servedRead, servedRun } from "#test/support/advice.ts"
+import {
+	fullWorldRole,
+	type PgClassState,
+	pgClassStates,
+	servedRead,
+	servedRun,
+	standIn
+} from "#test/support/advice.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { type Installed } from "#test/support/install-migrate.ts"
 import { fullWorldTemplate } from "#test/support/installed.ts"
 import { readWork, standUpJudge } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import type { PgConnection } from "#test/support/pg.ts"
-import {
-	countedAsVacuumed,
-	type StatedDistinct,
-	statedDistinct
-} from "#test/support/substrate/fill.ts"
 
 const i = pg.integer
 
@@ -445,27 +447,9 @@ export const stageTemplate = fullWorldTemplate({
 })
 
 /**
- * The planner statistics a case reads under: the relations' sizes as a VACUUM counts them, their columns' as nothing
- * states them (`counted`), or the columns of each relation whose order a read's chain decides stated at one value or
- * each its own (`stated`, fill.ts statedDistinct): the attempts and the item sessions the fold joins, the sittings an
- * existence test of the head's rows reads, and the seats and their grades the slot read joins, so the estimates of a
- * seek by any column of one are all its rows or one: a perturbation of the planner's estimates, under which the plan a
- * read carries (cte-policy keyedRegionChain's order, which the declared keys and the call's values prove) stands.
- */
-export type StageStatistics =
-	| { readonly kind: "counted" }
-	| {
-			readonly kind: "stated"
-			readonly attempt: StatedDistinct
-			readonly session: StatedDistinct
-			readonly sitting: StatedDistinct
-			readonly seat: StatedDistinct
-			readonly grade: StatedDistinct
-	  }
-
-/**
  * A case: the children stored, each with `stages` stages of `sessions` item sessions, each of `attempts` attempts and
- * their marks, and the children stored beside them before the read is explained again, under `statistics`.
+ * their marks, the children stored beside them before the read is explained again, and the pg_class state each load
+ * stands every table in (test/support/advice.ts PgClassState).
  */
 export interface StageCase {
 	readonly children: number
@@ -473,22 +457,8 @@ export interface StageCase {
 	readonly sessions: number
 	readonly attempts: number
 	readonly more: number
-	readonly statistics: StageStatistics
+	readonly state: PgClassState
 }
-
-const statedGen: Gen<StatedDistinct> = (s) => (s.draw(boolean) ? "unique" : "one value")
-
-const statisticsGen: Gen<StageStatistics> = (s) =>
-	s.draw(boolean)
-		? {
-				kind: "stated",
-				attempt: s.draw(statedGen),
-				session: s.draw(statedGen),
-				sitting: s.draw(statedGen),
-				seat: s.draw(statedGen),
-				grade: s.draw(statedGen)
-			}
-		: { kind: "counted" }
 
 export const stageGen: Gen<StageCase> = (s) => ({
 	children: s.draw(int(10, 40)),
@@ -496,14 +466,13 @@ export const stageGen: Gen<StageCase> = (s) => ({
 	sessions: s.draw(int(1, 5)),
 	attempts: s.draw(int(2, 4)),
 	more: s.draw(int(60, 200)),
-	statistics: s.draw(statisticsGen)
+	state: s.draw(element<PgClassState>(pgClassStates))
 })
 
 export type StageFeature =
 	| "beside a few children"
 	| "beside many children"
-	| "under statistics stating each attempt its own and every session one"
-	| "under statistics stating each seat's grade its own and every seat one"
+	| `every table ${PgClassState}`
 
 /** The runs of the scans of `table` a plan made, each scan's loops summed: a Bitmap Index Scan's are its heap scan's. */
 const runsOf = (plan: PlanNode, table: string): number =>
@@ -519,9 +488,11 @@ const runsOf = (plan: PlanNode, table: string): number =>
 /**
  * One case in its one transaction, which the case's end rolls back: the children beside (besideChildren) stored, then
  * children 1 to `children`, child c's sitting of each stage, its item session n at stage n mod `stages`, each with
- * `attempts` attempts and a mark each, counted as a VACUUM counts them, under the case's statistics; the read of child
+ * `attempts` attempts and a mark each, every table stood in the case's pg_class state (test/support/advice.ts standIn,
+ * a child its unit); the read of child
  * 1's stage 0 (`by` its sitting, or at the parameters) run under its carried advice once the plan laws hold over it
- * (test/support/advice.ts servedRun); then `more` children stored beside them alike, and the read run again. Both times
+ * (test/support/advice.ts servedRun); then `more` children stored beside them alike, stood in the state again, and the
+ * read run again. Both times
  * its scans read at most three times the stage's stored rows (test/support/judge.ts readWork), its sitting where
  * the read reaches the stage through it, its sessions, their attempts and marks: the head's fold at the sitting's child
  * and stage (a statement site, one evaluation of the fold LATERAL per key) or at the parameters, and the attachment's
@@ -569,31 +540,44 @@ export const runStage = (
 				`INSERT INTO ${names.table(Mark)} SELECT c, 1, 1, 10 ${children}`
 			]
 		}
-		const tables = Arr.map(
-			[Attempt, ItemSession, Mark, Sitting, ChildUser, Seat, SeatGrade, Flag, SeatFlag, Course],
+		const tables: Arr.NonEmptyReadonlyArray<string> = Arr.map(
+			[
+				Attempt,
+				ItemSession,
+				Mark,
+				Sitting,
+				ChildUser,
+				Seat,
+				SeatGrade,
+				Flag,
+				SeatFlag,
+				Course
+			] as const,
 			(t) => names.table(t)
 		)
-		const stated =
-			c.statistics.kind === "counted"
-				? []
-				: [
-						statedDistinct(names.table(Attempt), c.statistics.attempt),
-						statedDistinct(names.table(ItemSession), c.statistics.session),
-						statedDistinct(names.table(Sitting), c.statistics.sitting),
-						statedDistinct(names.table(Seat), c.statistics.seat),
-						statedDistinct(names.table(SeatGrade), c.statistics.grade)
-					]
+		const session = { values: connection.queryValues }
+		const run = (statements: ReadonlyArray<string>) =>
+			Effect.forEach(statements, (sql) => connection.query(sql, []), { discard: true })
 		yield* standUpJudge(connection, installed.installation)
-		for (const sql of [
-			`INSERT INTO ${names.table(Flag)} VALUES (true), (false)`,
-			`INSERT INTO ${names.table(Course)} SELECT s, s, 0, s FROM generate_series(0, ${String(c.stages - 1)}) AS t(s)`,
-			...beside(besideFirst, besideFirst + besideChildren - 1),
-			...stored(1, c.children),
-			...Arr.map(tables, countedAsVacuumed),
-			...stated
-		]) {
-			yield* connection.query(sql, [])
-		}
+		yield* standIn(
+			session,
+			{
+				tables,
+				units: c.children,
+				load: (from, to) =>
+					run([
+						...(from === 1
+							? [
+									`INSERT INTO ${names.table(Flag)} VALUES (true), (false)`,
+									`INSERT INTO ${names.table(Course)} SELECT s, s, 0, s FROM generate_series(0, ${String(c.stages - 1)}) AS t(s)`,
+									...beside(besideFirst, besideFirst + besideChildren - 1)
+								]
+							: []),
+						...stored(from, to)
+					])
+			},
+			c.state
+		)
 		const { read: program, params: at } = stageReads(c.stages)[by]
 		const read = yield* servedRead(
 			installed,
@@ -647,26 +631,16 @@ export const runStage = (
 				}
 			})
 		yield* bounded(c.children)
-		for (const sql of [
-			...stored(c.children + 1, c.children + c.more),
-			...Arr.map(tables, countedAsVacuumed)
-		]) {
-			yield* connection.query(sql, [])
-		}
+		yield* standIn(
+			session,
+			{
+				tables,
+				units: c.more,
+				load: (from, to) => run(stored(c.children + from, c.children + to))
+			},
+			c.state
+		)
 		yield* bounded(c.children + c.more)
 		k.note(c.children < 25 ? "beside a few children" : "beside many children")
-		if (
-			c.statistics.kind === "stated" &&
-			c.statistics.attempt === "unique" &&
-			c.statistics.session === "one value"
-		) {
-			k.note("under statistics stating each attempt its own and every session one")
-		}
-		if (
-			c.statistics.kind === "stated" &&
-			c.statistics.grade === "unique" &&
-			c.statistics.seat === "one value"
-		) {
-			k.note("under statistics stating each seat's grade its own and every seat one")
-		}
+		k.note(`every table ${c.state}`)
 	})

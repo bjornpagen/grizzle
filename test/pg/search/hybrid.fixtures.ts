@@ -25,9 +25,7 @@ import {
 	unitVector,
 	vectorText
 } from "#test/support/pg/vector/ann/support.ts"
-import { countedAsVacuumed } from "#test/support/substrate/fill.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * A hybrid search on PostgreSQL 19 with pgvector, as an assignment engine's catalog search makes it: a lesson's nearest
@@ -439,12 +437,6 @@ export const hybridSeededTemplate = seededGeneratedTemplate(
 	(installed) => loadMigrated(installed, catalogFacts(seededCatalog)),
 	seededBudget
 )
-
-/** Counts Lesson's size as autovacuum's VACUUM does (fill.ts countedAsVacuumed), so the planner reads it. */
-export const analyzed = (installed: Installed) =>
-	Effect.flatMap(Substrate, (s) =>
-		s.admin.query(countedAsVacuumed(namesOf(installed).table(Lesson)), [])
-	)
 
 /** Whether a member's executed statements read Lesson through the HNSW index its nearest arm requested. */
 export const servedByHnsw = (

@@ -4,25 +4,21 @@ import { assert, defined } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option } from "effect"
+import type { Fixture } from "#bench/query/support/kit.ts"
 import {
 	attemptLabel,
 	installWrites,
 	observedChange,
 	openFull,
-	owner,
 	ownerTransaction
 } from "#bench/write/support/writes.ts"
-import { quoteIdent, quoteString } from "#compiler/core/text.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { natural, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema, unit } from "#compiler/public/schema.ts"
+import { type PgClassState, pgClassStates, standIn } from "#test/support/advice.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
-import {
-	countedAsVacuumed,
-	type StatedDistinct,
-	statedDistinct
-} from "#test/support/substrate/fill.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 const i = pg.integer
@@ -109,22 +105,15 @@ export type Form = "inputs" | "share" | "fold" | "array" | "pair"
 
 const forms = ["inputs", "share", "fold", "array", "pair"] as const satisfies ReadonlyArray<Form>
 
-/**
- * How a case's statistics stand: as the stored rows' counts leave them; each column stated (fill.ts statedDistinct); or
- * the sessions and attempts the call's rows read stated a million rows a page (pg_restore_relation_stats), the adversary
- * of a join PostgreSQL's estimates choose: the call's attempts then look as many as the store's snapshots, so a flat
- * join of the two hashes the snapshots whole, where a fenced step still seeks them per attempt.
- */
-export type Statistics = "counted" | StatedDistinct | "held set large"
-
+/** A case: the form of the call's rows, and the pg_class state every table stands in (test/support/advice.ts PgClassState). */
 export interface HeldCase {
 	readonly form: Form
-	readonly statistics: Statistics
+	readonly state: PgClassState
 }
 
 export const heldGen: Gen<HeldCase> = (s) => ({
 	form: s.draw(element<Form>(forms)),
-	statistics: s.draw(element<Statistics>(["counted", "unique", "one value", "held set large"]))
+	state: s.draw(element<PgClassState>(pgClassStates))
 })
 
 export type HeldFeature =
@@ -133,10 +122,7 @@ export type HeldFeature =
 	| "a fold's region read at the call's keys"
 	| "the call's array beside a unit's rows"
 	| "a definition the call's rows bind"
-	| "under counted statistics"
-	| "under statistics stating each value its own"
-	| "under statistics stating every row one value"
-	| "under statistics stating the call's rows large"
+	| `every table ${PgClassState}`
 
 const sittingsHeading = { child: i, stage: i } as const
 
@@ -306,50 +292,35 @@ const next = [
 const items = [1, 2, 3] as const
 
 /**
- * The statements storing learners 1 to `learners`: each learner's sessions of the three items at both stages, learner
- * 1's history of as many more sessions of another package at stage 7 as learners stored (a unit's rows, growing), two
- * attempts of each item, a snapshot of two variables of each attempt, the feedback of each first attempt; the tags of
- * every snapshot's value; then each table counted as a VACUUM counts it and its columns' statistics as stated.
+ * The load of learners 1 to `learners` (test/support/advice.ts StateLoad), a learner its unit, each call one owner's
+ * transaction judged at its COMMIT (bench/write/support/writes.ts ownerTransaction): each learner's sessions of the
+ * three items at both stages, a session more of learner 1's history of another package at stage 7 (a unit's rows,
+ * growing with the learners stored), two attempts of each item, a snapshot of two variables of each attempt, and the
+ * feedback of each first attempt.
  */
-const stored = (
-	installed: Parameters<typeof namesOf>[0],
-	learners: number,
-	statistics: Statistics
-): ReadonlyArray<string> => {
-	const names = namesOf(installed)
-	const g = `generate_series(1, ${String(learners)}) AS g(child)`
+const stored = (fx: Fixture<unknown>, learners: number) => {
+	const names = namesOf(fx.installed)
 	const it = `unnest(ARRAY[${Arr.join(Arr.map(items, String), ", ")}]) AS it(path)`
-	const tables = Arr.map([Session, Attempt, Snapshot, Feedback], (t) => names.table(t))
 	const columns = (r: Parameters<typeof names.table>[0], fs: ReadonlyArray<string>) =>
 		`${names.table(r)} (${Arr.join(
 			Arr.map(fs, (f) => quoteIdent(names.columnIdent(r, f))),
 			", "
 		)})`
-	return [
-		`INSERT INTO ${columns(Session, ["child", "stage", "package", "path"])} SELECT child, stage, 1, path FROM ${g}, generate_series(0, 1) AS st(stage), ${it}`,
-		`INSERT INTO ${columns(Session, ["child", "stage", "package", "path"])} SELECT 1, 7, 2, path FROM generate_series(100, 99 + ${String(learners)}) AS h(path)`,
-		`INSERT INTO ${columns(Attempt, ["child", "package", "path", "n"])} SELECT child, 1, path, n FROM ${g}, ${it}, generate_series(1, 2) AS a(n)`,
-		`INSERT INTO ${columns(Snapshot, ["child", "package", "path", "n", "variable", "value"])} SELECT child, 1, path, n, variable, variable FROM ${g}, ${it}, generate_series(1, 2) AS a(n), generate_series(1, 2) AS b(variable)`,
-		`INSERT INTO ${columns(Feedback, ["child", "package", "path", "n", "note"])} SELECT child, 1, path, 1, path FROM ${g}, ${it}`,
-		...Arr.map(tables, countedAsVacuumed),
-		...(statistics === "counted"
-			? []
-			: statistics === "held set large"
-				? Arr.map([Session, Attempt], (t) => statedLarge(names.table(t)))
-				: Arr.map(tables, (t) => statedDistinct(t, statistics)))
-	]
+	return {
+		tables: Arr.map([Session, Attempt, Snapshot, Feedback] as const, (t) => names.table(t)),
+		units: learners,
+		load: (from: number, to: number) => {
+			const g = `generate_series(${String(from)}, ${String(to)}) AS g(child)`
+			return ownerTransaction(fx, [
+				`INSERT INTO ${columns(Session, ["child", "stage", "package", "path"])} SELECT child, stage, 1, path FROM ${g}, generate_series(0, 1) AS st(stage), ${it}`,
+				`INSERT INTO ${columns(Session, ["child", "stage", "package", "path"])} SELECT 1, 7, 2, 99 + child FROM ${g}`,
+				`INSERT INTO ${columns(Attempt, ["child", "package", "path", "n"])} SELECT child, 1, path, n FROM ${g}, ${it}, generate_series(1, 2) AS a(n)`,
+				`INSERT INTO ${columns(Snapshot, ["child", "package", "path", "n", "variable", "value"])} SELECT child, 1, path, n, variable, variable FROM ${g}, ${it}, generate_series(1, 2) AS a(n), generate_series(1, 2) AS b(variable)`,
+				`INSERT INTO ${columns(Feedback, ["child", "package", "path", "n", "note"])} SELECT child, 1, path, 1, path FROM ${g}, ${it}`
+			])
+		}
+	}
 }
-
-/**
- * The statement that states a table a million rows a page, whatever it holds: the planner reads a table's size as its
- * stated density, rows over pages, times the pages it holds (estimate_rel_size), so a million rows over ten thousand
- * pages states a table of a few pages smaller than it is, and a million rows over one page states each page it holds a
- * million rows.
- */
-const statedLarge = (quoted: string): string =>
-	"SELECT pg_catalog.pg_restore_relation_stats('schemaname', n.nspname::text, 'relname', c.relname::text, " +
-	"'relpages', 1, 'reltuples', 1000000::real, 'relallvisible', 1) FROM pg_catalog.pg_class AS c " +
-	`JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace WHERE c.oid = ${quoteString(quoted)}::pg_catalog.regclass`
 
 /** The rows `form`'s write leaves in its target: learner 1's of the two stages, each item's once. */
 const expected = (form: Form): number =>
@@ -377,11 +348,7 @@ const runAt = (c: HeldCase, learners: number) =>
 			})
 			const S = build(fx.installed.declared)
 			const names = namesOf(fx.installed)
-			const [first, ...rest] = stored(fx.installed, learners, c.statistics)
-			yield* ownerTransaction(fx, [defined(first, "a seed"), ...rest.slice(0, 5)])
-			for (const statement of rest.slice(5)) {
-				yield* owner(statement)
-			}
+			yield* standIn({ values: s0.admin.queryValues }, stored(fx, learners), c.state)
 			const db = yield* openFull(fx, S)
 			const read = new Map<string, number>()
 			const observed = yield* observedChange(db, changeOf(S, c.form), attemptLabel, {
@@ -456,7 +423,7 @@ export const runHeld = (c: HeldCase, k: Case<HeldFeature>) =>
 		for (const [a, b] of Arr.zip(defined(few, "the few"), defined(many, "the many"))) {
 			assert.ok(
 				b.rows <= a.rows,
-				`${c.form} under ${c.statistics} statistics: the write reads ${String(b.rows)} rows of ${b.relation} beside ${String(scales[1])} learners, ${String(a.rows)} beside ${String(scales[0])} (${at(few)}; ${at(many)})`
+				`${c.form} with every table ${c.state}: the write reads ${String(b.rows)} rows of ${b.relation} beside ${String(scales[1])} learners, ${String(a.rows)} beside ${String(scales[0])} (${at(few)}; ${at(many)})`
 			)
 		}
 		if (c.form === "fold") {
@@ -466,7 +433,7 @@ export const runHeld = (c: HeldCase, k: Case<HeldFeature>) =>
 			const once = new Set(Arr.map(seats, (s) => s.stage)).size * items.length * 2
 			assert.ok(
 				attempts <= once,
-				`fold under ${c.statistics} statistics: the write reads ${String(attempts)} attempts beside ${String(scales[1])} learners, more than its stages' ${String(once)}, the region evaluated again for a seat naming a stage another named`
+				`fold with every table ${c.state}: the write reads ${String(attempts)} attempts beside ${String(scales[1])} learners, more than its stages' ${String(once)}, the region evaluated again for a seat naming a stage another named`
 			)
 		}
 		k.note(
@@ -480,13 +447,5 @@ export const runHeld = (c: HeldCase, k: Case<HeldFeature>) =>
 							? "a definition the call's rows bind"
 							: "the call's array beside a unit's rows"
 		)
-		k.note(
-			c.statistics === "counted"
-				? "under counted statistics"
-				: c.statistics === "unique"
-					? "under statistics stating each value its own"
-					: c.statistics === "one value"
-						? "under statistics stating every row one value"
-						: "under statistics stating the call's rows large"
-		)
+		k.note(`every table ${c.state}`)
 	})

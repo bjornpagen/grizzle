@@ -6,18 +6,17 @@
  * packages and every item of each under each term, and edullm's `sets`, each term a current package states with how
  * many current packages state it and how many items its item set holds.
  *
- * - **once**: packages stored, then as many again and more, the idea terms growing with them, under each state of the
- *   tables' sizes autovacuum leaves an installation in, its columns' statistics declared (read-once.fixtures.ts
- *   StatsState: counted after each load, after the first only, empty and then after each load, or after each load over a
- *   case rolled back): the terms read (`sets`) answers
+ * - **once**: packages stored, then as many again and more, the idea terms growing with them, each load standing the
+ *   tables in a drawn pg_class state (test/support/advice.ts PgClassState: never vacuumed, counted empty, analyzed,
+ *   skewed, large), each read run under the advice it carries once the plan laws hold over it: the terms read (`sets`)
+ *   answers
  *   the host's count of every term's packages and items, the heads read (`versions`'s classifications) every current
  *   package with its three terms, and every scan either plan runs more than once, of a stored relation or of a CTE it
  *   derived once, handles fewer rows a run than there are packages, so its work grows with what it reads, not with its
  *   square, and the heads read reads each stored row at most twice. A parallel scan's leader and workers are one run of
- *   it. An installation whose sizes count no row is outside
- *   the envelope (R1): there every estimate is one row and PostgreSQL may
- *   read the classifications' eight elements by unparameterized inner scans, 2.5 s at 150 packages, 12.7 s at 450,
- *   where any counted state reads them in 37 ms. Before rule 5b a derived relation joined to another stood
+ *   it. Before the plan was carried as advice, an installation whose sizes counted no row was outside the envelope
+ *   (R1): there every estimate was one row and PostgreSQL read the classifications' eight elements by unparameterized
+ *   inner scans, 2.5 s at 150 packages, 12.7 s at 450, where any counted state read them in 37 ms. Before rule 5b a derived relation joined to another stood
  *   as the inner side of a nested loop PostgreSQL re-derived for each outer row, and the attachment's fold restricted
  *   ItemSet to each term inside its grouping, deriving it once per term: edullm's `sets` took six minutes at 206
  *   packages. A derived set joined as a set would be scanned whole for each row of the region's other occurrences, or
@@ -32,14 +31,14 @@
  *   change, no region of theirs being past the collapse limit (each state's plans measured on a cluster of our own).
  */
 import { property } from "@bjornpagen/testing/property"
-import { Effect } from "effect"
+import { Array as Arr, Effect } from "effect"
 import {
 	type ReadOnceFeature,
 	readOnceGen,
 	readOnceTemplate,
-	runReadOnce,
-	statsStates
+	runReadOnce
 } from "#test/pg/lower-shapes/read-once.fixtures.ts"
+import { pgClassStates } from "#test/support/advice.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
@@ -78,17 +77,17 @@ export const aWorkloadReadDerivesEachDerivedRelationOncePerStatementSoNoScanRead
 		situations: [
 			"a package taken away",
 			"every package current",
-			...statsStates
+			...Arr.map(pgClassStates, (state) => `every table ${state}` as const)
 		] satisfies ReadonlyArray<ReadOnceFeature>,
 		check:
 			({ ledger }, c) =>
 			(drawn) =>
-				Effect.flatMap(ledger, ({ connection, bare, value }) =>
-					runReadOnce(value.installed, connection, bare, drawn, c)
+				Effect.flatMap(ledger, ({ connection, value }) =>
+					runReadOnce(value.installed, connection, drawn, c)
 				),
 		oracle: {
 			kind: "universal",
-			name: "the host's count of every term's current packages and items and of every current package's terms, and bound: every scan either read runs more than once, of a stored relation or of a CTE it derived, reads fewer rows a run than the packages stored, at two sizes, under each counted state of the tables' sizes, a parallel scan's processes one run"
+			name: "the host's count of every term's current packages and items and of every current package's terms, and bound: every scan either read runs more than once, of a stored relation or of a CTE it derived, reads fewer rows a run than the packages stored, at two sizes, in each pg_class state, a parallel scan's processes one run"
 		},
 		budget: { runs: 17, steered: 200 },
 		kept: [],

@@ -2,7 +2,7 @@
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { array, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
-import { Array as Arr, Effect } from "effect"
+import { Array as Arr } from "effect"
 import type { ExecutedPlan, ExecutedStatement } from "#adapter/types/db.ts"
 import { planNodes } from "#bench/harness/explain.ts"
 import { Distance } from "#compiler/public/compute.ts"
@@ -10,7 +10,6 @@ import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
-import { printObjectName } from "#compiler/sql/print.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import type { FactSet } from "#test/support/oracle/install/load.ts"
@@ -21,8 +20,6 @@ import {
 	unitVector,
 	vectorText
 } from "#test/support/pg/vector/ann/support.ts"
-import { countedAsVacuumed } from "#test/support/substrate/fill.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * Nearest reads on PostgreSQL 19 with pgvector, as an assignment engine makes them: the lessons of a catalog nearest the
@@ -242,21 +239,6 @@ export const populationFacts = (p: Population): FactSet => {
 		Seen: seenRows
 	}
 }
-
-/** Counts the population's tables' sizes as autovacuum's VACUUM does (fill.ts countedAsVacuumed), so the planner reads
- * them. */
-export const analyzed = (installed: Installed) =>
-	Effect.flatMap(Substrate, (s) =>
-		Effect.forEach(
-			["Lesson", "Item", "Seen"],
-			(r) =>
-				s.admin.query(
-					countedAsVacuumed(printObjectName(installed.installation.names.relation(r))),
-					[]
-				),
-			{ discard: true }
-		)
-	)
 
 /**
  * The nodes of a member's executed statements that read Lesson through the HNSW index its searches requested, as the

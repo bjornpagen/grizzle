@@ -24,7 +24,6 @@ import { namesOf } from "#test/support/kernel/naming.ts"
 import type { PgConnection } from "#test/support/pg.ts"
 import { storedSeed } from "#test/support/stored.ts"
 import { pgErrorFields } from "#test/support/substrate/errors.ts"
-import { countedAsVacuumed } from "#test/support/substrate/fill.ts"
 import type { SubstrateTemplate } from "#test/support/substrate/substrate.ts"
 
 /**
@@ -129,10 +128,8 @@ export type ConcatProbeFeature =
 /**
  * One case in its one transaction over a clone of its template (concatProbeTemplates), which the case's end rolls back:
  * the template's `packages` packages of `references` committed references, reference i of each named
- * `scope<i / 10>.var<i>`, counted as a VACUUM counts them (fill.ts countedAsVacuumed), as autovacuum leaves a loaded
- * table: an ANALYZE there, which samples a hundred rows of a
- * table of declared statistics, counted no live row over the pages earlier cases' rolled-back loads left dead, so
- * PostgreSQL priced every read of Ref at one row and probed it by its primary key's package alone; then, through the
+ * `scope<i / 10>.var<i>`, read under the advice each judged query carries, so no estimate of Ref's rows prices it at one
+ * row and probes it by its primary key's package alone, as one did when PostgreSQL chose; then, through the
  * captures, `written` variables of package 1, each a reference's scope and name, whose rows the deltas hold until the judge
  * reads them. Each query the judge raises on is explained over them before the judge runs (test/support/judge.ts
  * judgedPlans), and then the judge runs (SET CONSTRAINTS ALL IMMEDIATE) and accepts the lawful state: every scan of Ref
@@ -154,13 +151,12 @@ export const runConcatProbe = (
 		const r = (f: "package" | "path" | "start" | "identifier") => names.column(Ref, f)
 		const s = (f: "package" | "scope" | "variable") => names.column(Var, f)
 		const pkg = (p: string) => `'package/' || (${p})`
-		const loaded = [countedAsVacuumed(ref), countedAsVacuumed(variable)]
 		/** Written variable k is reference k·(references / written)'s, of package 1, spread over its references. */
 		const written = [
 			"SET CONSTRAINTS ALL DEFERRED",
 			`INSERT INTO ${variable} (${s("package")}, ${s("scope")}, ${s("variable")}) SELECT ${pkg("1")}, 'scope' || (k * ${Math.floor(stored.references / stored.written)} / 10), 'var' || (k * ${Math.floor(stored.references / stored.written)}) FROM generate_series(0, ${stored.written - 1}) AS k(k)`
 		]
-		for (const sql of [...loaded, ...written]) {
+		for (const sql of written) {
 			yield* connection.query(sql, [])
 		}
 		/** The most rows one lookup of Ref matches. */

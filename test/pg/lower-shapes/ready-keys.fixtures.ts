@@ -21,7 +21,14 @@ import {
 	unit
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { fullWorldRole, servedRead, servedRun } from "#test/support/advice.ts"
+import {
+	fullWorldRole,
+	type PgClassState,
+	pgClassStates,
+	servedRead,
+	servedRun,
+	standIn
+} from "#test/support/advice.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
 import { fullWorldTemplate } from "#test/support/installed.ts"
@@ -30,7 +37,6 @@ import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
 import { indexesRead, plainIndexesOf } from "#test/support/read-indexes.ts"
-import { countedAsVacuumed, misleadingDistinct } from "#test/support/substrate/fill.ts"
 
 /** A Clerk user, as metis's ClerkUser. */
 const Clerk = str.regex("^user_[0-9A-Za-z]{1,64}$")
@@ -519,15 +525,6 @@ export const storedTemplate = templateOf("stored", "ready keys stored", "ready_k
 export const liveTemplate = templateOf("live", "ready keys live", "ready_keys_live")
 
 /**
- * The statistics the planner reads of the ledger: what a VACUUM counts, or misleading ones that state every row one
- * learner's and one sitting's (fill.ts misleadingDistinct), where a column is no anchor the installation declares, so an
- * estimate would read every learner's assignments and every sitting's events as one row each; an anchor keeps its
- * declaration, as no ANALYZE changes it. A sitting's attempts keep their counted round. Every read stands on the plan
- * it carries whatever an estimate says.
- */
-export type Statistics = "counted" | "misleading"
-
-/**
  * The read a case explains under the claims: learner 1's list (myAssignments), a coach's review of learner 1's first
  * sitting behind the guard of the signed-in operator's permission (coachSitting), learner 1's first sitting by its number
  * (myAssignment), learner 1's open sittings of its first sitting's test (myOpenSittingsOf), or the responses of learner
@@ -548,7 +545,7 @@ export interface ReadyCase {
 	readonly assignments: number
 	readonly tests: number
 	readonly more: number
-	readonly statistics: Statistics
+	readonly state: PgClassState
 }
 
 export const readyGen: Gen<ReadyCase> = (s) => ({
@@ -557,10 +554,12 @@ export const readyGen: Gen<ReadyCase> = (s) => ({
 	assignments: s.draw(int(2, 12)),
 	tests: s.draw(int(2, 6)),
 	more: s.draw(int(100, 400)),
-	statistics: s.draw(element(["counted", "misleading"] as const))
+	state: s.draw(element<PgClassState>(pgClassStates))
 })
 
-export type ReadyFeature = `${Read}, ${Statistics}, beside ${"a few" | "many"} learners`
+export type ReadyFeature =
+	| `${Read}, beside ${"a few" | "many"} learners`
+	| `every table ${PgClassState}`
 
 /**
  * The learners a ledger stores beside a case's before any of them, numbered past every learner a case stores, each as a
@@ -658,11 +657,11 @@ const paramsOf = (read: Read): Readonly<Record<string, unknown>> => {
  * The ledger of `storage` filled for a case, in the case's one transaction, which the case's end rolls back: learners 1
  * to `learners` stored (learner c the person `person c`, signed in as Clerk user `user_c`), their assignments, events,
  * invalidations, reinstatements and grants, every stored view brought up to them as a commit would (SET CONSTRAINTS ALL
- * IMMEDIATE runs the upkeep the judge defers to COMMIT), counted as a VACUUM counts them, their learners, numbers, Clerk
- * users and grants' people stated misleading where the case draws it (fill.ts misleadingDistinct), beside the learners a
- * ledger stores first (`besideLearners`), under claims naming `user_1`; with each read as a served Db runs it, run under
+ * IMMEDIATE runs the upkeep the judge defers to COMMIT), beside the learners a ledger stores first (`besideLearners`),
+ * every table stood in the case's pg_class state (test/support/advice.ts standIn, a learner its unit), under claims
+ * naming `user_1`; with each read as a served Db runs it, run under
  * its carried advice once the plan laws hold over it (test/support/advice.ts servedRun), and its rows, and `more`
- * learners stored beside them alike.
+ * learners stored beside them alike, stood in the state again.
  */
 const filled = (
 	storage: Storage,
@@ -728,45 +727,30 @@ const filled = (
 				`INSERT INTO ${names.table(Grant)} SELECT 'person ' || g.c, ${capability("superAdmin")} ${learners} WHERE g.c % 4 = 0`
 			]
 		}
-		const statistics = (): ReadonlyArray<string> => [
-			...Arr.map(tables, countedAsVacuumed),
-			...(c.statistics === "misleading"
-				? [
-						...misleadingDistinct(names.table(Assignment), [
-							["child", "1"],
-							["number", "1"]
-						]),
-						...Arr.flatMap([SittingEvent, Invalidation, Reinstatement], (t) =>
-							misleadingDistinct(names.table(t), [
-								["child", "1"],
-								["number", "1"]
-							])
-						),
-						...misleadingDistinct(names.table(Response), [
-							["child", "1"],
-							["attempt", "1"]
-						]),
-						...misleadingDistinct(names.table(ClerkAccount), [
-							["clerk", "1"],
-							["person", "1"]
-						]),
-						...misleadingDistinct(names.table(Grant), [["person", "1"]])
-					]
-				: [])
-		]
-		for (const sql of [
+		const session: BenchSession = { values: connection.queryValues }
+		const run = (statements: ReadonlyArray<string>) =>
+			Effect.forEach(statements, (sql) => connection.query(sql, []), { discard: true })
+		const tablesIn = Arr.isReadonlyArrayNonEmpty(tables)
+			? tables
+			: assert.fail("a ledger of no stored table")
+		yield* run([
 			...names.standUps,
 			`INSERT INTO ${names.table(Test)} SELECT t, 'test ' || t, t FROM generate_series(1, ${String(c.tests)}) AS t`,
 			`INSERT INTO ${names.table(TestWithdrawn)} VALUES (1)`,
-			...stored(besideFirst, besideFirst + besideLearners - 1),
-			...stored(1, c.learners),
-			"SET CONSTRAINTS ALL IMMEDIATE",
-			...statistics(),
+			...stored(besideFirst, besideFirst + besideLearners - 1)
+		])
+		yield* standIn(
+			session,
+			{
+				tables: tablesIn,
+				units: c.learners,
+				load: (from, to) => run([...stored(from, to), "SET CONSTRAINTS ALL IMMEDIATE"])
+			},
+			c.state
+		)
+		yield* run([
 			`SELECT pg_catalog.set_config('grizzle.claims', '{"Session":{"sub":"user_1"}}', true)`
-		]) {
-			yield* connection.query(sql, [])
-		}
-		const session: BenchSession = { values: connection.queryValues }
+		])
 		/** A read's statement, with its parameters (paramsOf): its run under its advice, and its rows. */
 		const reading = (read: Read) =>
 			Effect.map(
@@ -781,14 +765,15 @@ const filled = (
 					rows: connection.queryValues(served.statement.sql, served.params(paramsOf(read)))
 				})
 			)
-		const more = Effect.forEach(
-			[
-				...stored(c.learners + 1, c.learners + c.more),
-				"SET CONSTRAINTS ALL IMMEDIATE",
-				...statistics()
-			],
-			(sql) => connection.query(sql, []),
-			{ discard: true }
+		const more = standIn(
+			session,
+			{
+				tables: tablesIn,
+				units: c.more,
+				load: (from, to) =>
+					run([...stored(c.learners + from, c.learners + to), "SET CONSTRAINTS ALL IMMEDIATE"])
+			},
+			c.state
 		)
 		return { reading, more, tables }
 	})
@@ -826,15 +811,16 @@ export const runReady = (
 		yield* bounded(c.learners)
 		yield* ledger.more
 		yield* bounded(c.learners + c.more)
-		k.note(`${c.read}, ${c.statistics}, beside ${c.learners < 15 ? "a few" : "many"} learners`)
+		k.note(`${c.read}, beside ${c.learners < 15 ? "a few" : "many"} learners`)
+		k.note(`every table ${c.state}`)
 	})
 
 /**
- * A case of the workload: every read of it over the ledger of one storage, filled as a read's case fills it, under the
- * statistics a VACUUM counts: the plans the workload's indexes are built for, where the misleading ones are each read's
- * own bound's to survive.
+ * A case of the workload: every read of it over the ledger of one storage, filled as a read's case fills it, every
+ * table analyzed: the indexes the workload's plans read do not hang on a state, which each read's own bound holds in
+ * every one.
  */
-export type WorkloadCase = Omit<ReadyCase, "read" | "statistics">
+export type WorkloadCase = Omit<ReadyCase, "read" | "state">
 
 export const workloadGen: Gen<WorkloadCase> = (s) => ({
 	learners: s.draw(int(5, 30)),
@@ -877,12 +863,12 @@ export const runWorkload = (
 	k: Case<WorkloadFeature>
 ) =>
 	Effect.gen(function* () {
-		const ledger = yield* filled(storage, installed, connection, { ...c, statistics: "counted" })
+		const ledger = yield* filled(storage, installed, connection, { ...c, state: "analyzed" })
 		yield* ledger.more
 		const used = new Set<string>()
 		for (const read of reads) {
 			const plan = yield* (yield* ledger.reading(read)).explained
-			const bound = boundOf({ ...c, read, statistics: "counted" })
+			const bound = boundOf({ ...c, read, state: "analyzed" })
 			const work = readWork(plan)
 			assert.ok(
 				work <= bound,

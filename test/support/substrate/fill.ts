@@ -1,5 +1,4 @@
 import { Array as Arr, Data, Effect, Option, Predicate } from "effect"
-import { quoteString } from "#compiler/core/text.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 
 /**
@@ -295,66 +294,3 @@ export const rowsBeside = (probes: number, perPage: number): number => {
 	const exponent = Arr.findFirst(Arr.range(0, 30), (k) => scan(2 ** k) > 2 * probed)
 	return 2 ** Option.getOrThrow(exponent)
 }
-
-/**
- * The statement that records a filled table's size as a VACUUM of it counts it, where no VACUUM can run, in a
- * transaction: its pages, read off its blocks, its live rows, counted, and every page all-visible
- * (pg_restore_relation_stats). A table of declared statistics takes its size from nothing else: its columns' statistics
- * are the declaration's, which an ANALYZE leaves, and an ANALYZE of none of its columns samples a hundred rows
- * (analyze.c's least sample), so over pages a rolled-back load left dead it can count no live row at all, and every
- * estimate of the table is then one row.
- */
-export const countedAsVacuumed = (quoted: string): string =>
-	"SELECT pg_catalog.pg_restore_relation_stats('schemaname', n.nspname::text, 'relname', c.relname::text, " +
-	`'relpages', p.pages, 'reltuples', (SELECT pg_catalog.count(*) FROM ${quoted})::real, 'relallvisible', p.pages) ` +
-	"FROM pg_catalog.pg_class AS c JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace, " +
-	"LATERAL (SELECT (pg_catalog.pg_relation_size(c.oid) / pg_catalog.current_setting('block_size')::bigint)::integer AS pages) AS p " +
-	`WHERE c.oid = ${quoteString(quoted)}::pg_catalog.regclass`
-
-/**
- * How a table's columns' statistics are stated (`statedDistinct`): each value its own (every value of each column one
- * row's), or one value (every row of the table at one value of each column).
- */
-export type StatedDistinct = "unique" | "one value"
-
-/**
- * The statement that states every column of a table its installation declares at a count of values at `stated`
- * distinct values in its transaction (pg_restore_attribute_stats, n_distinct -1 or 1), whatever its rows hold: a planner's
- * estimate of a seek by such columns is then one row of it, or all of them, so a plan its estimates choose is the one
- * those statements lead to, and a plan its lowering fixes stands whatever they state. A column the installation declares
- * by a share of the table's rows (physical/statistics/declared.ts, a negative n_distinct) keeps its declaration: an
- * anchor, which holds a bounded number of rows a value at any size, a unit's key, a key's scope or a field a containment
- * proves determines one, and a key of one column, each value its own. It is a fact of the schema's keys, units and
- * containments, as a unique index's values are each their own, which no ANALYZE, stale or fresh, states otherwise, and
- * the index PostgreSQL takes for a seek stands on it: a child's seats read by the child's user and ordered by the seat,
- * the user stated at one value, were read through the seats' key in order, every child's seats.
- */
-export const statedDistinct = (quoted: string, stated: StatedDistinct): string =>
-	"SELECT pg_catalog.pg_restore_attribute_stats('schemaname', n.nspname::text, 'relname', c.relname::text, " +
-	`'attname', a.attname::text, 'inherited', false, 'n_distinct', ${stated === "unique" ? "-1" : "1"}::real) ` +
-	"FROM pg_catalog.pg_class AS c JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace " +
-	"JOIN pg_catalog.pg_attribute AS a ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped " +
-	`WHERE c.oid = ${quoteString(quoted)}::pg_catalog.regclass AND NOT EXISTS (SELECT FROM pg_catalog.pg_stats AS s ` +
-	"WHERE s.schemaname = n.nspname AND s.tablename = c.relname AND s.attname = a.attname AND s.n_distinct < 0)"
-
-/**
- * The statements that state each of `columns` of a table its installation declares, by its name, at its number of
- * distinct values (pg_restore_attribute_stats n_distinct, a share of the rows where negative), whatever its rows hold:
- * statistics that mislead a planner's estimates of a read, as `statedDistinct` states every column. A column the
- * installation declares by a share of the table's rows, an anchor, keeps its declaration there too: a fact of the
- * schema's keys, units and containments, which no ANALYZE states otherwise (physical/statistics/declared.ts), so the
- * statistics a case states are ones a production's table can hold beside its keys.
- */
-export const misleadingDistinct = (
-	quoted: string,
-	columns: ReadonlyArray<readonly [column: string, distinct: string]>
-): ReadonlyArray<string> =>
-	Arr.map(
-		columns,
-		([column, distinct]) =>
-			"SELECT pg_catalog.pg_restore_attribute_stats('schemaname', n.nspname::text, 'relname', c.relname::text, " +
-			`'attname', ${quoteString(column)}::text, 'inherited', false, 'null_frac', 0::real, 'n_distinct', ${distinct}::real) ` +
-			"FROM pg_catalog.pg_class AS c JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace " +
-			`WHERE c.oid = ${quoteString(quoted)}::pg_catalog.regclass AND NOT EXISTS (SELECT FROM pg_catalog.pg_stats AS s ` +
-			`WHERE s.schemaname = n.nspname AND s.tablename = c.relname AND s.attname = ${quoteString(column)} AND s.n_distinct < 0)`
-	)

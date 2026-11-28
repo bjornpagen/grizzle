@@ -21,10 +21,10 @@
  * `leads`), where every learner's assignments of the test in number order were an index no plan read.
  *
  * On PostgreSQL 19, a ledger in small (ready-keys.fixtures.ts): learners signed in as Clerk users, each learner's
- * assignments, their events, invalidations, reinstatements and grants, a few learners and then a few hundred more, under
- * the statistics a VACUUM counts or under misleading ones stating every row one learner's, one sitting's and one Clerk
- * user's (pg_restore_attribute_stats); under claims naming learner 1's Clerk user, the read of its list, or of a coach's
- * review of its first sitting behind the guard.
+ * assignments, their events, invalidations, reinstatements and grants, a few learners and then a few hundred more, each
+ * load standing every table in a drawn pg_class state (test/support/advice.ts PgClassState: never vacuumed, counted
+ * empty, analyzed, skewed, large); under claims naming learner 1's Clerk user, the read of its list, or of a coach's
+ * review of its first sitting behind the guard, each run under the advice it carries.
  *
  * The ledger in two forms: its views stored at the learner's unit, as metis's installation holds them, where a read of
  * the status at a sitting's number is keyed through the dependency its definition proves (analysis/derived/drawn.ts
@@ -52,13 +52,13 @@
  * (lower/optimize/eliminate R03.containedEquality), so the responses are read at their key's prefix and the workload
  * builds no index over them, where the attempt alone asked one, a B-tree insert on every response.
  *
- * Features: the list, one sitting, the open sittings of a test, the guarded review and a sitting's responses, counted
- * and misleading statistics, beside a few learners and beside many; for the workload, beside a few learners and beside
+ * Features: the list, one sitting, the open sittings of a test, the guarded review and a sitting's responses, each
+ * beside a few learners and beside many, and each pg_class state; for the workload, beside a few learners and beside
  * many.
  */
 import type { Reached } from "@bjornpagen/testing/features"
 import { property, ReplayToken } from "@bjornpagen/testing/property"
-import { Effect } from "effect"
+import { Array as Arr, Effect } from "effect"
 import {
 	liveLawsTemplate,
 	liveTemplate,
@@ -72,35 +72,21 @@ import {
 	type WorkloadFeature,
 	workloadGen
 } from "#test/pg/lower-shapes/ready-keys.fixtures.ts"
+import { pgClassStates } from "#test/support/advice.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
-/** Every read under counted and misleading statistics, beside a few learners and beside many. */
+/** Every read beside a few learners and beside many, and every pg_class state. */
 const situations = [
-	"list, counted, beside a few learners",
-	"list, counted, beside many learners",
-	"list, misleading, beside a few learners",
-	"list, misleading, beside many learners",
-	"guard, counted, beside a few learners",
-	"guard, counted, beside many learners",
-	"guard, misleading, beside a few learners",
-	"guard, misleading, beside many learners",
-	"one, counted, beside a few learners",
-	"one, counted, beside many learners",
-	"one, misleading, beside a few learners",
-	"one, misleading, beside many learners",
-	"open, counted, beside a few learners",
-	"open, counted, beside many learners",
-	"open, misleading, beside a few learners",
-	"open, misleading, beside many learners",
-	"responses, counted, beside a few learners",
-	"responses, counted, beside many learners",
-	"responses, misleading, beside a few learners",
-	"responses, misleading, beside many learners"
+	...Arr.flatMap(["list", "guard", "one", "open", "responses"] as const, (read) => [
+		`${read}, beside a few learners` as const,
+		`${read}, beside many learners` as const
+	]),
+	...Arr.map(pgClassStates, (state) => `every table ${state}` as const)
 ] as const satisfies ReadonlyArray<Reached<ReadyFeature>>
 
 const oracle = {
 	kind: "universal",
-	name: "bound: the read's scans read at most a fixed number of rows for each sitting it reads and a few more, stored relations' and CTE scans' with what their filters removed, beside a few learners and beside a few hundred, under counted and misleading statistics"
+	name: "bound: the read's scans read at most a fixed number of rows for each sitting it reads and a few more, stored relations' and CTE scans' with what their filters removed, beside a few learners and beside a few hundred, in every pg_class state"
 } as const
 
 /**
@@ -133,7 +119,7 @@ const noDependencies = {
 
 /**
  * A signed-in learner's reads, its views stored at the learner's unit as metis's installation holds them, read its own
- * rows alone however many learners the store holds beside it, under counted statistics and misleading ones.
+ * rows alone however many learners the store holds beside it, in every pg_class state.
  *
  * Its budget is the runner's: a new property, with no suite before it to carry a count from.
  */

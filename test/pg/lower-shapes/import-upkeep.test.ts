@@ -11,11 +11,12 @@
  * re-derives its package's rows, each rule element and the targets under it read by a seek of the package's key, O(n
  * log N) for the package's n nodes, however many packages the store holds.
  *
- * On PostgreSQL 19 (import-upkeep.fixtures.ts): packages enough to make each table worth planning, and a few more or a
- * few hundred more, written and judged, then one founded, and Forward's upkeep explained over its deltas.
+ * On PostgreSQL 19 (import-upkeep.fixtures.ts): a few packages or a few hundred, written and judged, the tables stood in
+ * each pg_class state (test/support/advice.ts PgClassState), then one founded, and Forward's upkeep explained over its
+ * deltas under the advice it carries.
  *
- * Oracle: the bound, each statement of the upkeep reads at most four times the founded package's nodes, under no planner
- * setting.
+ * Oracle: the bound, each statement of the upkeep reads at most four times the founded package's nodes, in every
+ * pg_class state, under no planner setting.
  *
  * Features: a founding beside a few packages and beside hundreds.
  */
@@ -45,8 +46,8 @@ export const anUpkeepReadsAClosedImportAtTheUnitsItsWriteWrote = property.explor
 		({ stored }, c) =>
 		(drawn) =>
 			Effect.gen(function* () {
-				const { connection, value } = yield* stored
-				yield* runImportUpkeep(value, connection, drawn, c)
+				const { connection, bare, value } = yield* stored
+				yield* runImportUpkeep(value, connection, bare, drawn, c)
 			}),
 	oracle: {
 		kind: "universal",

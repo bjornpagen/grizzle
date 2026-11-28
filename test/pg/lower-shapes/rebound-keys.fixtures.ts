@@ -8,14 +8,20 @@ import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { fullWorldRole, servedRead, servedRun } from "#test/support/advice.ts"
+import {
+	fullWorldRole,
+	type PgClassState,
+	pgClassStates,
+	servedRead,
+	servedRun,
+	standIn
+} from "#test/support/advice.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { type Installed } from "#test/support/install-migrate.ts"
 import { fullWorldTemplate } from "#test/support/installed.ts"
 import { readWork } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import type { PgConnection } from "#test/support/pg.ts"
-import { countedAsVacuumed, misleadingDistinct } from "#test/support/substrate/fill.ts"
 
 /** A learner's id as the ledger keys it, a text of a byte bound, as metis's LearnerId. */
 const Learner = str.bytes(69, str.regex("^.+$", "su"))
@@ -102,31 +108,25 @@ export const durationsTemplate = fullWorldTemplate({
 })
 
 /**
- * The statistics the planner reads of the ledger: what a VACUUM counts, or misleading ones that state every row one
- * learner's and every stage distinct (pg_restore_attribute_stats), so an estimate would read a stage's rows as one
- * learner's and a learner's as every row, under which the read's carried plan stands.
- */
-export type Statistics = "counted" | "misleading"
-
-/**
  * A case: the learners stored, every one's sitting at stage 0 of one test of `items` items, each presented once with a
- * moment after it, and the learners stored beside them before the read is explained again.
+ * moment after it, the learners stored beside them before the read is explained again, and the pg_class state each load
+ * stands every table in (test/support/advice.ts PgClassState).
  */
 export interface DurationsCase {
 	readonly learners: number
 	readonly items: number
 	readonly more: number
-	readonly statistics: Statistics
+	readonly state: PgClassState
 }
 
 export const durationsGen: Gen<DurationsCase> = (s) => ({
 	learners: s.draw(int(10, 40)),
 	items: s.draw(int(2, 6)),
 	more: s.draw(int(60, 200)),
-	statistics: s.draw(element(["counted", "misleading"] as const))
+	state: s.draw(element<PgClassState>(pgClassStates))
 })
 
-export type DurationsFeature = `${Statistics}, beside ${"a few" | "many"} learners`
+export type DurationsFeature = `every table ${PgClassState}` | `beside ${"a few" | "many"} learners`
 
 /**
  * The learners a case stores beside its own before any of them, numbered past every learner a case stores, each with a
@@ -145,20 +145,13 @@ const besideLearners = (installed: Installed, rows: number): ReadonlyArray<strin
 	]
 }
 
-/** The misleading statistics of `table`'s learner and stage: one learner, every stage distinct (fill.ts misleadingDistinct). */
-const misleadingOf = (table: string): ReadonlyArray<string> =>
-	misleadingDistinct(table, [
-		["child", "1"],
-		["stage", "-1"]
-	])
-
 /**
  * One case in its one transaction, which the case's end rolls back: learners 1 to `learners` stored, each's claim and
- * sitting at stage 0 of one test, each of its `items` items presented at 10 j with a moment at 10 j + 5, counted as a
- * VACUUM counts them beside the learners a case stores first (`besideLearners`), their learner and stage stated
- * misleading where the case draws it; the read of learner 1's claimed sitting run under its carried advice once the
- * plan laws hold over it (test/support/advice.ts servedRun); then `more` learners stored beside them alike, and the read
- * run again. Both times its work (test/support/judge.ts readWork) is at most three times the sitting's own rows
+ * sitting at stage 0 of one test, each of its `items` items presented at 10 j with a moment at 10 j + 5, beside the
+ * learners a case stores first (`besideLearners`), every table stood in the case's pg_class state (test/support/advice.ts
+ * standIn, a learner its unit); the read of learner 1's claimed sitting run under its carried advice once the
+ * plan laws hold over it (test/support/advice.ts servedRun); then `more` learners stored beside them alike, stood in the
+ * state again, and the read run again. Both times its work (test/support/judge.ts readWork) is at most three times the sitting's own rows
  * (its claim, its sitting, its test's items, its presentations, and for each presentation the sitting's moments): the
  * folds keyed at the learner, the item and the stage, each presentation's moments read by the learner's key. A fold keyed
  * at the item and the stage alone reads every learner's presentations of the stage, and each one's moments, ten times
@@ -172,7 +165,10 @@ export const runDurations = (
 ) =>
 	Effect.gen(function* () {
 		const names = namesOf(installed)
-		const tables = Arr.map([Claim, Session, Presented, Moment, Member], (t) => names.table(t))
+		const tables: Arr.NonEmptyReadonlyArray<string> = Arr.map(
+			[Claim, Session, Presented, Moment, Member] as const,
+			(t) => names.table(t)
+		)
 		const stored = (from: number, to: number) => {
 			const learners = `FROM generate_series(${String(from)}, ${String(to)}) AS g(c)`
 			const presented = `${learners}, generate_series(1, ${String(c.items)}) AS h(j)`
@@ -183,23 +179,30 @@ export const runDurations = (
 				`INSERT INTO ${names.table(Moment)} SELECT 'learner ' || c, 0, 10 * j + 5 ${presented}`
 			]
 		}
-		const statistics = (): ReadonlyArray<string> => [
-			...Arr.map(tables, countedAsVacuumed),
-			...(c.statistics === "misleading"
-				? Arr.flatMap([Claim, Session, Presented, Moment], (t) => misleadingOf(names.table(t)))
-				: [])
-		]
+		const session = { values: connection.queryValues }
+		const run = (statements: ReadonlyArray<string>) =>
+			Effect.forEach(statements, (sql) => connection.query(sql, []), { discard: true })
 		/** The sitting's own rows: its claim, its sitting, its test's items, its presentations, and for each the moments. */
 		const own = 2 + 2 * c.items + c.items * c.items
 		const bound = 3 * own
-		for (const sql of [
-			`INSERT INTO ${names.table(Member)} SELECT 'package', 'test', 'item ' || j FROM generate_series(1, ${String(c.items)}) AS h(j)`,
-			...besideLearners(installed, bound + 1),
-			...stored(1, c.learners),
-			...statistics()
-		]) {
-			yield* connection.query(sql, [])
-		}
+		yield* standIn(
+			session,
+			{
+				tables,
+				units: c.learners,
+				load: (from, to) =>
+					run([
+						...(from === 1
+							? [
+									`INSERT INTO ${names.table(Member)} SELECT 'package', 'test', 'item ' || j FROM generate_series(1, ${String(c.items)}) AS h(j)`,
+									...besideLearners(installed, bound + 1)
+								]
+							: []),
+						...stored(from, to)
+					])
+			},
+			c.state
+		)
 		const read = yield* servedRead(
 			installed,
 			fullWorldRole(installed, Ledger, []),
@@ -218,9 +221,16 @@ export const runDurations = (
 				)
 			})
 		yield* bounded(c.learners)
-		for (const sql of [...stored(c.learners + 1, c.learners + c.more), ...statistics()]) {
-			yield* connection.query(sql, [])
-		}
+		yield* standIn(
+			session,
+			{
+				tables,
+				units: c.more,
+				load: (from, to) => run(stored(c.learners + from, c.learners + to))
+			},
+			c.state
+		)
 		yield* bounded(c.learners + c.more)
-		k.note(`${c.statistics}, beside ${c.learners < 25 ? "a few" : "many"} learners`)
+		k.note(`every table ${c.state}`)
+		k.note(`beside ${c.learners < 25 ? "a few" : "many"} learners`)
 	})

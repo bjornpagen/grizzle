@@ -8,12 +8,12 @@
  *   candidates' catalog, the search by the row's catalog. Every search here runs on one served Db with no writer beside
  *   it, so each call reads the same database, and PostgreSQL's HNSW search, given one graph and one query vector, the
  *   same candidates.
- * - Its plan, where PostgreSQL serves it from the HNSW index, holds one scan of that index, ordered by the vector the
+ * - Its plan, under the advice it carries, holds one scan of the HNSW index, ordered by the vector the
  *   statement reads once, before the scan, from the item's key: a scan that ran for a stored item, and one never
  *   executed for an absent one, whose emptiness the statement's one-time filter states.
  * - A record of reads answers one row, which holds each read's own answer: the search's candidates, the learner's seen
  *   lessons in their order, the item's row, each equal to its read's own answer, read alone; it is one statement, whose
- *   search, where PostgreSQL serves it from the HNSW index, is one scan of it.
+ *   search, under the advice it carries, is one scan of the HNSW index.
  *
  * Oracle: the two-step reference over the same served Db, and each read's own answer; PostgreSQL's executed plan as the
  * served member's explainAnalyze reports it, naming the HNSW index by the installation's names.
@@ -29,7 +29,6 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import {
-	analyzed,
 	candidateTexts,
 	hnswScans,
 	Nearest,
@@ -81,7 +80,6 @@ export const aSearchWhoseQueryVectorIsAStoredItemsByItsKeyAnswersWhatReadingTheI
 								nearestInstall,
 								taken
 							)
-							yield* analyzed(o.installed)
 							return yield* Effect.gen(function* () {
 								const db = yield* Db.open(o.served.login.roles.app, {})
 								for (const probe of c.probes) {
@@ -141,7 +139,7 @@ export const aSearchWhoseQueryVectorIsAStoredItemsByItsKeyAnswersWhatReadingTheI
 									})
 									const plan = hnswScans(o.installed, executed)
 									assert.equal(plan.statements, 1, `${at}: one statement`)
-									assert.ok(plan.scans.length <= 1, `${at}: one HNSW scan at most`)
+									assert.equal(plan.scans.length, 1, `${at}: one HNSW scan, as its advice carries`)
 									const [scan] = plan.scans
 									if (scan !== undefined) {
 										if (row === undefined) {
@@ -219,7 +217,6 @@ export const aRecordOfReadsAnswersOneRowHoldingEachReadsOwnAnswerTheSearchsCandi
 								nearestInstall,
 								taken
 							)
-							yield* analyzed(o.installed)
 							return yield* Effect.gen(function* () {
 								const db = yield* Db.open(o.served.login.roles.app, {})
 								for (const probe of c.probes) {
@@ -273,7 +270,7 @@ export const aRecordOfReadsAnswersOneRowHoldingEachReadsOwnAnswerTheSearchsCandi
 									const executed = yield* db.workload.reads.explainAnalyze(input)
 									const plan = hnswScans(o.installed, executed)
 									assert.equal(plan.statements, 1, `${at}: a record is one statement`)
-									assert.ok(plan.scans.length <= 1, `${at}: one HNSW scan at most`)
+									assert.equal(plan.scans.length, 1, `${at}: one HNSW scan, as its advice carries`)
 									if (plan.scans.length === 1 && item.size > 0) {
 										k.note("a nearest read in the record served by one HNSW scan")
 									}

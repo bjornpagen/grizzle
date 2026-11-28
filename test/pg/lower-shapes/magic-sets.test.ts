@@ -23,16 +23,15 @@
  * it: stored relations' rows and CTE scans' with what their filters removed (test/support/judge.ts readWork), the read
  * run under its carried advice once the plan laws hold over it (test/support/advice.ts servedRun).
  *
- * The bound holds under any planner statistics of the fold's relations: a case states the attempts' and the item
- * sessions' columns at one value or each its own, or none, and the read's carried plan stands under each; a region held
- * at the statement's parameters is chained by its declared keys as a per-key read is.
+ * The bound holds in every pg_class state of the fold's relations (test/support/advice.ts PgClassState: never vacuumed,
+ * counted empty, analyzed, skewed, large), each load standing every table in a drawn one, and the read's carried plan
+ * stands in each; a region held at the statement's parameters is chained by its declared keys as a per-key read is.
  *
- * Features: a read beside a few children and beside many, and under statistics stating each attempt its own and every
- * session one.
+ * Features: a read beside a few children and beside many, and in each pg_class state.
  */
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Kill, property } from "@bjornpagen/testing/property"
-import { Effect } from "effect"
+import { Array as Arr, Effect } from "effect"
 import {
 	runStage,
 	type StageFeature,
@@ -40,11 +39,12 @@ import {
 	stageGen,
 	stageTemplate
 } from "#test/pg/lower-shapes/magic-sets.fixtures.ts"
+import { pgClassStates } from "#test/support/advice.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** The bound every read's property holds (runStage). */
 const boundOracle =
-	"bound: the read's scans read at most three times the stage's stored rows, stored relations' and CTE scans' with what their filters removed, beside 139 children of one stage and a few dozen of the case's, then a few hundred more, under any statistics and the read's carried advice"
+	"bound: the read's scans read at most three times the stage's stored rows, stored relations' and CTE scans' with what their filters removed, beside 139 children of one stage and a few dozen of the case's, then a few hundred more, in every pg_class state, under the read's carried advice"
 
 /** The property over one of the reads (StageRead), its oracle `oracle`, with its kills. */
 const stageProperty = (by: StageRead, oracle: string, kills: ReadonlyArray<Kill>) =>
@@ -53,8 +53,7 @@ const stageProperty = (by: StageRead, oracle: string, kills: ReadonlyArray<Kill>
 		situations: [
 			"beside a few children",
 			"beside many children",
-			"under statistics stating each attempt its own and every session one",
-			"under statistics stating each seat's grade its own and every seat one"
+			...Arr.map(pgClassStates, (state) => `every table ${state}` as const)
 		] satisfies ReadonlyArray<Reached<StageFeature>>,
 		check:
 			({ stored }, c) =>
@@ -88,7 +87,7 @@ export const aFoldReadByAHeadAndByItsAttachmentIsComputedAtTheHeadsKeysSoAReadOf
 			file: "packages/engine/src/lower/shapes/region/index.ts",
 			original: "\tif (plan !== undefined && parts.from.length === parts.occurrences.length) {\n",
 			replacement: "\tif (false) {\n",
-			why: "A per-key region reads its relations in the order PostgreSQL's estimates choose: under statistics stating each attempt its own and every session one, the fold's attempts are read by the child, every stage's, before its stage's sessions bind each, past three times the stage's rows."
+			why: "A per-key region reads its relations in its FROM's order, not the chain its declared keys prove: the fold's attempts are read by the child, every stage's, before its stage's sessions bind each, past three times the stage's rows."
 		},
 		{
 			file: "packages/engine/src/lower/shapes/share/keys.ts",
@@ -96,12 +95,6 @@ export const aFoldReadByAHeadAndByItsAttachmentIsComputedAtTheHeadsKeysSoAReadOf
 			replacement:
 				'\t\t\t\t\tif (source.kind === "Base" || source.kind !== "Base") {\n\t\t\t\t\t\tcontinue\n',
 			why: "The parent key stops at the attachment's region: the fold it reads is read there as the statement's CTE, a site of its key set, whose keys the head's rows of it give, a cycle, so the fold is derived whole for every child stored."
-		},
-		{
-			file: "test/pg/lower-shapes/magic-sets.fixtures.ts",
-			original: "\t\t\t...beside(besideFirst, besideFirst + besideChildren - 1),\n",
-			replacement: "",
-			why: "No children stored beside the case's, its tables a page or two: PostgreSQL prices a sequential scan of each below a probe by its index and reads every row the store holds, past three times the stage's (205 to 404 rows against bounds of 15 to 27 at ten children), where enable_seqscan and enable_bitmapscan switched off stood in for a store worth planning."
 		}
 	])
 

@@ -18,29 +18,29 @@
  * with both of its attempts' variables, one join read twice, navigated from the sittings' columns (navigate.ts
  * navigatedRule `inputs`); and in the array form learner 1's history
  * growing with the store (edullm's answerTestItem `next` rules), the array leading by its rank (cte-policy Rank `held`,
- * the call's own rows above a unit's). Four learners, then two thousand, are stored, under counted statistics, statistics stating each value its
- * own or every row one value (pg_restore_attribute_stats), or the sessions and attempts the call's rows read stated a
- * million rows a page (pg_restore_relation_stats; the planner scales a stated density by the pages a table holds), the
- * adversary under which a flat join hashes the snapshots whole beside
- * the call's attempts and a fenced step still seeks them per attempt. No planner setting is changed. Each case installs
- * the schema twice, once a scale.
+ * the call's own rows above a unit's). Four learners, then two thousand, are stored, a learner at a time, every table
+ * stood in a drawn pg_class state (test/support/advice.ts PgClassState: never vacuumed, counted empty, analyzed,
+ * skewed, large), the write's statements run under the advice they carry, so no estimate of a state chooses a flat join
+ * that hashes the snapshots whole beside the call's attempts. No planner setting is changed. Each case installs the
+ * schema twice, once a scale.
  *
  * Oracle: store invariance, the rows the write reads of each learner relation (each its sequential scans' rows and its
  * indexes' entries returned, pg_stat_get_xact_tuples_returned, so an index-only read counts as a read) beside two thousand
- * learners are at most those beside four, under any statistics; and a region holding a fold is evaluated once at each
+ * learners are at most those beside four, in every pg_class state; and a region holding a fold is evaluated once at each
  * stage the call's seats name, at its key set, its attempts read once a stage. Specification: the write commits and its target holds learner 1's rows.
  *
- * Features: each form of the call's rows; each statistics.
+ * Features: each form of the call's rows; each pg_class state.
  */
 import type { Reached } from "@bjornpagen/testing/features"
 import { property } from "@bjornpagen/testing/property"
-import { Effect } from "effect"
+import { Array as Arr, Effect } from "effect"
 import { type HeldFeature, heldGen, runHeld } from "#test/pg/lower-shapes/held-drives.fixtures.ts"
+import { pgClassStates } from "#test/support/advice.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * A write reading the call's rows reads the same rows of every learner relation however many learners stand beside
- * them, under any statistics: each relation the rows bind on a key is read per row at their values.
+ * them, in every pg_class state: each relation the rows bind on a key is read per row at their values.
  *
  * Its budget is the runner's: a new property, with no suite before it to carry a count from.
  */
@@ -52,10 +52,7 @@ export const aHeldSetsRowsDriveEveryStoredReadTheyBindOnAKey = property.explore(
 		"a fold's region read at the call's keys",
 		"the call's array beside a unit's rows",
 		"a definition the call's rows bind",
-		"under counted statistics",
-		"under statistics stating each value its own",
-		"under statistics stating every row one value",
-		"under statistics stating the call's rows large"
+		...Arr.map(pgClassStates, (state) => `every table ${state}` as const)
 	] satisfies ReadonlyArray<Reached<HeldFeature>>,
 	check:
 		({ substrate }, k) =>
@@ -67,7 +64,7 @@ export const aHeldSetsRowsDriveEveryStoredReadTheyBindOnAKey = property.explore(
 			),
 	oracle: {
 		kind: "universal",
-		name: "store invariance: the rows a write reads of each learner relation beside two thousand learners are at most those beside four, under any statistics; a fold's region evaluated once a key"
+		name: "store invariance: the rows a write reads of each learner relation beside two thousand learners are at most those beside four, in every pg_class state; a fold's region evaluated once a key"
 	},
 	kept: [],
 	kills: [

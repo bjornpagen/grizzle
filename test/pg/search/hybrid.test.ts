@@ -18,7 +18,7 @@
  *   so is the hybrid served alone.
  *
  * Box: a catalog of up to 2,400 lessons each case draws and loads into its own clone, or the seeded catalog of 2^16
- * lessons, which PostgreSQL's planner reads through the HNSW index, loaded once per member by its template's build
+ * lessons, read through the HNSW index under the advice each read carries, loaded once per member by its template's build
  * (hybrid.fixtures.ts seededCatalog, hybridSeededTemplate), where each large case loaded one of its own, its HNSW walk
  * past the case deadline; and up to eight probes of it.
  *
@@ -36,7 +36,6 @@ import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import {
-	analyzed,
 	armTake,
 	Catalog,
 	catalogOf,
@@ -110,7 +109,6 @@ export const aHybridSearchFusesItsArmsByReciprocalRankInOneStatementEachArmTheRo
 				Effect.provideService(
 					Effect.gen(function* () {
 						const o = yield* openedIn(Catalog, hybridFacts(c), hybridInstall, taken)
-						yield* analyzed(o.installed)
 						const { session } = yield* Substrate
 						const reference = yield* session({ ...ownerSession(), label: "hybrid reference" })
 						return yield* Effect.gen(function* () {

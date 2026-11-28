@@ -8,13 +8,19 @@ import { type PlanNode, rowsRead } from "#bench/harness/explain.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, relation, schema } from "#compiler/public/schema.ts"
-import { fullWorldRole, servedRead, servedRun } from "#test/support/advice.ts"
+import {
+	fullWorldRole,
+	type PgClassState,
+	pgClassStates,
+	servedRead,
+	servedRun,
+	standIn
+} from "#test/support/advice.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { type Installed } from "#test/support/install-migrate.ts"
 import { fullWorldTemplate } from "#test/support/installed.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import type { PgConnection } from "#test/support/pg.ts"
-import { countedAsVacuumed } from "#test/support/substrate/fill.ts"
 
 /**
  * A package's XML, every element of every document one row of one table, as pantry stores QTI content: the package,
@@ -253,35 +259,11 @@ export const readOnceTemplate = fullWorldTemplate({
 })
 
 /**
- * Where the tables' sizes stand when each read is planned, each a state autovacuum leaves an installation in, every
- * column's statistics the installation's declared ones (physical/statistics), which no ANALYZE replaces: counted after
- * each load, as a VACUUM counts a table (fill.ts countedAsVacuumed); counted after the first load only, so the second
- * read is planned on the first's sizes, stale; counted empty before any load, as autovacuum may leave a new
- * installation, and after each load; and counted after each load over a previous case rolled back, its rows dead in the
- * tables' pages and its in-place sizes (pg_class's relpages, reltuples and relallvisible, which no rollback restores) the
- * tables' own until the first count, as a clone a case before this one ran in holds them. An ANALYZE counted them here
- * before: of a table whose every column's statistics are declared it samples a hundred rows (analyze.c's least sample),
- * which over the pages earlier cases left dead counted none of a table's thousands, or a tenth of them, and a read was
- * planned on one row.
- */
-export type StatsState =
-	| "counted after each load"
-	| "counted after the first load only"
-	| "counted empty, then after each load"
-	| "counted after each load, over a case rolled back"
-
-export const statsStates = [
-	"counted after each load",
-	"counted after the first load only",
-	"counted empty, then after each load",
-	"counted after each load, over a case rolled back"
-] as const satisfies ReadonlyArray<StatsState>
-
-/**
  * A case: how many packages are stored, then how many more, each with its items, every item's body elements and the
  * manifest's resources beside its LOM, how many packages share each idea term (the ideas are as many as the packages
  * over that, so the terms grow with the packages, as a course's topics do with its lessons), every how many-th
- * package a deletion version took away (none at 0), and where the tables' statistics stand at each read.
+ * package a deletion version took away (none at 0), and the pg_class state each load stands the tables in
+ * (test/support/advice.ts PgClassState).
  */
 export interface ReadOnce {
 	readonly packages: number
@@ -291,7 +273,7 @@ export interface ReadOnce {
 	readonly resources: number
 	readonly share: number
 	readonly gone: number
-	readonly stats: StatsState
+	readonly stats: PgClassState
 }
 
 export const readOnceGen: Gen<ReadOnce> = (s) => ({
@@ -302,10 +284,13 @@ export const readOnceGen: Gen<ReadOnce> = (s) => ({
 	resources: s.draw(int(10, 30)),
 	share: s.draw(int(3, 6)),
 	gone: s.draw(boolean) ? 0 : s.draw(element([3, 5, 7] as const)),
-	stats: s.draw(element(statsStates))
+	stats: s.draw(element(pgClassStates))
 })
 
-export type ReadOnceFeature = "a package taken away" | "every package current" | StatsState
+export type ReadOnceFeature =
+	| "a package taken away"
+	| "every package current"
+	| `every table ${PgClassState}`
 
 /** The term every package states first, its last, and its idea: (purpose, source, id). */
 const termsOf = (c: ReadOnce, p: number): ReadonlyArray<readonly [number, number, number]> => [
@@ -325,14 +310,10 @@ const isGone = (c: ReadOnce, p: number): boolean => c.gone > 0 && p % c.gone ===
 const headsReadsAStoredRow = 2
 
 /** The ledger's stored tables. */
-const tablesOf = (installed: Installed): ReadonlyArray<string> => {
+const tablesOf = (installed: Installed): Arr.NonEmptyReadonlyArray<string> => {
 	const names = namesOf(installed)
 	return [names.table(Pkg), names.table(Node), names.table(Doc), names.table(Item)]
 }
-
-/** The statements counting the stored tables' sizes, as autovacuum's VACUUM does (fill.ts countedAsVacuumed). */
-const counted = (installed: Installed): ReadonlyArray<string> =>
-	Arr.map(tablesOf(installed), countedAsVacuumed)
 
 /** The statements loading packages `from` to `to`, ordinary writes, as a publish writes them whole. */
 const loaded = (
@@ -534,21 +515,19 @@ const answerOf = (rows: ReadonlyArray<ReadonlyArray<unknown>>): ReadonlyArray<st
 }
 
 /**
- * One case in its one transaction, which the case's end rolls back: `packages` packages loaded by ordinary writes,
- * the read explained and run; then `more` packages loaded and the read again, the tables' sizes standing as the
- * case's state puts them (StatsState). Each time it answers the host's count of every term's current packages and their
- * items, and every scan its plan runs more than once, of a stored relation or of a CTE it derived once, handles fewer
- * rows a run than there are packages: a scan per term, per package or per item reads that one's rows, a few of each
- * table, and a CTE rescanned per term holds the terms. One that reads every package's rows on each run, a derivation
- * run again for each row of another or a derived set scanned whole for each, makes the read's work grow with the
- * square of what it reads. A parallel scan's processes are one run of it (runsOf). The previous case a state rolls back
- * is a savepoint `bare` sets and rolls back to, where `connection`'s statements, each its own savepoint released after
- * it, would end it.
+ * One case in its one transaction, which the case's end rolls back: `packages` packages loaded by ordinary writes, the
+ * tables stood in the case's pg_class state (test/support/advice.ts standIn, a package its unit), the read explained and
+ * run; then `more` packages loaded, the tables stood in it again, and the read again. Each time it answers the host's
+ * count of every term's current packages and their items, and every scan its plan runs more than once, of a stored
+ * relation or of a CTE it derived once, handles fewer rows a run than there are packages: a scan per term, per package
+ * or per item reads that one's rows, a few of each table, and a CTE rescanned per term holds the terms. One that reads
+ * every package's rows on each run, a derivation run again for each row of another or a derived set scanned whole for
+ * each, makes the read's work grow with the square of what it reads. A parallel scan's processes are one run of it
+ * (runsOf).
  */
 export const runReadOnce = (
 	installed: Installed,
 	connection: PgConnection,
-	bare: PgConnection,
 	c: ReadOnce,
 	k: Case<ReadOnceFeature>
 ) =>
@@ -559,24 +538,17 @@ export const runReadOnce = (
 			[10, 9 + c.packages],
 			[10 + c.packages, 9 + c.packages + c.more]
 		] as const
-		if (c.stats === "counted empty, then after each load") {
-			yield* run(counted(installed))
-		}
-		if (c.stats === "counted after each load, over a case rolled back") {
-			yield* bare.query("SAVEPOINT previous_case", [])
-			yield* run(
-				Arr.flatMap(rounds, ([from, to]) => [
-					...loaded(installed, c, from, to),
-					...counted(installed)
-				])
+		const session = { values: connection.queryValues }
+		for (const [from, to] of rounds) {
+			yield* standIn(
+				session,
+				{
+					tables: tablesOf(installed),
+					units: to - from + 1,
+					load: (first, last) => run(loaded(installed, c, from + first - 1, from + last - 1))
+				},
+				c.stats
 			)
-			yield* bare.query("ROLLBACK TO SAVEPOINT previous_case", [])
-		}
-		for (const [round, [from, to]] of rounds.entries()) {
-			yield* run(loaded(installed, c, from, to))
-			if (round === 0 || c.stats !== "counted after the first load only") {
-				yield* run(counted(installed))
-			}
 			const stored = to - 9
 			const bounded = (read: string, plan: PlanNode) => {
 				const heaviest = reruns(plan)
@@ -620,5 +592,5 @@ export const runReadOnce = (
 			)
 		}
 		k.note(c.gone > 0 ? "a package taken away" : "every package current")
-		k.note(c.stats)
+		k.note(`every table ${c.stats}`)
 	})
