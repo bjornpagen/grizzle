@@ -124,7 +124,7 @@
 import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
-import { type Case as CaseOf, property } from "@bjornpagen/testing/property"
+import { type Case as CaseOf, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Order, String as Str } from "effect"
 import { certify, isolationOf, readSeal } from "#compiler/analysis/isolation/certify.ts"
 import {
@@ -909,8 +909,23 @@ export const theIsolationCertifierReadsAStatementsQueryCTEInstancesAsTheirExpans
 				kind: "second-implementation",
 				name: "the certifier over the statements' expansions, each query CTE instance read again at each of its sites (test/support/expanded.ts)"
 			},
-			kept: [],
+			kept: [
+				{
+					token: ReplayToken(
+						"test/unit/analysis/isolation/certify.test.ts#theIsolationCertifierReadsAStatementsQueryCTEInstancesAsTheirExpansionEachReadAgainAtEachOfItsSitesEveryRoleAtTheSameLevelWithTheSameReasonsEachOnceAndTheSameFences:1c050.4:0.4.1.0.0.4.1.0.0.0.1.0.0.0.0.1.0.0.0.1.0.0.1.1.2.2.1.3.0.0.0.0.0.0.0.0.3.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.1.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.2.2.0.0.0.0.0.0.0.0.1.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.2.1.0.0.0.0.0.0.0.2.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.3.0.0.1.0.3.1.1.1.0"
+					),
+					reason:
+						"lane REDS11's first statementOutsides at the floor stream's case 17, shrunk: one read of a query CTE whose two instances read R3 and R1, a write joined with R1's group alone, which a count keyed by the read before its groups held joined",
+					since: "2026-11-28"
+				}
+			],
 			kills: [
+				{
+					file: "packages/engine/src/analysis/isolation/certify.ts",
+					original: "\t\t\tgroupsOf[read] = (groupsOf[read] ?? 0) + 1\n",
+					replacement: "\t\t\tgroupsOf[read] = 1\n",
+					why: "A read of a query CTE counted as reading one group whatever groups its instances read, so a write joined with one of them holds the read joined and counts one read fewer; the kept case fails."
+				},
 				{
 					file: "packages/engine/src/analysis/isolation/certify.ts",
 					original: "\t\t\tfor (const r of fromReaches) {",
@@ -939,17 +954,17 @@ export const theIsolationCertifierReadsAStatementsQueryCTEInstancesAsTheirExpans
 				{
 					file: "packages/engine/src/analysis/isolation/certify.ts",
 					original:
-						"\t\tconst known = seen.has([p.query, p.at.read])\n\t\tseen.add([p.query, p.at.read])",
+						"\t\t\tconst read = numbers.getOrInsertComputed([p.query, p.at.read], () => {\n",
 					replacement:
-						"\t\tconst known = seen.has([p.at.cte, p.at.read])\n\t\tseen.add([p.at.cte, p.at.read])",
+						"\t\t\tconst read = numbers.getOrInsertComputed([p.at.cte, p.at.read], () => {\n",
 					why: "A CTE's read counted once per instance; the second search fails."
 				},
 				{
 					file: "packages/engine/src/analysis/isolation/certify.ts",
 					original:
-						"\tconst seen = new TupleSet<readonly [number | undefined, number]>()\n\treturn placed.filter((p) => {\n\t\tconst known = seen.has([p.query, p.at.read])\n\t\tseen.add([p.query, p.at.read])",
+						"\t\t\tconst read = numbers.getOrInsertComputed([p.query, p.at.read], () => {\n",
 					replacement:
-						"\tconst seen = new TupleSet<readonly [number | undefined, number, string]>()\n\treturn placed.filter((p) => {\n\t\tconst known = seen.has([p.query, p.at.read, p.mode])\n\t\tseen.add([p.query, p.at.read, p.mode])",
+						"\t\t\tconst read = numbers.getOrInsertComputed([p.query, p.at.read, p.mode], () => {\n",
 					why: "A read counted once per mode it takes; the second search fails."
 				}
 			]

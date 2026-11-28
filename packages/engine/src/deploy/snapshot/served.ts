@@ -27,7 +27,7 @@ import type { ReferenceChoice } from "#compiler/laws/model/plan.ts"
 import type { LiveSource } from "#compiler/live/notify.ts"
 import type { NamedClosed } from "#compiler/physical/ddl/constants.ts"
 import type { InstalledParams, TextDomainNames } from "#compiler/physical/ddl/domains.ts"
-import { type IndexSet, landingIn } from "#compiler/physical/indexes/engine.ts"
+import { type IndexSet, indexHosts, landingIn } from "#compiler/physical/indexes/engine.ts"
 import type { IndexResolver } from "#compiler/physical/indexes/ref.ts"
 import type { CertifiedRole } from "#compiler/physical/install/compile.ts"
 import type { DescribedLaw } from "#compiler/physical/install/plan.ts"
@@ -245,14 +245,13 @@ export const snapshotIndexes = (json: unknown): Result.Result<InstalledIndexes, 
  * refused where it is compiled as UninstalledIndex, thrown for the refusal-catching compile of its program: a snapshot
  * planned for another workload than the one compiled under it, never a missed index of the compile that planned it.
  */
-export const snapshotResolver =
-	(snapshot: ServedSnapshot, schema: Pick<CheckedSchema, "installedAs">): IndexResolver =>
-	(request) => {
-		const landing = landingIn(
-			snapshot.derived.indexSet,
-			(relation) => schema.installedAs(relation),
-			request
-		)
+export const snapshotResolver = (
+	snapshot: ServedSnapshot,
+	schema: Pick<CheckedSchema, "installedAs">
+): IndexResolver => {
+	const hosts = indexHosts(snapshot.derived.indexSet)
+	return (request) => {
+		const landing = landingIn(hosts, (relation) => schema.installedAs(relation), request)
 		if (landing.kind === "served") {
 			return landing.index
 		}
@@ -265,6 +264,7 @@ export const snapshotResolver =
 			})
 		)
 	}
+}
 
 /**
  * A role of a login that the installation a snapshot records does not install. The installation certifies every role of

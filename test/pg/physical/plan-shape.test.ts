@@ -92,9 +92,9 @@ export const everyRoutinePlansAsItsAdviceCarriesInEveryState = property.explore(
 		},
 		{
 			file: "packages/engine/src/physical/indexes/engine.ts",
-			original: "\tconst host = hostIn(set, covered.value)\n",
+			original: "\tconst host = hostIn(hosts, covered.value)\n",
 			replacement:
-				"\tconst host = set.indexes.findLast((c) => c.relation === relation) ?? hostIn(set, covered.value)\n",
+				"\tconst host = hosts.byRelation.get(relation)?.at(-1) ?? hostIn(hosts, covered.value)\n",
 			why: "Every request of a relation resolved to its last index, a sibling of the one that serves it: the advice is obeyed and matched, and a column the read binds that the sibling does not lead with is a filter (Law 2)."
 		},
 		{

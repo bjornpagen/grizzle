@@ -155,17 +155,15 @@ export const aSnapshotResolvesEveryReadAsTheInstallationItRecordsDoes = property
 			},
 			{
 				file: "packages/engine/src/physical/indexes/engine.ts",
-				original:
-					"\tconst [host] = set.indexes.filter((c) => serves(c, entry)).toSorted(hostOrder(entry))\n",
-				replacement:
-					"\tconst [host] = set.indexes\n\t\t.filter((c) => c.relation === entry.request.relation)\n\t\t.toSorted(hostOrder(entry))\n",
+				original: "\t\t.filter((c) => serves(c.index, entry))\n",
+				replacement: "\t\t.filter(() => true)\n",
 				why: "The coverage rule mutated in its one place, every request landing on its relation's first index whether it serves it or not: planning and the snapshot's resolver agree on it, and the read no index serves resolves to Ledger's key all the same."
 			},
 			{
 				file: "packages/engine/src/physical/indexes/engine.ts",
-				original: "\tconst host = hostIn(set, covered.value)\n",
+				original: "\tconst host = hostIn(hosts, covered.value)\n",
 				replacement:
-					"\tconst host = hostIn(set, covered.value) ?? set.indexes.find((c) => c.relation === relation)\n",
+					"\tconst host = hostIn(hosts, covered.value) ?? hosts.byRelation.get(relation)?.[0]\n",
 				why: "A read no index serves falls back to an index of its relation, one that does not serve it, where it is refused through the snapshot and an internal compiler error of the installation's own resolver."
 			}
 		]

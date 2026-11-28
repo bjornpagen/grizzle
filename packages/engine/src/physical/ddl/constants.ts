@@ -990,15 +990,19 @@ export interface RosterObjects {
 		| undefined
 }
 
+/** The identities of a roster's constants (rosterConstants): its names constant and its live-codes constant. */
+export interface RosterConstants {
+	readonly names: Identity<"rosterConstant">
+	readonly live: Identity<"rosterLive">
+}
+
 /**
  * The identities of a roster's constants, each named by its roster and the digest of what it holds: its names constant,
  * by its names in code order, which a role view's decoded column reads; and its live-codes constant, by its live codes
  * (liveHex), which its domain's CHECK and its sets' domain's CHECK read. Both CHECKs ask only whether a code is live, so
  * a handle's rename replaces the names constant alone and re-points neither.
  */
-export const rosterConstants = (
-	codec: RosterCodec
-): { readonly names: Identity<"rosterConstant">; readonly live: Identity<"rosterLive"> } => ({
+export const rosterConstants = (codec: RosterCodec): RosterConstants => ({
 	names: identity.rosterConstant(
 		codec.roster,
 		constantDigest("roster-names", codec.names, everyProperty)
@@ -1012,10 +1016,7 @@ export const rosterConstants = (
 /** A roster's names constant's function, the one its domain's CHECK and a role view's decoded column read. */
 export const namesConstant = (b: InstallBuilder, roster: HeldName): ObjectName => ({
 	schema: b.schema,
-	name: identifierOf(
-		rosterConstants(defined(b.names.codes.rosters.get(roster), "the codebook holds every roster"))
-			.names
-	)
+	name: identifierOf(b.names.rosterConstants(roster).names)
 })
 
 /** An integer PostgreSQL types integer, which prints bare. */
@@ -1131,7 +1132,7 @@ export const addRosters = (b: InstallBuilder): ReadonlyArray<RosterObjects> => {
 		.map((r): RosterObjects => {
 			const roster = r.name
 			const codec = defined(b.names.codes.rosters.get(roster), "the codebook holds every roster")
-			const constants = rosterConstants(codec)
+			const constants = b.names.rosterConstants(roster)
 			const why = [enforcement(`the codes of roster ${roster}`)]
 			const namesNamed = constants.names
 			const names: ObjectName = { schema: b.schema, name: b.name(namesNamed) }

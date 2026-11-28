@@ -31,7 +31,6 @@ import { missing } from "#compiler/ir/physical.ts"
 import type { HeadingColumn } from "#compiler/ir/rel.ts"
 import { baseOf } from "#compiler/ir/scalar.ts"
 import { leakyEquality } from "#compiler/physical/access/catalog.ts"
-import { rosterConstants } from "#compiler/physical/ddl/constants.ts"
 import { dagObjects, noServedTypes, type ServedTypes } from "#compiler/physical/ddl/domains.ts"
 import type { InstallNames, NamedRole } from "#compiler/physical/ddl/names.ts"
 import { derivedReading, lowerWorldView } from "#compiler/physical/derived/definition.ts"
@@ -53,7 +52,7 @@ export interface ViewColumn {
  * naming door where it creates the view, which records each identity it names. A set has no decoded column.
  */
 export const viewColumns = <C extends HeadingColumn>(
-	names: Pick<InstallNames, "schema" | "codes">,
+	names: Pick<InstallNames, "schema" | "rosterConstants">,
 	named: <K extends IdentityKind>(of: Identity<K>) => string,
 	heading: NonEmptyReadonlyArray<C>,
 	columnName: (c: C) => string,
@@ -71,12 +70,9 @@ export const viewColumns = <C extends HeadingColumn>(
 				`physical: the closed id field ${JSON.stringify(c.name)}, a name ${nameFaultText(field.error)}`
 			)
 		}
-		const codes =
-			names.codes.rosters.get(base.roster.closed) ??
-			missing(`physical: the codes of roster ${base.roster.closed}, which the codebook holds`)
 		const constant: ObjectName = {
 			schema: names.schema,
-			name: identifierOf(rosterConstants(codes).names)
+			name: identifierOf(names.rosterConstants(base.roster.closed).names)
 		}
 		return [
 			own,

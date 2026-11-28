@@ -31,7 +31,7 @@ import {
 } from "#compiler/ir/physical.ts"
 import type { RegexRef, ScalarType } from "#compiler/ir/scalar.ts"
 import type { NamedNative } from "#compiler/laws/model/model.ts"
-import { rosterConstants } from "#compiler/physical/ddl/constants.ts"
+import { type RosterConstants, rosterConstants } from "#compiler/physical/ddl/constants.ts"
 import { volatilityClause } from "#compiler/physical/ddl/functions.ts"
 import { libraryRef } from "#compiler/physical/ddl/library.ts"
 import { closedIndexOf, type ClosedTable } from "#compiler/runtime/write/fill.ts"
@@ -107,6 +107,12 @@ export interface InstallNames extends PhysicalNames {
 	readonly rosterNamed: (roster: HeldName) => Identity<"rosterDomain">
 	/** The identity of the domain of sets over a roster, at the roster's width in the installation's codes. */
 	readonly bitsNamed: (roster: HeldName) => Identity<"bitsDomain">
+	/**
+	 * The identities of a roster's constants (physical/ddl/constants.ts rosterConstants), its names constant and its
+	 * live-codes constant, each named by the digest of what it holds, at the roster's codes in the installation's:
+	 * minted once per roster as the names are built, so no reader of a roster's constants digests its handles again.
+	 */
+	readonly rosterConstants: (roster: HeldName) => RosterConstants
 }
 
 /**
@@ -683,6 +689,12 @@ export const installNames = (input: NamesInput): InstallNames => {
 	)
 	const bitsNamed = (roster: HeldName): Identity<"bitsDomain"> =>
 		bits.get(roster) ?? missing(`physical: no codes for roster ${roster}`)
+	/** Each roster's constants at its codes (rosterConstants), minted once as the names are built. */
+	const constants = new Map(
+		Array.from(codes.rosters, ([roster, codec]) => [roster, rosterConstants(codec)] as const)
+	)
+	const constantsOf = (roster: HeldName): RosterConstants =>
+		constants.get(roster) ?? missing(`physical: no codes for roster ${roster}`)
 	const library: ReadonlySet<LibraryFn> = new Set(input.library)
 	const canonicalWholeView = (
 		relation: string
@@ -754,11 +766,7 @@ export const installNames = (input: NamesInput): InstallNames => {
 			kind: "qualified",
 			schema,
 			volatility: "IMMUTABLE",
-			name: identifierOf(
-				rosterConstants(
-					codes.rosters.get(roster) ?? missing(`physical: no codes for roster ${roster}`)
-				).names
-			)
+			name: identifierOf(constantsOf(roster).names)
 		}),
 		codes,
 		spellings: input.spellings,
@@ -781,6 +789,7 @@ export const installNames = (input: NamesInput): InstallNames => {
 		}),
 		rosterNamed,
 		bitsNamed,
+		rosterConstants: constantsOf,
 		head: (head) => {
 			const named = headIdentities(head)
 			return { schema: headSchema(named.relation), name: identifierOf(named.table) }

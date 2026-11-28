@@ -5,7 +5,7 @@ import {
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
-import { TupleSet } from "@bjornpagen/grizzle-text/base/tuple-map"
+import { TupleMap, TupleSet } from "@bjornpagen/grizzle-text/base/tuple-map"
 import {
 	type BodyFacts,
 	type CteUse,
@@ -2013,29 +2013,89 @@ const snapshotReasons = (view: RoleView): ReadonlyArray<IsolationReason<"snapsho
 		]
 	})
 
-/** Placed reads by the place of their statement, each statement's in their order. */
-const byStatement = (
-	placed: ReadonlyArray<PlacedRead>
-): ReadonlyMap<number, ReadonlyArray<PlacedRead>> => {
-	const by = new Map<number, Array<PlacedRead>>()
-	for (const p of placed) {
-		by.getOrInsertComputed(p.statement, () => []).push(p)
-	}
-	return by
+/** An outside read placed (PlacedRead) with the group it reads (groupOf), its text written once for the read. */
+interface GroupedRead {
+	readonly placed: PlacedRead
+	readonly group: string
 }
 
 /**
- * The first placed read of each read of the statement among `placed`, in their order: a read is its place in the
- * statement's own body, or its place in the query CTE every instance of which reads it (PlacedRead), whatever modes it
- * takes.
+ * A statement's outside reads as condition 5b reads them of every write of the statement, built once for the statement
+ * (`statementOutsides`): its outside placed reads with their groups, in their order; how many reads they are, a read
+ * being its place in the statement's own body, or its place in the query CTE every instance of which reads it
+ * (PlacedRead), whatever modes it takes and whatever read facts its instances read, so one read may read several groups;
+ * how many groups each read reads, by the read's number, its place among the reads; and the reads of each group.
  */
-const distinctReads = (placed: ReadonlyArray<PlacedRead>): ReadonlyArray<PlacedRead> => {
-	const seen = new TupleSet<readonly [number | undefined, number]>()
-	return placed.filter((p) => {
-		const known = seen.has([p.query, p.at.read])
-		seen.add([p.query, p.at.read])
-		return !known
-	})
+interface StatementOutsides {
+	readonly placed: NonEmptyReadonlyArray<GroupedRead>
+	readonly reads: number
+	readonly groupsOf: ReadonlyArray<number>
+	readonly readsOf: ReadonlyMap<string, ReadonlyArray<number>>
+}
+
+/** Each statement's outside reads (StatementOutsides), by the place of the statement, from `grouped` in their order. */
+const statementOutsides = (
+	grouped: ReadonlyArray<GroupedRead>
+): ReadonlyMap<number, StatementOutsides> => {
+	const placed = new Map<number, Array<GroupedRead>>()
+	for (const g of grouped) {
+		placed.getOrInsertComputed(g.placed.statement, () => []).push(g)
+	}
+	const out = new Map<number, StatementOutsides>()
+	for (const [statement, of] of placed) {
+		if (!isNonEmpty(of)) {
+			continue
+		}
+		const numbers = new TupleMap<readonly [number | undefined, number], number>()
+		const groupsOf: Array<number> = []
+		const readsOf = new Map<string, Array<number>>()
+		const held = new TupleSet<readonly [number, string]>()
+		for (const { placed: p, group } of of) {
+			const read = numbers.getOrInsertComputed([p.query, p.at.read], () => {
+				groupsOf.push(0)
+				return groupsOf.length - 1
+			})
+			if (held.has([read, group])) {
+				continue
+			}
+			held.add([read, group])
+			groupsOf[read] = (groupsOf[read] ?? 0) + 1
+			readsOf.getOrInsertComputed(group, () => []).push(read)
+		}
+		out.set(statement, { placed: of, reads: groupsOf.length, groupsOf, readsOf })
+	}
+	return out
+}
+
+/**
+ * The reads of a statement's outside reads (StatementOutsides) a write joined with the groups `joined` (Fed) is not
+ * joined with, each read one where some instance of it reads a group the write is joined with none of: the first placed
+ * such read, in their order, and how many more reads; none where it is joined with every one. The count is the
+ * statement's reads less those whose every group the write is joined with, read off the reads of each joined group, so a
+ * write reads its own joined groups and the placed reads ahead of its first unjoined one, never every read of the
+ * statement again.
+ */
+const unjoinedOf = (
+	at: StatementOutsides,
+	joined: ReadonlySet<string>
+): { readonly first: PlacedRead; readonly more: number } | undefined => {
+	const first = at.placed.find((r) => !joined.has(r.group))
+	if (first === undefined) {
+		return undefined
+	}
+	const joinedGroups = new Map<number, number>()
+	for (const group of joined) {
+		for (const read of at.readsOf.get(group) ?? []) {
+			joinedGroups.set(read, (joinedGroups.get(read) ?? 0) + 1)
+		}
+	}
+	let covered = 0
+	for (const [read, groups] of joinedGroups) {
+		if (groups === at.groupsOf[read]) {
+			covered++
+		}
+	}
+	return { first: first.placed, more: at.reads - covered - 1 }
 }
 
 /**
@@ -2045,7 +2105,7 @@ const distinctReads = (placed: ReadonlyArray<PlacedRead>): ReadonlyArray<PlacedR
  * of its foreign key checks is sealed. One reason per read, mode, check or write that fails. A write joined with none
  * of its statement's outside reads of some groups gives one reason: "a row it writes is not joined with the read of X
  * in its statement, nor with N more outside read(s) there", X the relation of the first such read and N the number of
- * the others, each read counted once (distinctReads): a read of a query CTE is one read, however many sites read the
+ * the others, each read counted once (statementOutsides): a read of a query CTE is one read, however many sites read the
  * CTE and however they arrive, and a read taking several modes is one read.
  */
 const pivotReasons = (view: RoleView): ReadonlyArray<IsolationReason<"pivot">> =>
@@ -2075,10 +2135,11 @@ const pivotReasons = (view: RoleView): ReadonlyArray<IsolationReason<"pivot">> =
 			}
 			return p.mode === "positive" ? [] : [reason("pivot", where, `it reads the group ${p.mode}`)]
 		})
+		/** Each outside read with its group, the group's text written once for the read, however many writes read it. */
+		const grouped = v.outsides.map((p): GroupedRead => ({ placed: p, group: groupOf(p.read) }))
 		const first = new Map<string, number>()
-		for (const p of v.outsides) {
-			const g = groupOf(p.read)
-			first.set(g, Math.min(first.get(g) ?? p.statement, p.statement))
+		for (const { placed: p, group } of grouped) {
+			first.set(group, Math.min(first.get(group) ?? p.statement, p.statement))
 		}
 		const lastFirst = [...first.values()].reduce(
 			(most, at) => Math.max(most, at),
@@ -2088,13 +2149,12 @@ const pivotReasons = (view: RoleView): ReadonlyArray<IsolationReason<"pivot">> =
 			(least, p) => Math.min(least, p.statement),
 			Number.POSITIVE_INFINITY
 		)
-		const outsidesAt = byStatement(v.outsides)
+		const outsidesAt = statementOutsides(grouped)
 		const unjoined = writes.flatMap(({ statement, w, fed }) => {
 			const where = atStatement(name, statement, w.relation)
-			const joined = fed?.joined ?? new Set<string>()
-			const [missed, ...more] = distinctReads(
-				(outsidesAt.get(statement) ?? []).filter((p) => !joined.has(groupOf(p.read)))
-			)
+			const outsides = outsidesAt.get(statement)
+			const missed =
+				outsides === undefined ? undefined : unjoinedOf(outsides, fed?.joined ?? new Set<string>())
 			const own = fed?.own ?? false
 			return [
 				...(missed === undefined
@@ -2103,7 +2163,7 @@ const pivotReasons = (view: RoleView): ReadonlyArray<IsolationReason<"pivot">> =
 							reason(
 								"pivot",
 								where,
-								`a row it writes is not joined with the read of ${missed.read.relation} in its statement, nor with ${more.length} more outside read(s) there`
+								`a row it writes is not joined with the read of ${missed.first.read.relation} in its statement, nor with ${missed.more} more outside read(s) there`
 							)
 						]),
 				...(statement > firstOutside && !own
