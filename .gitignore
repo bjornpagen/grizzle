@@ -11,3 +11,4 @@ test/types/**/.*-??????/
 /.agents/skills/local-*
 packages/*/out/
 packages/cli-generator/work/
+test/*/.layering/
