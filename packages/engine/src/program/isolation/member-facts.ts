@@ -355,8 +355,8 @@ const roleWorld = (
 	}
 	const definitions = new TupleMap<Qualified, Definition>()
 	for (const view of world.views) {
-		const named = world.names.view(view.entry)
-		definitions.set([named.schema, named.name], {
+		const viewName = world.names.view(view.entry)
+		definitions.set([viewName.schema, viewName.name], {
 			query: view.definition,
 			columns: view.binding.columns
 		})

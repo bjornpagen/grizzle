@@ -200,8 +200,8 @@ export const aWriteThroughAPolicedEntryIsReadOverItsRowSecurity = property.exhau
 			},
 			{
 				file: "packages/engine/src/program/isolation/member-facts.ts",
-				original: "\t\tdefinitions.set([named.schema, named.name], {",
-				replacement: "\t\tdefinitions.set([named.schema, named.name.toUpperCase()], {",
+				original: "\t\tdefinitions.set([viewName.schema, viewName.name], {",
+				replacement: "\t\tdefinitions.set([viewName.schema, viewName.name.toUpperCase()], {",
 				why: 'The entry\'s view read as a table no relation is, as at 1d105e86c: a delete through it reads `?"policed_reads__writer"."mine"`; the property fails.'
 			},
 			{
