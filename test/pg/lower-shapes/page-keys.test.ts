@@ -226,9 +226,9 @@ export const aWindowReadsItsDriversTakeAndEachRowAtItsKey = property.explore(pag
 		},
 		{
 			file: "test/pg/lower-shapes/page-keys.fixtures.ts",
-			original: "Effect.forEach(tables, (t) => session.values(`ANALYZE ",
-			replacement: "Effect.forEach([], (t) => session.values(`ANALYZE ",
-			why: "The page oracle's baseline reads the learners in the case's pg_class state, not ANALYZEd apart from it: counted empty prices every table at about a row, the baseline is planned by that tie, a tab's every entry rescanning a hash join of every assignment in the window's body and in each attachment's, and the kept case hangs past the runner's 60 s."
+			original: 'inState(held, session, rows, "analyzed", "page_keys_baseline", read)',
+			replacement: 'inState(held, session, rows, c.state, "page_keys_baseline", read)',
+			why: "The page oracle's baseline reads the learners in the case's pg_class state, not ANALYZEd apart from it (advice.ts inState): counted empty prices every table at about a row, the baseline is planned by that tie, a tab's every entry rescanning a hash join of every assignment in the window's body and in each attachment's, and the kept case hangs past the runner's 60 s."
 		},
 		{
 			file: "packages/engine/src/program/served.ts",

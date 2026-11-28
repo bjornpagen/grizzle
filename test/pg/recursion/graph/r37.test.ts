@@ -28,12 +28,12 @@ import {
 } from "#test/pg/recursion/graph/support.ts"
 import {
 	advisedExplain,
-	apart,
 	flightScope,
+	inState,
 	lawsHold,
 	type PgClassState,
 	pgClassStates,
-	standIn
+	storedOnce
 } from "#test/support/advice.ts"
 import { lowerAligned } from "#test/support/compile.ts"
 import { installedCatalog } from "#test/support/evidence.ts"
@@ -124,23 +124,21 @@ export const r37ARecursiveAttachmentSeededOnceFromTheParentKeysReadsOnlyTheEdges
 									const edgeTable = defined(plan.tables["E"], "the installed table of E").name.name
 									const bench: BenchSession = { values: session.queryValues }
 									/**
-									 * The case's facts written a chain at a time, every table stood in `state`
-									 * (test/support/advice.ts standIn).
+									 * The case's facts written once, a chain at a time (test/support/advice.ts
+									 * storedOnce), each read standing them in its pg_class state (inState).
 									 */
-									const netTables = Arr.map(
-										[plan.tables["V"], plan.tables["E"], plan.tables["Root"]] as const,
-										(t) => printObjectName(defined(t, "an installed table of Net").name)
+									const stored = yield* storedOnce(
+										bench,
+										{
+											tables: Arr.map(
+												[plan.tables["V"], plan.tables["E"], plan.tables["Root"]] as const,
+												(t) => printObjectName(defined(t, "an installed table of Net").name)
+											),
+											units: f.roots,
+											load: (from, to) => load(chainsCase(c, f, from, to))
+										},
+										pgClassStates
 									)
-									const stood = (state: PgClassState) =>
-										standIn(
-											bench,
-											{
-												tables: netTables,
-												units: f.roots,
-												load: (from, to) => load(chainsCase(c, f, from, to))
-											},
-											state
-										)
 									/** The rows a program delivers for its attachment part, run in full. */
 									const delivered = (program: SentProgram, side: string) =>
 										Effect.map(runProgram(session, c, program, side, everyRow), (run) => {
@@ -154,11 +152,13 @@ export const r37ARecursiveAttachmentSeededOnceFromTheParentKeysReadsOnlyTheEdges
 											return defined(run.statements[index], `${side}: the attachment run`).rows
 												.length
 										})
-									const pipelined = yield* apart(
+									const pipelined = yield* inState(
 										bench,
+										bench,
+										stored,
+										"analyzed",
 										"r37_pipelined",
-										netTables,
-										Effect.andThen(stood("analyzed"), delivered(baseline.value, "conservative"))
+										delivered(baseline.value, "conservative")
 									)
 									assert.equal(pipelined, closures)
 									const statement = optimized.value.statement
@@ -177,12 +177,13 @@ export const r37ARecursiveAttachmentSeededOnceFromTheParentKeysReadsOnlyTheEdges
 									 * edges it read.
 									 */
 									const seeded = (state: PgClassState) =>
-										apart(
+										inState(
 											bench,
+											bench,
+											stored,
+											state,
 											"r37_seeded",
-											netTables,
 											Effect.gen(function* () {
-												yield* stood(state)
 												yield* lawsHold(bench, scope)
 												const rows = yield* delivered(optimized.value, "optimized")
 												const root = yield* advisedExplain(

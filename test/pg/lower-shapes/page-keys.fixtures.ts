@@ -56,13 +56,16 @@ import {
 	apart,
 	budgetOfPlan,
 	fullWorldRole,
-	grownIn,
+	grownBeside,
+	inState,
 	lawsHold,
 	type PgClassState,
 	pgClassStates,
 	servedPageRead,
 	type StateLoad,
-	standIn
+	statsStood,
+	storedOnce,
+	type StoredRows
 } from "#test/support/advice.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -1490,10 +1493,10 @@ const plannerState = (session: BenchSession, tables: ReadonlyArray<string>) =>
 	)
 
 /**
- * `apart`'s property's case on `clone`: a case's learners stood in `state` (advice.ts standIn), then a read apart from
- * them that stores more learners beside and ANALYZEs every table (advice.ts apart, grownIn), as the page oracle's
- * baseline reads them; each table's pg_class counts and its statistics stand after it as they stood before, whatever
- * ANALYZE wrote in place.
+ * `apart`'s property's case on `clone`: a case's learners stored once (advice.ts storedOnce) and stood in `state`
+ * (statsStood), then a read apart from them that stores more learners beside and ANALYZEs every table (advice.ts apart,
+ * grownBeside), as the page oracle's baseline reads them; each table's pg_class counts and its statistics stand after it
+ * as they stood before, whatever ANALYZE wrote in place.
  */
 export const stoodApart = (clone: RolledBack<Generated>, state: PgClassState) =>
 	Effect.gen(function* () {
@@ -1502,17 +1505,19 @@ export const stoodApart = (clone: RolledBack<Generated>, state: PgClassState) =>
 		const tables = caseTables(installed)
 		const c = { ...apartCase, state }
 		yield* opened(clone)
-		yield* standIn(session, learnersLoad(installed, clone.connection, c, c.learners), state)
+		const stored = yield* storedOnce(
+			session,
+			learnersLoad(installed, clone.connection, c, c.learners),
+			[state, "analyzed"]
+		)
+		yield* statsStood(session, stored, state)
 		const before = yield* plannerState(session, tables)
 		yield* apart(
 			{ values: clone.bare.queryValues },
 			"page_keys_apart",
 			tables,
-			grownIn(
-				session,
-				learnersLoad(installed, clone.connection, c, c.learners + c.more),
-				"analyzed",
-				c.learners
+			Effect.flatMap(grownBeside(session, stored, c.learners + c.more), (grown) =>
+				statsStood(session, grown, "analyzed")
 			)
 		)
 		const after = yield* plannerState(session, tables)
@@ -1527,15 +1532,15 @@ export const stoodApart = (clone: RolledBack<Generated>, state: PgClassState) =>
  * One case in its one transaction, which the case's end rolls back: the tests and an operator granted teaching, under claims naming the operator's Clerk user. The case's window is paged as a served
  * Db of the ledger's full world pages it (test/support/advice.ts servedPageRead: the role's compile, read "page", under
  * the advice its served record ships), and the page oracle's baseline built beside it (test/support/conservative.ts
- * conservativePageRuntime), cost-chosen, the oracle of its rows alone. The case's learners 1 to `learners` are loaded
- * once and stood in its pg_class state (advice.ts standIn), each row in its tables once; each read stands in a
- * savepoint of its own (`apart`): the baseline's ANALYZEd, the unpaged read and the window at the anchor its place
- * names; the optimized window's in the case's state, where the plan laws hold over the page's five variants (lawsHold,
+ * conservativePageRuntime), cost-chosen, the oracle of its rows alone. The case's learners 1 to `learners` are stored
+ * once (advice.ts storedOnce), each row in its tables once, and each read stands them in its state apart from every
+ * other (advice.ts inState): the baseline's ANALYZEd, the unpaged read and the window at the anchor its place names;
+ * the optimized window's in the case's pg_class state, where the plan laws hold over the page's five variants (lawsHold,
  * which then holds the advice its record ships in force), the window is read, its plan run under that advice keeps its
  * budget (budgetOfPlan: each scan within the pages its plan gives), a driven window's scans read at most 60 rows for
  * each row it holds, 200 more and its offset's skipped entries (judge.ts readWork), and the operator's account is read
- * once; each part's rows the baseline's. Then `more` learners are stored beside them, each newer than the case's own,
- * the tables stood in the case's state again (advice.ts grownIn), and both are read again, the anchor the same row.
+ * once; each part's rows the baseline's. Then `more` learners are stored beside them, each newer than the case's own
+ * (advice.ts grownBeside), and both are read again, each in its state, the anchor the same row.
  * Where each read loaded the learners afresh in its savepoint, each rolled-back load left its rows as versions no later
  * snapshot sees: floor case 1's skewed window read three heap pages for each of its rows' keys, two of them a rolled-back
  * load's, 9 pages of the 8 its plan gives, where its rows standing once read 3. The baseline reads every entry of
@@ -1590,25 +1595,20 @@ export const runPage = (clone: RolledBack<Generated>, c: PageCase, k: Case<PageF
 					return Option.isSome(anchorKey) ? { kind: "before", key: anchorKey.value } : undefined
 			}
 		}
-		const tables = caseTables(installed)
-		yield* standIn(session, learnersLoad(installed, connection, c, c.learners), c.state)
+		const stored = yield* storedOnce(session, learnersLoad(installed, connection, c, c.learners), [
+			c.state,
+			"analyzed"
+		])
 		yield* notedStoredViews(installed, connection, k)
 		/**
-		 * `read`, the page oracle's baseline's, over the learners standing ANALYZEd apart from the case's state: its plan
-		 * under the store's own statistics (the first kept case), every count and statistic of the case's state standing
-		 * again after it (advice.ts apart).
+		 * `read`, the page oracle's baseline's, over the learners `rows` holds, ANALYZEd apart from the case's state: its
+		 * plan under the store's own statistics (the first kept case), every count and statistic of the case's state
+		 * standing again after it (advice.ts inState).
 		 */
-		const analyzed = <A, E>(read: Effect.Effect<A, E>) =>
-			apart(
-				held,
-				"page_keys_baseline",
-				tables,
-				Effect.andThen(
-					Effect.forEach(tables, (t) => session.values(`ANALYZE ${t}`, []), { discard: true }),
-					read
-				)
-			)
+		const analyzed = <A, E>(rows: StoredRows<PgClassState>, read: Effect.Effect<A, E>) =>
+			inState(held, session, rows, "analyzed", "page_keys_baseline", read)
 		const first = yield* analyzed(
+			stored,
 			Effect.gen(function* () {
 				const every = yield* runWindow(
 					baseline,
@@ -1653,12 +1653,15 @@ export const runPage = (clone: RolledBack<Generated>, c: PageCase, k: Case<PageF
 		 * binds no column's array, the one parameter sent in binary (wire.ts textsOfParams): its budget kept, a driven
 		 * window's scans within the bound, and the operator's account read once.
 		 */
-		const judged = (learners: number, expected: Run) =>
-			apart(
+		const judged = (rows: StoredRows<PgClassState>, expected: Run) =>
+			inState(
 				held,
+				session,
+				rows,
+				c.state,
 				"page_keys_stated",
-				tables,
 				Effect.gen(function* () {
+					const learners = rows.standing
 					yield* lawsHold(session, page.scope)
 					const read = yield* runWindow(optimized, connection, params, codes, anchor, c.size)
 					const plan = yield* advisedExplain(session, read.sql, textsOfParams(read.params))
@@ -1713,15 +1716,13 @@ export const runPage = (clone: RolledBack<Generated>, c: PageCase, k: Case<PageF
 					}
 				})
 			)
-		yield* judged(c.learners, expected)
-		yield* grownIn(
-			session,
-			learnersLoad(installed, connection, c, c.learners + c.more),
-			c.state,
-			c.learners
+		yield* judged(stored, expected)
+		const grown = yield* grownBeside(session, stored, c.learners + c.more)
+		const more = yield* analyzed(
+			grown,
+			runWindow(baseline, connection, params, codes, anchor, c.size)
 		)
-		const more = yield* analyzed(runWindow(baseline, connection, params, codes, anchor, c.size))
-		yield* judged(c.learners + c.more, more)
+		yield* judged(grown, more)
 		k.note(situationOf(c))
 		const overRows = Option.getOrUndefined(drivenOf(c))
 		if (overRows !== undefined && first.every.keys.length > 0) {

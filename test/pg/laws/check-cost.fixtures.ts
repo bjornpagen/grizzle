@@ -58,11 +58,12 @@ import {
 	budgetOfPlan,
 	draftPlanned,
 	fileScope,
+	inState,
 	type LawScope,
 	lawsHold,
 	type PgClassState,
 	pgClassStates,
-	standIn
+	storedOnce
 } from "#test/support/advice.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -638,6 +639,23 @@ const lawfulRuns = (clone: RolledBack<Installed>, steps: Steps, label: string) =
 	)
 
 /**
+ * Every table a data step of `files` fills, emptied in the transaction `connection` holds open as the migration that
+ * creates it finds it (TRUNCATE, a file of its own, rolled back with the savepoint around it): so each savepoint's fill
+ * writes its rows into a table of its own, and no fill a savepoint rolled back leaves a version of its rows in the table
+ * the next one's checks read.
+ */
+const emptiedFills = (connection: PgConnection, files: ReadonlyArray<StepFile>) =>
+	Effect.forEach(
+		Arr.dedupe(
+			Arr.flatMap(files, (f) =>
+				Arr.flatMap(f.steps, (s) => (s.step.kind === "fill" ? [printObjectName(s.step.table)] : []))
+			)
+		),
+		(table) => connection.query(`TRUNCATE ${table}`, []),
+		{ discard: true }
+	)
+
+/**
  * Each violation of `violations` written alone into the rows a case stood, each in a savepoint of its own rolled back
  * after it (test/support/advice.ts apart), the stored tables emptied as the migration that creates them finds them:
  * every file's data steps run in order as the migration sends them, each file's under the advice the runner sets
@@ -658,19 +676,14 @@ const brokenAlone = (
 			ledgerStatements(identifierOf(identity.schema(parsedSchemaName(migrated.declared)))),
 			"the ledger's statements"
 		).advise.text
-		const filled = Arr.flatMap(steps.files, (f) =>
-			Arr.flatMap(f.steps, (s) => (s.step.kind === "fill" ? [s.step.table] : []))
-		)
 		for (const violation of violations) {
 			yield* apart(
 				{ values: clone.bare.queryValues },
 				"check_cost_violation",
 				[],
 				Effect.gen(function* () {
-					for (const sql of [
-						...Arr.map(filled, (table) => `TRUNCATE ${printObjectName(table)}`),
-						...violation.rows
-					]) {
+					yield* emptiedFills(clone.connection, steps.files)
+					for (const sql of violation.rows) {
 						yield* clone.connection.query(sql, [])
 					}
 					for (const file of steps.files) {
@@ -753,16 +766,18 @@ const checkReads =
 	}
 
 /**
- * One case in its one transaction, which the case's end rolls back, held in every pg_class state (test/support/advice.ts
- * PgClassState), each within a savepoint rolled back after it (apart): the judge stood up, and the elements of `c`
- * written through the captures, a declaration at each of a declaring kind or of tag 5, weighed by its place, and the
- * declarations and bindings beside them, every table stood in the state (standIn), as a migration's
- * data steps write the rows its checks then read in its one transaction, the judge deferred to a COMMIT the case never
- * reaches; then the data steps of the template's migration run over them (`lawfulRuns`): each stored relation's fill,
+ * One case in its one transaction, which the case's end rolls back: the judge stood up, and the elements of `c` written
+ * through the captures once (test/support/advice.ts storedOnce), a declaration at each of a declaring kind or of tag 5,
+ * weighed by its place, and the declarations and bindings beside them, as a migration's data steps write the rows its
+ * checks then read in its one transaction, the judge deferred to a COMMIT the case never reaches; then, in every
+ * pg_class state of those rows (PgClassState), each apart from the others (advice.ts inState), each stored table emptied
+ * as the migration that creates it finds it (`emptiedFills`), the data steps of the template's migration run over them
+ * (`lawfulRuns`): each stored relation's fill,
  * whose table's natives hold every law over it alone (Declared's and CardName's keys, its unique index, and Fit's check,
  * its CHECK constraint), and each rule's check (deploy/render/sql.ts, BoundDraft `violation`), each held to the plan laws
- * under the advice the runner sets, to its bound and to its budget, the fills and the checks raising nothing; and then
- * each law broken alone (`brokenAlone`): an element of a declaring kind and of tag, group and band 5 that no
+ * under the advice the runner sets, to its bound and to its budget, the fills and the checks raising nothing; and then,
+ * once every state is measured, since each writes rows a savepoint rolls back, in every state each law broken alone
+ * (`brokenAlone`): an element of a declaring kind and of tag, group and band 5 that no
  * declaration names, which each check refuses under its law's identity; two declared elements of one document and kind
  * of one weight, which Declared's fill refuses under its key's; a name its document declares at two places of two
  * cardinalities, which CardName's fill refuses under its key's; and a binding of attribute 1 to a variable of base type
@@ -841,39 +856,52 @@ export const runCheck = (clone: RolledBack<Installed>, c: CheckCase, k: Case<Che
 			tables.typed,
 			tables.bind
 		]
+		const session: BenchSession = { values: connection.queryValues }
+		const bare: BenchSession = { values: clone.bare.queryValues }
+		const stored = yield* storedOnce(
+			session,
+			{
+				tables: stated,
+				units: c.size,
+				load: (from, to) => {
+					const declared = declarationsOf(c, from, to)
+					return run([
+						`INSERT INTO ${tables.node} ${elementsOf(c, from, to)}`,
+						`INSERT INTO ${tables.decl} SELECT e.pkg, e.path, e.at, e.at FROM (${elementsOf(c, from, to)}) AS e(pkg, path, at, kind, tag, grp, band) WHERE e.kind IN (1, 2) OR e.tag = 5`,
+						`INSERT INTO ${tables.dcl} ${declared.dcl}`,
+						`INSERT INTO ${tables.card} ${declared.card}`,
+						`INSERT INTO ${tables.typed} ${declared.typed}`,
+						`INSERT INTO ${tables.bind} ${declared.bind}`
+					])
+				}
+			},
+			pgClassStates
+		)
 		for (const state of pgClassStates) {
-			yield* apart(
-				{ values: clone.bare.queryValues },
+			yield* inState(
+				bare,
+				session,
+				stored,
+				state,
 				"check_cost_state",
-				stated,
-				Effect.gen(function* () {
-					yield* standIn(
-						{ values: connection.queryValues },
-						{
-							tables: stated,
-							units: c.size,
-							load: (from, to) => {
-								const declared = declarationsOf(c, from, to)
-								return run([
-									`INSERT INTO ${tables.node} ${elementsOf(c, from, to)}`,
-									`INSERT INTO ${tables.decl} SELECT e.pkg, e.path, e.at, e.at FROM (${elementsOf(c, from, to)}) AS e(pkg, path, at, kind, tag, grp, band) WHERE e.kind IN (1, 2) OR e.tag = 5`,
-									`INSERT INTO ${tables.dcl} ${declared.dcl}`,
-									`INSERT INTO ${tables.card} ${declared.card}`,
-									`INSERT INTO ${tables.typed} ${declared.typed}`,
-									`INSERT INTO ${tables.bind} ${declared.bind}`
-								])
-							}
-						},
-						state
-					)
-					const label = `${Formatter.format(c)}, with every table ${state}`
-					yield* lawfulRuns(clone, steps, label)
-					k.note("a law that holds")
-					yield* brokenAlone(clone, steps, violations, label)
-					k.note("a violation found")
-					k.note(`every table ${state}`)
-				})
+				Effect.andThen(
+					emptiedFills(connection, files),
+					lawfulRuns(clone, steps, `${Formatter.format(c)}, with every table ${state}`)
+				)
 			)
+			k.note("a law that holds")
+			k.note(`every table ${state}`)
+		}
+		for (const state of pgClassStates) {
+			yield* inState(
+				bare,
+				session,
+				stored,
+				state,
+				"check_cost_violations",
+				brokenAlone(clone, steps, violations, `${Formatter.format(c)}, with every table ${state}`)
+			)
+			k.note("a violation found")
 		}
 	})
 
@@ -1085,11 +1113,12 @@ const namingRowsOf = (
 }
 
 /**
- * One case in its one transaction, which the case's end rolls back, held in every pg_class state (test/support/advice.ts
- * PgClassState), each within a savepoint rolled back after it (apart): the judge stood up, the packages of `c` written
- * through the captures, every table stood in the state (standIn), the judge deferred to a COMMIT the case never reaches;
- * then the data steps of the template's migration run over them (`lawfulRuns`), each stored relation's fill as the
- * migration that creates their tables runs them, the resource types' canonical relation first, then Named's, each held
+ * One case in its one transaction, which the case's end rolls back: the judge stood up, the packages of `c` written
+ * through the captures once (test/support/advice.ts storedOnce), the judge deferred to a COMMIT the case never reaches;
+ * then, in every pg_class state of those rows (PgClassState), each apart from the others (advice.ts inState), each
+ * stored table emptied as the migration that creates it finds it (`emptiedFills`), the data steps of the template's
+ * migration run over them (`lawfulRuns`), each stored relation's fill as the migration that creates their tables runs
+ * them, the resource types' canonical relation first, then Named's, each held
  * to the plan laws under the advice the runner sets, to its bound and to its budget: each record, its metadata, its
  * resource's `href` and type and the listed document read a bounded number of times, by a lookup of what the steps
  * before it bound, at most a log of the rows each, the fill's work O(n log n) in its records, elements, attributes and
@@ -1130,30 +1159,33 @@ export const runNamingFill = (
 			Array.from({ length: c.resources }, (_, n) => n),
 			(n) => namesItsDocument(c, n)
 		).length
-		const stood = Arr.map(namingTables, (t) => tables[t])
-		for (const state of pgClassStates) {
-			yield* apart(
-				{ values: clone.bare.queryValues },
-				"naming_fill_state",
-				stood,
-				Effect.gen(function* () {
-					yield* standIn(
-						{ values: connection.queryValues },
-						{
-							tables: stood,
-							units: c.resources,
-							load: (from, to) => {
-								const rows = namingRowsOf(c, from, to)
-								return Effect.forEach(
-									namingTables,
-									(t) => connection.query(`INSERT INTO ${tables[t]} ${rows[t]}`, []),
-									{ discard: true }
-								)
-							}
-						},
-						state
+		const session: BenchSession = { values: connection.queryValues }
+		const stored = yield* storedOnce(
+			session,
+			{
+				tables: Arr.map(namingTables, (t) => tables[t]),
+				units: c.resources,
+				load: (from, to) => {
+					const rows = namingRowsOf(c, from, to)
+					return Effect.forEach(
+						namingTables,
+						(t) => connection.query(`INSERT INTO ${tables[t]} ${rows[t]}`, []),
+						{ discard: true }
 					)
+				}
+			},
+			pgClassStates
+		)
+		for (const state of pgClassStates) {
+			yield* inState(
+				{ values: clone.bare.queryValues },
+				session,
+				stored,
+				state,
+				"naming_fill_state",
+				Effect.gen(function* () {
 					const label = `${Formatter.format(c)}, with every table ${state}`
+					yield* emptiedFills(connection, files)
 					yield* lawfulRuns(clone, { migrated, files, reads: namingReads(installation) }, label)
 					const filled = yield* connection.queryValues(
 						`SELECT pg_catalog.count(*) FROM ${printObjectName(named.table)}`,

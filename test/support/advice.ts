@@ -44,7 +44,9 @@
  * The tables a law reads stand in a pg_class state (`PgClassState`), each as production leaves one: never vacuumed;
  * counted empty, pg_class holding its pages and no row, as a VACUUM another session runs while its load is open counts
  * it (e1's tie, stated as that VACUUM states it); analyzed; skewed, analyzed over its first rows, then filled; and large,
- * pg_class counting a million rows on its pages, the scale of edullm's 1x tables.
+ * pg_class counting a million rows on its pages, the scale of edullm's 1x tables. A case's rows are written once
+ * (storedOnce) and each state it reads them in is stood over them by its statistics alone (statsStood, inState), so a
+ * measured table holds each of its rows once, never a version a rolled-back load left that its snapshot does not see.
  */
 
 import { assert, defined } from "@bjornpagen/testing/assert"
@@ -1672,90 +1674,40 @@ const countedAt = (quoted: string, rows: number): string =>
 	`WHERE c.oid = ${quoteString(quoted)}::pg_catalog.regclass`
 
 /**
- * `load` run, and its tables stood in `state` (`PgClassState`) by `session`, in the transaction it holds open or each
- * statement its own: a statistics statement is no VACUUM, which no transaction may run. A counted-empty table is
- * counted as the VACUUM of e1 counts it, one another session runs while its load is open: its pages, and no row, the
- * load's rows in progress to that VACUUM; a large one at `largeRows` on its pages (grownIn, from no unit standing).
+ * The relations a state of the tables `$1` names (a text array of quoted, qualified names) is counted on: each table and
+ * each index of one, by its oid, the first column: an ANALYZE writes the counts of both in place (PostgreSQL 19
+ * analyze.c do_analyze_rel, vac_update_relstats).
  */
-export const standIn = <E, R>(
-	session: BenchSession,
-	load: StateLoad<E, R>,
-	state: PgClassState
-): Effect.Effect<void, E | SqlError, R> => grownIn(session, load, state, 0)
+const measuredRelations =
+	"SELECT (t::pg_catalog.regclass)::pg_catalog.oid AS oid FROM pg_catalog.unnest($1::pg_catalog.text[]) AS t " +
+	"UNION ALL SELECT i.indexrelid FROM pg_catalog.pg_index AS i " +
+	"WHERE i.indrelid = ANY (SELECT t::pg_catalog.regclass FROM pg_catalog.unnest($1::pg_catalog.text[]) AS t)"
 
 /**
- * `load`'s units past `standing`, its units 1 to `standing` standing in its tables already, stood in `state` by an
- * earlier stand of the same tables, loaded, and its tables stood in `state` again, as production leaves a table it
- * fills further: never vacuumed, nothing since; counted empty, counted again by the VACUUM another session runs while
- * the load is open (`countedAt`); analyzed, ANALYZEd again over its rows; skewed, ANALYZEd once, when the table held its
- * first hundredth of `load`'s units, then filled, so a table already past that point keeps its earlier statistics, a
- * prefix's still; large, counted again at `largeRows` on its pages. Each row stands in its tables once: nothing is
- * loaded twice, so no scan of the state meets a version of a row its snapshot does not see.
- */
-export const grownIn = <E, R>(
-	session: BenchSession,
-	load: StateLoad<E, R>,
-	state: PgClassState,
-	standing: number
-): Effect.Effect<void, E | SqlError, R> => {
-	const rest = (from: number) => (from <= load.units ? load.load(from, load.units) : Effect.void)
-	switch (state) {
-		case "never vacuumed":
-			return rest(standing + 1)
-		case "counted empty":
-			return Effect.andThen(
-				rest(standing + 1),
-				eachTable(session, load.tables, (t) => countedAt(t, 0))
-			)
-		case "analyzed":
-			return Effect.andThen(
-				rest(standing + 1),
-				eachTable(session, load.tables, (t) => `ANALYZE ${t}`)
-			)
-		case "skewed": {
-			const prefix = Math.ceil(load.units / 100)
-			return prefix <= standing
-				? rest(standing + 1)
-				: Effect.gen(function* () {
-						yield* load.load(standing + 1, prefix)
-						yield* eachTable(session, load.tables, (t) => `ANALYZE ${t}`)
-						yield* rest(prefix + 1)
-					})
-		}
-		case "large":
-			return Effect.andThen(
-				rest(standing + 1),
-				eachTable(session, load.tables, (t) => countedAt(t, largeRows))
-			)
-	}
-}
-
-/**
- * A table's pg_class counts, each its text, as an ANALYZE writes them in place and no rollback puts them back
- * (`apart`): the table by its quoted, qualified name.
+ * A relation's pg_class counts, each its text, as an ANALYZE writes them in place and no rollback puts them back
+ * (`apart`): the relation, a measured table or an index of one, by its oid.
  */
 interface ClassCounts {
-	readonly table: string
+	readonly relation: string
 	readonly relpages: string
 	readonly reltuples: string
 	readonly relallvisible: string
 	readonly relallfrozen: string
 }
 
-/** The pg_class counts of `tables`, in their order, as `bare` reads them (ClassCounts). */
+/** The pg_class counts of `tables` and their indexes (measuredRelations), as `session` reads them (ClassCounts). */
 const classCounts = (
-	bare: BenchSession,
+	session: BenchSession,
 	tables: ReadonlyArray<string>
 ): Effect.Effect<ReadonlyArray<ClassCounts>, SqlError> =>
 	Effect.map(
-		bare.values(
-			"SELECT t.name, c.relpages::pg_catalog.text, c.reltuples::pg_catalog.text, c.relallvisible::pg_catalog.text, c.relallfrozen::pg_catalog.text " +
-				"FROM pg_catalog.unnest($1::pg_catalog.text[]) WITH ORDINALITY AS t(name, place) " +
-				"JOIN pg_catalog.pg_class AS c ON c.oid = t.name::pg_catalog.regclass ORDER BY t.place",
+		session.values(
+			"SELECT c.oid::pg_catalog.text, c.relpages::pg_catalog.text, c.reltuples::pg_catalog.text, c.relallvisible::pg_catalog.text, c.relallfrozen::pg_catalog.text " +
+				`FROM (${measuredRelations}) AS m JOIN pg_catalog.pg_class AS c ON c.oid = m.oid ORDER BY c.oid`,
 			[textArrayLiteral(tables)]
 		),
-		Arr.map(([table, relpages, reltuples, relallvisible, relallfrozen]) => ({
-			table: String(table),
+		Arr.map(([relation, relpages, reltuples, relallvisible, relallfrozen]) => ({
+			relation: String(relation),
 			relpages: String(relpages),
 			reltuples: String(reltuples),
 			relallvisible: String(relallvisible),
@@ -1764,23 +1716,23 @@ const classCounts = (
 	)
 
 /**
- * Each table of `saved` stood at its saved counts again by `bare` (pg_restore_relation_stats, a transactional update of
- * its pg_class row).
+ * Each relation of `saved` stood at its saved counts again by `session` (pg_restore_relation_stats, a transactional
+ * update of its pg_class row).
  */
 const restoredCounts = (
-	bare: BenchSession,
+	session: BenchSession,
 	saved: ReadonlyArray<ClassCounts>
 ): Effect.Effect<void, SqlError> =>
 	Effect.asVoid(
-		bare.values(
+		session.values(
 			"SELECT pg_catalog.pg_restore_relation_stats('schemaname', n.nspname::pg_catalog.text, 'relname', c.relname::pg_catalog.text, " +
 				"'relpages', t.relpages, 'reltuples', t.reltuples, 'relallvisible', t.relallvisible, 'relallfrozen', t.relallfrozen) " +
-				"FROM ROWS FROM (pg_catalog.unnest($1::pg_catalog.text[]), pg_catalog.unnest($2::pg_catalog.int4[]), pg_catalog.unnest($3::pg_catalog.float4[]), pg_catalog.unnest($4::pg_catalog.int4[]), pg_catalog.unnest($5::pg_catalog.int4[])) " +
-				"AS t(name, relpages, reltuples, relallvisible, relallfrozen) " +
-				"JOIN pg_catalog.pg_class AS c ON c.oid = t.name::pg_catalog.regclass " +
+				"FROM ROWS FROM (pg_catalog.unnest($1::pg_catalog.oid[]), pg_catalog.unnest($2::pg_catalog.int4[]), pg_catalog.unnest($3::pg_catalog.float4[]), pg_catalog.unnest($4::pg_catalog.int4[]), pg_catalog.unnest($5::pg_catalog.int4[])) " +
+				"AS t(relation, relpages, reltuples, relallvisible, relallfrozen) " +
+				"JOIN pg_catalog.pg_class AS c ON c.oid = t.relation " +
 				"JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace",
 			[
-				textArrayLiteral(Arr.map(saved, (c) => c.table)),
+				textArrayLiteral(Arr.map(saved, (c) => c.relation)),
 				textArrayLiteral(Arr.map(saved, (c) => c.relpages)),
 				textArrayLiteral(Arr.map(saved, (c) => c.reltuples)),
 				textArrayLiteral(Arr.map(saved, (c) => c.relallvisible)),
@@ -1793,11 +1745,11 @@ const restoredCounts = (
  * `use` in a savepoint of the transaction `bare` holds open, set by `bare` itself, whose statements no savepoint of their
  * own wraps (a case's connection, test/support/substrate/substrate.ts RolledBack `connection`, releases one after each
  * statement, which would end it: RolledBack `bare`), rolled back to and released after it, so the rows it wrote, the
- * pg_class state it stood them in (`standIn`) and the advice it held stand for it alone: each state of a case's tables
+ * pg_class state it stood them in (statsStood) and the advice it held stand for it alone: each state of a case's tables
  * held apart from the others. An ANALYZE writes a table's pg_class counts in place (PostgreSQL 19 vacuum.c
- * vac_update_relstats, systable_inplace_update_finish), which no rollback puts back, so `tables`, every table `use` may
- * ANALYZE, stand at the counts they held before it once it is rolled back (`restoredCounts`): their pg_statistic rows the
- * rollback puts back, their counts the restore.
+ * vac_update_relstats, systable_inplace_update_finish), and its indexes' (analyze.c do_analyze_rel), which no rollback
+ * puts back, so `tables`, every table `use` may ANALYZE, and their indexes stand at the counts they held before it once
+ * it is rolled back (`restoredCounts`): their pg_statistic rows the rollback puts back, their counts the restore.
  */
 export const apart = <A, E, R>(
 	bare: BenchSession,
@@ -1814,6 +1766,180 @@ export const apart = <A, E, R>(
 		yield* restoredCounts(bare, saved)
 		return value
 	})
+
+/**
+ * A load's rows standing once in their tables (storedOnce, grownBeside): its units 1 to `standing`, each written once in
+ * the load's order, to be stood in each of `states` (statsStood) by its statistics alone, never by writing them again
+ * (inState): a load rolled back and written again leaves each of its rows a version no later snapshot sees, which a scan
+ * visits at a heap page each and EXPLAIN counts as no row (page-keys' floor case 1 read 9 pages of the 8 its plan gave,
+ * 4 of them a rolled-back load's). Where `states` holds skewed, every table was ANALYZEd once, when it held its first
+ * hundredth of the units, the skewed state's statistics; `created` is the counts its tables and their indexes held
+ * before any of its rows was written, a new table's, which a state never ANALYZEd stands at again.
+ */
+export interface StoredRows<S extends PgClassState, E = SqlError, R = never> {
+	readonly tables: Arr.NonEmptyReadonlyArray<string>
+	readonly standing: number
+	readonly load: (from: number, to: number) => Effect.Effect<void, E, R>
+	readonly states: Arr.NonEmptyReadonlyArray<S>
+	readonly created: ReadonlyArray<ClassCounts>
+}
+
+/**
+ * The units after `standing` to `units` of `stored`'s load written beside the units standing, by `session`; where its
+ * states hold skewed, each table ANALYZEd when it holds its first hundredth of `units`, if that point lies among them: a
+ * table past it keeps the statistics of the hundredth it was ANALYZEd at, a prefix's still.
+ */
+const writtenBeside = <S extends PgClassState, E, R>(
+	session: BenchSession,
+	stored: Pick<StoredRows<S, E, R>, "tables" | "load" | "states">,
+	standing: number,
+	units: number
+): Effect.Effect<void, E | SqlError, R> => {
+	const prefix = Math.ceil(units / 100)
+	const from = (first: number) => (first <= units ? stored.load(first, units) : Effect.void)
+	const states: ReadonlyArray<PgClassState> = stored.states
+	return !states.includes("skewed") || prefix <= standing
+		? from(standing + 1)
+		: Effect.gen(function* () {
+				yield* stored.load(standing + 1, prefix)
+				yield* eachTable(session, stored.tables, (t) => `ANALYZE ${t}`)
+				yield* from(prefix + 1)
+			})
+}
+
+/**
+ * The statistics of an expression index, which ANALYZE gathers and no statistics function clears (PostgreSQL 19
+ * stat_utils.c, its relkinds ANALYZE's tables'): a table whose rows stand in the skewed state and in one never ANALYZEd
+ * holds none, refused where its rows are stored, so no state keeps the skewed one's.
+ */
+const noExpressionIndex = (
+	session: BenchSession,
+	tables: ReadonlyArray<string>
+): Effect.Effect<void, SqlError> =>
+	Effect.map(
+		session.values(
+			"SELECT i.indexrelid::pg_catalog.regclass::pg_catalog.text FROM pg_catalog.pg_index AS i " +
+				"WHERE i.indrelid = ANY (SELECT t::pg_catalog.regclass FROM pg_catalog.unnest($1::pg_catalog.text[]) AS t) " +
+				"AND i.indexprs IS NOT NULL ORDER BY 1",
+			[textArrayLiteral(tables)]
+		),
+		(indexes) =>
+			assert.deepEqual(
+				indexes,
+				[],
+				"a table stood in the skewed state and in one never ANALYZEd has no expression index, whose statistics no state but the skewed one may keep"
+			)
+	)
+
+/**
+ * `load`'s units written once into its tables by `session`, to be stood in each of `states` (StoredRows), every table
+ * ANALYZEd when it held its first hundredth of them where `states` holds skewed.
+ */
+export const storedOnce = <S extends PgClassState, E, R>(
+	session: BenchSession,
+	load: StateLoad<E, R>,
+	states: Arr.NonEmptyReadonlyArray<S>
+): Effect.Effect<StoredRows<S, E, R>, E | SqlError, R> =>
+	Effect.gen(function* () {
+		const stated: ReadonlyArray<PgClassState> = states
+		if (stated.includes("skewed") && Arr.some(stated, (s) => s !== "skewed" && s !== "analyzed")) {
+			yield* noExpressionIndex(session, load.tables)
+		}
+		const created = yield* classCounts(session, load.tables)
+		yield* writtenBeside(session, { tables: load.tables, load: load.load, states }, 0, load.units)
+		return { tables: load.tables, standing: load.units, load: load.load, states, created }
+	})
+
+/**
+ * `stored`'s rows with its load's units after them to `units` written beside, each once (writtenBeside): every row of
+ * the earlier units standing as it stood.
+ */
+export const grownBeside = <S extends PgClassState, E, R>(
+	session: BenchSession,
+	stored: StoredRows<S, E, R>,
+	units: number
+): Effect.Effect<StoredRows<S, E, R>, E | SqlError, R> =>
+	Effect.as(writtenBeside(session, stored, stored.standing, units), { ...stored, standing: units })
+
+/**
+ * `stored`'s tables as new ones are to the planner, by `session`: every column statistic cleared
+ * (pg_clear_attribute_stats, a transactional delete), and every count of them and of their indexes the count it held
+ * before their rows were written (`created`).
+ */
+const statisticsCleared = <S extends PgClassState, E, R>(
+	session: BenchSession,
+	stored: StoredRows<S, E, R>
+): Effect.Effect<void, SqlError> =>
+	Effect.andThen(
+		session.values(
+			"SELECT pg_catalog.pg_clear_attribute_stats(n.nspname::pg_catalog.text, c.relname::pg_catalog.text, a.attname::pg_catalog.text, false) " +
+				"FROM pg_catalog.unnest($1::pg_catalog.text[]) AS t JOIN pg_catalog.pg_class AS c ON c.oid = t::pg_catalog.regclass " +
+				"JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace " +
+				"JOIN pg_catalog.pg_attribute AS a ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped",
+			[textArrayLiteral(stored.tables)]
+		),
+		restoredCounts(session, stored.created)
+	)
+
+/**
+ * The statistics of `state` (`PgClassState`), one of `stored`'s states, stood over the rows it holds, by `session`:
+ * never vacuumed, its tables' as new ones' (`statisticsCleared`: no column statistic, relpages 0, reltuples -1); counted
+ * empty, those, and each table counted at its pages and no row, as the VACUUM of e1 counts it, one another session runs
+ * while its load is open (`countedAt`); analyzed, ANALYZEd over every row; skewed, the statistics storedOnce left,
+ * ANALYZEd at its first hundredth; large, a new table's, each counted at `largeRows` on its pages. A statistics statement
+ * is no VACUUM, which no transaction may run.
+ */
+export const statsStood = <S extends PgClassState, E, R>(
+	session: BenchSession,
+	stored: StoredRows<S, E, R>,
+	state: S
+): Effect.Effect<void, SqlError> => {
+	const standing: PgClassState = state
+	switch (standing) {
+		case "never vacuumed":
+			return statisticsCleared(session, stored)
+		case "counted empty":
+			return Effect.andThen(
+				statisticsCleared(session, stored),
+				eachTable(session, stored.tables, (t) => countedAt(t, 0))
+			)
+		case "analyzed":
+			return eachTable(session, stored.tables, (t) => `ANALYZE ${t}`)
+		case "skewed":
+			return Effect.void
+		case "large":
+			return Effect.andThen(
+				statisticsCleared(session, stored),
+				eachTable(session, stored.tables, (t) => countedAt(t, largeRows))
+			)
+	}
+}
+
+/**
+ * `load`'s rows stored once (storedOnce) and stood in `state` (statsStood), by `session`, in the transaction it holds
+ * open or each statement its own: what a case measured in one state reads.
+ */
+export const standIn = <E, R>(
+	session: BenchSession,
+	load: StateLoad<E, R>,
+	state: PgClassState
+): Effect.Effect<void, E | SqlError, R> =>
+	Effect.flatMap(storedOnce(session, load, [state]), (stored) => statsStood(session, stored, state))
+
+/**
+ * `use` over `stored`'s rows stood in `state`, one of its states (statsStood), apart from every other state of them
+ * (`apart`, in the savepoint `name` of the transaction `bare` holds open): the one way a case reads its rows in several
+ * states, each a state of the same rows, none written again.
+ */
+export const inState = <S extends PgClassState, A, E, R, E2, R2>(
+	bare: BenchSession,
+	session: BenchSession,
+	stored: StoredRows<S, E2, R2>,
+	state: S,
+	name: string,
+	use: Effect.Effect<A, E, R>
+): Effect.Effect<A, E | SqlError, R> =>
+	apart(bare, name, stored.tables, Effect.andThen(statsStood(session, stored, state), use))
 
 /**
  * The replan case (e2 finding 3): each statement of `scope` PREPAREd and planned, its generic plan cached, in one
