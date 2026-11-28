@@ -221,7 +221,10 @@ export const inPlaceOf = (info: ActionInfo, payload: Payload): ReadonlyArray<Law
  *   unique values takes no part in a swap, and a swap or a true collision lies among the moved rows, which the pair
  *   handles as it does any. Where existingKeysProof proves every row carries a stored fact's key and, from that same
  *   fact, every such field, a described put in a stratum that deletes nothing of the relation, no value moves and the
- *   put is the UPDATE ... FROM alone, a put of a test by its own name; a span key keeps the pair (candidateKey);
+ *   put is the UPDATE ... FROM alone, a put of a test by its own name; a span key keeps the pair (candidateKey), and so
+ *   does a put of a relation a read-back reads a delta of: the split's delta is its statements', the update's and the
+ *   insert half's added rows, the displacing deletion's and the update's removed, and a read-back reads the rows of
+ *   one statement (write/schedule/plan.ts ReadBackCrossesStatements), as the pair's added rows are its insert's;
  * - it is described and nothing below proves a better target;
  * - its relation's primary key contains a span field and the put would be an ON CONFLICT DO UPDATE: the key is an
  *   exclusion constraint, which no ON CONFLICT DO UPDATE accepts as its arbiter (42P10 for the inferred form, and only
@@ -246,6 +249,10 @@ export const choosePutTargets = (frontend: WriteFrontend): ChosenTargets => {
 		frontend.deltas.flatMap((d) =>
 			d.kind !== "relation" || !d.sides.has("removed") ? [] : [d.relation.name]
 		)
+	)
+	/** The relations a read-back reads a delta of, either side, whose put is no split (uniqueSplit). */
+	const deltaRead = new Set(
+		frontend.deltas.flatMap((d) => (d.kind === "relation" ? [d.relation.name] : []))
 	)
 	const writtenIn = ir.strata.map((stratum) => new Set(stratum.actions.map((a) => a.relation)))
 	/** Whether the actions of more than one stratum write the relation. */
@@ -307,7 +314,7 @@ export const choosePutTargets = (frontend: WriteFrontend): ChosenTargets => {
 							deletions.length > 0 ||
 							!existingKeysProof(reads.node, relation, kept))
 					) {
-						return primary.kind === "key"
+						return primary.kind === "key" && !deltaRead.has(action.relation)
 							? chosen({ ...place, target: "uniqueSplit", reason: "candidateKey", inPlace, moved })
 							: pair("candidateKey")
 					}

@@ -113,7 +113,7 @@ export const aPutsStatementIsTheOneItsRelationsUniqueObjectsAndItsStratumsOtherA
 			{
 				file: "packages/engine/src/write/put/choose.ts",
 				original:
-					'\t\t\t\t\t\treturn primary.kind === "key"\n\t\t\t\t\t\t\t? chosen({ ...place, target: "uniqueSplit", reason: "candidateKey", inPlace, moved })\n\t\t\t\t\t\t\t: pair("candidateKey")\n',
+					'\t\t\t\t\t\treturn primary.kind === "key" && !deltaRead.has(action.relation)\n\t\t\t\t\t\t\t? chosen({ ...place, target: "uniqueSplit", reason: "candidateKey", inPlace, moved })\n\t\t\t\t\t\t\t: pair("candidateKey")\n',
 				replacement: '\t\t\t\t\t\treturn pair("candidateKey")\n',
 				why: "Every row of a put that may move a value of a unique object outside the key routed through the pair (candidateKey), where only the rows whose value differs need it: every unchanged row deleted and inserted again, a dead tuple and a new entry in every index, and every deferred reference to it checked again."
 			},

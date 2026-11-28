@@ -138,9 +138,23 @@ export const theWorldsModelsCompileRulesCompileAWriteExactlyWhereTheModelAdmitsI
 				reason:
 					"an insert through View0 then its delete in a stratum of its own, both sides of View0's delta read back, by a session whose claims hold no Tenant, the context View0 fills its doc from: the served member is planned under every context's claims, where both strata write Share, so grizzle refuses its read-backs as crossing statements for every caller, as the model does (NEGZERO2's replay at 46905a719 compiled it under the session's claims alone)",
 				since: "2026-11-20"
+			},
+			{
+				token: ReplayToken(
+					"test/unit/world-model/compile.test.ts#theWorldsModelsCompileRulesCompileAWriteExactlyWhereTheModelAdmitsItPastItsCompile:-:0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.fuz.242.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.1.2.0.0.0.1.1"
+				),
+				reason:
+					"a put of one Doc read back, Doc keyed on (org, words) beside its id: the put split by its unique values (uniqueSplit) made its added rows two statements', its update's and its insert half's, and generate refused the read-back (ReadBackCrossesStatements), a served put refused (lane STRANGER at main 74cca52e)",
+				since: "2026-11-28"
 			}
 		],
 		kills: [
+			{
+				file: "packages/engine/src/write/put/choose.ts",
+				original: '\t\t\t\t\t\treturn primary.kind === "key" && !deltaRead.has(action.relation)\n',
+				replacement: '\t\t\t\t\t\treturn primary.kind === "key"\n',
+				why: "A put of a relation a read-back reads a delta of is split by its unique values: its added rows are its update's and its insert half's, two statements', and the compile refuses the read-back Doc's put serves."
+			},
 			{
 				file: "packages/engine/src/core/errors.ts",
 				original: '\tError.isError(value) && "_tag" in value && value._tag === "CompileError"',

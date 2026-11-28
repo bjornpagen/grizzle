@@ -56,7 +56,7 @@ export const aPutRoutesThroughThePairOnlyTheRowsThatMoveAUniqueValueAndUpdatesEv
 			{
 				file: "packages/engine/src/write/put/choose.ts",
 				original:
-					'\t\t\t\t\t\treturn primary.kind === "key"\n\t\t\t\t\t\t\t? chosen({ ...place, target: "uniqueSplit", reason: "candidateKey", inPlace, moved })\n\t\t\t\t\t\t\t: pair("candidateKey")\n',
+					'\t\t\t\t\t\treturn primary.kind === "key" && !deltaRead.has(action.relation)\n\t\t\t\t\t\t\t? chosen({ ...place, target: "uniqueSplit", reason: "candidateKey", inPlace, moved })\n\t\t\t\t\t\t\t: pair("candidateKey")\n',
 				replacement: '\t\t\t\t\t\treturn pair("candidateKey")\n',
 				why: "Every row of a put that may move a name routed through the pair: each test whose name stays deleted and inserted again, a dead tuple and an entry in the key's and the name's index each, and every deferred reference to it checked again."
 			}
