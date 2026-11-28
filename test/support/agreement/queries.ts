@@ -256,7 +256,8 @@ const agreementFaults = [
 	"packTerm",
 	"producerHead",
 	"nearestBy",
-	"nearestSource"
+	"nearestSource",
+	"refiningBinding"
 ] as const
 export type Fault = (typeof agreementFaults)[number]
 
@@ -268,11 +269,17 @@ type Planted = "clean" | Fault
  * over Cents opposite one over bigint, the subtle pair whose carriers agree and whose brands do not, by an Allen
  * predicate or a producer (endpointOf), which the faulted space aims a case at while no witness has reached it
  * (faultCases), a pair one spanEndpoints case in about ten draws of itself; or a negation across refining types, a
- * variable of one contract over pg.bigint negated at a field of the other (negationOver), or an equality across
- * refining types, two such variables equated, which the clean space aims a case at while no witness has reached each
- * (evidenceSpace).
+ * variable of one contract over pg.bigint negated at a field of the other (negationOver), an equality across
+ * refining types, two such variables equated, or a variable of one such contract equated to a computed term of its base
+ * carrier, the other variable's Type.base (`computedRefining`, filtersOver), which the clean space aims a case at while
+ * no witness has reached each (evidenceSpace).
  */
-type EndpointAim = "drawn" | "contractAgainstBase" | "refiningNegation" | "refiningEquality"
+type EndpointAim =
+	| "drawn"
+	| "contractAgainstBase"
+	| "refiningNegation"
+	| "refiningEquality"
+	| "computedRefining"
 
 /** What a drawn case reached: its constructs, and the engine's verdict on it. */
 export type AgreementNote =
@@ -283,6 +290,7 @@ export type AgreementNote =
 	| "a variable two filters fix"
 	| "a negation across refining types"
 	| "an equality across refining types"
+	| "an equality of a variable and a computed term of its base carrier"
 	| "a flag whose readings each prove more than both state"
 	| "a contract in the head"
 	| "an unordered page refused"
@@ -315,7 +323,19 @@ export type AgreementNote =
 	| typeof closedDistinct
 
 /** What a faulted case reached: its fault, and whether its site's drawn value was refused or admitted. */
-export type FaultNote = `${Fault} refused` | `${Fault} admitted`
+export type FaultNote = `${Fault} refused` | `${Fault} admitted` | MisbindingNote
+
+/**
+ * What a refiningBinding fault's binding is, each refused by the builder and the types alike: a variable of a contract
+ * over pg.bigint bound at a plain bigint field, a plain bigint one at a contract's field, and a variable of one contract
+ * at another's field over the same base (misbindings).
+ */
+const misbindingNotes = [
+	"a contract variable refused at a base field",
+	"a base variable refused at a contract field",
+	"a contract variable refused at another contract's field"
+] as const
+type MisbindingNote = (typeof misbindingNotes)[number]
 
 /**
  * The pairs of notes one case must reach together: a self-join whose get the engine proves, which pinnedSelfJoin
@@ -330,10 +350,11 @@ type Rel = "Item" | "Tag" | "Note" | "Slot" | "Tone" | "ToneWeight" | "ItemTones
 type DerivedRel = "ItemTones" | "OwnerCounts"
 /**
  * A source a rule mints variables over: a relation of Agree, its roster Tone and its closed relation ToneWeight, a
- * derived relation of Rollup, the rule's relation parameter (Rows), the import Owned, or Stray, which Agree does not
- * hold.
+ * derived relation of Rollup, the rule's relation parameter (Rows), the import Owned, Stray, which Agree does not
+ * hold, or Cell, of Agree, whose plain bigint, natural and Cents fields a refiningBinding fault binds alone
+ * (misbindings).
  */
-type Minted = Rel | "Rows" | "Owned" | "Stage" | "Stray"
+type Minted = Rel | "Rows" | "Owned" | "Stage" | "Stray" | "Cell"
 /** What a match reads: a source of variables, or Tones, the union of Item's facts by tone (./schema.ts). */
 type MatchSource = Minted | "Tones"
 /**
@@ -383,6 +404,12 @@ const duringField: Field = { rel: "Slot", name: "during", kind: "span" }
 const whenField: Field = { rel: "Slot", name: "when", kind: "dateSpan" }
 const dayField: Field = { rel: "Slot", name: "day", kind: "date" }
 const slotItemField: Field = { rel: "Slot", name: "item", kind: "uuid" }
+/** Item's Cents cost, and Cell's id and its fields over pg.bigint: plain, natural and Cents (./schema.ts). */
+const itemCost: Field = { rel: "Item", name: "cost", kind: "cents" }
+const cellId: Field = { rel: "Cell", name: "id", kind: "uuid" }
+const cellBigint: Field = { rel: "Cell", name: "bigint", kind: "big" }
+const cellNatural: Field = { rel: "Cell", name: "natural", kind: "nat" }
+const cellCents: Field = { rel: "Cell", name: "cents", kind: "cents" }
 
 const fieldsOf: { readonly [S in Minted]: Arr.NonEmptyReadonlyArray<Field> } = {
 	Item: itemFields,
@@ -425,7 +452,8 @@ const fieldsOf: { readonly [S in Minted]: Arr.NonEmptyReadonlyArray<Field> } = {
 	Stray: [
 		{ rel: "Stray", name: "id", kind: "uuid" },
 		{ rel: "Stray", name: "n", kind: "int" }
-	]
+	],
+	Cell: [cellId, cellBigint, cellNatural, cellCents]
 }
 const rels: Arr.NonEmptyReadonlyArray<Rel> = [
 	"Item",
@@ -454,7 +482,8 @@ const keysOf: { readonly [S in Minted]: Arr.NonEmptyReadonlyArray<ReadonlyArray<
 	Rows: [["id", "n"]],
 	Owned: [["id", "n"]],
 	Stage: [["id", "n"]],
-	Stray: [["id"]]
+	Stray: [["id"]],
+	Cell: [["id"]]
 }
 const allFields: Arr.NonEmptyReadonlyArray<Field> = Arr.flatMap(rels, (rel) => fieldsOf[rel])
 /** Every field a parameter is declared at: Item's, Slot's, and Cell's plain bigint and natural. */
@@ -522,7 +551,7 @@ const pointKind = (kind: Kind): Kind | undefined => {
 const ownedImport: QueryValue = Owned
 
 /** The relations a match reads, as values, and Item's and Slot's field descriptors, which every parameter is declared at. */
-const relations: { readonly [R in Rel | "Stray" | "Tones"]: unknown } = {
+const relations: { readonly [R in Rel | "Stray" | "Cell" | "Tones"]: unknown } = {
 	Item,
 	Tag,
 	Note,
@@ -532,6 +561,7 @@ const relations: { readonly [R in Rel | "Stray" | "Tones"]: unknown } = {
 	ItemTones,
 	OwnerCounts,
 	Stray,
+	Cell,
 	Tones
 }
 const descriptorsOf: { readonly [R in ParamField["rel"]]: Readonly<Record<string, unknown>> } = {
@@ -568,6 +598,7 @@ type Term =
 			readonly b: Term
 	  }
 	| { readonly kind: "neg"; readonly a: Term }
+	| { readonly kind: "base"; readonly a: Term }
 	| { readonly kind: "cond"; readonly p: Pred; readonly onTrue: Term; readonly onFalse: Term }
 
 /** A rule's predicate (r.eq, r.and, ...) or Logic's (Logic.eq, Logic.and, ...). */
@@ -1217,7 +1248,7 @@ interface DrawnRule {
  * (Planned), and its last, under constantAtUnionSource, is Tones with a constant bound at tone, a handle or its member's
  * JavaScript value, which selects the arm holding it. A rule an approximate search ranks (`search`) holds a distance
  * to a query vector and folds and produces nothing. A faulted case plants its fault here, but for unionTypes, which its
- * query plants.
+ * query plants; refiningBinding appends a match of Cell after every other (misboundMatch).
  */
 const drawRule = (d: Drawing, prefix: "h" | "g", rowsName: string, search: boolean): DrawnRule => {
 	const anchor = anchorOf(d)
@@ -1268,8 +1299,10 @@ const drawRule = (d: Drawing, prefix: "h" | "g", rowsName: string, search: boole
 			? Arr.map(matches, (m) => (m.rel === "Rows" && headless ? m : keyedMatch(m)))
 			: matches
 	const stranger = d.fault === "stranger" ? strangerOf(d, keyed) : keyed
+	const misboundMatches =
+		d.fault === "refiningBinding" ? Arr.append(stranger, misboundMatch(d, stranger)) : stranger
 	const rule: RuleSpec = {
-		matches: stranger,
+		matches: misboundMatches,
 		filters,
 		flagged,
 		head,
@@ -1355,6 +1388,7 @@ const planOf = (d: Drawing, search: boolean): Plan => {
 			case "packTerm":
 			case "producerHead":
 			case "nearestSource":
+			case "refiningBinding":
 				return search
 					? d.choose<CosineTo>([
 							["cosineParam", () => "param"],
@@ -1751,6 +1785,57 @@ const strangerOf = (
 }
 
 /**
+ * What a refiningBinding fault binds, each a variable of one type over pg.bigint at a field of another, both of
+ * carrierOf's int8: Item's Cents cost at Cell's plain bigint and at its natural, and Cell's own plain bigint and natural
+ * at its Cents. Each is a match of Cell, which no other draw matches, so its one binding is the fault's alone.
+ */
+const misbindings: Arr.NonEmptyReadonlyArray<readonly [Field, Field]> = [
+	[itemCost, cellBigint],
+	[cellBigint, cellCents],
+	[itemCost, cellNatural],
+	[cellNatural, cellCents]
+]
+
+/** The match a refiningBinding fault appends after `matches`: a misbinding's variable bound alone at its field. */
+const misboundMatch = (d: Drawing, matches: ReadonlyArray<Match>): Match => {
+	const [variable, at] = d.from(misbindings)
+	return {
+		rel: at.rel,
+		copy: nextCopy(matches, at.rel),
+		bindings: [[at.name, varTerm({ field: variable, copy: 0 })]]
+	}
+}
+
+/** The note of a variable of kind `variable` bound at a field of kind `field`, another kind of its base carrier. */
+const misbindingNote = (variable: Kind, field: Kind): MisbindingNote =>
+	variable === "big"
+		? "a base variable refused at a contract field"
+		: field === "big"
+			? "a contract variable refused at a base field"
+			: "a contract variable refused at another contract's field"
+
+/** The notes of an arm's variables bound at a field of another kind of their base carrier (carrierOf). */
+const misbound = (arm: RuleSpec): ReadonlyArray<MisbindingNote> =>
+	Arr.flatMap(arm.matches, (m) => {
+		const rel = m.rel
+		if (rel === "Tones") {
+			return []
+		}
+		const fields = fieldsOf[rel]
+		return Arr.flatMap(m.bindings, ([name, t]) => {
+			if (t.kind !== "var") {
+				return []
+			}
+			const field = Arr.findFirst(fields, (f) => f.name === name)
+			return Option.isSome(field) &&
+				field.value.kind !== t.v.field.kind &&
+				carrierOf(field.value.kind) === carrierOf(t.v.field.kind)
+				? [misbindingNote(t.v.field.kind, field.value.kind)]
+				: []
+		})
+	})
+
+/**
  * The scope names a scope's name is drawn from where a case plants scopeName: the declared-name dictionary's admitted
  * names and its refused ones, each half the draws, so the few refused spellings are drawn as often as the many admitted.
  */
@@ -1799,6 +1884,7 @@ const spelled = (d: Drawing, rule: RuleSpec): RuleSpec => {
 			case "producerHead":
 			case "nearestBy":
 			case "nearestSource":
+			case "refiningBinding":
 				return undefined
 		}
 	}
@@ -1838,7 +1924,11 @@ const tonesConstant = (d: Drawing): Term => {
 	return d.from([0, 1]) === 0 ? { kind: "handle", value } : { kind: "literal", type: "code", value }
 }
 
-/** The rule's filters: an equality with a value fixed per binding, between two variables, a range; joined or not. */
+/**
+ * The rule's filters: an equality with a value fixed per binding, between two variables, a range; joined or not. A case
+ * aimed at `computedRefining` equates a variable of Cents or natural with Type.base of a variable of its base carrier,
+ * itself or another, either way round.
+ */
 const filtersOver = (d: Drawing, bound: ReadonlyArray<Var>): ReadonlyArray<Pred> => {
 	const simple: Array<Pred> = []
 	if (Arr.isReadonlyArrayNonEmpty(bound) && d.keep("fixFilter")) {
@@ -1856,6 +1946,26 @@ const filtersOver = (d: Drawing, bound: ReadonlyArray<Var>): ReadonlyArray<Pred>
 	if (Arr.isReadonlyArrayNonEmpty(pairs) && (aimedEquality || d.keep("varEquality"))) {
 		const [a, b] = d.from(pairs)
 		simple.push({ kind: "cmp", op: "eq", a: varTerm(a), b: varTerm(b), via: viaOf(d) })
+	}
+	const refinable = Arr.filter(bound, (v) => v.field.kind === "cents" || v.field.kind === "nat")
+	if (d.aim === "computedRefining" && Arr.isReadonlyArrayNonEmpty(refinable)) {
+		const a = d.from(refinable)
+		const b = d.from(
+			Arr.prepend(
+				Arr.filter(
+					bound,
+					(v) => !sameVar(v, a) && carrierOf(v.field.kind) === carrierOf(a.field.kind)
+				),
+				a
+			)
+		)
+		const variable = varTerm(a)
+		const computed: Term = { kind: "base", a: varTerm(b) }
+		const [left, right] = d.from([
+			[variable, computed],
+			[computed, variable]
+		] as const)
+		simple.push({ kind: "cmp", op: "eq", a: left, b: right, via: viaOf(d) })
 	}
 	const ints = Arr.filter(bound, (b) => b.field.kind === "int")
 	if (Arr.isReadonlyArrayNonEmpty(ints) && d.keep("rangeFilter")) {
@@ -1942,6 +2052,21 @@ const refiningEquality = (arm: RuleSpec): boolean =>
 			p.b.kind === "var" &&
 			p.a.v.field.kind !== p.b.v.field.kind
 	)
+
+/** Whether a predicate equates a term with Type.base of a variable, at any depth of its connectives (filtersOver). */
+const equatesComputed = (p: Pred): boolean => {
+	switch (p.kind) {
+		case "cmp":
+			return p.op === "eq" && (p.a.kind === "base" || p.b.kind === "base")
+		case "and":
+		case "or":
+			return equatesComputed(p.ps[0]) || equatesComputed(p.ps[1])
+		case "not":
+		case "allen":
+		case "pointIn":
+			return false
+	}
+}
 
 /** Whether a rule negates a relation at a field of another kind than the variable it binds there (negationOver). */
 const refiningNegation = (arm: RuleSpec): boolean =>
@@ -2075,6 +2200,7 @@ const renamed = (
 			case "arith":
 				return { ...t, a: term(t.a), b: term(t.b) }
 			case "neg":
+			case "base":
 				return { ...t, a: term(t.a) }
 			case "cond":
 				return { ...t, p: pred(t.p), onTrue: term(t.onTrue), onFalse: term(t.onFalse) }
@@ -2408,6 +2534,8 @@ class Rendering {
 				return `${spelling[t.op]}(${this.term(t.a)}, ${this.term(t.b)})`
 			case "neg":
 				return `Num.neg(${this.term(t.a)})`
+			case "base":
+				return `Type.base(${this.term(t.a)})`
 			case "cond":
 				return `Logic.cond(${this.pred(t.p)}, ${this.term(t.onTrue)}, ${this.term(t.onFalse)})`
 		}
@@ -2615,6 +2743,7 @@ const sourceText = (rel: MatchSource, copy: number, arm: RuleSpec): string => {
 		case "ItemTones":
 		case "OwnerCounts":
 		case "Stray":
+		case "Cell":
 		case "Tones":
 			return rel
 	}
@@ -2647,7 +2776,8 @@ const maskValue = (mask: Mask): number => {
 
 /**
  * The faults whose diagnostic is on the first arm's return line: a binding's, a match's, a fold's, an Allen
- * predicate's, a cosine distance's, a span's endpoints', a pack's and a producer's.
+ * predicate's, a cosine distance's, a span's endpoints', a pack's, a producer's and a variable's bound at a field of
+ * another refining type.
  */
 const returnFaults: ReadonlySet<Planted> = new Set<Planted>([
 	"stranger",
@@ -2659,7 +2789,8 @@ const returnFaults: ReadonlySet<Planted> = new Set<Planted>([
 	"cosineTerm",
 	"spanEndpoints",
 	"packTerm",
-	"producerHead"
+	"producerHead",
+	"refiningBinding"
 ])
 
 /**
@@ -2696,6 +2827,7 @@ const variablesOf = (arm: RuleSpec): ReadonlyArray<Var> => {
 				term(t.b)
 				return
 			case "neg":
+			case "base":
 				term(t.a)
 				return
 			case "cond":
@@ -2927,6 +3059,7 @@ const builtArm =
 				case "ItemTones":
 				case "OwnerCounts":
 				case "Stray":
+				case "Cell":
 				case "Tones":
 					return relationRead(rel, reading)
 			}
@@ -2968,6 +3101,8 @@ const builtArm =
 				}
 				case "neg":
 					return computeCore.neg(term(t.a))
+				case "base":
+					return computeCore.base(term(t.a))
 				case "cond":
 					return computeCore.cond(pred(t.p), term(t.onTrue), term(t.onFalse))
 			}
@@ -3341,6 +3476,12 @@ const refusalOf = (spec: QuerySpec, reason: CompileReason): RefusedQuery | undef
 							? "approximateNearest over one rule's projection; this source is an aggregate rule, whose output is a nonlinear fold rather than a distance of one stored vector"
 							: "approximateNearest over one rule's projection; this source is a rule whose head produces spans, facts per binding rather than its projection"
 					)
+				: undefined
+		case "refiningBinding":
+			return malformed &&
+				Str.startsWith("r.match(Cell)")(label) &&
+				Str.startsWith("a variable bound to fields of its own type")(reason.what)
+				? prose("a variable bound at a field of another type over its base")
 				: undefined
 		case "clean":
 		case "widenedName":
@@ -3809,6 +3950,7 @@ const constantOf = (h: HeadTerm): Option.Option<unknown> => {
 		case "vector":
 		case "arith":
 		case "neg":
+		case "base":
 		case "cond":
 			return Option.none()
 	}
@@ -3944,6 +4086,14 @@ const caseOf = ({ spec, reached }: Drawn): AgreementCase => {
 	}
 	if (Arr.some(spec.arms, refiningEquality)) {
 		notes.add("an equality across refining types")
+	}
+	if (Arr.some(spec.arms, (arm) => Arr.some(arm.filters, equatesComputed))) {
+		notes.add("an equality of a variable and a computed term of its base carrier")
+	}
+	if (spec.fault === "refiningBinding" && verdict.kind === "refused") {
+		for (const note of Arr.flatMap(spec.arms, misbound)) {
+			notes.add(note)
+		}
 	}
 	const keyed = spec.keyed === undefined ? undefined : keyedOf(spec.keyed)
 	for (const note of keyed === undefined ? [] : keyedNotes(keyed)) {
@@ -4167,8 +4317,8 @@ export const agreementCases: Gen<AgreementCase> = (source) =>
 
 /**
  * The clean space the evidence agreement draws: agreementCases, and while no witness has negated a field at a variable
- * of another refining type, or equated two variables of two such types, a case aimed at each (EndpointAim
- * `refiningNegation`, `refiningEquality`).
+ * of another refining type, equated two variables of two such types, or equated a variable of one with a computed term
+ * of its base carrier, a case aimed at each (EndpointAim `refiningNegation`, `refiningEquality`, `computedRefining`).
  */
 export const evidenceSpace: Aimed<AgreementCase, AgreementNote> = aimed(agreementCases, [
 	[
@@ -4178,6 +4328,10 @@ export const evidenceSpace: Aimed<AgreementCase, AgreementNote> = aimed(agreemen
 	[
 		"an equality across refining types",
 		(source) => caseOf(drawnGen("clean", "refiningEquality")(source))
+	],
+	[
+		"an equality of a variable and a computed term of its base carrier",
+		(source) => caseOf(drawnGen("clean", "computedRefining")(source))
 	]
 ])
 
@@ -4186,14 +4340,43 @@ export const faultCases: Gen<AgreementCase> = (source) =>
 	caseOf(drawnGen(source.draw(element(agreementFaults)), "drawn")(source))
 
 /**
- * The faulted space the faults agreement draws: faultCases, and while no witness has reached a contract's span refused
- * against its base's, a case aimed at it, a spanEndpoints query over that pair (EndpointAim).
+ * The faults whose site may hold a value the engine admits: a valid name, a field of the source, a key, one type, a
+ * cosine distance to a vector of the same dimensions, an order by a field of the heading, spans of one endpoint type,
+ * a pack of a span, a search by its distance to a query vector over a head that neither counts nor produces spans.
+ */
+const admissibleFaults = [
+	"scopeName",
+	"stranger",
+	"unkeyedFold",
+	"unionTypes",
+	"cosineDims",
+	"cosineTerm",
+	"orderHidden",
+	"spanEndpoints",
+	"packTerm",
+	"nearestBy",
+	"nearestSource"
+] as const satisfies ReadonlyArray<Fault>
+
+/** A faulted case planting `fault`, its query drawn as faultCases draws one. */
+const planting =
+	(fault: Fault): Gen<AgreementCase> =>
+	(source) =>
+		caseOf(drawnGen(fault, "drawn")(source))
+
+/**
+ * The faulted space the faults agreement draws: faultCases, and while no witness has reached a situation it requires
+ * (faultsRequired), a case aimed at it: a spanEndpoints query over a contract's span and its base's (EndpointAim), a
+ * case planting the fault a refusal or an admission of it names, and a refiningBinding case for each misbinding.
  */
 export const faultSpace: Aimed<AgreementCase, AgreementNote | FaultNote> = aimed(faultCases, [
 	[
 		"a contract's span refused against its base's",
 		(source) => caseOf(drawnGen("spanEndpoints", "contractAgainstBase")(source))
-	]
+	],
+	...Arr.map(agreementFaults, (fault) => [`${fault} refused`, planting(fault)] as const),
+	...Arr.map(admissibleFaults, (fault) => [`${fault} admitted`, planting(fault)] as const),
+	...Arr.map(misbindingNotes, (note) => [note, planting("refiningBinding")] as const)
 ])
 
 /** What a case reached: its notes, and each required pair of them it notes together (agreementPairs). */
@@ -4223,6 +4406,7 @@ export const evidenceRequired: ReadonlyArray<Reached<AgreementNote>> = [
 	"a variable two filters fix",
 	"a negation across refining types",
 	"an equality across refining types",
+	"an equality of a variable and a computed term of its base carrier",
 	"a contract in the head",
 	"an unordered page refused",
 	"a span parameter opposite r.allen",
@@ -4254,31 +4438,13 @@ export const evidenceRequired: ReadonlyArray<Reached<AgreementNote>> = [
 ]
 
 /**
- * The faults whose site may hold a value the engine admits: a valid name, a field of the source, a key, one type, a
- * cosine distance to a vector of the same dimensions, an order by a field of the heading, spans of one endpoint type,
- * a pack of a span, a search by its distance to a query vector over a head that neither counts nor produces spans.
- */
-const admissibleFaults = [
-	"scopeName",
-	"stranger",
-	"unkeyedFold",
-	"unionTypes",
-	"cosineDims",
-	"cosineTerm",
-	"orderHidden",
-	"spanEndpoints",
-	"packTerm",
-	"nearestBy",
-	"nearestSource"
-] as const satisfies ReadonlyArray<Fault>
-
-/**
  * What the faulted space's witnesses must reach: every fault refused, each whose site may hold a valid value admitted
  * too, and a contract's span refused against its base's.
  */
 export const faultsRequired: ReadonlyArray<Reached<AgreementNote | FaultNote>> = [
 	...Arr.map(agreementFaults, (fault): FaultNote => `${fault} refused`),
 	...Arr.map(admissibleFaults, (fault): FaultNote => `${fault} admitted`),
+	...misbindingNotes,
 	"a contract's span refused against its base's"
 ]
 

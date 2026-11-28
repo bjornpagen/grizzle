@@ -29,10 +29,17 @@
  *    program admitting exactly what the runtime's reading of an argument admits.
  * 4. Faults (`faults`): queries of the same generator, each planting one fault at a site whose drawn value the engine
  *    decides; a query it refuses is stated under the refusal its reason is, at the fault's site, and one it admits as a
- *    clean query is.
+ *    clean query is. One fault binds a variable at a field of another type over its base, a contract's at a plain
+ *    bigint field, a plain bigint's at a contract's and one contract's at another's, which the builder and the types
+ *    both refuse, the class metis met on an older pin (refiningBinding); the faulted space aims a case at each fault and
+ *    each such binding while no witness has reached it.
  * 5. Filter order (`reordered`): every drawn query's verdict, the engine's, is the same with each rule's filters in the
  *    other order, so a variable two filters fix is fixed to both values, whichever is written first, as the types read
  *    it.
+ *
+ * The clean space aims cases at an equality across refining types: two variables of Cents and natural, and a variable
+ * of either equated with Type.base of a variable, metis's `r.eq(stage, Type.base(number))`, which the types and the
+ * engine both admit at the carrier.
  *
  * The witnesses of the clean space reach every construct the evidence types reason about, and those of the faulted
  * space every fault refused and each whose site may hold a valid value admitted, so neither program is vacuous; the
@@ -168,6 +175,14 @@ export const evidence = agreement(evidenceSpace, {
 			why: "The engine refuses an equality of two refinements of one base carrier, where the types admit it: the program of the witness of an equality across refining types fails."
 		},
 		{
+			file: "packages/engine/src/scalar/compute/typing.ts",
+			original:
+				"const refinedPair = (a: ScalarType, b: ScalarType): boolean => !meets(a, b) && sameCarrier(a, b)",
+			replacement:
+				"const refinedPair = (a: ScalarType, b: ScalarType): boolean =>\n\t!meets(a, b) && sameCarrier(a, b) && a.contract !== undefined && b.contract !== undefined",
+			why: "The engine types an equality at the carrier only between two contracts, as Cents and natural are, and refuses a contract beside its own base, metis's r.eq(stage, Type.base(number)): a variable of Cents or natural equated with Type.base of a variable is refused where the types admit it, and the witness of an equality of a variable and a computed term of its base carrier dies."
+		},
+		{
 			file: "packages/engine/src/lower/shapes/index.ts",
 			original: "\t\t\t\tconst statement = cx.atStatementRoot(dispatch)\n",
 			replacement: "\t\t\t\tconst statement = cx\n",
@@ -200,7 +215,7 @@ export const faults = agreement(faultSpace, {
 		},
 		{
 			token: ReplayToken(
-				"test/types/evidence/agreement.test.ts#faults:7fffffff.11:0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.1.0.0.0.0.0.0"
+				"test/types/evidence/agreement.test.ts#faults:-:0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.1.0.0.0.0.0.0"
 			),
 			reason:
 				"a Reader query over Item binding its cost, a Cents contract that declares nonnegative, to a parameter: its map's entry is ParamType of the contract's domain, its brand and declared fact with it, where the oracle wrote the plain base's, bigint, once a contract's descriptor held its carrier and contract alone (011a72711) and its domain was read off the base (test/support/agreement/heading.ts paramDomain)",
@@ -216,6 +231,20 @@ export const faults = agreement(faultSpace, {
 		}
 	],
 	kills: [
+		{
+			file: "packages/engine/src/query/build/terms.ts",
+			original: "export const matchPairing = compatible",
+			replacement: "export const matchPairing = sameCarrier",
+			why: "The builder binds a match's variable at any field of its base carrier, as a negation's: a Cents variable at Cell's plain bigint or its natural, and Cell's bigint or natural at its Cents, are admitted when the rule is built, where the types refuse each (TS2322); the program of the witness of each misbinding fails."
+		},
+		{
+			file: "packages/engine/src/types/query/terms.ts",
+			original:
+				"export type Bindings<Head, C> = { readonly [K in AnyKeyOf<Head>]: BindingAt<C, K> }",
+			replacement:
+				"export type Bindings<Head, C> = { readonly [K in AnyKeyOf<Head>]: BindingAt<C, K> | StatedAt<C, K> }",
+			why: "A match's binding pairs with its field by base carrier, as a negation's does: a Cents variable at Cell's plain bigint is admitted by the types, where the builder refuses it as a variable bound to fields of its own type; the directive of the witness of each misbinding is unused."
+		},
 		{
 			file: "packages/engine/src/types/query/rule.ts",
 			original: "\t{ readonly [K in Name]: ParamType<D, Sql, H> },",
