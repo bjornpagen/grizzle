@@ -77,8 +77,11 @@ export const aStratumsSourcesOfOneOperationOnOneRelationAreOneActionSoAStratumTh
 							k.note(c.members)
 							k.note(c.overlap)
 							const s = yield* Substrate
-							const fx = yield* installWrites(build("MergedMembers"), "mergedmembers", {
-								programs: {},
+							const fixture = build("MergedMembers")
+							/** The installation's login's workload holds the case's write, so it holds every index the write reads
+							 * through, Old's notes by their n among them, as generate plans an application's. */
+							const fx = yield* installWrites(fixture, "mergedmembers", {
+								programs: { write: writeOf(fixture, c) },
 								logins: () => []
 							})
 							const S = build(fx.installed.declared)

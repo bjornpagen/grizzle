@@ -713,25 +713,62 @@ export const nullCase = (nc: NullCase, notes: Case<Feature>) =>
 				)
 			})
 		}
-		const o = yield* installed(built.Null, {}, { label: "null", programs: {} })
+		/** Every write of the case, a change member of the relation and the op it writes, its facts each call's own. */
+		const writePrograms = {
+			insertChecked: changeSetOver.empty(built.Null).insert(built.Checked, []),
+			insertContained: changeSetOver.empty(built.Null).insert(built.Contained, []),
+			insertKeyed: changeSetOver.empty(built.Null).insert(built.Keyed, []),
+			insertG0: changeSetOver.empty(built.Null).insert(built.gens[0], []),
+			insertG1: changeSetOver.empty(built.Null).insert(built.gens[1], []),
+			insertG2: changeSetOver.empty(built.Null).insert(built.gens[2], []),
+			insertOwner: changeSetOver.empty(built.Null).insert(built.Owner, []),
+			putMember: changeSetOver.empty(built.Null).put(built.Member, []),
+			deleteMember: changeSetOver.empty(built.Null).delete(built.Member, []),
+			insertRows: changeSetOver.empty(built.Null).insert(built.Rows, [])
+		}
+		const rule = (find: (r: RuleValue, x: Readonly<Record<string, unknown>>) => unknown) =>
+			queryOver(built.Null).rule((r: RuleValue) => {
+				const x = varsOver(built.Rows, "row")
+				return find(r, x)
+			})
+		/** The case's reads of Rows: its filter's rows, its aggregate's groups and its whole total. */
+		const readPrograms = {
+			filtered: rule((r, x) =>
+				r
+					.match(built.Rows, x)
+					.where(buildPred(c, x, nc.filter))
+					.find({ id: x["id"] })
+			),
+			grouped: rule((r, x) =>
+				r
+					.match(built.Rows, x)
+					.where(buildPred(c, x, nc.aggregate))
+					.find({ kind: x["kind"], total: r.sum(x["n"]), count: r.count() })
+			),
+			whole: rule((r, x) =>
+				r
+					.match(built.Rows, x)
+					.where(buildPred(c, x, nc.aggregate))
+					.find({ total: r.sum(x["n"]) })
+			)
+		}
+		/** The installation's login's workload holds every write and read the case serves, so it holds every index they
+		 * read through, as generate plans an application's (a served compile under its snapshot refuses a read through one
+		 * it does not hold, UninstalledIndex). */
+		const o = yield* installed(
+			built.Null,
+			{},
+			{
+				label: "null",
+				programs: { ...writePrograms, ...readPrograms }
+			}
+		)
 		const names = namesOf(o.installed)
 		const where = (relation: string, id: number) =>
 			`${relation} row ${id} of ${Formatter.format(nc)}`
 		const delivered = yield* withServedDb(o.installed, o.server.roles.app, {}, ({ serve }) =>
 			Effect.gen(function* () {
-				/** Every write of the case, a change member of the relation and the op it writes, its facts each call's own. */
-				const writes = yield* serve({
-					insertChecked: changeSetOver.empty(o.schema).insert(built.Checked, []),
-					insertContained: changeSetOver.empty(o.schema).insert(built.Contained, []),
-					insertKeyed: changeSetOver.empty(o.schema).insert(built.Keyed, []),
-					insertG0: changeSetOver.empty(o.schema).insert(built.gens[0], []),
-					insertG1: changeSetOver.empty(o.schema).insert(built.gens[1], []),
-					insertG2: changeSetOver.empty(o.schema).insert(built.gens[2], []),
-					insertOwner: changeSetOver.empty(o.schema).insert(built.Owner, []),
-					putMember: changeSetOver.empty(o.schema).put(built.Member, []),
-					deleteMember: changeSetOver.empty(o.schema).delete(built.Member, []),
-					insertRows: changeSetOver.empty(o.schema).insert(built.Rows, [])
-				})
+				const writes = yield* serve(writePrograms)
 				/** One write of `facts` into the relation `relation` by `op`, held to the laws it breaks (verdict). */
 				const judge = (
 					relation: string,
@@ -854,31 +891,7 @@ export const nullCase = (nc: NullCase, notes: Case<Feature>) =>
 					[],
 					where("Rows", 0)
 				)
-				const rule = (find: (r: RuleValue, x: Readonly<Record<string, unknown>>) => unknown) =>
-					queryOver(o.schema).rule((r: RuleValue) => {
-						const x = varsOver(built.Rows, "row")
-						return find(r, x)
-					})
-				const reads = yield* serve({
-					filtered: rule((r, x) =>
-						r
-							.match(built.Rows, x)
-							.where(buildPred(c, x, nc.filter))
-							.find({ id: x["id"] })
-					),
-					grouped: rule((r, x) =>
-						r
-							.match(built.Rows, x)
-							.where(buildPred(c, x, nc.aggregate))
-							.find({ kind: x["kind"], total: r.sum(x["n"]), count: r.count() })
-					),
-					whole: rule((r, x) =>
-						r
-							.match(built.Rows, x)
-							.where(buildPred(c, x, nc.aggregate))
-							.find({ total: r.sum(x["n"]) })
-					)
-				})
+				const reads = yield* serve(readPrograms)
 				const collect = (served: ReadonlyMap<string, OnceCalls>, name: string) =>
 					readOnce(member(served, name))({ params: {}, facts: {} })
 				const filtered = yield* collect(reads, "filtered")
