@@ -550,6 +550,13 @@ const equalityPlacements = (keys: Keys, columns: Columns): Placements => ({
 	others: [{ kind: "keyed", method: "btree", within: keys }, ...gistLed([keys], columns)]
 })
 
+/** A lookup binding a key by membership (AccessUse `membership lookup`): an equality lookup's B-tree placements alone,
+ * no GiST index led by its keys, which reads the membership as a filter (amsearcharray). */
+const membershipPlacements = (keys: Keys): Placements => ({
+	own: { kind: "blocks", method: "btree", blocks: [keys], directed: undefined },
+	others: [{ kind: "keyed", method: "btree", within: keys }]
+})
+
 /** An equality prefix and one range column, `keys` the prefix and then the range column: an index whose leading columns
  * are exactly the prefix's set and then the range column, or a unique B-tree all of whose keys the prefix binds. */
 const prefixedRangePlacements = (
@@ -664,13 +671,16 @@ const nearestPlacements = (keys: Keys): Placements => ({
 	others: []
 })
 
-/** What each workload use asks of a B-tree (`accessUses` names them): every column fixed by equality, an equality prefix
- * and one range column, or an order; none of a span predicate, GiST's, or an approximate retrieval, HNSW's, which
+/** What each workload use asks of a B-tree (`accessUses` names them): every column fixed by equality, or by membership
+ * too, which a B-tree alone serves, an equality prefix and one range column, or an order; none of a span predicate, GiST's, or an approximate retrieval, HNSW's, which
  * extraction never asks of a B-tree. */
-const btreeNeeds: Readonly<Record<AccessUse, "lookup" | "range" | "order" | "none">> = {
+const btreeNeeds: Readonly<
+	Record<AccessUse, "lookup" | "membership" | "range" | "order" | "none">
+> = {
 	"key lookup": "lookup",
 	"equality lookup": "lookup",
 	"join key": "lookup",
+	"membership lookup": "membership",
 	"write target": "lookup",
 	range: "range",
 	"prefix search": "range",
@@ -695,6 +705,8 @@ const btreeAccessPlacements = (
 	switch (btreeNeeds[use]) {
 		case "lookup":
 			return equalityPlacements(keys, columns)
+		case "membership":
+			return membershipPlacements(keys)
 		case "range":
 			return rangePlacements(keys, columns)
 		case "order":

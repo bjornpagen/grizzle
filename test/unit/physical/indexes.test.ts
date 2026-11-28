@@ -3,6 +3,8 @@
  * create its indexes. Over drawn requests on a schema with a plain table, a span key's GiST index and a reverse lookup,
  * in a drawn order:
  *
+ * - a membership lookup (AccessUse `membership lookup`, a key bound by `IN` or `= ANY`) lands on a B-tree, the one
+ *   access method that searches an array, never on the span key's GiST index led by its keys;
  * - every request lands on exactly one planned index, of its relation, an installed one where its equalities bind every
  *   key of an installed unique B-tree, that leads with the columns it binds by equality, a law's request of two blocks
  *   (a unit-local law's, its unit's key first, physical/ddl/rules.ts requestsOf) with each block's in turn, never an
@@ -27,7 +29,7 @@
  * and the refusal each planted request names.
  *
  * Features: served by an installed or a created index, several requests on one created index, a GiST key serving a
- * B-tree probe, an ordered and a range request, each planted refusal, two methods on one column list, two indexes on
+ * B-tree probe, a membership lookup of the columns a GiST index leads served by a B-tree alone, an ordered and a range request, each planted refusal, two methods on one column list, two indexes on
  * one column list, a law request of two blocks, and one beside an index of its columns in another block order.
  */
 
@@ -78,6 +80,7 @@ export const theIndexRequestEngineLandsEveryRequestOnExactlyOneIndexPlansAlikeIn
 			"served by a created index",
 			"a created index serving several requests",
 			"a GiST key serving a B-tree probe",
+			"a membership lookup, served by a B-tree alone",
 			"an ordered request",
 			"a range request",
 			"an unrepresentable entry refused",
@@ -229,6 +232,25 @@ export const theIndexRequestEngineLandsEveryRequestOnExactlyOneIndexPlansAlikeIn
 					if (index.method === "gist" && r.method === "btree") {
 						c.note("a GiST key serving a B-tree probe")
 					}
+					assert.ok(
+						r.role !== "access" || r.use !== "membership lookup" || index.method === "btree",
+						`${r.relation}(${Arr.join(bound, ", ")}) binds a key by membership and lands on the ${index.method} index ${index.index.name}, whose scan reads the membership as a filter: a B-tree alone searches an array`
+					)
+					if (
+						r.role === "access" &&
+						r.use === "membership lookup" &&
+						Arr.some(
+							installation.indexes,
+							(x) =>
+								x.relation === r.relation &&
+								x.method === "gist" &&
+								Arr.every(bound, (b) =>
+									Arr.some(Arr.take(x.keys, bound.length), (k) => keyField(k) === b)
+								)
+						)
+					) {
+						c.note("a membership lookup, served by a B-tree alone")
+					}
 					if (r.role === "access" && (r.use === "take seek" || r.use === "page seek")) {
 						c.note("an ordered request")
 					}
@@ -298,6 +320,12 @@ export const theIndexRequestEngineLandsEveryRequestOnExactlyOneIndexPlansAlikeIn
 			}
 		],
 		kills: [
+			{
+				file: "packages/engine/src/physical/indexes/engine.ts",
+				original: '\t\tcase "membership":\n\t\t\treturn membershipPlacements(keys)\n',
+				replacement: '\t\tcase "membership":\n\t\t\treturn equalityPlacements(keys, columns)\n',
+				why: "A lookup binding a key by membership lands on a GiST index led by its keys, whose scan reads `= ANY` as a filter (amsearcharray false): serving's probe of DatetimePl bound bool IN (0, 1, 0) beside a span's equality, read through the GiST index of (pg_create_physical_replication_slot, span_40, tick_0, fixed_0, bool), bool outside its index condition (Law 2)."
+			},
 			{
 				file: "packages/engine/src/physical/indexes/engine.ts",
 				original: "\t\t\t\t? reversePlacements(blocks, keys, columns)",

@@ -1014,6 +1014,13 @@ const ascending = (
 	readonly opclass: IndexOpclass
 }> => columns.map((column) => ({ column, term: "column", dir: "asc", opclass: defaultOpclass }))
 
+/**
+ * The use of a lookup at `fixing`: a membership lookup where one binds its column by membership, which a B-tree alone
+ * serves (ir/products.ts AccessUse); else a key's where its columns hold one, else an equality's.
+ */
+const lookupUse = (fixing: ReadonlyArray<Binding>, keyed: boolean): AccessUse =>
+	fixing.some((b) => b.op === "in") ? "membership lookup" : keyed ? "key lookup" : "equality lookup"
+
 /** The columns equalities bind, each once, in name order. */
 const columnsOf = (fixing: ReadonlyArray<Binding>): ReadonlyArray<string> =>
 	[...new Set(fixing.map((b) => b.column))].toSorted()
@@ -1028,7 +1035,7 @@ const accessRequest = (
 			const [c0, ...cs] = columnsOf(access.eq)
 			return c0 === undefined
 				? defect("a seek binding a column at least")
-				: requestOf(table, [c0, ...cs], [], access.keyed ? "key lookup" : "equality lookup")
+				: requestOf(table, [c0, ...cs], [], lookupUse(access.eq, access.keyed))
 		}
 		case "row":
 			return requestOf(table, access.columns, [], "row equality")
@@ -3082,7 +3089,8 @@ class Binder {
 	 * - its level's index order: a take's or a page's ORDER BY of its B-tree columns past the ones its equalities fix,
 	 *   after them (`ordered`), or an approximate search's distance from a fixed vector (`nearest`), the equalities then
 	 *   filters;
-	 * - a span's Allen relation, after its equalities through btree_gist (`span`);
+	 * - a span's Allen relation, after its equalities through btree_gist (`span`), a membership of none among them: a GiST
+	 *   index searches no array (gist.c amsearcharray), so its scan reads `IN` or `= ANY` as a filter beside them;
 	 * - the one range past its equalities, of the column bounded on both sides first, then the least by name, where a
 	 *   column it or they bind holds many values (`range`, a text column bounded on both sides a prefix search), as the
 	 *   workload's access paths have always ranged a read;
@@ -3142,7 +3150,12 @@ class Binder {
 		}
 		const span = matched("span")
 		if (span !== undefined) {
-			return { kind: "span", eq: bindings, column: span.column, conjunct: span.conjunct }
+			return {
+				kind: "span",
+				eq: bindings.filter((b) => b.op === "="),
+				column: span.column,
+				conjunct: span.conjunct
+			}
 		}
 		const ranges = conjuncts.flatMap((c) => {
 			const r = rangeSideOf(c, written)
@@ -3254,7 +3267,16 @@ class Binder {
 					alias: itemAlias(stored, inner),
 					scan: {
 						kind: "index",
-						index: requestOf(table, [k0, ...ks], [], keyed ? "key lookup" : "join key"),
+						index: requestOf(
+							table,
+							[k0, ...ks],
+							[],
+							bindings.some((b) => b.op === "in")
+								? "membership lookup"
+								: keyed
+									? "key lookup"
+									: "join key"
+						),
 						bound,
 						needs: tableColumns(stored, delivered)
 					}
@@ -3618,7 +3640,7 @@ class Binder {
 						catalogTable,
 						[b0, ...bs],
 						[],
-						holdsKey(catalogTable, new Set(boundColumns)) ? "key lookup" : "equality lookup"
+						lookupUse(many ? fixedBindings : [], holdsKey(catalogTable, new Set(boundColumns)))
 					)
 		const targetItem: PlanItem<AccessIndexRequest> =
 			catalogTable === undefined

@@ -86,6 +86,7 @@ const accessUses = [
 	"key lookup",
 	"equality lookup",
 	"join key",
+	"membership lookup",
 	"write target",
 	"range",
 	"prefix search",
@@ -145,6 +146,7 @@ const fixedOf = (use: AccessUse, keys: number): number => {
 		case "key lookup":
 		case "equality lookup":
 		case "join key":
+		case "membership lookup":
 		case "write target":
 		case "row equality":
 			return keys
@@ -407,6 +409,7 @@ export type IndexFeature =
 	| "served by a created index"
 	| "a created index serving several requests"
 	| "a GiST key serving a B-tree probe"
+	| "a membership lookup, served by a B-tree alone"
 	| "an ordered request"
 	| "a range request"
 	| `${Broken} refused`
@@ -480,9 +483,35 @@ const reversedBlocksGen: Gen<EngineSketch> = (source) => {
 }
 
 /** The drawn engines, aimed at two indexes on one column list and at a law's blocks no index of its columns holds in order. */
+/**
+ * A membership lookup of Booking's room, among up to four drawn requests: the column Booking's span key's GiST index
+ * leads, which serves an equality lookup of it by btree_gist and no membership (amsearcharray false).
+ */
+const membershipGen: Gen<EngineSketch> = (source) => {
+	const drawn = source.draw(engineGen)
+	const kept = Arr.take(drawn.requests, 4)
+	return {
+		...drawn,
+		requests: [
+			...kept,
+			{
+				relation: "Booking",
+				keys: [{ column: "room", desc: false }],
+				law: false,
+				use: "membership lookup",
+				vector: 1,
+				cosine: false
+			}
+		],
+		planted: { kind: "none" },
+		splits: [...Arr.take(drawn.splits, kept.length), 0]
+	}
+}
+
 export const engineSpace: Aimed<EngineSketch, IndexFeature> = aimed(engineGen, [
 	["two indexes on one column list", twoClassesGen],
-	["a law request's blocks in another order than an index of its columns", reversedBlocksGen]
+	["a law request's blocks in another order than an index of its columns", reversedBlocksGen],
+	["a membership lookup, served by a B-tree alone", membershipGen]
 ])
 
 /**

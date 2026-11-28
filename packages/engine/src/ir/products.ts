@@ -385,6 +385,9 @@ export interface CarrierDecl {
  * - key lookup: An equality lookup whose columns contain a declared key: the key's own index serves it.
  * - equality lookup: An equality lookup on parameters or outer values.
  * - join key: The probe of one occurrence from a join partner, an attachment's delivered parents, or an EXISTS.
+ * - membership lookup: An equality lookup one of whose columns it binds by membership, `IN (…)` or `= ANY (…)`: a
+ *   B-tree alone serves it, the one access method that searches an array (nbtree.c amsearcharray), so no GiST index led
+ *   by its keys does, whose scan reads the membership as a filter (amsearcharray false).
  * - range: An equality prefix followed by one range column.
  * - prefix search: An equality prefix followed by a text column bounded on both sides: a code-point interval.
  * - take seek: An equality prefix followed by an order its reader takes rows in: a take's completed order, or the order
@@ -405,6 +408,7 @@ const accessUses = [
 	"key lookup",
 	"equality lookup",
 	"join key",
+	"membership lookup",
 	"range",
 	"prefix search",
 	"take seek",

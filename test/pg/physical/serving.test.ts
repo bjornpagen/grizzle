@@ -153,6 +153,12 @@ export const everyRequestAGeneratedWorkloadPlansIsServedAndEveryIndexItCreatesIs
 		],
 		kills: [
 			{
+				file: "packages/engine/src/sql/bind.ts",
+				original: '\t\t\t\teq: bindings.filter((b) => b.op === "="),\n',
+				replacement: "\t\t\t\teq: bindings,\n",
+				why: "A span's read binds a membership through its GiST index, which searches no array: DatetimePl's read at its span's equality bound bool IN (0, 1, 0) as an index condition of the GiST index of (pg_create_physical_replication_slot, span_40, tick_0, fixed_0, bool), where PostgreSQL filtered it (Law 2, the kept case of Overlaps' JsonbPretty)."
+			},
+			{
 				file: "packages/engine/src/physical/indexes/engine.ts",
 				original: "\t\t\tdirected: isNonEmpty(order) ? order : undefined",
 				replacement: "\t\t\tdirected: keys",

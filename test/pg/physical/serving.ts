@@ -103,6 +103,7 @@ const accessShape: Readonly<Record<AccessUse, Shape>> = {
 	"key lookup": "equality",
 	"equality lookup": "equality",
 	"join key": "equality",
+	"membership lookup": "equality",
 	"write target": "equality",
 	range: "range",
 	"prefix search": "range",
@@ -162,6 +163,7 @@ const methodOfUse: Readonly<Record<AccessUse, AccessIndexRequest["method"]>> = {
 	"key lookup": "btree",
 	"equality lookup": "btree",
 	"join key": "btree",
+	"membership lookup": "btree",
 	"write target": "btree",
 	range: "btree",
 	"prefix search": "btree",
@@ -184,6 +186,7 @@ const fixedOfUse = (use: AccessUse, keys: number): number => {
 		case "key lookup":
 		case "equality lookup":
 		case "join key":
+		case "membership lookup":
 		case "write target":
 		case "row equality":
 			return keys
