@@ -360,9 +360,9 @@ export const aWriteNamesItsRowsByTheirTextsAndMeetsEveryOtherFactAtItsKeyGenerat
 				{
 					file: "packages/engine/src/write/delete/exact.ts",
 					original:
-						"\t\t\t\t\t\tfactEq({ fields: compared, typeOf, left: stored, right: inCol }, w.names),\n",
+						"\t\t\t\t\t\tfactEq({ fields: matchedAt, typeOf, left: stored, right: inCol }, w.names),\n",
 					replacement:
-						'\t\t\t\t\t\tfactEq({ fields: compared.filter((f) => f.name !== "path"), typeOf, left: stored, right: inCol }, w.names),\n',
+						'\t\t\t\t\t\tfactEq({ fields: matchedAt.filter((f) => f.name !== "path"), typeOf, left: stored, right: inCol }, w.names),\n',
 					why: "An exact deletion meets a stored fact at its key generation alone, not at the text it states: a delete stating another spelling of a stored path at FoldedRef's folded key generation removes the stored row, where a deletion removes only a fact equal at every field, and the search fails. (A put of FoldedRef is an ON CONFLICT DO UPDATE, write/put/choose.ts, so no displacing deletion meets a folded key generation in this box.)"
 				}
 			]
@@ -881,6 +881,12 @@ export const aSetLikeRelationKeyedByItsValuesDigestsHoldsAndFindsValuesOfAnyLeng
 				original: "\tif (fill.generations.length === 0) {\n\t\treturn Result.ok(stated)\n\t}",
 				replacement: "\tif (fill.generations.length >= 0) {\n\t\treturn Result.ok(stated)\n\t}",
 				why: "A ledger row's value digest never filled on the host: an insert or a put sends no valueDigest, so no value of any length is stored by its texts."
+			},
+			{
+				file: "packages/engine/src/write/delete/exact.ts",
+				original: "\t\tconst matchedAt = extendNonEmpty(compared, generations)\n",
+				replacement: "\t\tconst matchedAt = compared\n",
+				why: "An exact deletion matches a ledger row at the fields its fact carries alone and never at its value digest, so the binding probes SetString by the value's text, which no B-tree entry holds, beside no key, and the installation is refused (UnrepresentableKey)."
 			}
 		]
 	})

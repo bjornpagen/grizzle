@@ -1,6 +1,7 @@
 import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	appendNonEmpty,
+	extendNonEmpty,
 	isNonEmpty,
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
@@ -247,10 +248,15 @@ const buildDelete = <T extends StatementText>(
 		 * primary key's fields but a place, which no fact carries and a delete of a place's relation leaves unread, since it
 		 * removes whole groups, each named by the fields before the place (write/frontend/instants.ts Removal). */
 		const keys = mapNonEmpty(reached, (field) => ({ field, column: inputs.of(field) }))
+		/** An exact deletion's match: the fact at every field it compares, and at each key generation of its primary key,
+		 * a function of those fields the input computes (`generations`), so its equalities bind the target's whole primary
+		 * key and the binding reaches it by the key's index, never by a text of no byte bound the fact carries beside its
+		 * digest (sql/bind.ts probeEntry, physical/indexes/engine.ts refusedUndigested). */
+		const matchedAt = extendNonEmpty(compared, generations)
 		const where =
 			mode.kind === "exact"
 				? and([
-						factEq({ fields: compared, typeOf, left: stored, right: inCol }, w.names),
+						factEq({ fields: matchedAt, typeOf, left: stored, right: inCol }, w.names),
 						...keyedAmong(w, supply, relation.name, r3, r1, keys)
 					])
 				: and(
