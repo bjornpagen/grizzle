@@ -1952,6 +1952,8 @@ class Binder {
 	readonly #levels: Array<PlanLevel<AccessIndexRequest>> = []
 	#needs: ReadonlyMap<string, ReadonlySet<string>> = new Map()
 	#whole = false
+	/** Whether a statement of the binding read what it read whole, once (`#whole`), a PL/pgSQL block of whole reads. */
+	#readWhole = false
 	/** The world views the statement reads whose bodies hold levels of their own, by ordinal (`worldEntry`). */
 	readonly #worlds = new Set<number>()
 	/**
@@ -1967,12 +1969,15 @@ class Binder {
 	}
 
 	/**
-	 * Whether a read at the values it fixes reaches its rows through the index `request` asks: a keyed binding's always,
-	 * every request of it one index planning lands (physical/indexes/engine.ts planIndexes); a whole one's where an
-	 * index serves it (BoundReads `whole`).
+	 * Whether a read at the values it fixes reaches its rows through the index `request` asks: a keyed binding's, every
+	 * request of it one index planning lands (physical/indexes/engine.ts planIndexes), but where the statement reads what
+	 * it reads whole, once (`#whole`), a stored table's fill or a data step's re-check (physical/ddl/recheck.ts), for
+	 * which no index stands alone: that read asks none, and its routine is bound again once the installation's indexes
+	 * stand (physical/install/compile.ts), its read sought where one of them serves it; a whole binding's where an index
+	 * serves it (BoundReads `whole`).
 	 */
 	#serves(request: AccessIndexRequest): boolean {
-		return this.#reads.kind === "keyed" || this.#reads.serves(request)
+		return this.#reads.kind === "keyed" ? !this.#whole : this.#reads.serves(request)
 	}
 
 	/** A read of `table` by `access`, as its binding reaches it (`#serves`), else whole, its conjuncts its filters. */
@@ -1984,6 +1989,11 @@ class Binder {
 
 	plan(): ReadPlan<AccessIndexRequest> {
 		return { levels: [...this.#levels] }
+	}
+
+	/** Whether a statement of the binding read what it read whole, once, in a block of whole reads (`#readWhole`). */
+	readWhole(): boolean {
+		return this.#readWhole
 	}
 
 	/** The statement bound (see the header), its columns' needs read off it first; a whole one's reads joined by hash. */
@@ -3717,6 +3727,7 @@ class Binder {
 			case "wholeReads": {
 				const whole = this.#whole
 				this.#whole = true
+				this.#readWhole = true
 				const [b0, ...bs] = s.body
 				const body = [this.pl(b0), ...bs.map((x) => this.pl(x))] as const
 				this.#whole = whole
@@ -3778,18 +3789,22 @@ export interface BoundRoutine {
 	readonly fn: CreateFunction
 	readonly plan: ReadPlan<AccessIndexRequest>
 	readonly planned: ReadonlyArray<string>
+	/** Whether a statement of it reads what it reads whole, once (PlStatement `wholeReads`), which a keyed binding reads
+	 * whole and a whole one at the values it fixes where an index serves them (Binder `#serves`). */
+	readonly readsWhole: boolean
 }
 
 /**
- * The routine `fn`, bound over `catalog` under a scope of its own, each statement PL/pgSQL hands the planner its own
- * top level (see the header), after its logical rewrites (sql/print-once.ts printedOnce).
+ * The routine `fn`, bound over `catalog` under a scope of its own, its reads by `reads`, each statement PL/pgSQL hands
+ * the planner its own top level (see the header), after its logical rewrites (sql/print-once.ts printedOnce).
  */
 export const bindRoutine = (
 	fn: CreateFunction,
 	scope: AdviceScope,
-	catalog: ReadCatalog
+	catalog: ReadCatalog,
+	reads: BoundReads
 ): BoundRoutine => {
-	const binder = new Binder(scope, catalog, keyedReads)
+	const binder = new Binder(scope, catalog, reads)
 	const once = printedOnce(fn)
 	if (once.kind !== "createFunction") {
 		return defect("a routine printed once a routine still")
@@ -3798,7 +3813,8 @@ export const bindRoutine = (
 	return {
 		fn: bound,
 		plan: binder.plan(),
-		planned: plannedOf(bound, catalog.fired(nameKey(fn.name)))
+		planned: plannedOf(bound, catalog.fired(nameKey(fn.name))),
+		readsWhole: binder.readWhole()
 	}
 }
 
@@ -4029,8 +4045,9 @@ export const bindSelect = (
 
 /**
  * How a statement's reads are bound: `keyed`, each read of a second relation by the outer row that binds it, a probe,
- * every read one whose index request index planning plans (physical/indexes/engine.ts planIndexes): a workload's
- * statement and a routine's; or `whole`, each read whole or at the values it fixes and joined by a hash, as a statement
+ * every read one whose index request index planning plans (physical/indexes/engine.ts planIndexes), but a read of a
+ * statement that reads what it reads whole, once, which asks none (Binder `#serves`): a workload's statement and a
+ * routine's; or `whole`, each read whole or at the values it fixes and joined by a hash, as a statement
  * that runs once over every row reads them: a migration's data step, O(n + m) by a hash where n probes cost n descents.
  * A data step's requests are planned no index, so a read of it at the values it fixes is sought where an index `serves`
  * its request (engine.ts servingOf) and read whole beside its filter where none does.

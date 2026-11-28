@@ -19,7 +19,12 @@ import { compareStrings } from "#compiler/core/order.ts"
 import { type Phases, phased } from "#compiler/core/phase.ts"
 import { type Codebook, firstCodebook } from "#compiler/ir/codes.ts"
 import type { LibraryFn } from "#compiler/ir/physical.ts"
-import type { AccessPath, IndexRequest, InstallationManifest } from "#compiler/ir/products.ts"
+import type {
+	AccessIndexRequest,
+	AccessPath,
+	IndexRequest,
+	InstallationManifest
+} from "#compiler/ir/products.ts"
 import type { RegexRef } from "#compiler/ir/scalar.ts"
 import type { LivePlan } from "#compiler/live/notify.ts"
 import { installCatalog } from "#compiler/physical/access/catalog.ts"
@@ -78,7 +83,7 @@ import { type Owned, ownedIdentities, rostersOf } from "#compiler/schema/own.ts"
 import { printAdvice } from "#compiler/sql/advice.ts"
 import type { ObjectName, OperandSelect, SqlStatement } from "#compiler/sql/ast.ts"
 import { nameKey } from "#compiler/sql/ast.ts"
-import { bindRoutine, type ReadCatalog } from "#compiler/sql/bind.ts"
+import { bindRoutine, keyedReads, type ReadCatalog } from "#compiler/sql/bind.ts"
 import { AdviceScope } from "#compiler/sql/naming.ts"
 import { planRequests, type ReadPlan, resolvePlan } from "#compiler/sql/plan.ts"
 
@@ -515,7 +520,9 @@ export const installationOfPlan = (
 		 * Every routine the installation installs, each bound under a scope of its own over the installation's catalog
 		 * (sql/bind.ts bindRoutine): what each reads, the one derivation of the requests its reads make, a judge's
 		 * function's asked as its requester asks them (physical/ddl/rules.ts routineRequests), every other's as the
-		 * workload's, and of the advice it is planned under.
+		 * workload's, and of the advice it is planned under. A read of a statement that reads what it reads whole, once,
+		 * the data step's re-check's (physical/ddl/recheck.ts), asks none: no index stands for it alone, so its routine is
+		 * bound again once the indexes stand (`advised`), that read sought where one of them serves it.
 		 */
 		const catalog = installCatalog(b)
 		const routines = new Map(
@@ -523,7 +530,7 @@ export const installationOfPlan = (
 				.statements()
 				.flatMap((s) =>
 					s.kind === "createFunction"
-						? [[s, bindRoutine(s, new AdviceScope(), catalog)] as const]
+						? [[s, bindRoutine(s, new AdviceScope(), catalog, keyedReads)] as const]
 						: []
 				)
 		)
@@ -557,22 +564,32 @@ export const installationOfPlan = (
 		)
 		/**
 		 * Each routine with its plan resolved, a judge's each read by the law's request its requester asked it as
-		 * (`routineAsks`), and its advice printed of it (sql/advice.ts printAdvice).
+		 * (`routineAsks`), and its advice printed of it (sql/advice.ts printAdvice); one that reads what it reads whole,
+		 * once, bound again over the planned indexes (BoundReads `whole`), its keyed reads landing where they were planned
+		 * and its whole ones sought where an index serves them, read whole beside their filters where none does.
 		 */
 		const advised = new Map(
-			[...routines].map(([fn, bound]) => {
+			[...routines].map(([fn, asked]) => {
 				const by = rules.requesters.get(nameKey(fn.name))
-				const resolved = resolvePlan(
-					bound.plan,
-					by === undefined
-						? resolve
-						: (r) =>
-								resolve(
-									defined(
-										routineRequests(b, by, [r])[0],
-										`the request of ${fn.name.name}'s read of ${r.relation}, a relation an index serves`
-									)
-								)
+				/** The request a read of the routine asks index planning for: its own, or its requester's law's. */
+				const askedAs = (r: AccessIndexRequest): IndexRequest | undefined =>
+					by === undefined ? r : routineRequests(b, by, [r])[0]
+				const bound = asked.readsWhole
+					? bindRoutine(fn, new AdviceScope(), catalog, {
+							kind: "whole",
+							serves: (r) => {
+								const request = askedAs(r)
+								return request !== undefined && serving(request) !== undefined
+							}
+						})
+					: asked
+				const resolved = resolvePlan(bound.plan, (r) =>
+					resolve(
+						defined(
+							askedAs(r),
+							`the request of ${fn.name.name}'s read of ${r.relation}, a relation an index serves`
+						)
+					)
 				)
 				return [
 					fn,
