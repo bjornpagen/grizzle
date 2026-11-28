@@ -107,7 +107,7 @@ export const runSplit = (c: SplitCase, noteReached: (f: SplitFeature) => void) =
 			const db = yield* openFull(fx, S)
 			yield* applied(db, ChangeSet.empty(S).insert(Test, storedFacts(c.n)), "the stored tests")
 			const put = ChangeSet.empty(S).put(Test, putFacts(c))
-			const explained = yield* explainedChange(db, put)
+			const explained = yield* explainedChange(db, put, {})
 			const plans = Arr.map(explained, (p) => p.plan)
 			const counts = {
 				deleted: written(plans, "Delete"),

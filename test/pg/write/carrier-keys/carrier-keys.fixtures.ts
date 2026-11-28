@@ -202,7 +202,7 @@ export const plannedOf = (sketch: Sketch) =>
 			})).apply({})
 			assert.equal(seeded.value.kind, "accepted", "the stored state is written")
 			const names = new Map(Arr.map(boxRelations, (r) => [fx.relationName(r), r] as const))
-			const plans = yield* explainedChange(db, writeOf(s, sketch))
+			const plans = yield* explainedChange(db, writeOf(s, sketch), {})
 			assert.ok(plans.length > 0, "the write runs a statement")
 			const unkeyed = Arr.flatMap(plans, (p, i) =>
 				Arr.flatMap([...planNodes(p.plan)], (n) =>

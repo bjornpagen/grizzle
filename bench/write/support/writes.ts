@@ -1081,12 +1081,13 @@ const explainPlans = (label: StatementLabel): boolean => label.kind !== "carrier
  * The plans of one application of a ChangeSet value on the Db `opened`, as observedChange applies it, its program's
  * statements each run under EXPLAIN (ANALYZE, BUFFERS, TIMING OFF, SETTINGS, FORMAT JSON) in its place in the
  * transaction that writes, a carrier's emptying as it is (`explainPlans`), which ends by ROLLBACK
- * (explainingSession), with no parameters but the ChangeSet's own facts.
+ * (explainingSession), with the call's parameters `params` and the ChangeSet's own facts.
  * The attempt's outcome is no ChangeSet's: its statements answered plans, which it cannot read, so it is not kept.
  */
 export const explainedChange = (
 	opened: OpenedDb,
-	changes: unknown
+	changes: unknown,
+	params: ParamMap
 ): Effect.Effect<ReadonlyArray<Explained>, MalformedPlan> =>
 	Effect.gen(function* () {
 		const observed = yield* observedChange(opened, changes, attemptLabel, { kind: "none" })
@@ -1121,7 +1122,7 @@ export const explainedChange = (
 						ctx,
 						{ ...variantOf(opened.ctx, loaded.variants), entry: compiled.entry },
 						callFactsOf(parsed),
-						{}
+						params
 					)
 				})
 			)

@@ -258,7 +258,7 @@ export const costOf = (situation: Situation, tree: TreeShape, rows: number) =>
 				)})`,
 				[]
 			)
-			const plans = yield* explainedChange(db, write)
+			const plans = yield* explainedChange(db, write, {})
 			const unit = Arr.filter(plans, (p) => deletes(p.plan))
 			assert.equal(
 				unit.length,

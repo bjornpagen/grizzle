@@ -18,20 +18,28 @@
  *
  * Property, per case: at each scale the call commits and Out0 and Out1 hold the model's rows (key-sets.fixtures.ts
  * modelOf: each member's meaning over the stored state, the content whole); and where every read is restricted, the
- * content rows the write reads in its transaction (pg_stat_xact_user_tables, Tag's, TagB's and Link's, which no member
- * reads but through the content) are the same at both scales: no node of the content, at any depth, reads a row the
- * call's keys do not reach. Oracle: specification, the model, and PostgreSQL's own counts.
+ * content rows the write reads (Tag's, TagB's and Link's, which no member reads but through the content) are the same at
+ * both scales: no node of the content, at any depth, reads a row the call's keys do not reach. A content row read is
+ * one a scan of its plans returned or removed, over every loop (bench/query/support/plans.ts rowsReadFrom), each of the
+ * write's statements run under EXPLAIN ANALYZE in its place (bench/write/support/writes.ts explainedChange), never a
+ * heap fetch PostgreSQL counts (pg_stat_xact_user_tables idx_tup_fetch): an index-only scan fetches only the rows of a
+ * page its visibility map does not prove all-visible, and PostgreSQL 19 marks a full page all-visible as a read-only
+ * scan prunes it on access (pruneheap.c heap_page_prune_opt), so at scale 16 Tag's full first page was read through
+ * its index with no fetch and the count fell to 3 where the write read 8 at both scales. Oracle: specification, the
+ * model, and PostgreSQL's own plans.
  *
  * Features: each readers.
  */
 
-import { assert, defined } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Order } from "effect"
+import { rowsReadFrom } from "#bench/query/support/plans.ts"
 import {
 	attemptLabel,
+	explainedChange,
 	installWrites,
 	observedChange,
 	openFull,
@@ -68,7 +76,7 @@ const scales = [1, 16] as const
 /** The relations the property counts the reads of: the content, which no member reads but through the shared nodes. */
 const counted = [Tag, TagB, Link] as const
 
-/** One scale's run: Out0's and Out1's rows after the call, and the content rows the write read in its transaction. */
+/** One scale's run: Out0's and Out1's rows after the call, and the content rows the write's statements read. */
 const runAt = (readers: Readers, scale: number) =>
 	Effect.scoped(
 		Effect.gen(function* () {
@@ -133,20 +141,12 @@ const runAt = (readers: Readers, scale: number) =>
 				])
 			)
 			const db = yield* openFull(fx, S)
-			let read = -1
-			const observed = yield* observedChange(db, changeOf(S, readers), attemptLabel, {
-				kind: "probe",
-				run: (probe) =>
-					Effect.map(
-						probe.rows(
-							"SELECT (COALESCE(sum(seq_tup_read), 0) + COALESCE(sum(idx_tup_fetch), 0))::text FROM pg_catalog.pg_stat_xact_user_tables WHERE relid = ANY (ARRAY[$1::regclass, $2::regclass, $3::regclass])",
-							Arr.map(counted, (r) => names.table(r))
-						),
-						(rows) => {
-							read = Number(defined(rows[0]?.[0], "the content rows read"))
-						}
-					)
-			})
+			const change = changeOf(S, readers)
+			const explained = yield* explainedChange(db, change, { session })
+			const read = Arr.reduce(explained, 0, (sum, e) =>
+				Arr.reduce(counted, sum, (total, r) => total + rowsReadFrom(e.plan, names.tableIdent(r)))
+			)
+			const observed = yield* observedChange(db, change, attemptLabel, { kind: "none" })
 			const applied = yield* observed.apply({ session })
 			assert.ok(
 				applied.value.kind === "accepted" || applied.value.kind === "no-change",

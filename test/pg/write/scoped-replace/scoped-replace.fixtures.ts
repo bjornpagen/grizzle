@@ -105,7 +105,7 @@ const applied = (db: OpenedDb, changes: unknown, what: string) =>
 
 /** The rows the replace's statements read and pair, each explained with ANALYZE in its place, rolled back. */
 const replaceWork = (db: OpenedDb, s: Schema, held: number) =>
-	Effect.map(explainedChange(db, replaceOf(s, held)), (plans) =>
+	Effect.map(explainedChange(db, replaceOf(s, held), {}), (plans) =>
 		Arr.reduce(plans, 0, (sum, p) => sum + rowsScannedAndPaired(p.plan))
 	)
 

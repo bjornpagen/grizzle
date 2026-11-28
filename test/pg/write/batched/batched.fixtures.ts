@@ -117,7 +117,7 @@ export const runBatched = (c: Batched, k: Case<BatchedFeature>) =>
 				? ChangeSet.sequence(ChangeSet.empty(S).insert(Note, [{ id: 1n }]), inserted)
 				: inserted
 			if (!c.pair) {
-				const plans = yield* explainedChange(db, change)
+				const plans = yield* explainedChange(db, change, {})
 				assert.ok(
 					plans.length > 1,
 					`${Formatter.format(c)}: the insert of ${c.facts} facts runs in several executions, ${plans.length} ran`

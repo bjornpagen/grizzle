@@ -168,7 +168,8 @@ export const runDelete = (stored: Stored, c: Case<DeleteFeature>) =>
 			}
 			const plans = yield* explainedChange(
 				db,
-				ChangeSet.empty(S).deleteWhere({ Node: { pkg: 1n } })
+				ChangeSet.empty(S).deleteWhere({ Node: { pkg: 1n } }),
+				{}
 			)
 			const node = fx.relationName("Node")
 			const deletes = Arr.filter(Arr.flatMap(plans, deletesOf), (n) =>
