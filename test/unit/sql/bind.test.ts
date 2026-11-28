@@ -371,7 +371,9 @@ export const everyReadIsBoundAsItsLevelFixesItWhereItStandsUnderTheScopesOneAlia
 						c.note(
 							drawn.place.at === "top"
 								? "a UNION ALL's append level, each arm's one item a member"
-								: "a derived UNION ALL's members appended to its reader's item"
+								: drawn.place.at === "derived"
+									? "a derived UNION ALL's members appended to its reader's item"
+									: "a derived UNION ALL in parentheses, its members appended to its reader's item"
 						)
 						if (spec.kind === "whole" && Arr.contains(held, "f")) {
 							c.note("a whole read of few values alone")
@@ -436,6 +438,12 @@ export const everyReadIsBoundAsItsLevelFixesItWhereItStandsUnderTheScopesOneAlia
 		oracle: { kind: "specification", name: "the contract's binding rules (CARRY-CONTRACT §1)" },
 		kept: [],
 		kills: [
+			{
+				file: "packages/engine/src/sql/bind.ts",
+				original: "\t\t? pulledUnion(q.body)\n",
+				replacement: "\t\t? false\n",
+				why: "A derived UNION ALL in parentheses is bound as a level of its own, an append level named by the derived table's alias, where PostgreSQL's parser reads the parentheses as the UNION ALL itself and pulls its members up into the reader's level: serving's read of A's boolean key beside Task's span carried NO_GATHER(r3@r2), PostgreSQL planning NO_GATHER(r3@r1)."
+			},
 			{
 				file: "packages/engine/src/sql/bind.ts",
 				original: "\t\t\trs.length > 0 &&\n",

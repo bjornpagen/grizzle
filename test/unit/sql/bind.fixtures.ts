@@ -81,6 +81,7 @@ export type BindFeature =
 	| "an INSERT's met rows planned apart under the scope's names"
 	| "a UNION ALL's append level, each arm's one item a member"
 	| "a derived UNION ALL's members appended to its reader's item"
+	| "a derived UNION ALL in parentheses, its members appended to its reader's item"
 	| "a NOT EXISTS of a set PostgreSQL anti-joins, hashed after its level's items"
 	| "an EXISTS of a set read through a fenced item, a subplan"
 	| "a VALUES list fenced, planned apart under its alias"
@@ -112,6 +113,7 @@ export const bindFeatures = [
 	"an INSERT's met rows planned apart under the scope's names",
 	"a UNION ALL's append level, each arm's one item a member",
 	"a derived UNION ALL's members appended to its reader's item",
+	"a derived UNION ALL in parentheses, its members appended to its reader's item",
 	"a NOT EXISTS of a set PostgreSQL anti-joins, hashed after its level's items",
 	"an EXISTS of a set read through a fenced item, a subplan",
 	"a VALUES list fenced, planned apart under its alias",
@@ -305,7 +307,7 @@ export type Place =
 	| { readonly kind: "context" }
 	| { readonly kind: "world"; readonly leaky: boolean }
 	| { readonly kind: "met" }
-	| { readonly kind: "union"; readonly at: "top" | "derived" }
+	| { readonly kind: "union"; readonly at: "top" | "derived" | "parenthesized" }
 	| { readonly kind: "exists"; readonly not: boolean; readonly over: "cte" | "values" }
 	| { readonly kind: "fenced" }
 	| { readonly kind: "nested" }
@@ -339,6 +341,7 @@ export const bindCaseGen: Gen<BindCase> = (source) => {
 			{ kind: "met" },
 			{ kind: "union", at: "top" },
 			{ kind: "union", at: "derived" },
+			{ kind: "union", at: "parenthesized" },
 			{ kind: "exists", not: true, over: "cte" },
 			{ kind: "exists", not: false, over: "cte" },
 			{ kind: "exists", not: true, over: "values" },
@@ -579,7 +582,13 @@ export const statementOf = (c: BindCase): Select => {
 				: select(
 						keyedSet(
 							[target(col("u", "b"))],
-							[derived(select(united), "u", false)],
+							[
+								derived(
+									c.place.at === "derived" ? select(united) : select(select(united)),
+									"u",
+									false
+								)
+							],
 							undefined,
 							"a read of T's and S's union"
 						)

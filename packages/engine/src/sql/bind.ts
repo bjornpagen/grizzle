@@ -1749,15 +1749,18 @@ const armed = (q: OperandSelect): OperandSelect => (appendMember(q) ? q : wrappe
 /**
  * Whether PostgreSQL pulls the derived table of this query up into its reader's level as an append relation
  * (prepjointree.c is_simple_union_all, pull_up_simple_union_all): a UNION ALL of no WITH, ORDER BY, LIMIT or OFFSET,
- * every arm one item (`armed`), each a member of the relation at the reader's level.
+ * every arm one item (`armed`), each a member of the relation at the reader's level; or such a query in parentheses
+ * of none of them, `((… UNION ALL …))`, which PostgreSQL's parser reads as the UNION ALL itself (gram.y
+ * select_with_parens), so its members stand at the reader's level too, never at a level of the derived table's own.
  */
 const pulledUnion = (q: OperandSelect): boolean =>
-	q.body.kind === "setOp" &&
-	q.body.op === "UNION ALL" &&
 	q.with === undefined &&
 	q.orderBy.length === 0 &&
 	q.limit === undefined &&
-	q.offset === undefined
+	q.offset === undefined &&
+	(q.body.kind === "select"
+		? pulledUnion(q.body)
+		: q.body.kind === "setOp" && q.body.op === "UNION ALL")
 
 /** Whether the query `q` reads the CTE written `name`: a recursive CTE's body that reads itself. */
 const readsCte = (q: OperandSelect, name: string): boolean => {
