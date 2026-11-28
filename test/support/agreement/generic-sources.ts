@@ -392,7 +392,7 @@ const faults: Readonly<Record<string, { readonly refusal: Refused; readonly form
 	},
 	"a query's fold reading a fact twice": {
 		refusal:
-			"a fold reads each fact it matches once, by a key: bind a key of every source the rule matches, or match a query of the distinct values",
+			"a count reads each fact it matches once, by a key: bind a key of every source the rule matches, or match a query of the distinct values",
 		form: overScope(
 			(v) => `return r.match(${v}, { owner: x.owner }).find({ owner: x.owner, total: r.count() })`,
 			(r, m, x) => r.match(m, { owner: x["owner"] }).find({ owner: x["owner"], total: r.count() }),

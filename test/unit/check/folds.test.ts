@@ -40,9 +40,11 @@ export const aFoldReadsEachFactItMatchesOnceByAKeyIsRefusedExactlyWhereAMatchBin
 					}
 					const refusal = refusalOf(checked.error.reason)
 					assert.deepEqual(
-						refusal === undefined ? undefined : { source: refusal.source, key: refusal.key },
-						{ source: b.refusedAt, key: keyOf(c, b.refusedAt) },
-						"the refusal names the match's source and its key"
+						refusal === undefined
+							? undefined
+							: { aggregate: refusal.aggregate, source: refusal.source, key: refusal.key },
+						{ aggregate: c.fn, source: b.refusedAt, key: keyOf(c, b.refusedAt) },
+						"the refusal names the aggregate as written, the match's source and its key"
 					)
 					if (twoFields && b.refusedAt === "Comment" && boundPart(c)) {
 						k.note("refused a key of two fields bound in part")
@@ -82,6 +84,12 @@ export const aFoldReadsEachFactItMatchesOnceByAKeyIsRefusedExactlyWhereAMatchBin
 		},
 		kept: [],
 		kills: [
+			{
+				file: "packages/engine/src/check/checker.ts",
+				original: "\t\t\t\t\taggregates[0].head.fn",
+				replacement: '\t\t\t\t\t"sum"',
+				why: "The refusal names a sum whatever the head folds (check/checker.ts groupNode): a count over an unkeyed match is refused as a sum, which its author never wrote."
+			},
 			{
 				file: "packages/engine/src/check/checker.ts",
 				original: "\t\t\tconst key = keys.find((k) => k.every((f) => bound.has(f)))",

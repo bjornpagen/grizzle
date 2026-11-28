@@ -1,5 +1,6 @@
 import type { AllenMask, HoldsExactly } from "#compiler/allen/mask.ts"
 import type { Built, phantom, Phantom } from "#compiler/core/phantom.ts"
+import type { unkeyedAggregateRefusals } from "#compiler/core/refusals.ts"
 import type {
 	AvgSql,
 	EndpointSql,
@@ -183,13 +184,13 @@ type Reads<Os extends ReadonlyArray<unknown>> = ComputedOrigin<OperandOrigin<Os[
  * ordinary relation is keyed by the relation's keys, a context's one fact by the empty key, and a relation parameter,
  * an imported query, an interior stage and a delta of a world relation by their whole heading, each a set keyed by its
  * heading. A match that binds no key whole would fold a projection of its facts, and is refused; distinct values are
- * folded by matching a query of them as the source.
+ * folded by matching a query of them as the source. The refusal names the aggregate as its author wrote it.
  */
 type FoldKeyed<S, Os, X> =
 	X extends Aggregate<unknown, never>
 		? EveryMatchKeyed<S, Os> extends true
 			? unknown
-			: Refusal<"a fold reads each fact it matches once, by a key: bind a key of every source the rule matches, or match a query of the distinct values">
+			: Refusal<(typeof unkeyedAggregateRefusals)[X["aggregate"]]>
 		: unknown
 
 /**
@@ -1040,21 +1041,43 @@ export interface Rule<S, Params = unknown, Sole = "no match", Facts = NoFacts, C
 	 * count is a natural, whose host and SQL type are bigint's; sum and mean take their result type off the SUM and AVG
 	 * tables by their argument's SQL type (scalar/compute/tables.ts): a sum over any integer is an exact numeric.
 	 */
-	count(): Aggregate<bigint, unknown, "bigint", NaturalDomain>
+	count(): Aggregate<bigint, unknown, "bigint", NaturalDomain, bigint, "count">
 	sum<A extends TermBase | FirstValue, X, PA, OA, S extends NumericSql>(
 		term: A & FirstTerm<A> & InputTerm<X, PA, OA, S>
-	): OfFamily<A, NumericSql, Aggregate<PlainHost[SumSql[S]], PA, SumSql[S]>>
+	): OfFamily<
+		A,
+		NumericSql,
+		Aggregate<
+			PlainHost[SumSql[S]],
+			PA,
+			SumSql[S],
+			PlainHost[SumSql[S]],
+			PlainHost[SumSql[S]],
+			"sum"
+		>
+	>
 	mean<A extends TermBase | FirstValue, X, PA, OA, S extends keyof AvgSql>(
 		term: A & FirstTerm<A> & InputTerm<X, PA, OA, S>
-	): OfFamily<A, keyof AvgSql, Aggregate<PlainHost[AvgSql[S]], PA, AvgSql[S]>>
+	): OfFamily<
+		A,
+		keyof AvgSql,
+		Aggregate<
+			PlainHost[AvgSql[S]],
+			PA,
+			AvgSql[S],
+			PlainHost[AvgSql[S]],
+			PlainHost[AvgSql[S]],
+			"mean"
+		>
+	>
 	/**
 	 * min and max return an input unchanged, so they keep its type, a contract and a roster included, its values and
 	 * its language.
 	 */
 	min<A extends TermBase | FirstValue, X, PA, OA, S extends MinMaxSql, V, L>(
 		term: A & FirstTerm<A> & Term<X, PA, OA, S, V, ProvedFacts, L> & OrderedOperand<A>
-	): Admitted<HasOrder<A>, OfFamily<A, MinMaxSql, Aggregate<V, PA, S, X, L>>>
+	): Admitted<HasOrder<A>, OfFamily<A, MinMaxSql, Aggregate<V, PA, S, X, L, "min">>>
 	max<A extends TermBase | FirstValue, X, PA, OA, S extends MinMaxSql, V, L>(
 		term: A & FirstTerm<A> & Term<X, PA, OA, S, V, ProvedFacts, L> & OrderedOperand<A>
-	): Admitted<HasOrder<A>, OfFamily<A, MinMaxSql, Aggregate<V, PA, S, X, L>>>
+	): Admitted<HasOrder<A>, OfFamily<A, MinMaxSql, Aggregate<V, PA, S, X, L, "max">>>
 }

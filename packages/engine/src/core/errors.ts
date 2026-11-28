@@ -460,8 +460,9 @@ const keyRefusalText = (key: KeyRefusal): string => keyFaultText(key.subject, ke
  * - `UnrepresentableKey`: every key and index the compile met with no representable index entry (KeyRefusal), in the
  *   order it met them, located at the first: a compile goes on past each such key (core/canonical.ts KeyLedger), so one
  *   refusal names them all.
- * - `FoldOverProjection`: a fold whose rule matches `source` without binding every field of one of its keys, so the
- *   fold would read a projection of its facts; `key` is the key to bind.
+ * - `FoldOverProjection`: an aggregate, `aggregate` as its author wrote it (the head's first, where it holds several),
+ *   whose rule matches `source` without binding every field of one of its keys, so it would read a projection of its
+ *   facts; `key` is the key to bind.
  * - `QueriedOwnerAppend`: a write at `at` of `owner` from a query, its `op` an insert or a put, which may insert an
  *   owner of `family`, in a ChangeSet that appends `member` to that family.
  * - `UnstatedKey`: a put or a delete, `op`, of `relation`, whose `key` holds the fields `unstated`, which grizzle writes
@@ -581,6 +582,7 @@ export type CompileReason =
 	| {
 			readonly _tag: "FoldOverProjection"
 			readonly at: SourceLoc
+			readonly aggregate: "count" | "sum" | "mean" | "min" | "max"
 			readonly source: string
 			readonly key: ReadonlyArray<string>
 	  }
@@ -925,11 +927,16 @@ const misdeclaredText = (m: Misdeclaration): string => {
 }
 
 /**
- * A fold reads each fact its rule matches once, by a key, so a match that binds no key of its source would fold a
- * projection of its facts: name the key to bind, and the form that folds distinct values.
+ * An aggregate reads each fact its rule matches once, by a key, so a match that binds no key of its source would fold a
+ * projection of its facts: name the aggregate as its author wrote it, the key to bind, and the form that folds distinct
+ * values.
  */
-const foldOverProjectionText = (source: string, key: ReadonlyArray<string>): string =>
-	`a fold reads each fact it matches once, by its key, and this match of ${source} binds none of its keys: bind (${key.join(", ")}) in the match, or, to fold distinct values, match a query of them as the source`
+const foldOverProjectionText = (
+	aggregate: string,
+	source: string,
+	key: ReadonlyArray<string>
+): string =>
+	`a ${aggregate} reads each fact it matches once, by its key, and this match of ${source} binds none of its keys: bind (${key.join(", ")}) in the match, or, to ${aggregate} distinct values, match a query of them as the source`
 
 /**
  * An owner inserted in the ChangeSet that appends to its family holds its final count and ends in its own row, since
@@ -1030,7 +1037,7 @@ export const compileReasonText = (reason: CompileReason): string => {
 			].join("\n")
 		}
 		case "FoldOverProjection":
-			return foldOverProjectionText(reason.source, reason.key)
+			return foldOverProjectionText(reason.aggregate, reason.source, reason.key)
 		case "UnstatedKey":
 			return unstatedKeyText(reason.op, reason.relation, reason.key, reason.unstated)
 		case "QueriedOwnerAppend":

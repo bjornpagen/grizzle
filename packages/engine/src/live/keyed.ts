@@ -69,6 +69,14 @@ export class KeyedList<Row extends object> implements Iterable<Row> {
 		}
 	}
 
+	/**
+	 * The value as JSON reads it: its rows, in its order, so `JSON.stringify(value)` and `Response.json(value)` send the
+	 * array of its rows, never the list's own members.
+	 */
+	toJSON(): ReadonlyArray<Row> {
+		return [...this]
+	}
+
 	*[Symbol.iterator](): IterableIterator<Row> {
 		for (let node = this.#head; node !== undefined; node = node.next) {
 			yield node.row

@@ -25,9 +25,8 @@ export const cost = costGate(servedRecords, {
 	kills: [
 		{
 			file: "packages/engine/src/program/workload/login.ts",
-			original: "\troles: Roles & RolesOver<Base, Roles[number]> & MembersTyped<Roles>,",
-			replacement:
-				"\troles: Roles & { readonly [K in keyof Roles]: RolesOver<Base, Roles[K]> } & MembersTyped<Roles>,",
+			original: "\t\tRolesOver<Base, Roles[number]> &",
+			replacement: "\t\t{ readonly [K in keyof Roles]: RolesOver<Base, Roles[K]> } &",
 			why: "A login judges its roles by a mapped copy of their list, each member's verdict at its place, as before the verdict: the roles' array is related to that copy, its methods' generic signatures instantiated through every level of records whose attachments nest, past the checker's depth (TS2589) for records of an array of options."
 		},
 		{

@@ -266,7 +266,7 @@ query(Usage).rule((r) => {
 	return (
 		r
 			.match(Call, { model, cost })
-			// @ts-expect-error -- refusal: a fold reads each fact it matches once, by a key: bind a key of every source the rule matches, or match a query of the distinct values
+			// @ts-expect-error -- refusal: a sum reads each fact it matches once, by a key: bind a key of every source the rule matches, or match a query of the distinct values
 			.find({ model, spend: r.sum(cost) })
 	)
 })
@@ -367,6 +367,11 @@ export const book = ChangeSet.empty(Rooms).insert(Booking, [])
 export const RoomsApp = login(Rooms, "rooms", [FrontDesk], {
 	workload: [workload(FrontDesk, { book })]
 })
+
+/** A role of its login's own name, which the login refuses as generate does. */
+export const sameName = () =>
+	// @ts-expect-error -- refusal: a login's roles are named apart from it: give the role or the login another name
+	login(Rooms, "rooms", [role(Rooms, "rooms", wholeEntriesOf(Rooms))])
 
 const toMicros = mintOf(microsKey)
 const PaymentId = str.regex("^pi_[0-9A-Za-z]{1,64}$")

@@ -19,6 +19,19 @@ export const readme = boxAgreement(statedRefusals, {
 	kept: [],
 	kills: [
 		{
+			file: "packages/engine/src/types/query/rule.ts",
+			original: '\t\t\t: Refusal<(typeof unkeyedAggregateRefusals)[X["aggregate"]]>',
+			replacement: '\t\t\t: Refusal<(typeof unkeyedAggregateRefusals)["count"]>',
+			why: "An unkeyed aggregate is refused as a count whatever its author wrote (types/query/rule.ts FoldKeyed), so the README's sum over a match that binds no key prints a count's refusal: disarmed, the refusal its directive names is missing."
+		},
+		{
+			file: "packages/engine/src/types/schema/world.ts",
+			original:
+				'\t\t: Refusal<"a login\'s roles are named apart from it: give the role or the login another name">',
+			replacement: "\t\t: unknown",
+			why: "A login admits a role of its own name (types/schema/world.ts RolesNamedApart admits it), so the README fixture's sameName, a login rooms over a role rooms, compiles: armed, its directive is unused, and disarmed, the refusal is missing."
+		},
+		{
 			file: "packages/grizzle/src/adapter/types/db.ts",
 			original:
 				"\tReadsToken<R> extends true ? { readonly token: string } : { readonly token?: string }",

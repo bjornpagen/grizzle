@@ -6,7 +6,7 @@
  *
  * - A read's events fold into the model's value: the list of specs with each change applied by hand, an upsert after
  *   its key's row, null first, a move for a present key, a remove of a present or absent key; a re-sent upsert changes
- *   nothing. Oracle: the model, a second implementation.
+ *   nothing; and the value serializes as JSON as the array of its rows. Oracle: the model, a second implementation.
  * - diff carries one value to the other with the least changes: the removes of exactly the keys gone; the upserts of
  *   the new and changed rows, and of the fewest unchanged rows whose order moved, the kept rows off a longest
  *   increasing subsequence of their places, counted by a quadratic program. Oracle: the specification and that second
@@ -105,7 +105,15 @@ export const theLiveModelsValuesAReadsEventsFoldIntoTheModelsValueAndAReSentUpse
 						ready,
 						...Arr.map(changes, (change) => changeOf(fields, change))
 					]
-					assert.deepEqual(readySpecs(fold(opening<Row>(), events)), model)
+					const folded = fold(opening<Row>(), events)
+					assert.deepEqual(readySpecs(folded), model)
+					if (folded.kind === "ready") {
+						assert.deepEqual(
+							folded.value.toJSON(),
+							[...folded.value],
+							"a value serializes, as JSON.stringify reads its toJSON, as the array of its rows"
+						)
+					}
 					const last = changes.at(-1)
 					if (last?.kind !== "upsert") {
 						return
@@ -134,6 +142,12 @@ export const theLiveModelsValuesAReadsEventsFoldIntoTheModelsValueAndAReSentUpse
 			}
 		],
 		kills: [
+			{
+				file: "packages/engine/src/live/keyed.ts",
+				original: "\ttoJSON(): ReadonlyArray<Row> {",
+				replacement: "\tasJson(): ReadonlyArray<Row> {",
+				why: "A live value serializes as the list's own members, `{\"fields\":[...]}`, so Response.json of a read's rows sends no row."
+			},
 			{
 				file: "packages/text/src/text.ts",
 				original:

@@ -11,6 +11,7 @@ import type { AnySchema } from "#compiler/types/schema/schema.ts"
 import type {
 	AnyRole,
 	Login,
+	RolesNamedApart,
 	RolesOver,
 	SharedNames,
 	WorkloadsOver
@@ -92,7 +93,7 @@ const admitWorkloads = (
  * programs of one name among them. Each role is reached through the login by its name, `Web.roles.member`, with the
  * programs a Db of it runs, which Db.open takes.
  *
- * A role off the base and a workload over none of these each carry their refusal. The shared-name check reads the
+ * A role off the base, a role named as the login, and a workload over none of these each carry their refusal. The shared-name check reads the
  * whole list, so it is written against the options object beside its `workload`: the refusal it reaches is a
  * constituent of the options' own type, so the call's diagnostic names it, not a long tuple type that hides it. A
  * role or workload typed `any` is refused (MembersTyped).
@@ -105,7 +106,10 @@ export const login = <
 >(
 	base: Base,
 	name: Name,
-	roles: Roles & RolesOver<Base, Roles[number]> & MembersTyped<Roles>,
+	roles: Roles &
+		RolesOver<Base, Roles[number]> &
+		RolesNamedApart<Name, Roles[number]["name"]> &
+		MembersTyped<Roles>,
 	...options:
 		| readonly []
 		| readonly [

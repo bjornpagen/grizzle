@@ -60,7 +60,7 @@ export const everyProgramTheReadmeShowsIsServedByALoginGrizzleGenerates = proper
 				file: "test/types/examples/fixtures/readme.ts",
 				original: 'export const FrontDesk = role(Rooms, "front_desk", ',
 				replacement: 'export const FrontDesk = role(Rooms, "rooms", ',
-				why: "The booking recipe's role takes its login's name, which typechecks and which grizzle generate refuses (a role named apart from its login): the README's program does not generate."
+				why: "The booking recipe's role takes its login's name, which grizzle generate refuses (a role named apart from its login): the README's program does not generate."
 			}
 		]
 	}

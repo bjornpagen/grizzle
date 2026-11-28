@@ -71,7 +71,7 @@ export const GET = (request: Request) =>
 			}
 			const db = yield* Db.open(WebServed.roles.member, { token })
 			const posts = yield* db.workload.feed.once({ params: {}, facts: {} })
-			return Response.json([...posts])
+			return Response.json(posts)
 		})
 	)
 

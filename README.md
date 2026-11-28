@@ -283,7 +283,7 @@ export const GET = (request: Request) =>
 			}
 			const db = yield* Db.open(WebServed.roles.member, { token })
 			const posts = yield* db.workload.feed.once({ params: {}, facts: {} })
-			return Response.json([...posts])
+			return Response.json(posts)
 		})
 	)
 ```
@@ -423,7 +423,7 @@ query(Usage).rule((r) => {
 	return (
 		r
 			.match(Call, { model, cost })
-			// @ts-expect-error -- refusal: a fold reads each fact it matches once, by a key: bind a key of every source the rule matches, or match a query of the distinct values
+			// @ts-expect-error -- refusal: a sum reads each fact it matches once, by a key: bind a key of every source the rule matches, or match a query of the distinct values
 			.find({ model, spend: r.sum(cost) })
 	)
 })

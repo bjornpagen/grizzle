@@ -1,6 +1,6 @@
 # Reads and writes reference
 
-The reference grizzle's source and tests cite by heading. It moved here verbatim from the README of b2f24c7c when the README was rewritten for application engineers; a claim here that the code contradicts is a bug of this page, fixed here.
+The reference grizzle's source and tests cite by heading (test/unit/dev/references.test.ts). A claim here that the code contradicts is a bug of this page, fixed here.
 
 ## Queries
 

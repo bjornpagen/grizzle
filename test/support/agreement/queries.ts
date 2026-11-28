@@ -9,7 +9,7 @@ import { catchCompileError } from "#compiler/core/canonical.ts"
 import { headingsOf } from "#compiler/core/decoder.ts"
 import type { CompileReason } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import type { Refused } from "#compiler/core/refusals.ts"
+import { type Refused, unkeyedAggregateRefusals } from "#compiler/core/refusals.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { type KeyClasses, type KeyProof, keyFactors } from "#compiler/ir/keys.ts"
 import type { ParamDecl } from "#compiler/ir/products.ts"
@@ -3408,9 +3408,7 @@ const refusalOf = (spec: QuerySpec, reason: CompileReason): RefusedQuery | undef
 				: undefined
 		case "unkeyedFold":
 			return reason._tag === "FoldOverProjection"
-				? named(
-						"a fold reads each fact it matches once, by a key: bind a key of every source the rule matches, or match a query of the distinct values"
-					)
+				? named(unkeyedAggregateRefusals[reason.aggregate])
 				: undefined
 		case "unionTypes":
 			return malformed &&

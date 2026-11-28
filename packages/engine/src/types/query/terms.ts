@@ -47,16 +47,17 @@ import type {
 import type { AnyContext, AnyWorld } from "#compiler/types/schema/world.ts"
 
 /**
- * A fold whose result is not a term, and the parameters its argument needs. The runtime value names its fold, and
- * carries the column of its result, whose values are T, and its SQL type, read off its argument's; D is its domain and
- * L its language, its argument's for min and max, which return an input unchanged, else its result's.
+ * A fold whose result is not a term, and the parameters its argument needs. The runtime value names its fold, N, as its
+ * author wrote it, and carries the column of its result, whose values are T, and its SQL type, read off its argument's;
+ * D is its domain and L its language, its argument's for min and max, which return an input unchanged, else its result's.
  */
 export interface Aggregate<
 	out T,
 	in P = unknown,
 	out Sql extends SqlTag = SqlTag,
 	out D = T,
-	out L = T
+	out L = T,
+	out N extends AggregateName = AggregateName
 >
 	extends
 		Domained<D>,
@@ -65,7 +66,7 @@ export interface Aggregate<
 			readonly aggregate: T
 			readonly needs: ParamNeeds<P>
 		}> {
-	readonly aggregate: AggregateName
+	readonly aggregate: N
 	readonly column: Column<T>
 	readonly sql: Sql
 }

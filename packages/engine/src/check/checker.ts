@@ -6155,7 +6155,8 @@ class RuleCheck {
 				kind: "Group",
 				input: groupInput,
 				bound: this.#foldInput(
-					groupHeading.filter((c) => !hiddenNames.has(c.name)).map((c) => c.name)
+					groupHeading.filter((c) => !hiddenNames.has(c.name)).map((c) => c.name),
+					aggregates[0].head.fn
 				),
 				keys: keyColumns.map((c) => c.name),
 				aggs: aggs.map((a) => a.spec),
@@ -6171,11 +6172,11 @@ class RuleCheck {
 	 * match binds, by a variable, a parent variable or a constant, every field of one key of its source, so a fold over
 	 * the rule's bindings reads each matched fact once. A variable a match binds is a column of the bound tuple, or a
 	 * hidden one the filter equates with a variable or a value, so a bound field is a field the bound tuple fixes. A match
-	 * that binds no key whole is refused (FoldOverProjection), naming its source and the key to bind: its fold would read
-	 * a projection of the facts, whose repeats a set no longer holds. Distinct values are folded by matching a query of
-	 * them, a set keyed by its heading.
+	 * that binds no key whole is refused (FoldOverProjection), naming `aggregate`, the head's first aggregate, its
+	 * source and the key to bind: its fold would read a projection of the facts, whose repeats a set no longer holds.
+	 * Distinct values are folded by matching a query of them, a set keyed by its heading.
 	 */
-	#foldInput(columns: KeySet): FoldInput {
+	#foldInput(columns: KeySet, aggregate: AggregateHead["fn"]): FoldInput {
 		const keyed = this.#defined.map(({ pending, occurrence }) => {
 			const bound = new Set([
 				...occurrence.bindings.map((b) => b.column),
@@ -6187,6 +6188,7 @@ class RuleCheck {
 				return failWith({
 					_tag: "FoldOverProjection",
 					at: pending.loc,
+					aggregate,
 					source: sourceLabel(pending.match.source),
 					key: keys[0]
 				})

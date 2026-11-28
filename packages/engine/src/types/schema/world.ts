@@ -735,6 +735,19 @@ export type RolesOver<Base, R> = [OffBase<Base, R>] extends [never]
 		: Refusal<"a login's roles share its base">
 
 /**
+ * A login's roles named apart from it (schema/world.ts loginBuilder `roleName`, which refuses the same roles when the
+ * login is built), read off N, the names its roles carry: refused where the login's name is one of them. Equality is
+ * provable between string literals: a login's name typed `string` or a template literal type is assignable to no
+ * literal name, and a role named by a `string` (or typed `any`) may or may not share the login's name, so the check
+ * leaves both to the builder.
+ */
+export type RolesNamedApart<Name extends string, N> = Name extends N
+	? string extends N
+		? unknown
+		: Refusal<"a login's roles are named apart from it: give the role or the login another name">
+	: unknown
+
+/**
  * Whether a union of a list's members is `any`. Its keys are read first, as MembersTyped reads them, so no member is an
  * operand of the test.
  */

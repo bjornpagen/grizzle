@@ -8,6 +8,7 @@ import { collectInputs } from "#adapter/apply/collect.ts"
 import { readParams } from "#adapter/reader/params.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import { CompileError, type CompileReason } from "#compiler/core/errors.ts"
+import { unkeyedAggregateRefusals } from "#compiler/core/refusals.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { noClock, transactionClock } from "#compiler/ir/clock.ts"
 import { isSequence } from "#compiler/ir/family.ts"
@@ -466,7 +467,15 @@ const refusalNotes = {
 	"a member fact is not a fact of the relation": "refused: a member fact",
 	"a sequence's member is written under its owner: nest it in order at the owner's count field":
 		"refused: a sequence member",
-	"a fold reads each fact it matches once, by a key: bind a key of every source the rule matches, or match a query of the distinct values":
+	"a count reads each fact it matches once, by a key: bind a key of every source the rule matches, or match a query of the distinct values":
+		"refused: a fold",
+	"a sum reads each fact it matches once, by a key: bind a key of every source the rule matches, or match a query of the distinct values":
+		"refused: a fold",
+	"a mean reads each fact it matches once, by a key: bind a key of every source the rule matches, or match a query of the distinct values":
+		"refused: a fold",
+	"a min reads each fact it matches once, by a key: bind a key of every source the rule matches, or match a query of the distinct values":
+		"refused: a fold",
+	"a max reads each fact it matches once, by a key: bind a key of every source the rule matches, or match a query of the distinct values":
 		"refused: a fold",
 	"the ChangeSets' schemas are not levels of one another": "refused: unrelated schemas",
 	"a ChangeSet writes only relations its role's write list names": "refused: a write list",
@@ -2401,8 +2410,7 @@ const claimOf = (reason: CompileReason, spec: CaseSpec): Claim => {
 	if (reason._tag === "FoldOverProjection") {
 		return {
 			kind: "refusal",
-			refusal:
-				"a fold reads each fact it matches once, by a key: bind a key of every source the rule matches, or match a query of the distinct values"
+			refusal: unkeyedAggregateRefusals[reason.aggregate]
 		}
 	}
 	if (reason._tag === "OutsideRole") {

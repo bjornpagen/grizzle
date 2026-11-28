@@ -46,7 +46,11 @@ export const refusals = [
 	"a family's slots are fin(owner, count), the owner's count",
 	"a fold over a counted family combines in a commutative monoid: concat folds an ordered family or a tree",
 	"a fold over a counted family hides its accumulators: name the step's value alone",
-	"a fold reads each fact it matches once, by a key: bind a key of every source the rule matches, or match a query of the distinct values",
+	"a count reads each fact it matches once, by a key: bind a key of every source the rule matches, or match a query of the distinct values",
+	"a max reads each fact it matches once, by a key: bind a key of every source the rule matches, or match a query of the distinct values",
+	"a mean reads each fact it matches once, by a key: bind a key of every source the rule matches, or match a query of the distinct values",
+	"a min reads each fact it matches once, by a key: bind a key of every source the rule matches, or match a query of the distinct values",
+	"a sum reads each fact it matches once, by a key: bind a key of every source the rule matches, or match a query of the distinct values",
 	"a fold's accumulators and ends are of its plane's type: another integer width, numeric typmod or contract is another type",
 	"a fold's end names one accumulated field of the owner per plane",
 	"a fold's step is its family's member: its group, its value, then an accumulated pair per plane",
@@ -56,6 +60,7 @@ export const refusals = [
 	"a key lists each field once",
 	"a key lists no set: a set's bit string is too wide for an index entry",
 	"a login's roles share its base",
+	"a login's roles are named apart from it: give the role or the login another name",
 	"a login's workload is over its base, a level of it, or one of its roles",
 	"a member fact is not a fact of the relation",
 	"a member typed any, which every check admits: type each member of the list or record",
@@ -183,6 +188,21 @@ export const refusals = [
 
 /** A named refusal: one message of the vocabulary. */
 export type Refused = (typeof refusals)[number]
+
+/**
+ * The refusal of an aggregate whose rule matches a source without binding a key of it, by the aggregate as its author
+ * wrote it: the aggregate would read a projection of the facts, whose repeats a set no longer holds. The types refuse
+ * the aggregate's head term by it (types/query/rule.ts FoldKeyed), and the engine's FoldOverProjection names the same
+ * aggregate (core/errors.ts), so the agreements read one from the other.
+ */
+export const unkeyedAggregateRefusals = {
+	count:
+		"a count reads each fact it matches once, by a key: bind a key of every source the rule matches, or match a query of the distinct values",
+	sum: "a sum reads each fact it matches once, by a key: bind a key of every source the rule matches, or match a query of the distinct values",
+	mean: "a mean reads each fact it matches once, by a key: bind a key of every source the rule matches, or match a query of the distinct values",
+	min: "a min reads each fact it matches once, by a key: bind a key of every source the rule matches, or match a query of the distinct values",
+	max: "a max reads each fact it matches once, by a key: bind a key of every source the rule matches, or match a query of the distinct values"
+} as const satisfies Readonly<Record<"count" | "sum" | "mean" | "min" | "max", Refused>>
 
 /**
  * The refusal of a change of a closed relation, by its op: a closed relation's facts are inserted, never changed or

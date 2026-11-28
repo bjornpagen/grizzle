@@ -60,9 +60,10 @@ interface HeadDesc {
 
 export const headValueOf = (value: unknown): HeadDesc | undefined => headOf(value)
 
-/** An aggregate: its fold, and the carrier of its result. */
-interface AggregateValue<out T, out S extends SqlTag> extends Built, TermCarrier<T, S> {
-	readonly aggregate: AggregateName
+/** An aggregate: its fold, N, as its author wrote it, and the carrier of its result. */
+interface AggregateValue<out T, out S extends SqlTag, out N extends AggregateName = AggregateName>
+	extends Built, TermCarrier<T, S> {
+	readonly aggregate: N
 }
 
 /** A producer: its function F, and the carrier of the spans it yields, its operand's. */
@@ -554,11 +555,11 @@ const aggregateHead = (fn: AggregateName, arg: unknown): HeadDesc => {
 	return { desc: { kind: "aggregate", fn, arg: x.expr }, typing: typed(overload.value.result) }
 }
 
-const aggregateValue = <T, S extends SqlTag>(
-	fn: AggregateName,
+const aggregateValue = <T, S extends SqlTag, N extends AggregateName>(
+	fn: N,
 	head: HeadDesc,
 	carrier: TermCarrier<T, S>
-): AggregateValue<T, S> =>
+): AggregateValue<T, S, N> =>
 	headValue(
 		Object.freeze({ ...builtMark, aggregate: fn, column: carrier.column, sql: carrier.sql }),
 		head.desc,
@@ -569,7 +570,7 @@ const aggregateValue = <T, S extends SqlTag>(
  * count is bigint; sum and mean take their result type's plain column off the SUM and AVG tables keyed by their
  * argument's SQL type (scalar/compute/tables.ts); min and max deliver their argument's column, contract included.
  */
-export const count = (extra: ReadonlyArray<unknown>): AggregateValue<bigint, "bigint"> => {
+export const count = (extra: ReadonlyArray<unknown>): AggregateValue<bigint, "bigint", "count"> => {
 	if (extra.length > 0) {
 		throw malformed(
 			"r.count",
@@ -584,7 +585,7 @@ export const count = (extra: ReadonlyArray<unknown>): AggregateValue<bigint, "bi
 
 export const sum = <S extends NumericSql>(
 	term: OfSql<S>
-): AggregateValue<PlainHost[SumSql[S]], SumSql[S]> => {
+): AggregateValue<PlainHost[SumSql[S]], SumSql[S], "sum"> => {
 	const head = aggregateHead("sum", term)
 	const sql = sumSql[term.sql]
 	return aggregateValue("sum", head, { column: plainColumns[sql], sql })
@@ -592,16 +593,16 @@ export const sum = <S extends NumericSql>(
 
 export const mean = <S extends keyof AvgSql>(
 	term: OfSql<S>
-): AggregateValue<PlainHost[AvgSql[S]], AvgSql[S]> => {
+): AggregateValue<PlainHost[AvgSql[S]], AvgSql[S], "mean"> => {
 	const head = aggregateHead("mean", term)
 	const sql = avgSql[term.sql]
 	return aggregateValue("mean", head, { column: plainColumns[sql], sql })
 }
 
-export const min = <T, S extends SqlTag>(term: TermCarrier<T, S>): AggregateValue<T, S> =>
+export const min = <T, S extends SqlTag>(term: TermCarrier<T, S>): AggregateValue<T, S, "min"> =>
 	aggregateValue("min", aggregateHead("min", term), term)
 
-export const max = <T, S extends SqlTag>(term: TermCarrier<T, S>): AggregateValue<T, S> =>
+export const max = <T, S extends SqlTag>(term: TermCarrier<T, S>): AggregateValue<T, S, "max"> =>
 	aggregateValue("max", aggregateHead("max", term), term)
 
 /** What an aggregate reads of a typed argument: its SQL type. */

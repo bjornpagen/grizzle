@@ -100,7 +100,10 @@ export const loginListName = (dimension: (typeof loginListsItems)[number]): stri
  *   at REPLAYFIX's exact-bound car (2026-11-26, over ousxtqsu on train C's 1170fa12 and its empty-level car), every type
  *   budget run with each program's count logged, width 8, load in the hundreds: 1,710 a login (84,981, 98,661 and
  *   112,341 instantiations at 8, 16 and 24 logins), one more than the 1,709 its parent b6236fb3 and train C's
- *   empty-level car measured.
+ *   empty-level car measured; with a login's check that its roles are named apart from it (types/schema/world.ts
+ *   RolesNamedApart over its roles' names, lane APIPOLISH, 2026-11-28), measured as this test measures it: 1,716 a
+ *   login, 6 more, the conditional over its roles' names, read off them as one indexed access (11 more read by a
+ *   conditional over each role, 17 more over each role with a literal test of each name).
  * @decision the bound is the count at the tree it was last measured at, exactly, the counts being a function of the
  *   tree: a change that makes a login cost more fails here and moves the bound in its own commit, its cost stated, and
  *   a change that lowers it lowers the bound. 1,710 is 1,709 and one: a login's workload over a role reads the role's
@@ -113,7 +116,7 @@ export const loginListName = (dimension: (typeof loginListsItems)[number]): stri
  * @revalidate a TypeScript 7 or tsgo upgrade; another machine; any change to a login's, a role's or a workload's type
  *   (types/schema/world.ts, types/db/workload.ts) that moves a login's cost, which states its cost here
  */
-const addedAtMost = 1710
+const addedAtMost = 1716
 
 /**
  * The cost of the list, measured: its programs typecheck with no diagnostic, their instantiations grow no faster than
