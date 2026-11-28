@@ -2281,6 +2281,9 @@
 	// reads FamilyEntry's as unused, though the Normalizer reads all three through its Map of FamilyEntry
 	// (analysis/theory/laws.ts). retry: OpenError's, public API a server reads where Db.open fails, which grizzle's own code
 	// reads only in its suites, through an error narrowed by an assertion fallow does not follow (unit/adapter/layer.test.ts).
+	// toJSON: KeyedList's, which JSON.stringify calls on a read's value wherever an application serializes one
+	// (Response.json(rows)), a protocol call no source spells, and which unit/live/values.test.ts calls through the
+	// ready state of a folded read, a property of a union-typed value fallow credits nothing on.
 	// The entry goes when fallow is patched (TODO.md, grizzle/upstream/fallow).
 	"usedClassMembers": [
 		{ "implements": "RiddenFamily", "members": ["folds", "fold", "axes"] },
@@ -2298,6 +2301,7 @@
 		"nestedRows",
 		"matches",
 		"retry",
-		"_tag"
+		"_tag",
+		"toJSON"
 	]
 }

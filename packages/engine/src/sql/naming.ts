@@ -216,19 +216,12 @@ export class ViewScope implements Scope {
  */
 export class AdviceScope implements Scope {
 	#next = 1
-	readonly #entries: Array<NameEntry> = []
 
-	/** A fresh alias of the scope, recorded with where it came from, which diagnostics show beside the SQL. */
-	alias(origin: NameOrigin): Alias {
+	/** A fresh alias of the scope, `r<n>`, n from 1 in minting order. */
+	alias(_origin: NameOrigin): Alias {
 		const name = mintAlias(`r${this.#next}`)
 		this.#next += 1
-		this.#entries.push({ name, role: "relation", origin })
 		return name
-	}
-
-	/** Every alias the scope minted, in minting order. */
-	map(): NameMap {
-		return [...this.#entries]
 	}
 }
 
