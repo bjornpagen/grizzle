@@ -2132,7 +2132,7 @@ const createIndex = (
 			phase: "indexes"
 		},
 		[
-			o.object,
+			...o.after(keys.map((k) => readColumn(k.column))),
 			...(rowed === undefined ? [] : [rowed.node]),
 			...(method === "gist" && keys.some((k) => planned.columns.holds(k.column) !== "span")
 				? [b.provider("btree_gist")]

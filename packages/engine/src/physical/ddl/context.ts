@@ -1,5 +1,5 @@
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
-import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	headNonEmpty,
 	mapNonEmpty,
@@ -147,7 +147,12 @@ export interface BuiltTarget {
 	 * (physical/indexes/engine.ts refusedUndigested).
 	 */
 	readonly digests: ReadonlyMap<string, string>
-	readonly object: Node<"structure">
+	/**
+	 * The objects an object over `columns` is created after: its table or view, and each law column among them, which
+	 * its own ALTER TABLE ... ADD COLUMN adds after the table (`lawColumn`), so a replay of the object alone replays what
+	 * creates each column it names (deploy/admission/proof.ts replayedOver).
+	 */
+	readonly after: (columns: ReadonlyArray<IndexColumn>) => ReadonlyArray<Node<"structure">>
 }
 
 /**
@@ -319,6 +324,8 @@ export class InstallBuilder {
 		}
 	>()
 	readonly #tables = new Map<string, Node<"structure">>()
+	/** Each law column's object, by its relation and its identifier (`addLawColumn`). */
+	readonly #lawColumnObjects = new Map<string, Map<string, Node<"structure">>>()
 	/** Each installed table's statements a write of it evaluates (`evaluatedTable`), by the table's identifier. */
 	readonly #evaluatedOn = new Map<string, Array<SqlStatement>>()
 	readonly #views = new Map<string, IndexedView>()
@@ -769,6 +776,28 @@ export class InstallBuilder {
 		return node
 	}
 
+	/** Adds the law column `column` of the stored relation `relation`, which every object over it is created after
+	 * (`lawColumn`). */
+	addLawColumn(
+		relation: string,
+		column: string,
+		spec: ObjectSpec<"structure">,
+		after: ReadonlyArray<Node<"setup" | "structure">>
+	): Node<"structure"> {
+		const node = this.add(spec, after)
+		this.#lawColumnObjects.getOrInsertComputed(relation, () => new Map()).set(column, node)
+		return node
+	}
+
+	/** The object of the law column `column` of `relation`, which the law model plans and the tables add before any
+	 * object over it (physical/ddl/tables.ts addNatives). */
+	lawColumn(relation: string, column: string): Node<"structure"> {
+		return defined(
+			this.#lawColumnObjects.get(relation)?.get(column),
+			`the law column ${column} of ${relation}, which the law model plans`
+		)
+	}
+
 	/** The table of the stored relation `relation`. A name the owned schema holds no stored relation of is refused as
 	 * MalformedDescription (ir/physical.ts missing). */
 	table(relation: string): Node<"structure"> {
@@ -906,7 +935,7 @@ export class InstallBuilder {
 				column: (c) => (c.kind === "field" ? this.names.column(relation, c.field) : c.column),
 				place: (c) => (c.kind === "field" ? heading.indexOf(c.field) : heading.length),
 				digests: new Map(),
-				object: view.object
+				after: () => [view.object]
 			}
 		}
 		const relations = this.model.theory.relations
@@ -930,7 +959,12 @@ export class InstallBuilder {
 						? stored.fields.findIndex((field) => field.name === c.field)
 						: stored.fields.length + lawOrder.indexOf(c.column),
 				digests: textDigestsOf(stored.fields),
-				object: this.table(relation)
+				after: (columns) => [
+					this.table(relation),
+					...new Set(
+						columns.flatMap((c) => (c.kind === "law" ? [this.lawColumn(relation, c.column)] : []))
+					)
+				]
 			}
 		}
 		const owned = Object.hasOwn(this.owned.relations, relation)

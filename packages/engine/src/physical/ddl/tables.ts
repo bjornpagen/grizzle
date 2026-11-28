@@ -790,15 +790,14 @@ const addNatives = (
 	b: InstallBuilder,
 	plans: ReadonlyArray<NativePlan>
 ): Pick<PlacedNatives, "keyIndexes"> => {
-	const lawColumns = new Map<string, Map<string, Node<"structure">>>()
 	for (const n of b.natives) {
 		if (n.namespace !== "column") {
 			continue
 		}
 		const o = n.object
-		const column = o.column
-		const ddl = [lawColumnDdl(b, o)]
-		const added = b.add(
+		b.addLawColumn(
+			o.relation.name,
+			o.column,
 			{
 				kind: "lawColumn",
 				ident: {
@@ -807,23 +806,18 @@ const addNatives = (
 					relation: b.names.relationNamed(o.relation.name),
 					name: n.named
 				},
-				ddl,
+				ddl: [lawColumnDdl(b, o)],
 				reasons: lawReasons(o.lawIds),
 				phase: "structure"
 			},
 			[b.table(o.relation.name)]
 		)
-		lawColumns.getOrInsertComputed(o.relation.name, () => new Map()).set(column, added)
 	}
 	/** The objects of the law columns of `relation` among `columns`. */
 	const lawColumnsOf = (
 		relation: string,
 		columns: ReadonlyArray<string>
-	): ReadonlyArray<Node<"structure">> =>
-		columns.flatMap((c) => {
-			const added = lawColumns.get(relation)?.get(c)
-			return added === undefined ? [] : [added]
-		})
+	): ReadonlyArray<Node<"structure">> => columns.map((c) => b.lawColumn(relation, c))
 	const keyIndexes: Array<KeyIndex> = []
 	/** The key constraints a reference can name, each object by what its key holds apart: one per KeyColumnSet, as the
 	 * law model holds one key per KeyColumnSet (laws/model/model.ts nativeIdentity). */

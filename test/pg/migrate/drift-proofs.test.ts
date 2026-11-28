@@ -48,6 +48,20 @@
  * - **Kill:** a rule's tables one for each side of its law, the relation of a containment of one relation's
  *   selection in another of it held twice.
  * - **Features:** each law.
+ *
+ * And every object a migrate proves, replayed alone (deploy/admission/proof.ts replayedOver): the replay of an object
+ * whose proof alone is withheld creates it and every object its edges say it is created after, which must be
+ * everything PostgreSQL needs to create it, an index over a law column after the ALTER TABLE ... ADD COLUMN that adds
+ * the column (physical/ddl/context.ts BuiltTarget `after`).
+ *
+ * - **Property:** a schema migrated by the runner and its proofs read; for each proof, the proofs held without it, the
+ *   drift check replays its object and admits the schema.
+ * - **Oracle:** PostgreSQL, which builds each replay beside the schema and describes it alike.
+ * - **Box, exhausted:** the shop's first and second versions, each from nothing, and S's rows whose t meets a
+ *   condition that computes in T (drift-proofs.fixtures.ts replaySchemas), a foreign key from S's generated column
+ *   of t whose reverse probes read an index over that column alone.
+ * - **Kill:** an index over a law column created after its table alone.
+ * - **Features:** each schema.
  */
 
 import { assert, defined } from "@bjornpagen/testing/assert"
@@ -73,6 +87,9 @@ import {
 	type ReadLaw,
 	readLaws,
 	readSchema,
+	type ReplaySchema,
+	replaySchemas,
+	replayed,
 	versions
 } from "#test/pg/migrate/drift-proofs.fixtures.ts"
 import { driftedOf } from "#test/pg/migrate/recorded-drift.fixtures.ts"
@@ -365,6 +382,92 @@ export const aMigrateRecordsOneProofOfEachObjectThoughItsLawReadsARelationTwice 
 				replacement:
 					'const tables = (law.detail.kind === "containment" ? [law.detail.from.relation, law.detail.to.relation] : [...law.reads]).flatMap(',
 				why: "A rule's tables are one for each side of its law, so a selection of Attribute contained in another of it holds Attribute's table twice and the judge each of its blocks twice, two objects of one identity: the generate refuses it, and where it did not, the migrate's record of the proofs refused a duplicate key of __drift_proofs_pk (23505), qti's ledger installation."
+			}
+		]
+	}
+)
+
+/**
+ * Every object a migrate proves replays alone with what it is created after: its proof alone withheld, the drift check
+ * replays it and every object its edges say it is created after (deploy/admission/proof.ts replayedOver), and the
+ * replay builds beside the schema and describes it alike, so the edges name everything PostgreSQL needs to create it.
+ */
+export const eachObjectReplaysAloneWithWhatItIsCreatedAfter = property.exhaust(
+	finite((source): ReplaySchema =>
+		defined(replaySchemas[source.draw(int(0, replaySchemas.length - 1))], "a schema")
+	),
+	{
+		needs: { caseSubstrate: Substrate.fresh(baseSubstrate) },
+		situations: replaySchemas satisfies ReadonlyArray<Reached<ReplaySchema>>,
+		check:
+			({ caseSubstrate }, c: Case<ReplaySchema>) =>
+			(subject) =>
+				Effect.provideServiceEffect(
+					Effect.gen(function* () {
+						const substrate = yield* Substrate
+						const m = yield* openMigrator(substrate, substrate.owner)
+						return yield* Effect.scoped(
+							Effect.gen(function* () {
+								const allocated = yield* substrate.schema({ create: false, label: "alone" })
+								const schema = identifierOf(identity.schema(parsedSchemaName(allocated)))
+								const ledger = succeeded(statementsFor(schema))
+								const proofs = succeeded(proofStatements(schema))
+								const folder = defined(
+									draftChain(
+										[
+											{
+												desc: replayed[subject],
+												options: {
+													schema: atName(allocated),
+													logins: [],
+													extensions: [],
+													codes: firstCodes
+												},
+												declared: noDeclarations
+											}
+										],
+										fromEmpty
+									)[0],
+									"the drafted folder"
+								)
+								const target = parsedTarget({
+									snapshot: folder.snapshot,
+									folders: [reviewedSource(folder, kept)]
+								})
+								yield* applyOnSession(m, [target])
+								const recorded = yield* proofRowsOf(m, proofs)
+								for (const row of recorded) {
+									yield* proofsHeld(
+										m,
+										proofs,
+										Arr.filter(recorded, (other) => other.object !== row.object)
+									)
+									const alone = yield* checkDrift(m, target.snapshot, ledger, proofs, [])
+									assert.ok(
+										Arr.contains(alone.replayed, row.object),
+										`${subject}: ${row.object}, unproven, is replayed`
+									)
+								}
+								c.note(subject)
+							})
+						)
+					}),
+					Substrate,
+					Effect.map(caseSubstrate, (taken) => taken.substrate)
+				),
+		oracle: {
+			kind: "postgresql",
+			name: "PostgreSQL builds each object's replay beside the schema, every object its edges name created before it, and the drift check admits the schema"
+		},
+		box: "the shop's first and second versions and a schema whose foreign key references from a law column, each object a migrate proves withheld alone",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/physical/ddl/context.ts",
+				original:
+					'\t\t\t\t\t\tcolumns.flatMap((c) => (c.kind === "law" ? [this.lawColumn(relation, c.column)] : []))',
+				replacement: "\t\t\t\t\t\tcolumns.flatMap(() => [])",
+				why: "An index over a law column is created after its table alone, so the replay of S's index over its generated column of t, withheld alone, creates S's table and the index without the ALTER TABLE ... ADD COLUMN of the column it names: the snapshot cannot be built beside the schema (42703), refused at the stage unchecked."
 			}
 		]
 	}

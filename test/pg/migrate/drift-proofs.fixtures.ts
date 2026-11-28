@@ -12,12 +12,18 @@ import { quoteIdent } from "#compiler/core/text.ts"
 import type { ProofStatements } from "#compiler/deploy/ledger/ledger.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { parseIdent } from "#compiler/physical/obligations/graph.ts"
+import { Logic, Num } from "#compiler/public/compute.ts"
 import { int4 } from "#compiler/public/fields.ts"
 import { contained, on, relation, schema, select, type Statement } from "#compiler/public/schema.ts"
 import { firstCodes } from "#test/support/compile.ts"
 import { triggerDisabled } from "#test/support/drift/hand-change.ts"
 import { atName } from "#test/support/kernel/naming.ts"
-import { draftChain, fromEmpty, noDeclarations } from "#test/support/migrate/kit.ts"
+import {
+	type DeploySubject,
+	draftChain,
+	fromEmpty,
+	noDeclarations
+} from "#test/support/migrate/kit.ts"
 import { testSql } from "#test/support/sql.ts"
 import { shopV1, shopV2, shopV3, shopV3Declared } from "#test/support/unit/deploy/schemas.ts"
 
@@ -264,3 +270,41 @@ const readStatements: { readonly [L in ReadLaw]: Statement } = {
 /** The schema of Attribute and Element under `law` alone. */
 export const readSchema = (law: ReadLaw) =>
 	schema("Read", [Attribute, Element], [readStatements[law]])
+
+/** The facts S names. */
+const Named = relation("T", { t: int4 }, ["t"])
+/** S's rows, each by s, with the t it names. */
+const Naming = relation("S", { s: int4, t: int4 }, ["s"])
+
+/**
+ * The schemas whose every object's replay builds alone (drift-proofs.test.ts eachObjectReplaysAloneWithWhatItIsCreatedAfter):
+ * the shop's first two versions, each migrated from nothing, and S's rows whose t meets a condition that computes, `t <=
+ * t + 0`, contained in T. That condition is no field comparison, so the containment is its foreign key from S's
+ * generated column of t (laws/model/plan.ts containmentDischarge, readsAlike), and the foreign key's reverse probes read
+ * an index over that law column alone, which no UNIQUE serves.
+ */
+export const replaySchemas = [
+	"the shop's first version",
+	"the shop's second version",
+	"a law column"
+] as const
+export type ReplaySchema = (typeof replaySchemas)[number]
+
+/** Each schema of replaySchemas. */
+export const replayed: { readonly [S in ReplaySchema]: DeploySubject } = {
+	"the shop's first version": shopV1,
+	"the shop's second version": shopV2,
+	"a law column": schema(
+		"Named",
+		[Named, Naming],
+		[
+			contained(
+				on(
+					select(Naming, (r) => Logic.le(r.t, Num.add(r.t, 0))),
+					"t"
+				),
+				on(Named, "t")
+			)
+		]
+	)
+}
