@@ -88,6 +88,12 @@ export const aRelationWhoseUnitBoundsNoUpkeepIsStoredExactlyWhereItsDeltaFormIsC
 		kept: [],
 		kills: [
 			{
+				file: "packages/engine/src/physical/access/catalog.ts",
+				original: "\t\t\t.map(([name], at) => [name, wholeViewAlias(at + 1)] as const)\n",
+				replacement: "\t\t\t.map(([, r], at) => [r.name, wholeViewAlias(at + 1)] as const)\n",
+				why: "Whole view aliases keyed by the name of the relation the law model holds, which an alias of another's definition shares with it: the alias's whole view has none, and the binding's catalog refuses the installation as an internal compiler error (the snapshots' \"the whole view alias of TestSnapshot\")."
+			},
+			{
 				file: "packages/engine/src/analysis/derived/storage.ts",
 				original: '\t\tcase "checked":\n\t\tcase "monotone":\n\t\t\treturn { kind: "delta" }\n',
 				replacement:

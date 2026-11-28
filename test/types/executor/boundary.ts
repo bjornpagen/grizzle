@@ -65,7 +65,7 @@ const doors: Arr.NonEmptyReadonlyArray<Door> = [
 	{
 		name: "a login's artifacts",
 		probe: (source, i) =>
-			`export const login${i} = loginRoles(loginArgs[0], loginArgs[1], ${artifactsOver(source)}, loginArgs[3])`
+			`export const login${i} = loginRoles(loginArgs[0], loginArgs[1], ${artifactsOver(source)}, loginArgs[3], loginArgs[4])`
 	},
 	{
 		name: "runWrite over runtimeEntry",

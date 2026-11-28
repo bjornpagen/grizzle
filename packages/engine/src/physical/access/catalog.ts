@@ -93,16 +93,17 @@ export const leakyEquality = (type: ScalarType): boolean =>
 /**
  * The alias the body of each stored relation's whole view names its table by (sql/naming.ts wholeViewAlias), by the
  * relation's name: `v<n>`, n its place, from 1, among the stored relations of the law model `model`, ordered by the
- * level that declares each, then by name. A login's compile reads the model of its base, which holds every relation of
+ * level that declares each, then by name, each name the model holds its own, an alias of another's definition among
+ * them, whose relation the model holds under both names. A login's compile reads the model of its base, which holds every relation of
  * the levels it stands on, each at the place the installation's model gives it, so the installation's views
  * (physical/ddl/roles.ts wholeView) and every compile that reads one name each relation alike.
  */
 export const wholeViewAliases = (model: LawModel): ReadonlyMap<string, Alias> =>
 	new Map(
-		Object.values(model.theory.relations)
-			.filter((r) => r.kind !== "closed")
-			.toSorted((a, b) => compareNumbers(a.level, b.level) || compareStrings(a.name, b.name))
-			.map((r, at) => [r.name, wholeViewAlias(at + 1)] as const)
+		Object.entries(model.theory.relations)
+			.filter(([, r]) => r.kind !== "closed")
+			.toSorted(([an, a], [bn, b]) => compareNumbers(a.level, b.level) || compareStrings(an, bn))
+			.map(([name], at) => [name, wholeViewAlias(at + 1)] as const)
 	)
 
 /** A view PostgreSQL plans apart under the reference's alias, whose body no plan names (sql/bind.ts BindView). */
