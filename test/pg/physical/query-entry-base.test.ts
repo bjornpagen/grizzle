@@ -145,7 +145,8 @@ export const aQueryEntryOverARelationItsRoleDoesNotHoldInstallsAndReadsItsRowsWh
 		kills: [
 			{
 				file: "packages/engine/src/physical/access/world-views.ts",
-				original: "\t\t\t\trows: checked.world.base.rows(checked.writable)\n",
+				original:
+					"\t\t\t\trows: { ...checked.world.base.rows(checked.writable), world: checked.worldRows() }\n",
 				replacement: "\t\t\t\trows: checked.rows(checked.writable)\n",
 				why: "A query entry's definition lowered over its role's world, which holds none of Kept: the role's compile and its installation refuse the entry as OutsideRole at Kept's definition, though the view, read with its owner's rights, hands the role exactly Kept's rows."
 			},

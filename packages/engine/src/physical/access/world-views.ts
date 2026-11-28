@@ -119,8 +119,10 @@ export interface WorldViewsInput {
  * body bound under the view scope `k` (sql/naming.ts ViewScope): each definition lowered over the role's base, against
  * which it is checked (analysis/schema.ts), so it reads every relation of the base, those the role holds none of among
  * them, as the view, created with its owner's rights behind a security barrier, hands the role its rows; each stored
- * derived relation the role's writes write the holders of read through its definition (CheckedSchema `writable`), as
- * the view is read inside those writes too.
+ * relation as the role's world holds it (CheckedSchema `worldRows`), each member of a unit its claims bind at its
+ * owner's keys alone, as every read of the role reads it (docs/access.md "The scope of a role": every query entry's view
+ * is the world's); each stored derived relation the role's writes write the holders of read through its definition
+ * (CheckedSchema `writable`), as the view is read inside those writes too.
  */
 export const roleWorldViews = (input: WorldViewsInput): ReadonlyArray<WorldView> => {
 	const { names, evidence, checked } = input
@@ -142,7 +144,7 @@ export const roleWorldViews = (input: WorldViewsInput): ReadonlyArray<WorldView>
 			lowerDefinition(label, analysis.query, {
 				names,
 				catalog: evidence,
-				rows: checked.world.base.rows(checked.writable)
+				rows: { ...checked.world.base.rows(checked.writable), world: checked.worldRows() }
 			})
 		)
 		const decodes = analysis.heading.some((c) => baseOf(c.type).carrier === "code")
