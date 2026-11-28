@@ -1245,12 +1245,48 @@ const readsWithin = (read: ReadonlySet<string> | undefined, among: ReadonlySet<s
 	read !== undefined && read.size > 0 && [...read].every((a) => among.has(a))
 
 /**
+ * Whether an outer join's equalities `on` (a LEFT JOIN's ON, an anti join's WHERE) leave PostgreSQL a clause pairing
+ * `inner`'s items with `outer`'s to hash on: an equality of those two sides whose outer side is no member of a class of
+ * `classes` holding a fixed value. Where it is one, PostgreSQL states the value's equality with the inner side, a
+ * restriction of the inner relation, and throws back TRUE for the clause (equivclass.c reconsider_outer_join_clauses),
+ * so the join pairs its sides by nothing, a nested loop's alone.
+ */
+const outerJoinKeys = (
+	classes: LevelClasses,
+	on: ReadonlyArray<Expr>,
+	inner: ReadonlySet<string>,
+	outer: ReadonlySet<string>
+): boolean => {
+	const read = (e: Expr) =>
+		new Set([...qualifiersOf(e)].filter((a) => inner.has(a) || outer.has(a)))
+	const fixedSide = (e: Expr): boolean => {
+		const column = columnOf(e)
+		return (
+			column !== undefined && classes.fixed.has(classes.root(`${column.table}.${column.column}`))
+		)
+	}
+	return on.some(
+		(c) =>
+			c.kind === "binary" &&
+			c.op === "=" &&
+			!volatile(c) &&
+			(
+				[
+					[c.left, c.right],
+					[c.right, c.left]
+				] as const
+			).some(
+				([i, o]) => readsWithin(read(i), inner) && readsWithin(read(o), outer) && !fixedSide(o)
+			)
+	)
+}
+
+/**
  * Whether PostgreSQL keeps a join clause pairing `inner`'s items with `outer`'s, one a hash join is keyed by: two members
  * of one class of no fixed value, one reading `outer`'s items alone and one `inner`'s (equivclass.c
  * generate_join_implied_equalities, which draws no clause from a class holding a fixed value, stating each member's
- * equality with the value instead, generate_base_implied_equalities_const); or an equality of an outer join's ON
- * (`kept`) of those two sides, which PostgreSQL keeps as the join's clause whatever its classes (equivclass.c
- * reconsider_outer_join_clauses).
+ * equality with the value instead, generate_base_implied_equalities_const); or an outer join's equality of its ON
+ * (`kept`) that PostgreSQL keeps (`outerJoinKeys`).
  */
 const keysJoin = (
 	classes: LevelClasses,
@@ -1268,18 +1304,9 @@ const keysJoin = (
 		side.inner ||= readsWithin(read, inner)
 		side.outer ||= readsWithin(read, outer)
 	}
-	const read = (e: Expr) =>
-		new Set([...qualifiersOf(e)].filter((a) => inner.has(a) || outer.has(a)))
 	return (
 		[...sides.values()].some((s) => s.inner && s.outer) ||
-		kept.some(
-			(c) =>
-				c.kind === "binary" &&
-				c.op === "=" &&
-				!volatile(c) &&
-				((readsWithin(read(c.left), inner) && readsWithin(read(c.right), outer)) ||
-					(readsWithin(read(c.left), outer) && readsWithin(read(c.right), inner)))
-		)
+		outerJoinKeys(classes, kept, inner, outer)
 	)
 }
 
@@ -1302,10 +1329,13 @@ const leastPlace = (places: Iterable<number>): number => {
 	return least
 }
 
-/** The item of an anti join PostgreSQL makes of a NOT EXISTS conjunct of a level (`#anti`), with its method. */
+/**
+ * An anti join PostgreSQL makes of a NOT EXISTS conjunct of a level (`#anti`): its item, and the conjuncts of its
+ * sublink's WHERE, its outer join's clauses, by which its level decides its method (`levelJoins`, `outerJoinKeys`).
+ */
 interface AntiJoin {
 	readonly item: PlanItem<AccessIndexRequest>
-	readonly join: JoinMethod
+	readonly on: ReadonlyArray<Expr>
 }
 
 /** What a level's join tree orders (`levelJoins`): the entries of the level at `places`, joined as `member`. */
@@ -1333,7 +1363,8 @@ interface JoinUnit {
  * lateral reads its parameters. Entries linked to none of the rest are a component of their own, each built so and
  * joined to the ones before it as a cross product, which PostgreSQL builds only where those are linked to nothing
  * outside them: the components linked to no entry past their problem join first, in the FROM's order (`problem`).
- * The anti joins join last, by their methods.
+ * The anti joins join last, each by a hash where its clauses leave PostgreSQL one to hash on (`outerJoinKeys`), else
+ * by a nested loop.
  *
  * A join's method: a member's own where it states one (a probe's nested loop), or of a group reading the joined
  * entries laterally a nested loop; else a set join's, a hash where PostgreSQL keeps a join clause pairing the member's
@@ -1499,7 +1530,7 @@ const levelJoins = (
 			...spine.joined,
 			...after.map((a): JoinedMember<AccessIndexRequest> => ({
 				member: { kind: "item", item: a.item },
-				join: a.join
+				join: outerJoinKeys(classes, a.on, new Set([a.item.alias]), items) ? "hash" : "nestedLoop"
 			}))
 		]
 		return {
@@ -2412,7 +2443,7 @@ class Binder {
 		const rename = this.renamer(here)
 		const antis: Array<AntiJoin> = []
 		const conjuncts = where.map((w) => {
-			const anti = this.#anti(w, here, bound.length + antis.length)
+			const anti = this.#anti(w, here)
 			if (anti === undefined) {
 				return rename.expr(w)
 			}
@@ -2510,15 +2541,10 @@ class Binder {
 
 	/**
 	 * A NOT EXISTS conjunct of the level `here` PostgreSQL makes an anti join of the level (`#joinedBy`), bound, with the
-	 * item it joins at `place`: its one entry's, read after every item of the level, by a hash where its WHERE equates a
-	 * column of it with a value of the level's items, a set join's of an item no index binds, else by a nested loop;
-	 * none for any other conjunct.
+	 * item it joins: its one entry's, read after every item of the level, with its WHERE's conjuncts, its join's clauses,
+	 * from which the level decides its method (`levelJoins`); none for any other conjunct.
 	 */
-	#anti(
-		c: Expr,
-		here: Env,
-		place: number
-	): { readonly conjunct: Expr; readonly anti: AntiJoin } | undefined {
+	#anti(c: Expr, here: Env): { readonly conjunct: Expr; readonly anti: AntiJoin } | undefined {
 		if (c.kind !== "exists" || !c.not) {
 			return undefined
 		}
@@ -2532,20 +2558,10 @@ class Binder {
 		if (item === undefined || others.length > 0) {
 			return defect("an anti join's sublink reading one item")
 		}
-		const body = c.query.body
-		const level = (a: string) => {
-			const d = here.relations.get(a)
-			return d?.depth === here.depth && d.place < place
-		}
-		const hashed =
-			body.kind === "core" &&
-			conjunctsOf(body.where).some((x) => {
-				const b = bindingOf(x, written)
-				return b?.op === "=" && [...qualifiersOf(b.value)].some(level)
-			})
+		const body = bound.query.body
 		return {
 			conjunct: { ...c, query: bound.query },
-			anti: { item, join: hashed ? "hash" : "nestedLoop" }
+			anti: { item, on: body.kind === "core" ? conjunctsOf(body.where) : [] }
 		}
 	}
 

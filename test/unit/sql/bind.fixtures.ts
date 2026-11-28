@@ -83,6 +83,7 @@ export type BindFeature =
 	| "a derived UNION ALL's members appended to its reader's item"
 	| "a derived UNION ALL in parentheses, its members appended to its reader's item"
 	| "a NOT EXISTS of a set PostgreSQL anti-joins, hashed after its level's items"
+	| "a NOT EXISTS whose level side its level fixes, anti-joined by a nested loop"
 	| "an EXISTS of a set read through a fenced item, a subplan"
 	| "a VALUES list fenced, planned apart under its alias"
 	| "a reader's conjunct moved beneath a fence, binding the read there"
@@ -115,6 +116,7 @@ export const bindFeatures = [
 	"a derived UNION ALL's members appended to its reader's item",
 	"a derived UNION ALL in parentheses, its members appended to its reader's item",
 	"a NOT EXISTS of a set PostgreSQL anti-joins, hashed after its level's items",
+	"a NOT EXISTS whose level side its level fixes, anti-joined by a nested loop",
 	"an EXISTS of a set read through a fenced item, a subplan",
 	"a VALUES list fenced, planned apart under its alias",
 	"a reader's conjunct moved beneath a fence, binding the read there",
@@ -311,7 +313,13 @@ export type Place =
 	| { readonly kind: "world"; readonly leaky: boolean }
 	| { readonly kind: "met" }
 	| { readonly kind: "union"; readonly at: "top" | "derived" | "parenthesized" }
-	| { readonly kind: "exists"; readonly not: boolean; readonly over: "cte" | "values" }
+	| {
+			readonly kind: "exists"
+			readonly not: boolean
+			readonly over: "cte" | "values"
+			/** Whether S's key, the level's side of the test's equality, is fixed at the level too, `s.k = 7`. */
+			readonly pinned: boolean
+	  }
 	| { readonly kind: "fenced" }
 	| { readonly kind: "nested" }
 	| { readonly kind: "hashed"; readonly both: boolean }
@@ -344,9 +352,10 @@ const places: Arr.NonEmptyReadonlyArray<Place> = [
 	{ kind: "union", at: "top" },
 	{ kind: "union", at: "derived" },
 	{ kind: "union", at: "parenthesized" },
-	{ kind: "exists", not: true, over: "cte" },
-	{ kind: "exists", not: false, over: "cte" },
-	{ kind: "exists", not: true, over: "values" },
+	{ kind: "exists", not: true, over: "cte", pinned: false },
+	{ kind: "exists", not: false, over: "cte", pinned: false },
+	{ kind: "exists", not: true, over: "values", pinned: false },
+	{ kind: "exists", not: true, over: "values", pinned: true },
 	{ kind: "fenced" },
 	{ kind: "nested" },
 	{ kind: "hashed", both: true },
@@ -494,7 +503,11 @@ export const statementOf = (c: BindCase): Select => {
 					keyedSet(
 						[target(col("s", "w"))],
 						[sRead],
-						c.place.not ? notExists(test) : exists(test),
+						c.place.pinned
+							? and([notExists(test), eq(col("s", "k"), lit.int(7, types.integer))])
+							: c.place.not
+								? notExists(test)
+								: exists(test),
 						"a read of S its rows' test reads"
 					)
 				),

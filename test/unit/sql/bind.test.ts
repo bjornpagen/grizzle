@@ -309,7 +309,14 @@ export const everyReadIsBoundAsItsLevelFixesItWhereItStandsUnderTheScopesOneAlia
 						const joined = Arr.flatMap(top, (level) =>
 							Arr.map(joinedMembers(level.problem), (j) => j.join)
 						)
-						if (drawn.place.not) {
+						if (drawn.place.pinned) {
+							assert.deepEqual(
+								joined,
+								["nestedLoop"],
+								"the NOT EXISTS whose equality's level side S's key is fixed at the level is an anti join PostgreSQL pairs by nothing, its clause thrown back as TRUE (equivclass.c reconsider_outer_join_clauses), so its set joins by a nested loop"
+							)
+							c.note("a NOT EXISTS whose level side its level fixes, anti-joined by a nested loop")
+						} else if (drawn.place.not) {
 							assert.deepEqual(
 								joined,
 								["hash"],
@@ -440,6 +447,14 @@ export const everyReadIsBoundAsItsLevelFixesItWhereItStandsUnderTheScopesOneAlia
 		oracle: { kind: "specification", name: "the contract's binding rules (CARRY-CONTRACT §1)" },
 		kept: [],
 		kills: [
+			{
+				file: "packages/engine/src/sql/bind.ts",
+				original:
+					"\t\t\t).some(\n\t\t\t\t([i, o]) => readsWithin(read(i), inner) && readsWithin(read(o), outer) && !fixedSide(o)\n",
+				replacement:
+					"\t\t\t).some(\n\t\t\t\t([i, o]) => readsWithin(read(i), inner) && readsWithin(read(o), outer)\n",
+				why: "An outer join's equality keys a hash where its outer side's class holds a fixed value: PostgreSQL throws the clause back as TRUE (equivclass.c reconsider_outer_join_clauses), so page-keys' dashboardJoined window carried HASH_JOIN(r15@r10), the NOT EXISTS over (VALUES (10)) at r12.c55 beside r12.c55 = 7, which PostgreSQL could not plan (Law 1: matched, failed, its Nested Loop disabled)."
+			},
 			{
 				file: "packages/engine/src/sql/bind.ts",
 				original: "\t\t? pulledUnion(q.body)\n",
