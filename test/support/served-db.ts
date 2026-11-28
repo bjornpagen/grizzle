@@ -216,7 +216,18 @@ export const servedFixture = <L extends AnyLogin>(
 	installed: Installed,
 	login: L
 ): Effect.Effect<ServedFixture<L>, ServedRefusal> =>
-	Effect.map(servedJson(installed, login, login.workload), (json) =>
+	servedFixtureServing(installed, login, login.workload)
+
+/**
+ * `login` over `installed` (servedFixtureOf), its served file compiled by servedJson with `workloads`: a writer that
+ * serves each program when it runs (servedOn) serves none of its login's own, which its installation was planned from.
+ */
+export const servedFixtureServing = <L extends AnyLogin>(
+	installed: Installed,
+	login: L,
+	workloads: ReadonlyArray<AnyWorkload>
+): Effect.Effect<ServedFixture<L>, ServedRefusal> =>
+	Effect.map(servedJson(installed, login, workloads), (json) =>
 		servedFixtureOf(installed, login, json)
 	)
 

@@ -14,6 +14,7 @@ import type { LawId } from "#compiler/core/ids.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import {
 	type AnyDerived,
+	type AnyLogin,
 	type AnyRelation,
 	type AnyRoster,
 	type AnySchema,
@@ -21,6 +22,7 @@ import {
 	role,
 	wholeWritesOf
 } from "#compiler/public/schema.ts"
+import { workload } from "#compiler/public/workload.ts"
 import type { IdentifiedLaw } from "#compiler/types/changeset/changeset.ts"
 import { type ChangeSetValue, changeSetOver } from "#compiler/write/changeset/value.ts"
 import type { AmbientSession } from "#test/support/ambient.ts"
@@ -53,10 +55,39 @@ import {
 } from "#test/support/laws/model.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { pickFrom, pickGen, pickOf, pickSpan } from "#test/support/pick.ts"
-import { applicationOf, openServedDb, type ServedOn } from "#test/support/served-db.ts"
+import {
+	applicationOf,
+	openServedDbOf,
+	type ServedDb,
+	type ServedOn,
+	servedFixtureServing
+} from "#test/support/served-db.ts"
 import { Substrate, type SubstrateTemplate } from "#test/support/substrate/substrate.ts"
 
 /** The host laws a refusal's law states; a law the host does not know fails the case. */
+
+/**
+ * Every one-member write a step of `app` may serve (stepChangeOf): an insert into each relation it inserts into, and an
+ * insert, a put and a delete of each it changes (wholeWritesOf), each an array member, as a step builds one, by its op
+ * and relation.
+ */
+const stepWrites = (base: AnySchema): Readonly<Record<string, ChangeSetValue>> => {
+	const writes = wholeWritesOf(base)
+	const member = (kind: OpKind, relation: string) => {
+		const empty = changeSetOver.empty(base)
+		return [
+			`${kind}${relation}`,
+			empty[kind](
+				defined(base.relations[relation], `relation ${relation} of the family schema`),
+				[]
+			)
+		] as const
+	}
+	return Rec.fromEntries([
+		...Arr.map(writes.insert, (r) => member("insert", r)),
+		...Arr.flatMap(writes.write, (r) => Arr.map(opKinds, (kind) => member(kind, r)))
+	])
+}
 
 /**
  * The writers of a family schema: `app`, the grizzle writer, in the login `server`, and `direct`, the role its direct SQL
@@ -64,7 +95,10 @@ import { Substrate, type SubstrateTemplate } from "#test/support/substrate/subst
  * one as the schema declares it, inserting into each closed one and changing each open one (wholeWritesOf). A second grizzle writer is `app` opened again through a served layer of its own (openWriter), so its session is
  * its own backend. The direct writers log in apart from the grizzle writers, so the backends of a login are the grizzle
  * writers' alone (pg_stat_activity names the login, never the role a session took on), which the histories and the
- * schedules resolve a writer's backend by.
+ * schedules resolve a writer's backend by. `server`'s workload is every one-member write of `app` (stepWrites), so the
+ * installation holds every index a step's member reads through, as generate plans an application's: a step's ChangeSet
+ * is built at run time and served on the writer when it runs (servedWrite), and a served compile under the snapshot
+ * refuses a read through an index it does not hold (UninstalledIndex).
  */
 export const familyWriters = (base: AnySchema) => {
 	/** Every entry a role may hold: no closed relation, which installs as constants alone. */
@@ -75,7 +109,12 @@ export const familyWriters = (base: AnySchema) => {
 	)
 	const app = role(base, "app", relations, wholeWritesOf(base))
 	const direct = role(base, "direct", relations, wholeWritesOf(base))
-	return { app, direct, server: login(base, "server", [app]), psql: login(base, "psql", [direct]) }
+	return {
+		app,
+		direct,
+		server: login(base, "server", [app], { workload: [workload(app, stepWrites(base))] }),
+		psql: login(base, "psql", [direct])
+	}
 }
 
 /**
@@ -136,21 +175,29 @@ export const lawsTemplate = (spec: {
 
 /**
  * Opens `app` on an installation of `opened.schema`, through a served layer of its own over the database it was
- * installed in (served-db.ts openServedDb): each call is a writer with a pool of its own. The login serves no workload of
- * its own; a step's ChangeSet is served on the writer when it runs (servedApply).
+ * installed in (served-db.ts openServedDbOf): each call is a writer with a pool of its own. Its served file holds no
+ * member of its login's workload (servedFixtureServing), which the installation was planned from; a step's ChangeSet is
+ * served on the writer when it runs (servedApply).
  */
 export const openWriter = <S extends AnySchema>(opened: {
 	readonly installed: Installed
 	readonly schema: S
-}): Effect.Effect<Opened<S>, OpenError, Scope.Scope> =>
-	Effect.map(
+}): Effect.Effect<Opened<S>, OpenError, Scope.Scope> => {
+	const writers = familyWriters(opened.schema)
+	const server: AnyLogin = writers.server
+	const opening: Effect.Effect<ServedDb, ServedRefusal | OpenError, Scope.Scope> = Effect.flatMap(
+		servedFixtureServing(opened.installed, server, []),
+		(fixture) => openServedDbOf(fixture, opened.installed, writers.server.roles.app, {})
+	)
+	return Effect.map(
 		Effect.catchIf(
-			openServedDb(opened.installed, familyWriters(opened.schema).server.roles.app, {}),
+			opening,
 			(failure) => "place" in failure,
 			(refusal) => Effect.die(refusal)
 		),
 		(db) => ({ installed: opened.installed, schema: opened.schema, ctx: db.ctx, served: db })
 	)
+}
 
 /** One installed family schema as the harness drives it. */
 export interface LawSession {
