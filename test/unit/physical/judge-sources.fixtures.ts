@@ -25,6 +25,7 @@ import {
 	type FromSource,
 	functionColumnNames,
 	type OperandSelect,
+	type PlStatement,
 	readConditions,
 	selectColumns
 } from "#compiler/sql/ast.ts"
@@ -541,6 +542,228 @@ export const judged = (shape: Shape, note: (r: Reached) => void): void => {
 			if (scan.columns.length < declared[table].width) {
 				note(kind === "stored" ? "a stored scan narrowed" : "a delta narrowed")
 			}
+		}
+	}
+}
+
+/**
+ * A guarded case: Value, a learner's scores of a package's nodes, keyed by the learner first, then by its package and
+ * place in either order, so a probe of a write of Bound or Node reads it under a guard (analysis/theory/query.ts
+ * probeGuard): the judge runs the probe only where a value of the written package stands, an existence read of Value at
+ * the package; and the rule's check, a score at most its node's bound or at least it.
+ */
+export interface Guarded {
+	readonly order: "package first" | "place first"
+	readonly check: "le" | "ge"
+}
+
+export const guardedGen: Gen<Guarded> = (s) => ({
+	order: s.draw(element<Guarded["order"]>(["package first", "place first"])),
+	check: s.draw(element<Guarded["check"]>(["le", "ge"]))
+})
+
+export type GuardReached = "a guard over a write of Bound" | "a guard over a write of Node"
+
+/** rule-guard's Scored in small (test/pg/laws/rule-guard.fixtures.ts): Value beside each bounded node of its package. */
+const guardedSchemaOf = (g: Guarded) => {
+	const Node = relation("Node", { pkg: int4, start: int4, parent: int4, kind: int4 }, [
+		"pkg",
+		"start"
+	])
+	const Bound = relation("Bound", { pkg: int4, kind: int4, bound: int4 }, ["pkg", "kind"])
+	const Value = relation(
+		"Value",
+		{ child: int4, pkg: int4, start: int4, score: int4 },
+		g.order === "package first" ? ["child", "pkg", "start"] : ["child", "start", "pkg"]
+	)
+	const Base = schema("judge_guards", [Node, Bound, Value], [])
+	const bounded = query(Base).rule((r) => {
+		const { pkg, start } = v(Node, "n")
+		const { kind } = v(Node, "child")
+		const { bound } = v(Bound, "b")
+		return r
+			.match(Node, { pkg, start, kind: 10 })
+			.match(Node, { pkg, parent: start, kind })
+			.match(Bound, { pkg, kind, bound })
+			.find({ pkg, start, bound })
+	})
+	const Scored = derived(
+		"Scored",
+		query(Base).rule((r) => {
+			const { child, pkg, start, score } = v(Value, "value")
+			const { bound } = v(bounded, "node")
+			return r
+				.match(Value, { child, pkg, start, score })
+				.match(bounded, { pkg, start, bound })
+				.find({ bound, child, pkg, score, start })
+		})
+	)
+	return schema.extend(
+		[Base],
+		"judge_guards_1",
+		[Scored],
+		[
+			check("Within", Scored, (sc) =>
+				g.check === "le" ? sc.le(sc.score, sc.bound) : sc.ge(sc.score, sc.bound)
+			)
+		]
+	)
+}
+
+/** Each IF EXISTS a routine of `installation` runs, the query it tests, by its routine's name: a probe's guard among
+ * them, and a dispatcher's test of whether a delta holds a row. */
+const guardsIn = (
+	installation: Installation
+): ReadonlyArray<{ readonly routine: string; readonly query: OperandSelect }> => {
+	const guards: Array<{ readonly routine: string; readonly query: OperandSelect }> = []
+	const walk = (routine: string, body: ReadonlyArray<PlStatement>): void => {
+		for (const statement of body) {
+			if (statement.kind !== "if") {
+				continue
+			}
+			for (const branch of statement.branches) {
+				if (branch.condition.kind === "exists" && !branch.condition.not) {
+					guards.push({ routine, query: branch.condition.query })
+				}
+				walk(routine, branch.body)
+			}
+		}
+	}
+	for (const s of installation.statements) {
+		if (s.kind === "createFunction" && s.language === "plpgsql") {
+			walk(s.name.name, s.body.body)
+		}
+	}
+	return guards
+}
+
+/** A read of Value a guard makes: its advice target, the columns it delivers and its own conditions read, by its alias. */
+interface ValueRead {
+	readonly target: string
+	readonly outputs: ReadonlyArray<string>
+	readonly level: string
+	readonly delivered: ReadonlySet<string>
+	readonly conditioned: ReadonlySet<string>
+}
+
+/** The columns of the read under `alias` that `exprs` read. */
+const columnsOf = (exprs: ReadonlyArray<Expr>, alias: string): ReadonlySet<string> => {
+	const out = new Set<string>()
+	for (const e of exprs) {
+		visitExpr(e, {
+			...inertVisitor,
+			expr: (x) => {
+				if (x.kind === "column" && x.table === alias) {
+					out.add(x.column)
+				}
+			}
+		})
+	}
+	return out
+}
+
+/** Each read of Value in `query`, a derived table whose one source is a bound read of the guarded schema's Value. */
+const valueReadsOf = (query: OperandSelect): ReadonlyArray<ValueRead> => {
+	const reads: Array<ValueRead> = []
+	visitSelect(query, {
+		...inertVisitor,
+		fromItem: (item) => {
+			const sources =
+				item.kind === "joins" ? [item.first, ...Arr.map(item.steps, (st) => st.source)] : [item]
+			for (const source of sources) {
+				if (source.kind !== "derived" || source.query.body.kind !== "core") {
+					continue
+				}
+				const [from, ...more] = source.query.body.from
+				if (
+					from?.kind !== "read" ||
+					more.length > 0 ||
+					from.table.name !== "value" ||
+					!Str.startsWith("judge_guards")(from.table.schema)
+				) {
+					continue
+				}
+				reads.push({
+					target: `${from.alias}@${source.alias}`,
+					outputs: selectColumns(source.query),
+					level: source.alias,
+					delivered: columnsOf(
+						Arr.map(source.query.body.targets, (t) => t.expr),
+						from.alias
+					),
+					conditioned: columnsOf(
+						[...readConditions(from), ...conjunctsIn(source.query.body.where)],
+						from.alias
+					)
+				})
+			}
+		}
+	})
+	return reads
+}
+
+/** The relations whose deltas a guard reads, by the readers it calls (physical/ddl/rules.ts readers): a probe's guard
+ * reads a written relation's, a dispatcher's test none. */
+const deltasRead = (query: OperandSelect): ReadonlySet<string> => {
+	const read = new Set<string>()
+	visitSelect(query, {
+		...inertVisitor,
+		fromItem: (item) => {
+			const sources =
+				item.kind === "joins" ? [item.first, ...Arr.map(item.steps, (st) => st.source)] : [item]
+			for (const source of sources) {
+				if (source.kind === "function" && source.call.fn.kind === "qualified") {
+					for (const relation of ["bound", "node"]) {
+						if (Str.includes(`_${relation}_`)(source.call.fn.name)) {
+							read.add(relation)
+						}
+					}
+				}
+			}
+		}
+	})
+	return read
+}
+
+/**
+ * Judges each guard of `g`'s installation: each read of Value it makes that delivers no column a reference of the
+ * guard reads, its existence read, reads of Value only the columns its own conditions read, never a key no reader tells
+ * the rows of apart (lower/optimize/prune narrowedBase), and is advised an index-only scan in its routine, its index
+ * holding every column it reads, never an index scan whose needs another statement of the routine counted
+ * (sql/bind.ts, each query PL/pgSQL hands the planner its own needs).
+ */
+export const guarded = (g: Guarded, note: (r: GuardReached) => void): void => {
+	const owned = owning(guardedSchemaOf(g))
+	const installation = succeeded(compileInstallation(owned, installOptions(owned)))
+	const advices = advicesIn(installation)
+	const guards = Arr.filter(guardsIn(installation), (guard) => deltasRead(guard.query).size > 0)
+	assert.ok(guards.length > 0, "the judge guards a probe of Value")
+	for (const guard of guards) {
+		const advice = defined(advices.get(guard.routine), `the advice of ${guard.routine}`)
+		const references = referencesOf(guard.query)
+		const deltas = deltasRead(guard.query)
+		if (deltas.has("bound")) {
+			note("a guard over a write of Bound")
+		}
+		if (deltas.has("node")) {
+			note("a guard over a write of Node")
+		}
+		const reads = valueReadsOf(guard.query)
+		assert.ok(reads.length > 0, `the guard of ${guard.routine} reads Value`)
+		for (const read of reads) {
+			if (Arr.some(read.outputs, (o) => references.has(`${read.level}.${o}`))) {
+				continue
+			}
+			for (const column of read.delivered) {
+				assert.ok(
+					read.conditioned.has(column),
+					`the guard's existence read ${read.target} of Value reads ${column}, which its conditions read`
+				)
+			}
+			assert.ok(
+				Str.includes(`INDEX_ONLY_SCAN(${read.target} `)(advice),
+				`the guard's existence read ${read.target} is advised an index-only scan in ${guard.routine}: ${advice}`
+			)
 		}
 	}
 }

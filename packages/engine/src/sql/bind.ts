@@ -3674,18 +3674,33 @@ class Binder {
 		return this.setQuery(q, topEnv, { kind: "top" })
 	}
 
-	/** A routine bound (`routine`), its columns' needs read off it first. */
+	/** A routine bound (`routine`), each query it hands the planner over its own columns' needs (`planned`). */
 	routineOf(fn: CreateFunction): CreateFunction {
-		this.#needs = neededColumns(fn)
 		this.#whole = false
 		return this.routine(fn)
 	}
 
-	/** A DO block's body bound (bindBlock), its columns' needs read off it first; a whole one's reads joined by hash. */
+	/** A DO block's body bound (bindBlock), each query it hands the planner over its own columns' needs (`planned`); a
+	 * whole one's reads joined by hash. */
 	blockOf(b: PlBlock): PlBlock {
-		this.#needs = neededBy((t) => t.plBlock(b))
 		this.#whole = this.#reads.kind === "whole"
 		return this.block(b)
+	}
+
+	/**
+	 * `bind` run over the needs of one query PL/pgSQL hands the planner on its own, which `collect` walks: each alias's
+	 * columns that query reads, never another's. A routine's statements are lowered apart, each naming its items from a
+	 * supply of its own, so one alias names items of two of them, and a routine's needs read off it whole counted the
+	 * columns of both among a read's: the cover an index-only scan's choice reads (sql/advice.ts), so rule-guard's guard,
+	 * which reads of Value its package alone, was advised an INDEX_SCAN for the columns of an item of its probe's
+	 * statement under the same alias.
+	 */
+	#planned<A>(collect: (t: Transform) => unknown, bind: () => A): A {
+		const needs = this.#needs
+		this.#needs = neededBy(collect)
+		const bound = bind()
+		this.#needs = needs
+		return bound
 	}
 
 	/**
@@ -3694,7 +3709,14 @@ class Binder {
 	 */
 	routine(fn: CreateFunction): CreateFunction {
 		if (fn.language === "sql") {
-			return { ...fn, body: this.expr(fn.body, topEnv) }
+			const body = fn.body
+			return {
+				...fn,
+				body: this.#planned(
+					(t) => t.expr(body),
+					() => this.expr(body, topEnv)
+				)
+			}
 		}
 		return { ...fn, body: this.block(fn.body) }
 	}
@@ -3705,7 +3727,11 @@ class Binder {
 	}
 
 	pl(s: PlStatement): PlStatement {
-		const plain = (e: Expr) => this.expr(e, topEnv)
+		const plain = (e: Expr) =>
+			this.#planned(
+				(t) => t.expr(e),
+				() => this.expr(e, topEnv)
+			)
 		switch (s.kind) {
 			case "if": {
 				const [b0, ...bs] = s.branches
@@ -3721,14 +3747,23 @@ class Binder {
 			}
 			case "assign":
 				return { ...s, value: plain(s.value) }
-			case "forQuery":
+			case "forQuery": {
+				const query = s.query
 				return {
 					...s,
-					query: this.setQuery(s.query, topEnv, { kind: "top" }),
+					query: this.#planned(
+						(t) => t.setQuery(query),
+						() => this.setQuery(query, topEnv, { kind: "top" })
+					),
 					body: s.body.map((x) => this.pl(x))
 				}
+			}
 			case "perform": {
-				const q = this.query(operandSelect(s.query.body), topEnv, { kind: "top" })
+				const performed = operandSelect(s.query.body)
+				const q = this.#planned(
+					(t) => t.select(performed),
+					() => this.query(performed, topEnv, { kind: "top" })
+				)
 				const body = q.body
 				return body.kind === "core"
 					? { ...s, query: { ...s.query, body } }
@@ -3736,9 +3771,13 @@ class Binder {
 			}
 			case "whenFound": {
 				const [b0, ...bs] = s.body
+				const query = s.query
 				return {
 					...s,
-					query: this.query(s.query, topEnv, { kind: "top" }),
+					query: this.#planned(
+						(t) => t.select(query),
+						() => this.query(query, topEnv, { kind: "top" })
+					),
 					body: [this.pl(b0), ...bs.map((x) => this.pl(x))]
 				}
 			}
@@ -3765,19 +3804,41 @@ class Binder {
 				return { ...s, value: plain(s.value) }
 			case "modify": {
 				const statement = s.statement
+				const modified = <M>(bind: () => M): M =>
+					this.#planned((t) => t.plStatement({ kind: "modify", statement }), bind)
 				switch (statement.kind) {
 					case "insert":
-						return { ...s, statement: this.insert(statement, topEnv, { kind: "top" }) }
+						return {
+							...s,
+							statement: modified(() => this.insert(statement, topEnv, { kind: "top" }))
+						}
 					case "update":
-						return { ...s, statement: this.update(statement, topEnv, { kind: "top" }) }
+						return {
+							...s,
+							statement: modified(() => this.update(statement, topEnv, { kind: "top" }))
+						}
 					case "delete":
-						return { ...s, statement: this.delete(statement, topEnv, { kind: "top" }) }
+						return {
+							...s,
+							statement: modified(() => this.delete(statement, topEnv, { kind: "top" }))
+						}
 					case "merge":
-						return { ...s, statement: this.merge(statement, topEnv, { kind: "top" }) }
+						return {
+							...s,
+							statement: modified(() => this.merge(statement, topEnv, { kind: "top" }))
+						}
 				}
 			}
-			case "returnQuery":
-				return { ...s, query: this.query(s.query, topEnv, { kind: "top" }) }
+			case "returnQuery": {
+				const query = s.query
+				return {
+					...s,
+					query: this.#planned(
+						(t) => t.select(query),
+						() => this.query(query, topEnv, { kind: "top" })
+					)
+				}
+			}
 			case "createSessionTable":
 			case "createSessionIndex":
 			case "createSessionTrigger":
