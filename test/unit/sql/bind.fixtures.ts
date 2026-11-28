@@ -8,7 +8,14 @@ import { type Gen, boolean, element } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order } from "effect"
 import { defaultOpclass } from "#compiler/ir/law.ts"
 import type { AccessIndexRequest } from "#compiler/ir/products.ts"
-import type { Expr, FromSource, LevelAccess, OperandSelect, Select } from "#compiler/sql/ast.ts"
+import type {
+	Expr,
+	FromSource,
+	LevelAccess,
+	OperandSelect,
+	Select,
+	SelectCore
+} from "#compiler/sql/ast.ts"
 import { nameKey } from "#compiler/sql/ast.ts"
 import { type BindTable, type BindView, bindView, type ReadCatalog } from "#compiler/sql/bind.ts"
 import {
@@ -37,6 +44,7 @@ import {
 	param,
 	provedCore,
 	select,
+	setOperation,
 	table,
 	target,
 	targetAs,
@@ -76,6 +84,7 @@ export type BindFeature =
 	| "an EXISTS of a set read through a fenced item, a subplan"
 	| "a VALUES list fenced, planned apart under its alias"
 	| "a reader's conjunct moved beneath a fence, binding the read there"
+	| "a reader's conjunct moved through every arm of a fenced UNION nested in another's arm, binding the read there"
 	| "byte strings bound together, one equality of their row"
 	| "one byte string bound alone, an equality lookup"
 
@@ -103,6 +112,7 @@ export const bindFeatures = [
 	"an EXISTS of a set read through a fenced item, a subplan",
 	"a VALUES list fenced, planned apart under its alias",
 	"a reader's conjunct moved beneath a fence, binding the read there",
+	"a reader's conjunct moved through every arm of a fenced UNION nested in another's arm, binding the read there",
 	"byte strings bound together, one equality of their row",
 	"one byte string bound alone, an equality lookup"
 ] as const
@@ -272,8 +282,9 @@ export type Fixed = "a" | "b" | "f" | "v" | "d"
  * written as the lowering writes them; or in the first arm of a UNION ALL with S's, the statement's own or a derived
  * table its top reads; or in a MATERIALIZED CTE beside a read of S an EXISTS or a NOT EXISTS of its WHERE tests at b
  * against S's key, over that CTE or over a VALUES list (`exists`); or in a LATERAL derived table fenced by OFFSET 0
- * after S, its level equating its a with S's key (`fenced`); or none, U read at a parameter of each of its byte
- * strings or of p alone (`hashed`).
+ * after S, its level equating its a with S's key (`fenced`); or in a fenced arm of a UNION that is the second arm of a
+ * derived UNION S's EXISTS equates at a with S's key, each other arm a read of S (`nested`), rule-whole's reach of a
+ * region's roots; or none, U read at a parameter of each of its byte strings or of p alone (`hashed`).
  */
 export type Place =
 	| { readonly kind: "top" }
@@ -288,6 +299,7 @@ export type Place =
 	| { readonly kind: "union"; readonly at: "top" | "derived" }
 	| { readonly kind: "exists"; readonly not: boolean; readonly over: "cte" | "values" }
 	| { readonly kind: "fenced" }
+	| { readonly kind: "nested" }
 	| { readonly kind: "hashed"; readonly both: boolean }
 
 export interface BindCase {
@@ -321,6 +333,7 @@ export const bindCaseGen: Gen<BindCase> = (source) => {
 			{ kind: "exists", not: false, over: "cte" },
 			{ kind: "exists", not: true, over: "values" },
 			{ kind: "fenced" },
+			{ kind: "nested" },
 			{ kind: "hashed", both: true },
 			{ kind: "hashed", both: false }
 		])
@@ -478,6 +491,45 @@ export const statementOf = (c: BindCase): Select => {
 					eq(col("d", "a"), col("s", "k")),
 					"a read of S beside T's fenced rows"
 				)
+			)
+		}
+		case "nested": {
+			/** A query fenced by OFFSET 0, which PostgreSQL pushes no qual past. */
+			const fence = (fenced: SelectCore): OperandSelect => ({
+				...operandSelect(fenced),
+				offset: lit.int(0, types.bigint)
+			})
+			const roots = setOperation("UNION", [
+				keyedRead(
+					[target(col("f", "a"))],
+					[derived(fence(keyedRead([target(col("t", "a"))], [tRead], whereOf(fixed))), "f", false)],
+					undefined
+				),
+				keyedRead(
+					[targetAs(col("g", "k"), "a")],
+					[
+						derived(
+							fence(keyedRead([target(col("p", "k"))], [table("app", "s", "p")], undefined)),
+							"g",
+							false
+						)
+					],
+					undefined
+				)
+			])
+			const reach = setOperation("UNION", [
+				keyedRead([targetAs(col("o", "k"), "a")], [table("app", "s", "o")], undefined),
+				keyedRead([target(col("n", "a"))], [derived(select(roots), "n", false)], undefined)
+			])
+			const test = operandSelect(
+				core(
+					[target(lit.int(1, types.integer))],
+					[derived(select(reach), "u", false)],
+					eq(col("u", "a"), col("s", "k"))
+				)
+			)
+			return select(
+				keyedSet([target(col("s", "w"))], [sRead], exists(test), "a read of S its reach tests")
 			)
 		}
 		case "union": {
@@ -692,6 +744,7 @@ export const specified = (c: BindCase): SpecifiedRead => {
 		case "window":
 			return c.place.at === "a" ? { kind: "index", probe: false, bound: ["a"] } : { kind: "whole" }
 		case "fenced":
+		case "nested":
 			return { kind: "index", probe: false, bound: sorted(["a", ...held]) }
 		case "top":
 		case "union":

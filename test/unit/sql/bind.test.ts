@@ -9,7 +9,8 @@
  * Property: over T(a, b, f, v, d) keyed by a, of a and b of many values, f of few, v a vector keyed by pgvector's B-tree
  * class through its `=`, and d no B-tree holds, and S(k, w) keyed by k: a read of T at its level's top, after S joined
  * at T.b = S.k, beneath S's EXISTS at T.a = S.k, or through a window over T partitioned by a at a reader's equality of
- * a or of b, or inside T's groups by b that S is joined to at b, at a drawn set of literal equalities of a, b, f, v and
+ * a or of b, or inside T's groups by b that S is joined to at b, or in a fenced arm of a UNION nested in another's arm
+ * that S's EXISTS equates at a with S's key, at a drawn set of literal equalities of a, b, f, v and
  * d: the bound statement reads T once, and the plan's item of the alias it reads T by is what the specification says
  * (bind.fixtures.ts `specified`), its scan, whether a probe's, and its bound columns; every alias the plan names is the
  * scope's, once; a read through T's whole view is planned under the alias its body names T by (sql/naming.ts
@@ -25,7 +26,8 @@
  * enclosing level's column; a seek beneath a window at its partition, and a whole read beneath it at no partition; an
  * extension's equality bound; a column no B-tree holds left a filter; a derived table joined to an earlier item by a
  * hash; a derived table read per earlier row at its stored read's key; a whole view's read named by its body's alias;
- * a whole view read twice at one level, the second a level of its own.
+ * a whole view read twice at one level, the second a level of its own; a reader's conjunct moved through every arm of a
+ * fenced UNION nested in another's arm, binding the read there.
  */
 
 import { assert } from "@bjornpagen/testing/assert"
@@ -360,6 +362,11 @@ export const everyReadIsBoundAsItsLevelFixesItWhereItStandsUnderTheScopesOneAlia
 					case "sublink":
 						c.note("a seek at an enclosing level's column")
 						break
+					case "nested":
+						c.note(
+							"a reader's conjunct moved through every arm of a fenced UNION nested in another's arm, binding the read there"
+						)
+						break
 					case "window":
 						c.note(
 							drawn.place.at === "a"
@@ -422,6 +429,12 @@ export const everyReadIsBoundAsItsLevelFixesItWhereItStandsUnderTheScopesOneAlia
 					'\t\t(q.offset !== undefined && (past === "nothing" || !fenceOnly(q.offset))) ||\n',
 				replacement: "\t\tq.offset !== undefined ||\n",
 				why: "A level's conjunct over a fenced LATERAL derived table and an item before it stays the join's condition: its derived read is unbound beneath the fence, and the join reads the bound column of the item before it in its condition (LAWS' Law 2 on cross-step, v1@r11.path)."
+			},
+			{
+				file: "packages/engine/src/sql/bind.ts",
+				original: "\t\t\tif (one === undefined || two === undefined || !isDefinedEach(rest)) {\n",
+				replacement: "\t\t\tif (true) {\n",
+				why: "A reader's conjunct over a set operation is pushed into none of its arms: a fenced UNION nested in another's arm reads its stored rows whole, as rule-whole's reach of a region's roots read every node of every document for each write's judgement (10,017 rows at 2,500 documents, 20,017 at 5,000; INDEX_SCAN(node_ix_kind) and SEQ_SCAN where the region's document binds the read)."
 			},
 			{
 				file: "packages/engine/src/sql/print.ts",

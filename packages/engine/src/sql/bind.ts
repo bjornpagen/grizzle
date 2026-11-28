@@ -1742,15 +1742,9 @@ const fenceOnly = (offset: Expr): boolean =>
 
 /**
  * Whether a derived table's query takes a conjunct of its reader pushed into it (allpaths.c subquery_push_qual's
- * conditions, as grizzle's queries meet them), and the query with it pushed: one core of no WITH, LIMIT or OFFSET, but
- * for a fence (`fenceOnly`) where the binding moves the conjunct itself (`past` "fences"), which PostgreSQL pushes no
- * qual past, never where it states what PostgreSQL pushes (a world view's barrier, `#world`), each
- * column the conjunct reads of `alias` a target reading no aggregate, window, set-returning or VOLATILE call, in a
- * grouped core one it groups by, under DISTINCT ON one it distinguishes, and in a core that calls a window function
- * one every window partitions by, a conjunct of which keeps each partition whole (check_output_expressions,
- * targetIsInAllPartitionLists): an attachment's take ranked per partition of its input, read at the partition its
- * parent row binds, reads that partition's rows alone. The conjunct holds no sublink and no VOLATILE call. The pushed
- * conjunct reads each column's target in its place, a WHERE conjunct of the core.
+ * conditions, as grizzle's queries meet them), and the query with it pushed (`pushedThrough`): the conjunct holds no
+ * sublink and no VOLATILE call, and reads `alias`, each column it reads of `alias` at that column's place among the
+ * query's outputs.
  */
 const pushedInto = (
 	q: OperandSelect,
@@ -1758,18 +1752,100 @@ const pushedInto = (
 	c: Expr,
 	past: "fences" | "nothing"
 ): OperandSelect | undefined => {
-	const body = q.body
-	if (
-		body.kind !== "core" ||
-		q.with !== undefined ||
-		q.limit !== undefined ||
-		(q.offset !== undefined && (past === "nothing" || !fenceOnly(q.offset))) ||
-		opaque(c) ||
-		!qualifiersOf(c).has(alias)
-	) {
+	if (opaque(c) || !qualifiersOf(c).has(alias)) {
 		return undefined
 	}
 	const names = selectColumns(q)
+	return pushedThrough(q, alias, c, (column) => names.indexOf(column), past)
+}
+
+/**
+ * A query with a conjunct of its reader pushed into its body (`pushedBody`), each column of `alias` it reads its output
+ * at the place `at` gives: a query of no WITH, LIMIT or OFFSET, but for a fence (`fenceOnly`) where the binding moves
+ * the conjunct itself (`past` "fences"), which PostgreSQL pushes no qual past, never where it states what PostgreSQL
+ * pushes (a world view's barrier, `#world`).
+ */
+const pushedThrough = (
+	q: OperandSelect,
+	alias: string,
+	c: Expr,
+	at: (column: string) => number,
+	past: "fences" | "nothing"
+): OperandSelect | undefined => {
+	if (
+		q.with !== undefined ||
+		(q.offset !== undefined && (past === "nothing" || !fenceOnly(q.offset))) ||
+		q.limit !== undefined
+	) {
+		return undefined
+	}
+	const body = pushedBody(q.body, alias, c, at, past)
+	return body === undefined ? undefined : { ...q, body }
+}
+
+/**
+ * A query body with a conjunct of its reader pushed into it, each column of `alias` it reads the body's output at the
+ * place `at` gives: a core's WHERE takes it (`pushedCore`); a set operation's every arm does, as PostgreSQL pushes a
+ * qual into each leaf of a set operation (allpaths.c recurse_push_qual), the arm's output at that place standing for the
+ * column, through every set operation an arm's query holds, however deep, and through each arm's fence, so the stored
+ * read of every arm is bound where it stands; a nested query's body does. A conjunct one arm cannot take stays its
+ * reader's, pushed into no arm, since its reader's filter must hold the rows of every arm alike.
+ */
+const pushedBody = (
+	b: OperandBody,
+	alias: string,
+	c: Expr,
+	at: (column: string) => number,
+	past: "fences" | "nothing"
+): OperandBody | undefined => {
+	switch (b.kind) {
+		case "core":
+			return pushedCore(b, alias, c, at)
+		case "select":
+			return pushedThrough(b, alias, c, at, past)
+		case "setOp": {
+			const operand = (o: SetOperand): SetOperand | undefined =>
+				o.kind === "core" ? pushedCore(o, alias, c, at) : pushedThrough(o, alias, c, at, past)
+			const [a0, a1, ...as] = b.arms
+			const one = operand(a0)
+			const two = operand(a1)
+			const rest = as.map(operand)
+			if (one === undefined || two === undefined || !isDefinedEach(rest)) {
+				return undefined
+			}
+			if (b.op !== "UNION ALL" || b.rows === "oneRow" || b.rows === "operand") {
+				return { ...b, arms: [one, two, ...rest] }
+			}
+			const set = (arm: SetOperand) =>
+				arm.kind === "core"
+					? isSetBodyCore(arm)
+					: isSetQuery(arm)
+						? arm
+						: defect("a UNION ALL arm a pushed conjunct keeps a set, as its proof requires")
+			return { ...b, arms: [set(one), set(two), ...rest.map(set)] }
+		}
+	}
+}
+
+/** Whether every element of `xs` is defined, read back as the array of them. */
+const isDefinedEach = <A>(xs: ReadonlyArray<A | undefined>): xs is ReadonlyArray<A> =>
+	xs.every((x) => x !== undefined)
+
+/**
+ * A core with a conjunct of its reader pushed into its WHERE, each column of `alias` it reads the core's target at the
+ * place `at` gives: each such target reading no aggregate, window, set-returning or VOLATILE call, in a grouped core one
+ * it groups by, under DISTINCT ON one it distinguishes, and in a core that calls a window function one every window
+ * partitions by, a conjunct of which keeps each partition whole (check_output_expressions,
+ * targetIsInAllPartitionLists): an attachment's take ranked per partition of its input, read at the partition its
+ * parent row binds, reads that partition's rows alone. The pushed conjunct reads each column's target in its place, a
+ * WHERE conjunct of the core.
+ */
+const pushedCore = (
+	body: SelectCore,
+	alias: string,
+	c: Expr,
+	at: (column: string) => number
+): SelectCore | undefined => {
 	const grouped =
 		body.groupBy.length > 0 ||
 		body.having !== undefined ||
@@ -1795,7 +1871,7 @@ const pushedInto = (
 	})
 	const columns = new Map<string, Expr>()
 	for (const column of read) {
-		const t = body.targets[names.indexOf(column)]
+		const t = body.targets[at(column)]
 		if (
 			t === undefined ||
 			opaque(t.expr) ||
@@ -1814,11 +1890,8 @@ const pushedInto = (
 			x.kind === "column" && x.table === alias ? (columns.get(x.column) ?? x) : this.exprChildren(x)
 	})(identityHooks).expr(c)
 	return {
-		...q,
-		body: {
-			...body,
-			where: conjunction(distinctConjuncts([...conjunctsOf(body.where), substituted]))
-		}
+		...body,
+		where: conjunction(distinctConjuncts([...conjunctsOf(body.where), substituted]))
 	}
 }
 
