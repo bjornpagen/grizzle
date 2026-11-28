@@ -163,8 +163,9 @@ const levelAtoms = (level: PlanLevel<IndexRef>): ReadonlyArray<string> => {
 
 /**
  * The advice of no atom: a routine's whose statements read no relation, which it sets all the same, so they are planned
- * under no advice, never its caller's (sql/print.ts adviceClause); an application's declared function's, whose body
- * grizzle binds no statement of.
+ * under no advice, never its caller's (sql/print.ts adviceClause), as an application's declared function is, whose body
+ * grizzle binds no statement of (sql/print.ts declaredAdviceClause, which prints the empty advice from its text, so the
+ * printer loads no module of the planner's).
  */
 export const noAdvice: Advice = mint("")
 

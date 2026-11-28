@@ -25,7 +25,6 @@ import { blockSize } from "#compiler/core/page.ts"
 import { temporarySchema } from "#compiler/core/temporary.ts"
 import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 import { messageMaxBytes } from "#compiler/core/wire.ts"
-import { type Advice, noAdvice } from "#compiler/sql/advice.ts"
 import {
 	type AlterDomainAction,
 	type AlterRoleAction,
@@ -2548,11 +2547,14 @@ const parallelClause = (parallel: CreateFunction["parallel"]): string =>
 	parallel === "SAFE" ? " PARALLEL SAFE" : ""
 
 /**
- * A routine's advice as its SET clause, after its search_path's (sql/ast.ts CreateFunction `advice`): PostgreSQL sets it
- * on every call and restores the caller's on return, so each plan and replan of the routine's statements, PL/pgSQL's
- * cached ones included, is made under its own advice and never its caller's, the empty advice included.
+ * A routine's advice as its SET clause, after its search_path's (sql/ast.ts CreateFunction `advice`, the text of a
+ * routine's Advice, or the empty advice of a declared function): PostgreSQL sets it on every call and restores the
+ * caller's on return, so each plan and replan of the routine's statements, PL/pgSQL's cached ones included, is made under
+ * its own advice and never its caller's, the empty advice included. It reads the advice's text alone, so the printer,
+ * which the authoring entry loads (test/unit/entry/dsl.test.ts), loads none of the planner's modules (sql/advice.ts and
+ * the plan it prints, sql/plan.ts).
  */
-const adviceClause = (advice: Advice): string =>
+const adviceClause = (advice: string): string =>
 	` SET ${adviceSettingName} = ${quoteString(advice)}`
 
 const createFunctionBlock = (out: Lines, fn: CreateFunction): void => {
@@ -2620,7 +2622,7 @@ export const declaredSearchPath = (
  * (`r<n>`), which a body may spell too, so an inherited item that met a relation the body reads under the same alias
  * would constrain the body's plan by a scan grizzle proved of another statement.
  */
-const declaredAdviceClause = adviceClause(noAdvice)
+const declaredAdviceClause = adviceClause("")
 
 const createDeclaredFunction = (out: Lines, fn: CreateDeclaredFunction): void => {
 	out.line(
