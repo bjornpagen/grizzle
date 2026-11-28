@@ -759,7 +759,11 @@ export const advisedPlanOf = (cell: unknown): Result.Result<AdvisedPlan, Malform
 		}
 	})
 
-/** Every node of a plan, its root first. */
+/**
+ * Every node of a plan, its root first.
+ *
+ * @yields each node, the root, then each child's nodes in turn
+ */
 export function* lawNodes(n: LawNode): Generator<LawNode> {
 	yield n
 	for (const c of n.children) {

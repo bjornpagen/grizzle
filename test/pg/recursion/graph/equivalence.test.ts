@@ -22,7 +22,7 @@
  *   reaches a recursion, and none when it reaches none (graph/support.ts formsBroken), and a case that breaks it
  *   fails.
  *
- * @cpu-bound
+ * Its cases are CPU-bound.
  */
 
 import type { Reached } from "@bjornpagen/testing/features"

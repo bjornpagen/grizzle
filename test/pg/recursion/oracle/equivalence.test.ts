@@ -20,7 +20,7 @@
  * recursiveEquivalence is the reusable form: the graph suite runs the same population with the optimized lowering on the left
  * and the conservative lowering on the right.
  *
- * @cpu-bound
+ * Its cases are CPU-bound.
  */
 
 import type { Reached } from "@bjornpagen/testing/features"

@@ -668,7 +668,11 @@ export const explainServerStatement = (
 		parseRows
 	)
 
-/** Every node of a plan, depth first, the root first. */
+/**
+ * Every node of a plan, depth first, the root first.
+ *
+ * @yields each node, the root, then each child's nodes in turn
+ */
 export function* planNodes<N extends { readonly children: ReadonlyArray<N> }>(
 	node: N
 ): Generator<N> {

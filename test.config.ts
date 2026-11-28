@@ -15,7 +15,7 @@ import { grizzleCluster } from "#test/support/runner.ts"
  * @guards without a bound, a suite that grows, or a toolchain change that makes every clone dearer, passes every gate
  *   while it spends hours more (the toolchain's run budget, METIS-DBOPT's da451061)
  * @measure twice report.metered of PIN 3's final gate, a whole run with a fresh verdict cache, its run report the
- *   @evidence, with the run's interval, machine, load and width
+ *   evidence, with the run's interval, machine, load and width
  * @origin twice the largest whole run on record, 33,234,066 ms of its processes' CPU with no backend counted
  *   (STAMPRC-chk8, 1,994 properties, ~/.cache/toolchain-test/runs/2219874524-4083661.json): set from PIN 3's final
  *   gate, replaced before landing

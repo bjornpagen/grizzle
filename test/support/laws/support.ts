@@ -963,7 +963,11 @@ const redrawStride = 40_503
 /** The most facts a member's supports close over: a closure past it is a defect of a family's laws. */
 const supportBound = 32
 
-/** Every fact of `relation` its domains draw, the last field's values varying fastest. */
+/**
+ * Every fact of `relation` its domains draw, the last field's values varying fastest.
+ *
+ * @yields each fact, the last field's values varying fastest
+ */
 const domainFacts = function* (
 	host: HostSchema,
 	domains: Domains,
