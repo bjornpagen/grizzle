@@ -1852,6 +1852,10 @@ interface Instance {
 	readonly query: number
 }
 
+/** The columns of a query that carry no binding (columnBindings): the value a query is named at before its sources are
+ * walked (Statement #carried). */
+const noneCarried: ReadonlyMap<string, BoundTo> = new Map()
+
 /**
  * What one statement's walk shares across its bodies: how it reads names back, its parameters' names and its level; the
  * writes and ON CONFLICT arbitrations its DML makes, wherever it stands; and the instances of its query CTEs, in the
@@ -1873,6 +1877,12 @@ export class Statement {
 	readonly #reading: Array<Array<Nested>> = []
 	readonly #queries = new Map<OperandSelect, number>()
 
+	/**
+	 * The columns each query of the statement carries a binding in (columnBindings), by the query: a node of the walk,
+	 * named before its sources are walked, at none, so a recursive CTE's query, which reads itself, meets itself as the
+	 * node it is and carries no binding there while its own are found, and the walk names each query once and ends on
+	 * any cycle.
+	 */
 	readonly #carried = new Map<OperandSelect, ReadonlyMap<string, BoundTo>>()
 
 	constructor(names: ExtractNames, slotOf: (n: number) => SlotFill, level: Isolation) {
@@ -1891,28 +1901,30 @@ export class Statement {
 	 * does any other set operation. A row that carries a binding in a column equals it there, so a read bound to the
 	 * column is bound to it, however many rows the query yields: a relation parameter's query at `child = :child` binds
 	 * every read joined on its `child` to `:child`, and an input's query binds every read joined on a column of its
-	 * arrays to that field of the input.
+	 * arrays to that field of the input. A recursive CTE's query reads itself: its self-reference carries none while its
+	 * columns are found (#carried), so its every arm carries a binding only where it carries it beside that reference.
 	 */
 	columnBindings(
 		q: OperandSelect,
 		columns: ReadonlyArray<string>,
 		ctes: Ctes
 	): ReadonlyMap<string, BoundTo> {
-		return this.#carried.getOrInsertComputed(q, () => {
-			const targets = q.with === undefined ? this.#targetBindings(q.body, ctes) : undefined
-			const out = new Map<string, BoundTo>()
-			if (targets === undefined) {
-				return out
+		const named = this.#carried.get(q)
+		if (named !== undefined) {
+			return named
+		}
+		this.#carried.set(q, noneCarried)
+		const targets = q.with === undefined ? this.#targetBindings(q.body, ctes) : undefined
+		const out = new Map<string, BoundTo>()
+		const names = columns.length > 0 ? columns : targetNames(q.body)
+		for (const [i, name] of names.entries()) {
+			const value = targets?.[i]
+			if (name !== undefined && value !== undefined) {
+				out.set(name, value)
 			}
-			const names = columns.length > 0 ? columns : targetNames(q.body)
-			for (const [i, name] of names.entries()) {
-				const value = targets[i]
-				if (name !== undefined && value !== undefined) {
-					out.set(name, value)
-				}
-			}
-			return out
-		})
+		}
+		this.#carried.set(q, out)
+		return out
 	}
 
 	/** The binding each target of a body carries, by its place, where it carries one (columnBindings); none for a body

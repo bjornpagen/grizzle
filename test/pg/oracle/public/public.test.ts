@@ -62,6 +62,14 @@ export const agreesWithTheReferenceOnGeneratedProgramsReadThroughEveryPublicForm
 				),
 				reason: "issue #3's mean over 0 at display scale 24, 0, 1 and 3, under every setting",
 				since: "2026-11-04"
+			},
+			{
+				token: ReplayToken(
+					"test/pg/oracle/public/public.test.ts#agreesWithTheReferenceOnGeneratedProgramsReadThroughEveryPublicForm:1ffffffffffffff.1:0.2.1.0.1.0.1.0.1.0.0.1.0.1.0.1.0.1.0.1.2.1.0.1.0.0.1.0.1.2.0.1.0.0.1.0.1.0.0.1.0.1.0.1.0.1.2.1.0.1.0.1.0.1.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.1.0.xpn.0.0.0.1.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.pa8.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0"
+				),
+				reason:
+					"lane REDS11's floor case 1, shrunk: a recursive read's read-back over a relation of closed ids, whose certification walked its recursive CTE's self-reference until the stack overflowed in generate",
+				since: "2026-11-28"
 			}
 		],
 		kills: []
