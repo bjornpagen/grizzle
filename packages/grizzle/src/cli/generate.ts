@@ -397,14 +397,24 @@ const plannedLogins = Effect.fn("plannedLogins")(function* (
 		fromEngine(
 			phased(phases, { name: "workload", of: [] }, () =>
 				planWorkload(
-					Arr.map(logins, (l) => ({ login: l.owned.name, workloads: l.login.workload })),
+					Arr.map(logins, (l) => ({ login: l.owned, workloads: l.login.workload })),
 					schema.schema,
 					options,
 					phases
 				)
 			)
 		),
-		(refused) => refusedAt("workload")(refused.error)
+		(refused) =>
+			refused.kind === "role"
+				? cliError(
+						new ServedRefused({
+							schema: schema.declared,
+							login: refused.login,
+							place: { kind: "role", role: refused.role },
+							error: refused.error
+						})
+					)
+				: refusedAt("workload")(refused.error)
 	)
 	/** The plan's parameter types its programs', and each login's stated beside them (LoginInput `stated`). */
 	const workload = {

@@ -62,7 +62,7 @@ const servedPlan = (
 		const { plan: workload, frontends } = yield* Effect.mapError(
 			fromEngine(
 				planWorkload(
-					[{ login: ownedLogin.name, workloads: login.workload }],
+					[{ login: ownedLogin, workloads: login.workload }],
 					login.base,
 					options,
 					silentPhases

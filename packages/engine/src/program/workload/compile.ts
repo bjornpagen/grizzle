@@ -53,7 +53,7 @@ import { keyJoinNormalDag } from "#compiler/lower/optimize/eliminate/index.ts"
 import { allenNormalDag } from "#compiler/lower/optimize/simplify/allen.ts"
 import type { WorkloadPhysical } from "#compiler/physical/access/extension.ts"
 import { pathRequest, uniquePaths } from "#compiler/physical/access/paths.ts"
-import type { RoleWorldViews } from "#compiler/physical/access/world-views.ts"
+import { type RoleWorldViews, worldViewTypes } from "#compiler/physical/access/world-views.ts"
 import { type ServedTypes, servedTogether, servedTypesOf } from "#compiler/physical/ddl/domains.ts"
 import { namedRole } from "#compiler/physical/ddl/names.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
@@ -78,7 +78,7 @@ import { loginRole, programsOn } from "#compiler/program/workload/roles.ts"
 import { workloadState } from "#compiler/program/workload/value.ts"
 import { inlineWorlds } from "#compiler/program/workload/world.ts"
 import { hostArguments } from "#compiler/query/build/host.ts"
-import { ownBuiltRole, type OwnedRole } from "#compiler/schema/own.ts"
+import { ownBuiltRole, type OwnedLogin, type OwnedRole } from "#compiler/schema/own.ts"
 import type { ReadPlan } from "#compiler/sql/plan.ts"
 import { compileChangeSet, type WriteFrontend } from "#compiler/write/frontend/compile.ts"
 import type { ServableWrite } from "#compiler/write/program/served.ts"
@@ -94,6 +94,16 @@ interface WorkloadOptions {
  */
 export interface LoginWorkloads {
 	readonly login: string
+	readonly workloads: ReadonlyArray<unknown>
+}
+
+/**
+ * One login's workloads as generate plans them before its roles' change compile (planWorkload): the login owned over
+ * its base, whose roles' world views its plan serves beside its programs (loginViewTypes), and its workloads, as
+ * LoginWorkloads holds them.
+ */
+export interface ServedLoginWorkloads {
+	readonly login: OwnedLogin
 	readonly workloads: ReadonlyArray<unknown>
 }
 
@@ -488,6 +498,12 @@ export type WorkloadPlanRefused =
 			readonly program: string
 			readonly error: CompileError
 	  }
+	| {
+			readonly kind: "role"
+			readonly login: string
+			readonly role: string
+			readonly error: CompileError
+	  }
 	| { readonly kind: "plan"; readonly error: CompileError }
 
 /** The plan's own refusal, of no one program. */
@@ -729,10 +745,12 @@ export const compileWorkload = (
  * over a role (planned.ts PlannedFrontends): what the served compile of the logins over the same basis reads where it
  * would compile that front end again (servedWorkload), so a generate compiles each such ChangeSet's front end once.
  * compileWorkload keeps none, so a plan no served compile follows holds no front end past its program's plan. Each
- * login's programs are a phase reported to `phases` (`workloadLogin`).
+ * login's programs are a phase reported to `phases` (`workloadLogin`). The plan serves every role's world views beside
+ * the programs (loginViewTypes), since the roles' change compile lowers each view under the artifacts planned from it;
+ * compileWorkload's, which no change compile follows, serves its programs alone.
  */
 export const planWorkload = (
-	logins: ReadonlyArray<LoginWorkloads>,
+	logins: ReadonlyArray<ServedLoginWorkloads>,
 	schema: SchemaInput,
 	options: WorkloadOptions,
 	phases: Phases
@@ -740,10 +758,18 @@ export const planWorkload = (
 	{ readonly plan: WorkloadPlan; readonly frontends: PlannedFrontends },
 	WorkloadPlanRefused
 > => {
+	const views: Array<ServedTypes> = []
+	for (const { login } of logins) {
+		const types = loginViewTypes(login, options.artifacts)
+		if (!types.ok) {
+			return types
+		}
+		appendAll(views, types.value)
+	}
 	const frontends: Array<PlannedFrontend> = []
 	return Result.map(
 		workloadPlanned(
-			logins,
+			logins.map(({ login, workloads }) => ({ login: login.name, workloads })),
 			schema,
 			options,
 			(planned) => {
@@ -751,7 +777,10 @@ export const planWorkload = (
 			},
 			phases
 		),
-		(plan) => ({ plan, frontends: new PlannedFrontends(frontends) })
+		(plan) => ({
+			plan: { ...plan, params: servedTogether([plan.params, ...views]) },
+			frontends: new PlannedFrontends(frontends)
+		})
 	)
 }
 
@@ -794,6 +823,27 @@ const workloadPlanned = (
 		footprints,
 		live: livePlanOf(footprints)
 	})
+}
+
+/**
+ * What the world views of each role of `login` need of the installation (worldViewTypes), its roles read over the
+ * workload schema's checked schema as its change compile reads them (program/schema.ts roleArtifacts), in its roles'
+ * order: the types its plan serves beside its programs', since the role's compile lowers each view under the artifacts
+ * planned from them. A role the checker refuses is refused at the role, as its change compile would refuse it.
+ */
+const loginViewTypes = (
+	login: OwnedLogin,
+	artifacts: SchemaArtifacts
+): Result.Result<ReadonlyArray<ServedTypes>, WorkloadPlanRefused> => {
+	const types: Array<ServedTypes> = []
+	for (const role of login.roles) {
+		const checked = checkedRoleOver(role, artifacts.derived.schema)
+		if (!checked.ok) {
+			return Result.err({ kind: "role", login: login.name, role: role.name, error: checked.error })
+		}
+		types.push(worldViewTypes(checked.value))
+	}
+	return Result.ok(types)
 }
 
 /** A login of the installation as generate compiles it (ChangeLogin), by its name. */

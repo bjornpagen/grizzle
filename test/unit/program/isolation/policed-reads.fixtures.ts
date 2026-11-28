@@ -188,7 +188,7 @@ export const policedLoginOf = ({ filter, write }: Drawn) => {
 	const ownedLogin = succeeded(ownLoginOver(built, owned), "the login over its base")
 	const planned = succeeded(
 		planWorkload(
-			[{ login: ownedLogin.name, workloads: built.workload }],
+			[{ login: ownedLogin, workloads: built.workload }],
 			built.base,
 			{ artifacts: checking },
 			silentPhases

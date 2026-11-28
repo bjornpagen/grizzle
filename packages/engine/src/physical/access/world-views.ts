@@ -5,7 +5,9 @@
  * computes them once (program/schema.ts roleArtifacts, ArtifactsWorld `role`), the binding reads each read of a view by
  * them (sql/bind.ts BindView `world`), and the installation creates each from them (physical/ddl/roles.ts), generate's
  * through its served workload's extension, so a view's body and every plan of a read of it are one value. An
- * installation no extension hands a role's views to computes them by this function, once per role.
+ * installation no extension hands a role's views to computes them by this function, once per role. What their bodies
+ * need of the installation is read from the same definitions (worldViewTypes), so the plan they are lowered under names
+ * every domain a body casts to, and the installation planned from it installs each.
  */
 import {
 	extendNonEmpty,
@@ -30,6 +32,7 @@ import type { HeadingColumn } from "#compiler/ir/rel.ts"
 import { baseOf } from "#compiler/ir/scalar.ts"
 import { leakyEquality } from "#compiler/physical/access/catalog.ts"
 import { rosterConstants } from "#compiler/physical/ddl/constants.ts"
+import { dagObjects, noServedTypes, type ServedTypes } from "#compiler/physical/ddl/domains.ts"
 import type { InstallNames, NamedRole } from "#compiler/physical/ddl/names.ts"
 import { derivedReading, lowerWorldView } from "#compiler/physical/derived/definition.ts"
 import type { Expr, ObjectName, Select } from "#compiler/sql/ast.ts"
@@ -117,6 +120,34 @@ export interface WorldViewsInput {
 	readonly catalog: ReadCatalog
 }
 
+/** A role's query entries, in the order of their names, each with its checked definition: what its world views are
+ * derived from (roleWorldViews) and what their bodies need of the installation is read from (worldViewTypes). */
+const worldEntries = (checked: CheckedSchema<RoleWorld>) =>
+	checked.entries
+		.flatMap((e) => (e.kind === "world" ? [{ entry: e.entry, analysis: e.analysis }] : []))
+		.toSorted((a, b) => compareStrings(a.entry.name, b.entry.name))
+
+/**
+ * What a role's world views need of the installation that creates them (physical/ddl/domains.ts ServedTypes): the
+ * objects of each query entry's definition (dagObjects), as a derived definition's are an installation's own, every
+ * structural text refinement and contract it types a value by and every library function it calls, the type of each
+ * claim of a context it reads among them, which its body casts the claim to (lower/conservative/claims judgedType).
+ * They are read from the definitions roleWorldViews lowers, so the plan a role's compile lowers its views under, which
+ * generate plans from its logins' workloads beside them (program/workload/compile.ts planWorkload), names every domain a
+ * body casts to, and the installation planned from the same types installs each.
+ */
+export const worldViewTypes = (checked: CheckedSchema<RoleWorld>): ServedTypes => {
+	const held = worldEntries(checked).map(({ analysis }) =>
+		dagObjects(analysis.loc, [], analysis.query.dag.roots)
+	)
+	return {
+		...noServedTypes,
+		typed: held.flatMap((h) => h.contracts),
+		texts: held.flatMap((h) => h.texts),
+		library: held.flatMap((h) => h.library)
+	}
+}
+
 /**
  * The world views of a role (see the header), one per query entry, in the order of the entries' names, the `k`-th's
  * body bound under the view scope `k` (sql/naming.ts ViewScope): each definition lowered as its role's view reads it
@@ -125,10 +156,7 @@ export interface WorldViewsInput {
 export const roleWorldViews = (input: WorldViewsInput): ReadonlyArray<WorldView> => {
 	const { names, evidence, checked } = input
 	const role = checked.world.role
-	const entries = checked.entries
-		.flatMap((e) => (e.kind === "world" ? [{ entry: e.entry, analysis: e.analysis }] : []))
-		.toSorted((a, b) => compareStrings(a.entry.name, b.entry.name))
-	return entries.map(({ entry, analysis }, at): WorldView => {
+	return worldEntries(checked).map(({ entry, analysis }, at): WorldView => {
 		const viewName = input.views.get(entry.name)
 		if (viewName?.kind !== "query") {
 			return missing(`physical: the query entry ${role.name}.${entry.name} is named no view`)

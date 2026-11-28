@@ -123,6 +123,9 @@ export const planRefusal = (login: ServedInput, refused: WorkloadPlanRefused): S
 	if (refused.kind === "plan") {
 		return atLogin(refused.error)
 	}
+	if (refused.kind === "role") {
+		return { place: { kind: "role", role: refused.role }, error: refused.error }
+	}
 	return Option.match(
 		Arr.findFirst(login.login.roles, (role) => {
 			const running = programsOn(role, [refused.workload])

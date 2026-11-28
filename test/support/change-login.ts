@@ -29,7 +29,7 @@ export const changeLogin = (value: unknown): ChangeLogin => {
 	const ownedLogin = succeeded(ownLoginOver(built, owned), "the login over its base")
 	const planned = succeeded(
 		planWorkload(
-			[{ login: ownedLogin.name, workloads: built.workload }],
+			[{ login: ownedLogin, workloads: built.workload }],
 			built.base,
 			{ artifacts: checking },
 			silentPhases

@@ -2085,11 +2085,29 @@ export const checkedReality = (
 ): Result.Result<CheckedSchema, CompileError> =>
 	catchRefusal(() => new CheckedSchema(owned, { kind: "reality", served, reading }))
 
-/** The checker's reading of an owned role, over its base's reading `base` (checkedSchema of role.base). */
+/** Each role's reading over each base reading, read once whatever reads it over that base: generate's workload plan
+ * reads its world views' types (program/workload/compile.ts planWorkload), its change compile the role itself
+ * (program/schema.ts roleArtifacts), over the one base reading of their artifacts. */
+const roleReadings = new WeakMap<
+	CheckedSchema,
+	WeakMap<OwnedRole, Result.Result<CheckedSchema<RoleWorld>, CompileError>>
+>()
+
+/** The checker's reading of an owned role, over its base's reading `base` (checkedSchema of role.base), once per role
+ * and base (`roleReadings`). */
 export const checkedRoleOver = (
 	role: OwnedRole,
 	base: CheckedSchema
-): Result.Result<CheckedSchema<RoleWorld>, CompileError> =>
-	catchRefusal(
+): Result.Result<CheckedSchema<RoleWorld>, CompileError> => {
+	const over = roleReadings.get(base) ?? new WeakMap()
+	roleReadings.set(base, over)
+	const known = over.get(role)
+	if (known !== undefined) {
+		return known
+	}
+	const read = catchRefusal(
 		() => new CheckedSchema(role.base, { kind: "role", role, base, writes: roleWrites(role, base) })
 	)
+	over.set(role, read)
+	return read
+}
