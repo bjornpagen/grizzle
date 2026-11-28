@@ -54,7 +54,9 @@ import {
 	catalog,
 	contextLevel,
 	existsFenced,
+	firstItemOf,
 	itemOf,
+	joinedMembers,
 	printedTwiceOf,
 	seekConditionsOf,
 	specified,
@@ -125,7 +127,7 @@ export const everyReadIsBoundAsItsLevelFixesItWhereItStandsUnderTheScopesOneAlia
 							level.kind === "joins" &&
 							level.name.kind === "named" &&
 							level.name.name === met.marked
-								? [[level.first.alias, ...Arr.map(level.appended, (i) => i.alias)]]
+								? [[firstItemOf(level.problem).alias, ...Arr.map(level.appended, (i) => i.alias)]]
 								: []
 					)
 					const top: ReadonlyArray<string> = Arr.map(viewedLevels(bound.plan).top, (i) => i.alias)
@@ -268,7 +270,9 @@ export const everyReadIsBoundAsItsLevelFixesItWhereItStandsUnderTheScopesOneAlia
 						const top = Arr.flatMap(bound.plan.levels, (level) =>
 							level.kind === "joins" && level.name.kind === "top" ? [level] : []
 						)
-						const joined = Arr.flatMap(top, (level) => Arr.map(level.joined, (j) => j.join))
+						const joined = Arr.flatMap(top, (level) =>
+							Arr.map(joinedMembers(level.problem), (j) => j.join)
+						)
 						if (drawn.place.not) {
 							assert.deepEqual(
 								joined,
@@ -308,7 +312,7 @@ export const everyReadIsBoundAsItsLevelFixesItWhereItStandsUnderTheScopesOneAlia
 						)
 						const topItems = Arr.flatMap(bound.plan.levels, (level) =>
 							level.kind === "joins" && level.name.kind === "top"
-								? [[level.first.alias, ...Arr.map(level.appended, (i) => i.alias)]]
+								? [[firstItemOf(level.problem).alias, ...Arr.map(level.appended, (i) => i.alias)]]
 								: []
 						)
 						const members: ReadonlyArray<string> =

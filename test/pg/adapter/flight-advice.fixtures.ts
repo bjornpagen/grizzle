@@ -71,8 +71,7 @@ const adviceOf = (scan: AdvisedScan, alias: AdviceScope, schema: string): Advice
 				{
 					kind: "joins",
 					name: { kind: "top" },
-					first: { alias: r1, scan: read },
-					joined: [],
+					problem: { kind: "item", item: { alias: r1, scan: read } },
 					appended: []
 				}
 			]

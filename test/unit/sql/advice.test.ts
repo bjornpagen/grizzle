@@ -6,28 +6,32 @@
  * index cannot run among them; and an identifier the parser reads otherwise names a relation or an index the plan never
  * meant, a tag's name read as the tag.
  *
- * A case draws a plan of one to three levels, each the statement's top or one a scope's alias names, each its first item
- * and up to three joined after it by a nested loop or a hash join, or a UNION ALL's append level, each item read whole, through an index, at tuple ids
- * or as rows of no stored relation; an index of several access methods, whether it returns what it stores, the columns
+ * A case draws a plan of one to three levels, each the statement's top or one a scope's alias names, each a join problem
+ * of one item or a tree of them, a join's members joined by a nested loop or a hash join, a member a tree of its own to
+ * two levels deep, its first a problem planned apart or a joined one a group on the join's inner side, its items'
+ * range-table order drawn apart from their join order; or a UNION ALL's append level; each item read whole, through
+ * an index, at tuple ids or as rows of no stored relation; an index of several access methods, whether it returns what it stores, the columns
  * it stores and the ones its read needs drawn from one small pool, and its name and schema plain, capitalized, quoted,
  * or a tag's name.
  *
  * Properties, for every plan: the advice parses (pg_plan_advice's grammar, a second implementation of its reading of
  * identifiers, targets and indexes), and its atoms are the plan's (CARRY-CONTRACT.md §5) as a multiset: a join order per
- * level of two items or more, a method per joined item, a scan per stored relation, index-only exactly where its index
+ * level of two items or more, nested as its tree nests, a method per joined member, a tree named as the set of its items
+ * in their range-table order, a scan per stored relation, index-only exactly where its index
  * returns and stores every column the read needs, and no Gather per item.
  *
  * Oracle: a specification, the contract's atoms of the plan, and an independent reading of the printed text.
  *
  * Features: a join order, a hash join, an index-only scan, an index scan of a covering index that returns nothing, a
- * sequential scan, a tid scan, a named level, a quoted name, a tag's name.
+ * sequential scan, a tid scan, a named level, a quoted name, a tag's name, a member joining several items nested, and
+ * one on a join's inner side named as its set.
  */
 
 import { assert } from "@bjornpagen/testing/assert"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Order } from "effect"
 import { printAdvice } from "#compiler/sql/advice.ts"
-import { levelItems } from "#compiler/sql/plan.ts"
+import { type JoinedMember, type JoinMember, levelItems } from "#compiler/sql/plan.ts"
 import {
 	type AdviceFeature,
 	type Atom,
@@ -38,6 +42,15 @@ import {
 	readsBare,
 	statedAtoms
 } from "#test/support/unit/sql/advice.fixtures.ts"
+
+/** Every member a join tree joins after a join's first, a member's own joins after it. */
+const joinsOf = (member: JoinMember<unknown>): ReadonlyArray<JoinedMember<unknown>> =>
+	member.kind === "item"
+		? []
+		: [
+				...joinsOf(member.tree.first),
+				...Arr.flatMap(member.tree.joined, (j) => [j, ...joinsOf(j.member)])
+			]
 
 /** A plan's advice parses as pg_plan_advice reads it, and holds exactly the atoms the plan states. */
 export const aPlansAdviceParsesAsPgPlanAdviceReadsItAndHoldsExactlyTheAtomsThePlanStates =
@@ -55,11 +68,19 @@ export const aPlansAdviceParsesAsPgPlanAdviceReadsItAndHoldsExactlyTheAtomsThePl
 					if (items.length > 1) {
 						c.note("join order")
 					}
-					if (items.length > 8) {
-						c.note("a join problem past join_collapse_limit, nested")
-					}
-					if (level.kind === "joins" && Arr.some(level.joined, (j) => j.join === "hash")) {
+					const joins = level.kind === "joins" ? joinsOf(level.problem) : []
+					if (Arr.some(joins, (j) => j.join === "hash")) {
 						c.note("hash join")
+					}
+					if (
+						level.kind === "joins" &&
+						level.problem.kind === "tree" &&
+						level.problem.tree.first.kind === "tree"
+					) {
+						c.note("a member joining several items, nested")
+					}
+					if (Arr.some(joins, (j) => j.member.kind === "tree")) {
+						c.note("a nested member on a join's inner side, named as its set")
 					}
 					if (level.name.kind === "named") {
 						c.note("named level")
@@ -111,10 +132,16 @@ export const aPlansAdviceParsesAsPgPlanAdviceReadsItAndHoldsExactlyTheAtomsThePl
 		kills: [
 			{
 				file: "packages/engine/src/sql/advice.ts",
-				original:
-					"\t\tproblem = problem.length < joinCollapseLimit ? [...problem, t] : [problem, t]\n",
-				replacement: "\t\tproblem = [...problem, t]\n",
-				why: "A level of more items than PostgreSQL folds into one join problem is advised as one: PostgreSQL plans the first eight apart, as one member of the next problem, and the flat join order matches no problem it plans."
+				original: `): string => (member.kind === "item" ? at(member.item) : \`(\${treeOrder(member.tree, at)})\`)\n`,
+				replacement:
+					'): string => (member.kind === "item" ? at(member.item) : treeOrder(member.tree, at))\n',
+				why: "A member joining several items is advised flat in its join's order: a problem PostgreSQL plans apart, or a group it builds on a join's inner side, reads as items of the one join, an order PostgreSQL builds no join of."
+			},
+			{
+				file: "packages/engine/src/sql/advice.ts",
+				original: `(\${j.member.range.map(named).join(" ")})`,
+				replacement: `(\${treeOrder(j.member.tree, at)})`,
+				why: "A group on a join's inner side is named in its join order, not its items' range-table order, the set pg_plan_advice prints of the join (NESTED_LOOP_PLAIN((r19@r16 v4@r16)) where v4 is a whole view's table it pulls up after r19)."
 			},
 			{
 				file: "packages/engine/src/sql/advice.ts",
@@ -143,8 +170,8 @@ export const aPlansAdviceParsesAsPgPlanAdviceReadsItAndHoldsExactlyTheAtomsThePl
 			},
 			{
 				file: "packages/engine/src/sql/advice.ts",
-				original: '\tlevel.kind === "top" ? ident(item.alias) : within(item.alias, level.name)',
-				replacement: "\tident(item.alias)",
+				original: '\t\tlevel.name.kind === "top" ? ident(alias) : within(alias, level.name.name)',
+				replacement: "\t\tident(alias)",
 				why: "A read inside a named level is targeted at the top, a relation of no level the plan named."
 			}
 		]

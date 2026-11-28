@@ -689,16 +689,18 @@ const probeProblems = (judging: Judging, request: IndexRequest, host: IndexRef) 
 				{
 					kind: "joins",
 					name: { kind: "top" },
-					first: {
-						alias,
-						scan: {
-							kind: host.method === "gin" ? "bitmap" : "index",
-							index: host,
-							bound: probe.conditioned,
-							needs: probe.reads
+					problem: {
+						kind: "item",
+						item: {
+							alias,
+							scan: {
+								kind: host.method === "gin" ? "bitmap" : "index",
+								index: host,
+								bound: probe.conditioned,
+								needs: probe.reads
+							}
 						}
 					},
-					joined: [],
 					appended: []
 				}
 			]

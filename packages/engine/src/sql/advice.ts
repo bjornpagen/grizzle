@@ -13,10 +13,14 @@
  * same.
  *
  * The atoms, per level the plan holds, in order:
- * - `JOIN_ORDER(t1 … tn)` where the level joins two items or more, the first driving, a problem past PostgreSQL's
- *   join_collapse_limit nested as PostgreSQL nests it, `JOIN_ORDER((t1 … t8) t9 …)` (`joinOrder`);
- * - for each item after the first, the method that puts it on the inner side: `NESTED_LOOP_PLAIN(t)`, a probe's, a
- *   LATERAL item's and a cross product's, read again per row before it, or `HASH_JOIN(t)`, a set join's;
+ * - `JOIN_ORDER(…)` where the level joins two items or more: its join tree (sql/plan.ts JoinMember), each join's
+ *   members in order, the first driving, a member joining several items its own order in parentheses, a problem past
+ *   PostgreSQL's join_collapse_limit, `JOIN_ORDER((t1 … t8) t9 …)`, and a group of items built before it joins,
+ *   `JOIN_ORDER(t1 (t2 t3))`, alike (`treeOrder`);
+ * - for each member after a join's first, the method that puts it on the inner side: `NESTED_LOOP_PLAIN(t)`, a probe's,
+ *   a LATERAL item's, a group's holding one and a cross product's, read again per row before it, or `HASH_JOIN(t)`, a
+ *   set join's; a member joining several items named as the set of them, `NESTED_LOOP_PLAIN((t2 t3))`, in the order
+ *   of their range-table entries (`methodAtoms`);
  * - for each stored relation, its scan: `SEQ_SCAN(t)` read whole; `INDEX_ONLY_SCAN(t <index>)` through an index that
  *   returns what it stores and stores every column the statement reads of it, else `INDEX_SCAN(t <index>)`, each
  *   disabling every other index of the relation and every other scan kind; `BITMAP_HEAP_SCAN(t)` through a bitmap,
@@ -35,15 +39,16 @@ import { nominal } from "#compiler/core/brand.ts"
 import type { AccessIndexRequest } from "#compiler/ir/products.ts"
 import type { IndexRef, IndexResolver } from "#compiler/physical/indexes/ref.ts"
 import type { ObjectName } from "#compiler/sql/ast.ts"
+import type { Alias } from "#compiler/sql/naming.ts"
 import {
+	type JoinMember,
 	type JoinMethod,
+	type JoinTree,
 	joinPlans,
-	levelItems,
 	resolvePlan,
 	scannedItems,
 	type PlanItem,
 	type PlanLevel,
-	type PlanName,
 	type ReadPlan
 } from "#compiler/sql/plan.ts"
 
@@ -110,10 +115,6 @@ const ident = (name: string): string => (isBare(name) && !tags.has(name) ? name 
 /** A target inside a level the scope named: `<alias>@<level>`. */
 const within = (alias: string, level: string): string => `${ident(alias)}@${ident(level)}`
 
-/** An item's target: its alias, at its level's plan name where the level is not the statement's top. */
-const target = (item: PlanItem<IndexRef>, level: PlanName): string =>
-	level.kind === "top" ? ident(item.alias) : within(item.alias, level.name)
-
 /** An index, schema-qualified. */
 const indexName = (name: ObjectName): string => `${ident(name.schema)}.${ident(name.name)}`
 
@@ -148,41 +149,49 @@ const scanAtom = (item: PlanItem<IndexRef>, at: string): ReadonlyArray<string> =
 /** An item's atom of no Gather. */
 const noGather = (at: string): string => `NO_GATHER(${at})`
 
-/**
- * PostgreSQL's join_collapse_limit, its default: the most members of a level's explicit joins it folds into one join
- * problem (initsplan.c deconstruct_recurse). A level's FROM is one chain of explicit joins, its first item then each
- * joined one in order (sql/bind.ts fromOf), and each NOT EXISTS PostgreSQL makes an anti join wraps it whole: so its
- * problem gathers the items in order until it holds this many, and the next item then joins that problem as one member
- * of a problem of its own, nested, as far as the level's items go. The planner settings stay PostgreSQL's own: grizzle
- * sets none, its join orders following the default.
- */
-const joinCollapseLimit = 8
+/** A join member's text in a join order: an item's target, a tree its own order in parentheses (pgpa_output.c
+ * pgpa_output_join_member). */
+const orderText = (
+	member: JoinMember<IndexRef>,
+	at: (item: PlanItem<IndexRef>) => string
+): string => (member.kind === "item" ? at(member.item) : `(${treeOrder(member.tree, at)})`)
 
-/** A member of a join problem: an item's target, or a problem PostgreSQL planned of its own, nested (`joinOrder`). */
-type JoinMember = string | ReadonlyArray<JoinMember>
+/** A tree's members in join order, each its `orderText`. */
+const treeOrder = (tree: JoinTree<IndexRef>, at: (item: PlanItem<IndexRef>) => string): string =>
+	[tree.first, ...tree.joined.map((j) => j.member)].map((m) => orderText(m, at)).join(" ")
 
 /**
- * A level's join order of its items' targets, in order (`joinCollapseLimit`): each problem's members in order, a nested
- * problem in parentheses, as pg_plan_advice reads and writes one (pgpa_output.c pgpa_output_join_member).
+ * A tree's method atoms: each joined member's, the method that puts it on the inner side, named as an item's target or,
+ * a tree, as the set of its items in range-table order (`range`); then each tree member's own, its first's and its
+ * joined ones' in order.
  */
-const joinOrder = (targets: ReadonlyArray<string>): string => {
-	let problem: ReadonlyArray<JoinMember> = []
-	for (const t of targets) {
-		problem = problem.length < joinCollapseLimit ? [...problem, t] : [problem, t]
-	}
-	const text = (m: JoinMember): string => (typeof m === "string" ? m : `(${m.map(text).join(" ")})`)
-	return `JOIN_ORDER(${problem.map(text).join(" ")})`
+const methodAtoms = (
+	tree: JoinTree<IndexRef>,
+	at: (item: PlanItem<IndexRef>) => string,
+	named: (alias: Alias) => string
+): ReadonlyArray<string> => {
+	const own = (member: JoinMember<IndexRef>): ReadonlyArray<string> =>
+		member.kind === "item" ? [] : methodAtoms(member.tree, at, named)
+	return [
+		...own(tree.first),
+		...tree.joined.flatMap((j) => [
+			`${methodTag[j.join]}(${j.member.kind === "item" ? at(j.member.item) : `(${j.member.range.map(named).join(" ")})`})`,
+			...own(j.member)
+		])
+	]
 }
 
 /** A level's atoms, in the order the header states. */
 const levelAtoms = (level: PlanLevel<IndexRef>): ReadonlyArray<string> => {
-	const items = levelItems(level)
 	const scanned = scannedItems(level)
-	const at = (item: PlanItem<IndexRef>) => target(item, level.name)
-	const joined = level.kind === "joins" ? level.joined : []
+	const named = (alias: Alias) =>
+		level.name.kind === "top" ? ident(alias) : within(alias, level.name.name)
+	const at = (item: PlanItem<IndexRef>) => named(item.alias)
+	const problem = level.kind === "joins" ? level.problem : undefined
 	return [
-		...(joined.length === 0 ? [] : [joinOrder(items.map(at))]),
-		...joined.map((j) => `${methodTag[j.join]}(${at(j.item)})`),
+		...(problem?.kind === "tree"
+			? [`JOIN_ORDER(${treeOrder(problem.tree, at)})`, ...methodAtoms(problem.tree, at, named)]
+			: []),
 		...scanned.flatMap((item) => scanAtom(item, at(item))),
 		...scanned.map((item) => noGather(at(item)))
 	]

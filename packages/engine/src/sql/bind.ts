@@ -118,7 +118,8 @@ import {
 	ViewScope
 } from "#compiler/sql/naming.ts"
 import type {
-	JoinedItem,
+	JoinedMember,
+	JoinMember,
 	JoinMethod,
 	PlanItem,
 	PlanLevel,
@@ -486,8 +487,8 @@ const freeQualifiersOf = (e: Expr): ReadonlySet<string> => {
 	return new Set([...read].filter((a) => !bound.has(a)))
 }
 
-/** Whether an expression holds a sublink or a VOLATILE call, which no binding or pushed conjunct carries. */
-const opaque = (e: Expr): boolean => {
+/** Whether an expression holds a sublink, at its own level. */
+const sublinked = (e: Expr): boolean => {
 	let found = false
 	new (class extends Transform {
 		override readonly expr = (x: Expr): Expr => {
@@ -503,8 +504,11 @@ const opaque = (e: Expr): boolean => {
 			return this.exprChildren(x)
 		}
 	})(identityHooks).expr(e)
-	return found || volatile(e)
+	return found
 }
+
+/** Whether an expression holds a sublink or a VOLATILE call, which no binding or pushed conjunct carries. */
+const opaque = (e: Expr): boolean => sublinked(e) || volatile(e)
 
 /**
  * Every column each written alias of a statement is read at, anywhere in it, by the alias: what a probe made of a table
@@ -1079,8 +1083,8 @@ const fromOf = (entries: ReadonlyArray<BoundEntry>): ReadonlyArray<FromItem> => 
  * process_equivalence): each `=` of two sides, neither holding a VOLATILE call, unites them; a side is a column of an
  * item of the level, by its alias and name, or a member of its own where it reads an item of the level otherwise, or a
  * value the level fixes where it reads none (a parameter, a literal, a PL variable, an enclosing level's column, which
- * PostgreSQL plans as a parameter of the level). `reads` holds each member's items, `fixed` the roots of the classes
- * holding a fixed value (ec_has_const).
+ * PostgreSQL plans as a parameter of the level), one member by its text however many sides state it. `reads` holds each
+ * member's items, `fixed` the roots of the classes holding a fixed value (ec_has_const).
  */
 interface LevelClasses {
 	readonly root: (member: string) => string
@@ -1094,7 +1098,6 @@ const levelClasses = (
 ): LevelClasses => {
 	const parent = new Map<string, string>()
 	const reads = new Map<string, ReadonlySet<string>>()
-	const fixed = new Set<string>()
 	const root = (member: string): string => {
 		const up = parent.get(member)
 		if (up === undefined) {
@@ -1104,11 +1107,17 @@ const levelClasses = (
 		parent.set(member, top)
 		return top
 	}
-	/** A side's member, none for a value the level fixes. */
-	const member = (side: Expr, own: string): string | undefined => {
+	/** The members holding a value the level fixes, each by its text. */
+	const values = new Set<string>()
+	/** A side's member: a column of an item by its alias and name, any other side reading an item one of its own, and a
+	 * value the level fixes one member by its text, of every side that states it (equivclass.c process_equivalence
+	 * finds an equal() member of a class, so two columns equal to one parameter share a class). */
+	const member = (side: Expr, own: string): string => {
 		const read = new Set([...qualifiersOf(side)].filter((a) => items.has(a)))
 		if (read.size === 0) {
-			return undefined
+			const key = `= ${exprText(side)}`
+			values.add(key)
+			return key
 		}
 		const column = columnOf(side)
 		const key = column === undefined ? own : `${column.table}.${column.column}`
@@ -1119,23 +1128,12 @@ const levelClasses = (
 		if (c.kind !== "binary" || c.op !== "=" || volatile(c)) {
 			continue
 		}
-		const left = member(c.left, `${at}<`)
-		const right = member(c.right, `${at}>`)
-		if (left === undefined || right === undefined) {
-			const one = left ?? right
-			if (one !== undefined) {
-				fixed.add(root(one))
-			}
-			continue
-		}
-		const [l, r] = [root(left), root(right)]
+		const [l, r] = [root(member(c.left, `${at}<`)), root(member(c.right, `${at}>`))]
 		if (l !== r) {
 			parent.set(l, r)
-			if (fixed.delete(l)) {
-				fixed.add(r)
-			}
 		}
 	}
+	const fixed = new Set([...values].map(root))
 	return { root, reads, fixed }
 }
 
@@ -1183,55 +1181,329 @@ const keysJoin = (
 }
 
 /**
- * A level's join problem in its plan's order, its first entry driving and every other joined to the entries before it,
- * each by its method: a set join's (`set`) a hash where PostgreSQL keeps a join clause pairing the entry with the
- * entries before it (`keysJoin`), else a nested loop. Its clauses are the level's printed conditions (sql/print.ts
- * levelWhere, stepCondition): its WHERE `where`, every bound read's conditions and every inner join's ON, one
- * conjunction PostgreSQL makes its equivalence classes of, and each LEFT JOIN's ON, its entry's alone.
+ * PostgreSQL's join_collapse_limit, its default: the most members of a level's explicit joins it folds into one join
+ * problem (initsplan.c deconstruct_recurse). A level's FROM is one chain of explicit joins, its first item then each
+ * joined one in order (`fromOf`), and each NOT EXISTS PostgreSQL makes an anti join wraps it whole: so its problem
+ * gathers the chain's members in order until it holds this many, and the next member then joins that problem as one
+ * member of a problem of its own, nested, as far as the chain goes (`levelJoins`). The planner settings stay
+ * PostgreSQL's own: grizzle sets none, its join orders following the default.
+ */
+const joinCollapseLimit = 8
+
+/** The least of `places`, a unit's first in the FROM's order. */
+const leastPlace = (places: Iterable<number>): number => {
+	let least = Number.POSITIVE_INFINITY
+	for (const p of places) {
+		least = Math.min(least, p)
+	}
+	return least
+}
+
+/** The item of an anti join PostgreSQL makes of a NOT EXISTS conjunct of a level (`#anti`), with its method. */
+interface AntiJoin {
+	readonly item: PlanItem<AccessIndexRequest>
+	readonly join: JoinMethod
+}
+
+/** What a level's join tree orders (`levelJoins`): the entries of the level at `places`, joined as `member`. */
+interface JoinUnit {
+	readonly places: ReadonlySet<number>
+	readonly member: JoinMember<AccessIndexRequest>
+}
+
+/**
+ * A level's join problem as the tree PostgreSQL's join search builds (joinrels.c join_search_one_level), over its bound
+ * entries and then the items of its anti joins (`antis`), and each join's method. Its clauses are the level's printed
+ * conditions (sql/print.ts levelWhere, stepCondition): its WHERE `where`, every bound read's conditions and every inner
+ * join's ON, one conjunction PostgreSQL makes its equivalence classes of (`levelClasses`), and each LEFT JOIN's ON,
+ * its entry's alone.
+ *
+ * Two entries are linked where PostgreSQL considers joining them: a clause reads both, a class holds a member of each
+ * (have_relevant_eclass_joinclause, a class holding a fixed value among them), one reads the other laterally
+ * (have_join_order_restriction), or the later is a LEFT JOIN, whose ON joins it to every entry before it. A join of a
+ * set of entries to an entry linked to none of them is a clauseless join, which PostgreSQL builds only where the set is
+ * linked to nothing at all; so the tree is built from the first entry in the order of the FROM, each step joining the
+ * first entry not yet joined that is linked to those joined and whose lateral reads they hold, left-deep. Where none
+ * is, the first entry linked to those joined reads laterally an entry not yet joined, which nothing joined is linked
+ * to: it is joined in a group, the entries it reads that are not yet joined, as far as their own reads go, and itself,
+ * a tree of its own built the same way beneath what is joined, which PostgreSQL builds as the join's inner side, its
+ * lateral reads its parameters. Entries linked to none of the rest are a component of their own, each built so and
+ * joined to the ones before it as a cross product, which PostgreSQL builds only where those are linked to nothing
+ * outside them: the components linked to no entry past their problem join first, in the FROM's order (`problem`).
+ * The anti joins join last, by their methods.
+ *
+ * A join's method: a member's own where it states one (a probe's nested loop), or of a group reading the joined
+ * entries laterally a nested loop; else a set join's, a hash where PostgreSQL keeps a join clause pairing the member's
+ * entries with the joined ones (`keysJoin`), else a nested loop.
+ *
+ * Past join_collapse_limit the chain's first members are a problem of their own, which joins the next problem as its
+ * first member (`joinCollapseLimit`); a problem's tree is built of its members alone.
  */
 const levelJoins = (
 	bound: NonEmptyReadonlyArray<BoundEntry>,
-	where: Expr | undefined
-): {
-	readonly first: PlanItem<AccessIndexRequest>
-	readonly joined: ReadonlyArray<JoinedItem<AccessIndexRequest>>
-} => {
+	where: Expr | undefined,
+	antis: ReadonlyArray<AntiJoin>
+): JoinMember<AccessIndexRequest> => {
 	const aliases = bound.map((b) => writtenOf(b.source))
-	const items = new Set(aliases.filter((a) => a !== undefined))
+	const placeOf = new Map(
+		aliases.flatMap((a, at): ReadonlyArray<readonly [string, number]> =>
+			a === undefined ? [] : [[a, at]]
+		)
+	)
+	const items = new Set(placeOf.keys())
+	const placesOf = (read: Iterable<string>): ReadonlySet<number> =>
+		new Set(
+			[...read].flatMap((a) => {
+				const p = placeOf.get(a)
+				return p === undefined ? [] : [p]
+			})
+		)
+	const aliasesAt = (places: Iterable<number>): ReadonlySet<string> =>
+		new Set(
+			[...places].flatMap((p) => {
+				const a = aliases[p]
+				return a === undefined ? [] : [a]
+			})
+		)
 	const ownConditions = (b: BoundEntry): ReadonlyArray<Expr> => [
 		...readConditions(b.source),
 		...(b.step.join === "cross" ? [] : conjunctsOf(b.step.on))
 	]
-	const classes = levelClasses(
-		[
-			...conjunctsOf(where),
-			...bound.flatMap((b) => (b.step.join === "left" ? [] : ownConditions(b)))
-		],
-		items
-	)
-	const [first, ...rest] = bound
-	return {
-		first: first.item,
-		joined: rest.map((b, at): JoinedItem<AccessIndexRequest> => {
-			const alias = aliases[at + 1]
-			const before = new Set(aliases.slice(0, at + 1).filter((a) => a !== undefined))
-			return {
-				item: b.item,
-				join:
-					b.method !== "set"
-						? b.method
-						: alias !== undefined &&
-							  keysJoin(
-									classes,
-									b.step.join === "left" ? ownConditions(b) : [],
-									new Set([alias]),
-									before
-							  )
-							? "hash"
-							: "nestedLoop"
+	const innerClauses = [
+		...conjunctsOf(where),
+		...bound.flatMap((b) => (b.step.join === "left" ? [] : ownConditions(b)))
+	]
+	const classes = levelClasses(innerClauses, items)
+	/** Each entry's lateral reads: the entries before it it reads in its source. */
+	const reads: ReadonlyArray<ReadonlySet<number>> = bound.map((b, at) => {
+		const read = placesOf([
+			...neededBy((t) => t.source(b.source)).keys(),
+			...(b.source.kind === "met" ? [b.source.rows] : [])
+		])
+		return new Set([...read].filter((p) => p < at))
+	})
+	const linked: ReadonlyArray<Set<number>> = bound.map(() => new Set<number>())
+	const link = (places: Iterable<number>): void => {
+		const all = [...places]
+		for (const a of all) {
+			for (const b of all) {
+				if (a !== b) {
+					linked[a]?.add(b)
+				}
 			}
-		})
+		}
 	}
+	for (const c of [
+		...innerClauses,
+		...bound.flatMap((b) => (b.step.join === "left" ? ownConditions(b) : []))
+	]) {
+		link(placesOf(qualifiersOf(c)))
+	}
+	const classReads = new Map<string, Set<string>>()
+	for (const [m, read] of classes.reads) {
+		const into = classReads.getOrInsertComputed(classes.root(m), () => new Set<string>())
+		for (const a of read) {
+			into.add(a)
+		}
+	}
+	for (const read of classReads.values()) {
+		link(placesOf(read))
+	}
+	bound.forEach((b, at) => {
+		for (const p of reads[at] ?? []) {
+			link([p, at])
+		}
+		if (b.step.join === "left") {
+			for (let p = 0; p < at; p++) {
+				link([p, at])
+			}
+		}
+	})
+	const linkedTo = (unit: JoinUnit, to: ReadonlySet<number>): boolean =>
+		[...unit.places].some((p) => [...(linked[p] ?? [])].some((q) => to.has(q)))
+	/** A unit's lateral reads outside it. */
+	const readsOf = (unit: JoinUnit): ReadonlySet<number> =>
+		new Set(
+			[...unit.places].flatMap((p) => [...(reads[p] ?? [])]).filter((p) => !unit.places.has(p))
+		)
+	/** The aliases of entries at `places` and of the anti joins `after`, in the order of their range-table entries: the
+	 * FROM's, then each anti join's PostgreSQL pulls up into the level (prepjointree.c pull_up_sublinks), then each
+	 * whole view's table it pulls up after (pull_up_subqueries), an entry whose item is not the relation it reads. */
+	const rangeOrder = (
+		places: ReadonlySet<number>,
+		after: ReadonlyArray<AntiJoin>
+	): NonEmptyReadonlyArray<Alias> => {
+		const entries = [...places]
+			.toSorted((a, b) => a - b)
+			.flatMap((p) => {
+				const b = bound[p]
+				return b === undefined ? [] : [b]
+			})
+		const own = (b: BoundEntry) => b.item.alias === writtenOf(b.source)
+		const [a0, ...as] = [
+			...entries.filter(own).map((b) => b.item.alias),
+			...after.map((a) => a.item.alias),
+			...entries.filter((b) => !own(b)).map((b) => b.item.alias)
+		]
+		return a0 === undefined ? defect("a join of an item at least") : [a0, ...as]
+	}
+	const method = (unit: JoinUnit, before: ReadonlySet<number>): JoinMethod => {
+		const [only, ...others] = unit.places
+		const entry = only === undefined || others.length > 0 ? undefined : bound[only]
+		if (entry !== undefined && entry.method !== "set") {
+			return entry.method
+		}
+		if (entry === undefined && [...readsOf(unit)].some((p) => before.has(p))) {
+			return "nestedLoop"
+		}
+		return keysJoin(
+			classes,
+			entry?.step.join === "left" ? ownConditions(entry) : [],
+			aliasesAt(unit.places),
+			aliasesAt(before)
+		)
+			? "hash"
+			: "nestedLoop"
+	}
+	/** The group `reaching` joins in (see the header): the units of `left` it reads, as far as their reads go, and itself,
+	 * in the FROM's order. */
+	const groupOf = (
+		reaching: JoinUnit,
+		left: ReadonlyArray<JoinUnit>
+	): NonEmptyReadonlyArray<JoinUnit> => {
+		const group = new Set([reaching])
+		for (let grew = true; grew;) {
+			grew = false
+			for (const u of left) {
+				if (!group.has(u) && [...group].some((g) => [...readsOf(g)].some((p) => u.places.has(p)))) {
+					group.add(u)
+					grew = true
+				}
+			}
+		}
+		const [g0, ...gs] = left.filter((u) => group.has(u))
+		return g0 === undefined ? defect("a group of the unit that reaches it") : [g0, ...gs]
+	}
+	/** A join's spine: the entries it joins, its first unit and the members joined after it, by their methods. */
+	interface Spine {
+		readonly places: ReadonlySet<number>
+		readonly first: JoinUnit
+		readonly joined: ReadonlyArray<JoinedMember<AccessIndexRequest>>
+	}
+	/** A spine as one unit, the anti joins `after` joined last: a tree, or its first unit's member where it joins none. */
+	const unitOf = (spine: Spine, after: ReadonlyArray<AntiJoin>): JoinUnit => {
+		const all = [
+			...spine.joined,
+			...after.map((a): JoinedMember<AccessIndexRequest> => ({
+				member: { kind: "item", item: a.item },
+				join: a.join
+			}))
+		]
+		return {
+			places: spine.places,
+			member: isNonEmpty(all)
+				? {
+						kind: "tree",
+						tree: { first: spine.first.member, joined: all },
+						range: rangeOrder(spine.places, after)
+					}
+				: spine.first.member
+		}
+	}
+	/** The spine of `units`, in the FROM's order, beneath the entries `outer` holds (see the header). */
+	const spineOf = (units: NonEmptyReadonlyArray<JoinUnit>, outer: ReadonlySet<number>): Spine => {
+		const [first, ...rest] = units
+		const joinedPlaces = new Set(first.places)
+		const joined: Array<JoinedMember<AccessIndexRequest>> = []
+		let left = rest
+		while (isNonEmpty(left)) {
+			const held = (u: JoinUnit) =>
+				[...readsOf(u)].every((p) => joinedPlaces.has(p) || outer.has(p))
+			const reaching = left.find((u) => linkedTo(u, joinedPlaces))
+			const next =
+				left.find((u) => held(u) && linkedTo(u, joinedPlaces)) ??
+				(reaching === undefined
+					? undefined
+					: unitOf(spineOf(groupOf(reaching, left), new Set([...outer, ...joinedPlaces])), [])) ??
+				left.find(held) ??
+				defect("an entry whose lateral reads its level's joined entries hold")
+			joined.push({ member: next.member, join: method(next, joinedPlaces) })
+			for (const p of next.places) {
+				joinedPlaces.add(p)
+			}
+			left = left.filter((u) => ![...u.places].some((p) => next.places.has(p)))
+		}
+		return { places: joinedPlaces, first, joined }
+	}
+	type Link =
+		| { readonly kind: "unit"; readonly unit: JoinUnit }
+		| { readonly kind: "anti"; readonly anti: AntiJoin }
+	const chain: ReadonlyArray<Link> = [
+		...bound.map((b, at): Link => ({
+			kind: "unit",
+			unit: { places: new Set([at]), member: { kind: "item", item: b.item } }
+		})),
+		...antis.map((anti): Link => ({ kind: "anti", anti }))
+	]
+	/**
+	 * A join problem of `members` (see the header): its units' components, the units linked among themselves apart from
+	 * the rest, each a spine of its own; joined left-deep, those linked to no entry past the problem first, in the
+	 * FROM's order, so each cross product among them joins a set of entries linked to nothing outside it, which
+	 * PostgreSQL makes a clauseless join of (joinrels.c join_search_one_level: an entry linked past its problem holds
+	 * that link's clause in the problem, joining nothing by it there); then those linked to one, the largest first, each
+	 * joined where no other set of its size is linked within the problem, by PostgreSQL's last-ditch clauseless join of
+	 * every set of the size below to every entry (join_search_one_level's "last-ditch effort"); then the anti joins.
+	 */
+	const problem = (members: ReadonlyArray<Link>): JoinUnit => {
+		const units = members.flatMap((m) => (m.kind === "unit" ? [m.unit] : []))
+		const inside = new Set(units.flatMap((u) => [...u.places]))
+		let components: ReadonlyArray<ReadonlyArray<JoinUnit>> = []
+		for (const u of units) {
+			const reached = components.filter((c) => c.some((v) => linkedTo(u, v.places)))
+			components = [
+				...components.filter((c) => !reached.includes(c)),
+				[...reached.flat(), u].toSorted((a, b) => leastPlace(a.places) - leastPlace(b.places))
+			]
+		}
+		const past = (c: ReadonlyArray<JoinUnit>) =>
+			c.some((u) => [...u.places].some((p) => [...(linked[p] ?? [])].some((q) => !inside.has(q))))
+		const placesIn = (c: ReadonlyArray<JoinUnit>) => c.flatMap((u) => [...u.places])
+		const byPlace = (a: ReadonlyArray<JoinUnit>, b: ReadonlyArray<JoinUnit>) =>
+			leastPlace(placesIn(a)) - leastPlace(placesIn(b))
+		const bySize = (a: ReadonlyArray<JoinUnit>, b: ReadonlyArray<JoinUnit>) =>
+			placesIn(b).length - placesIn(a).length || byPlace(a, b)
+		const [c0, ...cs] = [
+			...components.filter((c) => !past(c)).toSorted(byPlace),
+			...components.filter(past).toSorted(bySize)
+		].flatMap((c) => {
+			const [u0, ...us] = c
+			return u0 === undefined ? [] : [spineOf([u0, ...us], new Set())]
+		})
+		if (c0 === undefined) {
+			return defect("a join problem of an entry at least")
+		}
+		const spine = cs.reduce(
+			(joinedSoFar: Spine, next: Spine): Spine => ({
+				places: new Set([...joinedSoFar.places, ...next.places]),
+				first: joinedSoFar.first,
+				joined: [
+					...joinedSoFar.joined,
+					{ member: next.first.member, join: method(next.first, joinedSoFar.places) },
+					...next.joined
+				]
+			}),
+			c0
+		)
+		return unitOf(
+			spine,
+			members.flatMap((m) => (m.kind === "anti" ? [m.anti] : []))
+		)
+	}
+	let built = problem(chain.slice(0, joinCollapseLimit))
+	for (let at = joinCollapseLimit; at < chain.length; at += joinCollapseLimit - 1) {
+		built = problem([{ kind: "unit", unit: built }, ...chain.slice(at, at + joinCollapseLimit - 1)])
+	}
+	return built.member
 }
 
 /** A query's ORDER BY, LIMIT and OFFSET, which read its body's FROM. */
@@ -1945,13 +2217,13 @@ class Binder {
 			}
 		}
 		const rename = this.renamer(here)
-		const antis: Array<JoinedItem<AccessIndexRequest>> = []
+		const antis: Array<AntiJoin> = []
 		const conjuncts = where.map((w) => {
 			const anti = this.#anti(w, here, bound.length + antis.length)
 			if (anti === undefined) {
 				return rename.expr(w)
 			}
-			antis.push(anti.joined)
+			antis.push(anti.anti)
 			return anti.conjunct
 		})
 		const frame = {
@@ -1987,17 +2259,15 @@ class Binder {
 		name: PlanName | undefined,
 		bound: ReadonlyArray<BoundEntry>,
 		where: Expr | undefined,
-		antis: ReadonlyArray<JoinedItem<AccessIndexRequest>>
+		antis: ReadonlyArray<AntiJoin>
 	): void {
 		if (name === undefined || !isNonEmpty(bound)) {
 			return
 		}
-		const level = levelJoins(bound, where)
 		this.#levels.push({
 			kind: "joins",
 			name,
-			first: level.first,
-			joined: [...level.joined, ...antis],
+			problem: levelJoins(bound, where, antis),
 			appended: bound.flatMap((b) => b.appended)
 		})
 	}
@@ -2049,7 +2319,7 @@ class Binder {
 		c: Expr,
 		here: Env,
 		place: number
-	): { readonly conjunct: Expr; readonly joined: JoinedItem<AccessIndexRequest> } | undefined {
+	): { readonly conjunct: Expr; readonly anti: AntiJoin } | undefined {
 		if (c.kind !== "exists" || !c.not) {
 			return undefined
 		}
@@ -2076,7 +2346,7 @@ class Binder {
 			})
 		return {
 			conjunct: { ...c, query: bound.query },
-			joined: { item, join: hashed ? "hash" : "nestedLoop" }
+			anti: { item, join: hashed ? "hash" : "nestedLoop" }
 		}
 	}
 
@@ -2145,8 +2415,7 @@ class Binder {
 				this.#levels.push({
 					kind: "joins",
 					name: { kind: "named", name: marked },
-					first: { alias: sides, scan: { kind: "rows" } },
-					joined: [],
+					problem: { kind: "item", item: { alias: sides, scan: { kind: "rows" } } },
 					appended: [
 						{ alias: scan, scan: { kind: "rows" } },
 						{ alias: returned, scan: { kind: "rows" } }
@@ -2187,8 +2456,7 @@ class Binder {
 				this.#levels.push({
 					kind: "joins",
 					name: { kind: "named", name: alias },
-					first: { alias: inner, scan: { kind: "rows" } },
-					joined: [],
+					problem: { kind: "item", item: { alias: inner, scan: { kind: "rows" } } },
 					appended: []
 				})
 				return rows({ ...source, inner, alias }, "set")
@@ -2263,24 +2531,26 @@ class Binder {
 		this.#levels.push({
 			kind: "joins",
 			name: { kind: "named", name: alias },
-			first: {
-				alias: stored === undefined ? inner : itemAlias(stored, inner),
-				scan:
-					stored === undefined || h0 === undefined || held.length !== bound.length
-						? { kind: "rows" }
-						: {
-								kind: "index",
-								index: requestOf(
-									stored.table,
-									[h0, ...hs],
-									trailing,
-									keyed ? "key lookup" : "join key"
-								),
-								bound: held,
-								needs: tableColumns(stored, [...new Set([...delivered, ...held])].toSorted())
-							}
+			problem: {
+				kind: "item",
+				item: {
+					alias: stored === undefined ? inner : itemAlias(stored, inner),
+					scan:
+						stored === undefined || h0 === undefined || held.length !== bound.length
+							? { kind: "rows" }
+							: {
+									kind: "index",
+									index: requestOf(
+										stored.table,
+										[h0, ...hs],
+										trailing,
+										keyed ? "key lookup" : "join key"
+									),
+									bound: held,
+									needs: tableColumns(stored, [...new Set([...delivered, ...held])].toSorted())
+								}
+				}
 			},
-			joined: [],
 			appended: []
 		})
 		return { inner, inside: (env) => withRelation(env, written, inner, env.depth + 1, 0) }
@@ -2745,16 +3015,18 @@ class Binder {
 		this.#levels.push({
 			kind: "joins",
 			name: { kind: "named", name: alias },
-			first: {
-				alias: itemAlias(stored, inner),
-				scan: {
-					kind: "index",
-					index: requestOf(table, [k0, ...ks], [], keyed ? "key lookup" : "join key"),
-					bound,
-					needs: tableColumns(stored, delivered)
+			problem: {
+				kind: "item",
+				item: {
+					alias: itemAlias(stored, inner),
+					scan: {
+						kind: "index",
+						index: requestOf(table, [k0, ...ks], [], keyed ? "key lookup" : "join key"),
+						bound,
+						needs: tableColumns(stored, delivered)
+					}
 				}
 			},
-			joined: [],
 			appended: []
 		})
 		return {

@@ -45,7 +45,7 @@ import {
 	windowOf
 } from "#compiler/sql/build.ts"
 import { wholeViewAlias } from "#compiler/sql/naming.ts"
-import type { PlanItem, ReadPlan } from "#compiler/sql/plan.ts"
+import type { JoinedMember, JoinMember, PlanItem, ReadPlan } from "#compiler/sql/plan.ts"
 import { levelItems, scannedItems } from "#compiler/sql/plan.ts"
 import { printExpr } from "#compiler/sql/print.ts"
 import { identityHooks, Transform } from "#compiler/sql/transform.ts"
@@ -595,10 +595,26 @@ export const topJoins = (
 			(level) =>
 				level.kind === "joins" &&
 				level.name.kind === "top" &&
-				Arr.some(level.joined, (j) => j.join === "hash" && j.item.scan.kind === "rows")
+				Arr.some(
+					joinedMembers(level.problem),
+					(j) => j.join === "hash" && j.member.kind === "item" && j.member.item.scan.kind === "rows"
+				)
 		)
 	}
 }
+
+/** Every member a join tree joins after a join's first, each join's in order, a member's own joins after it. */
+export const joinedMembers = <I>(member: JoinMember<I>): ReadonlyArray<JoinedMember<I>> =>
+	member.kind === "item"
+		? []
+		: [
+				...joinedMembers(member.tree.first),
+				...Arr.flatMap(member.tree.joined, (j) => [j, ...joinedMembers(j.member)])
+			]
+
+/** A join tree's driving item: its first member's, as far as a tree's first goes. */
+export const firstItemOf = <I>(member: JoinMember<I>): PlanItem<I> =>
+	member.kind === "item" ? member.item : firstItemOf(member.tree.first)
 
 /** A read of T the bound statement holds: its alias as the plan names it, and whether it is a probe's inner read. */
 export interface TRead {

@@ -7,9 +7,12 @@ import { Array as Arr, Option, String as Str } from "effect"
 import type { IndexMethod } from "#compiler/core/identity.ts"
 import { indexRef, type IndexRef } from "#compiler/physical/indexes/ref.ts"
 import { AdviceScope } from "#compiler/sql/naming.ts"
+import type { Alias } from "#compiler/sql/naming.ts"
 import type {
-	JoinedItem,
+	JoinedMember,
+	JoinMember,
 	JoinMethod,
+	JoinTree,
 	PlanItem,
 	PlanLevel,
 	PlanName,
@@ -32,7 +35,8 @@ export type AdviceFeature =
 	| "a tag's name"
 	| "an append member"
 	| "a UNION ALL's append level"
-	| "a join problem past join_collapse_limit, nested"
+	| "a member joining several items, nested"
+	| "a nested member on a join's inner side, named as its set"
 
 export const adviceFeatures = [
 	"join order",
@@ -47,7 +51,8 @@ export const adviceFeatures = [
 	"a tag's name",
 	"an append member",
 	"a UNION ALL's append level",
-	"a join problem past join_collapse_limit, nested"
+	"a member joining several items, nested",
+	"a nested member on a join's inner side, named as its set"
 ] as const satisfies ReadonlyArray<Reached<AdviceFeature>>
 
 /** The columns an index stores and a read needs, from one small pool, so covering is often met and often missed. */
@@ -102,15 +107,63 @@ const scanGen: Gen<PlanScan<IndexRef>> = (source) => {
 	}
 }
 
+/** A member's items, in join order. */
+const itemsOf = (member: JoinMember<IndexRef>): ReadonlyArray<PlanItem<IndexRef>> =>
+	member.kind === "item"
+		? [member.item]
+		: [...itemsOf(member.tree.first), ...Arr.flatMap(member.tree.joined, (j) => itemsOf(j.member))]
+
+/** `list` in an order `source` draws: each next element drawn from those left. */
+const shuffled =
+	<A>(list: ReadonlyArray<A>): Gen<ReadonlyArray<A>> =>
+	(source) => {
+		const left = [...list]
+		const out: Array<A> = []
+		while (left.length > 0) {
+			const [taken] = left.splice(source.draw(int(0, left.length - 1)), 1)
+			if (taken !== undefined) {
+				out.push(taken)
+			}
+		}
+		return out
+	}
+
 /**
- * A plan of one to three levels, each its first item and up to three joined after it with up to two append members, or a
- * UNION ALL's append level of one to three, every alias minted by one scope (sql/naming.ts AdviceScope), and each
- * level the statement's top or one named by an alias of the scope.
+ * A plan of one to three levels, each a join problem of one item or a tree of them, nested to two levels (a tree's
+ * first a tree of its own, a joined member a tree) with up to two append members, or a UNION ALL's append level of one
+ * to three, every alias minted by one scope (sql/naming.ts AdviceScope), each tree's range-table order its items in an
+ * order drawn apart from its join order, and each level the statement's top or one named by an alias of the scope.
  */
 export const planGen: Gen<ReadPlan<IndexRef>> = (source) => {
 	const scope = new AdviceScope()
 	const alias = () => scope.alias({ kind: "internal", purpose: "a planned item" })
 	const item = (): PlanItem<IndexRef> => ({ alias: alias(), scan: source.draw(scanGen) })
+	const method = element(["nestedLoop", "hash"] as const satisfies ReadonlyArray<JoinMethod>)
+	const memberGen = (depth: number): JoinMember<IndexRef> => {
+		if (depth > 1 || source.draw(int(0, 2)) > 0) {
+			return { kind: "item", item: item() }
+		}
+		const first = memberGen(depth + 1)
+		const [j0, ...js] = source.draw(
+			array(
+				(s): JoinedMember<IndexRef> => ({ member: memberGen(depth + 1), join: s.draw(method) }),
+				{ min: 1, max: 3 }
+			)
+		)
+		if (j0 === undefined) {
+			return first
+		}
+		const tree: JoinTree<IndexRef> = { first, joined: [j0, ...js] }
+		const [r0, ...rs] = source.draw(
+			shuffled(
+				Arr.map(
+					[...itemsOf(first), ...Arr.flatMap(tree.joined, (j) => itemsOf(j.member))],
+					(i): Alias => i.alias
+				)
+			)
+		)
+		return r0 === undefined ? first : { kind: "tree", tree, range: [r0, ...rs] }
+	}
 	const level = (): PlanLevel<IndexRef> => {
 		const name: PlanName = source.draw(boolean) ? { kind: "top" } : { kind: "named", name: alias() }
 		const member = (): PlanItem<IndexRef> => ({ alias: alias(), scan: { kind: "rows" } })
@@ -121,18 +174,9 @@ export const planGen: Gen<ReadPlan<IndexRef>> = (source) => {
 				members: [member(), ...source.draw(array(member, { min: 0, max: 2 }))]
 			}
 		}
-		const first = item()
-		const joined = source.draw(
-			array(
-				(s): JoinedItem<IndexRef> => ({
-					item: item(),
-					join: s.draw(element(["nestedLoop", "hash"] as const satisfies ReadonlyArray<JoinMethod>))
-				}),
-				{ min: 0, max: source.draw(boolean) ? 3 : 11 }
-			)
-		)
+		const problem = memberGen(0)
 		const appended = source.draw(array(member, { min: 0, max: 2 }))
-		return { kind: "joins", name, first, joined, appended }
+		return { kind: "joins", name, problem, appended }
 	}
 	return { levels: source.draw(array(level, { min: 1, max: 3 })) }
 }
@@ -300,6 +344,16 @@ export const parsedAtoms = (advice: string): ReadonlyArray<Atom> => {
 		const indexed = tag === "INDEX_SCAN" || tag === "INDEX_ONLY_SCAN"
 		const targets: Array<string> = []
 		while (tokens[t] !== ")") {
+			if (!indexed && tokens[t] === "(") {
+				t += 1
+				const set: Array<string> = []
+				while (tokens[t] !== ")") {
+					set.push(targetOf())
+				}
+				expect(")")
+				atoms.push({ tag, targets: ["(", ...set, ")"], index: undefined })
+				continue
+			}
 			const target = targetOf()
 			if (indexed) {
 				const schema = ident()
@@ -320,43 +374,48 @@ export const parsedAtoms = (advice: string): ReadonlyArray<Atom> => {
 }
 
 /**
- * A level's join order as PostgreSQL deconstructs a chain of explicit joins (initsplan.c deconstruct_recurse, restated):
- * the left side's members and the next item fold into one problem while they number at most join_collapse_limit, 8, and
- * past it the left side is one member, a problem of its own; flattened, each nested problem bracketed by parentheses.
- */
-const nestedOrder = (targets: ReadonlyArray<string>): ReadonlyArray<string> => {
-	const [first, ...rest] = targets
-	let left: { readonly members: number; readonly tokens: ReadonlyArray<string> } = {
-		members: first === undefined ? 0 : 1,
-		tokens: first === undefined ? [] : [first]
-	}
-	for (const t of rest) {
-		left =
-			left.members + 1 <= 8
-				? { members: left.members + 1, tokens: [...left.tokens, t] }
-				: { members: 2, tokens: ["(", ...left.tokens, ")", t] }
-	}
-	return left.tokens
-}
-
-/**
  * The atoms a plan states (CARRY-CONTRACT.md §5), the specification the printer is held to: for each level, its join
- * order over every item where it joins two or more; for each item after its first, the method that puts it inner, a
- * nested loop's plain one or a hash join; for each stored relation its scan, an index-only scan only where its index
- * returns what it stores and stores every column the read needs; and for every item, an append relation's members
- * among them, no Gather.
+ * order where its problem joins two items or more, each join's members in order, a member joining several items its
+ * own order bracketed by parentheses; for each member after a join's first, the method that puts it inner, a nested
+ * loop's plain one or a hash join, named as its item or, joining several, as the set of them in its range-table order,
+ * bracketed; for each stored relation its scan, an index-only scan only where its index returns what it stores and
+ * stores every column the read needs; and for every item, an append relation's members among them, no Gather.
  */
 export const statedAtoms = (plan: ReadPlan<IndexRef>): ReadonlyArray<Atom> =>
 	Arr.flatMap(plan.levels, (level) => {
-		const joined = level.kind === "joins" ? level.joined : []
-		const items = level.kind === "joins" ? [level.first, ...Arr.map(joined, (j) => j.item)] : []
-		const targetOf = (item: PlanItem<IndexRef>): string =>
-			level.name.kind === "top" ? item.alias : `${item.alias}@${level.name.name}`
+		const named = (a: Alias): string => (level.name.kind === "top" ? a : `${a}@${level.name.name}`)
+		const targetOf = (item: PlanItem<IndexRef>): string => named(item.alias)
 		const one = (tag: string, item: PlanItem<IndexRef>): Atom => ({
 			tag,
 			targets: [targetOf(item)],
 			index: undefined
 		})
+		const order = (member: JoinMember<IndexRef>): ReadonlyArray<string> =>
+			member.kind === "item"
+				? [targetOf(member.item)]
+				: [
+						"(",
+						...order(member.tree.first),
+						...Arr.flatMap(member.tree.joined, (j) => order(j.member)),
+						")"
+					]
+		const methods = (member: JoinMember<IndexRef>): ReadonlyArray<Atom> =>
+			member.kind === "item"
+				? []
+				: [
+						...methods(member.tree.first),
+						...Arr.flatMap(member.tree.joined, (j) => [
+							{
+								tag: j.join === "hash" ? "HASH_JOIN" : "NESTED_LOOP_PLAIN",
+								targets:
+									j.member.kind === "item"
+										? [targetOf(j.member.item)]
+										: ["(", ...Arr.map(j.member.range, named), ")"],
+								index: undefined
+							},
+							...methods(j.member)
+						])
+					]
 		const scanOf = (item: PlanItem<IndexRef>): ReadonlyArray<Atom> => {
 			const scan = item.scan
 			switch (scan.kind) {
@@ -380,13 +439,17 @@ export const statedAtoms = (plan: ReadPlan<IndexRef>): ReadonlyArray<Atom> =>
 				}
 			}
 		}
+		const items = level.kind === "joins" ? itemsOf(level.problem) : []
 		const scanned = level.kind === "joins" ? [...items, ...level.appended] : level.members
 		const scans = Arr.flatMap(scanned, scanOf)
+		const problem = level.kind === "joins" ? level.problem : undefined
 		return [
-			...(items.length > 1
-				? [{ tag: "JOIN_ORDER", targets: nestedOrder(Arr.map(items, targetOf)), index: undefined }]
+			...(problem?.kind === "tree"
+				? [
+						{ tag: "JOIN_ORDER", targets: order(problem).slice(1, -1), index: undefined },
+						...methods(problem)
+					]
 				: []),
-			...Arr.map(joined, (j) => one(j.join === "hash" ? "HASH_JOIN" : "NESTED_LOOP_PLAIN", j.item)),
 			...scans,
 			...Arr.map(scanned, (item) => one("NO_GATHER", item))
 		]
