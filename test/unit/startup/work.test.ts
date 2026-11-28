@@ -17,8 +17,9 @@
  *   (physical/ddl/constants.ts planClosed), plan the installation three times over it (commandPlans), and build the
  *   draft's DDL once; then they compile each login's programs once, into its served file (adapter/served/compile.ts
  *   compileServed), over the installation's artifacts they already built, with no law model, plan basis or plan of the
- *   login's own, and its roles' programs from the change compile the workload's plan holds (adapter/served/login.ts
- *   plannedLoginRoles), building no DDL.
+ *   login's own, and its roles' programs from the change compile and the read compile the workload's plan holds
+ *   (adapter/served/login.ts plannedLoginRoles), building no DDL: each read program is compiled once on each role it
+ *   runs on (program/template.ts templateFor), its plans and its served form read off that one compile.
  * - DbLayer.make over the login's served file, the one generate wrote, loads it and owns, hashes, compiles and plans
  *   nothing (adapter/pool/served.ts): every count of the layer is zero.
  * - `grizzle migrate` and `grizzle drift` compile nothing before they connect: they reach the connection
@@ -47,6 +48,7 @@ import {
 	dimensions,
 	exactly,
 	pointGen,
+	readCompilesAt,
 	siteNames,
 	sizeOf,
 	stepNames,
@@ -73,6 +75,16 @@ export const startupWorkReadsASchemasContentOnceCompilesItOncePerCommandNothingF
 				const stepsOf = (n: number): Steps => defined(bySize.get(n), `the steps at ${n}`)
 				const [first] = measured
 				const at = `${point.dimension} at ${Arr.join(Arr.map(sizes, String), ", ")}`
+				for (const [n, steps] of Arr.zip(sizes, measured)) {
+					const reads = readCompilesAt(sizeOf(point.dimension, n))
+					for (const step of stepNames) {
+						assert.equal(
+							steps[step].readCompile,
+							reads[step],
+							`${at}: ${step} compiles each read program once on its role`
+						)
+					}
+				}
 				for (const step of stepNames) {
 					for (const site of siteNames) {
 						const want = exactly[step][site]
@@ -138,6 +150,14 @@ export const startupWorkReadsASchemasContentOnceCompilesItOncePerCommandNothingF
 				replacement:
 					"\t\towned: () => ownBuilt({ desc: admitted.desc, content: admitted.content }),\n",
 				why: "A schema value holds no Owned, so check owns it again after generate; check's count of owns fails."
+			},
+			{
+				file: "packages/grizzle/src/adapter/served/compile.ts",
+				original:
+					"\t\tplannedLoginRoles(login.login, changes, reads, artifacts, lawsAbove(served), clock, resolve),\n",
+				replacement:
+					"\t\tEffect.flatMap(loginReadsOver(login.login, changes, clock), (again) =>\n\t\t\tplannedLoginRoles(login.login, changes, again, artifacts, lawsAbove(served), clock, resolve)\n\t\t),\n",
+				why: "Each login's served file compiles its reads again where the workload plan compiled them (a09f5f8376's served compile); generate's and check's counts of read compiles fail."
 			},
 			{
 				file: "packages/grizzle/src/cli/generate.ts",

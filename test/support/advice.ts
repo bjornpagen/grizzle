@@ -1018,7 +1018,7 @@ export const fileScope = (file: AdvisedFile, resolve: IndexResolver, set: string
 /**
  * A read as a served Db of `role` runs it: compiled at the call as the role compiles every read no one compiled ahead
  * (test/support/served-role.ts servedRoleContext, adapter/served/role.ts RoleContext `compile`), as generate compiles a
- * workload's rows member (adapter/served/forms.ts compileRowsForm: the snapshot context, rows, the transaction's
+ * workload's rows member (engine program/workload/reads.ts compiledRead: the snapshot context, rows, the transaction's
  * clock), over the installation `installed` the role reads: its template, its one statement, the texts of a call's
  * parameters by their names (test/support/compile.ts paramTexts), and the flight scope of its statement
  * (`flightScope`), each read resolved as the role resolves it (RoleContext `resolve`), the installation's own
@@ -1109,7 +1109,7 @@ export const callScope = (
 })
 
 /**
- * A page as a served Db of `role` runs it (adapter/served/forms.ts compileReadForm's page): its ordered query compiled
+ * A page as a served Db of `role` runs it (engine program/workload/reads.ts compiledRead's page): its ordered query compiled
  * at the call for a page (RoleContext `compile`, read "page"), its page compiled over the role's artifacts and served
  * with every window's statement under the advice its served record ships (forms.ts compiledPageTemplateFor, engine
  * program/served.ts pageAdvice); and the flight scope of its five window variants' statements (`flightScope`), one

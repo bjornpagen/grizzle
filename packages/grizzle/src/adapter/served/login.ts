@@ -2,12 +2,7 @@ import { Array as Arr, Data, Effect, Record as Rec, Result } from "effect"
 import { typedContext, type TypedContext } from "#adapter/db/claims.ts"
 import type { ChangeVariants, WorkloadForm } from "#adapter/db/workload.ts"
 import { fromEngine, rowOptions, toResult } from "#adapter/engine.ts"
-import {
-	boundChangeForm,
-	compileReadForm,
-	compileRowsForm,
-	runtimeEntry
-} from "#adapter/served/forms.ts"
+import { boundChangeForm, readFormOf, rowsFormOf, runtimeEntry } from "#adapter/served/forms.ts"
 import { installationWitness } from "#adapter/served/refusals.ts"
 import type { RoleContext } from "#adapter/served/role.ts"
 import type { InstallationWitness } from "#adapter/witness/index.ts"
@@ -45,7 +40,6 @@ import {
 	malformedDescription,
 	type NamedLogin,
 	namedRole,
-	noClock,
 	noServedTypes,
 	ownBuiltLogin,
 	type Owned,
@@ -63,8 +57,13 @@ import {
 	transactionClock,
 	type WorldStem
 } from "#compiler/plan/common.ts"
-import type { IndexResolver } from "#compiler/plan/migration.ts"
-import { templateFor } from "#compiler/plan/read.ts"
+import { type IndexResolver, loginReads, type RoleReads } from "#compiler/plan/migration.ts"
+import {
+	type CompiledRead,
+	type ReadTemplate,
+	type RowsMember,
+	templateFor
+} from "#compiler/plan/read.ts"
 import {
 	type CompileFacts,
 	footprintOf,
@@ -284,83 +283,113 @@ const layerVariants = (
 }
 
 /**
- * The form of one program of a role's workload, compiled for the role: a ChangeSet's from its variants as the login's
- * change compile made them, `changes`, the role's members, whose witness decoding is `witness`.
+ * The form of a read member that pages none, projected for `role` from its rows as the login's workload plan compiled
+ * them for the role (engine program/workload/compile.ts loginReads): a query's or an ordered query's rows read as its
+ * own, a key's as its relation's fact.
  */
-const programForm = (
+const rowsMemberForm = (
 	role: RoleContext,
-	changes: ServableRole<Isolation, InstalledSource>,
-	witness: InstallationWitness,
-	program: WorkloadProgram
+	member: RowsMember,
+	rows: ReadTemplate
 ): Result.Result<WorkloadForm, CompileError> => {
-	switch (program.kind) {
+	switch (member.kind) {
 		case "query":
 		case "ordered": {
-			const query = program.value
-			const desc = program.desc
-			/** A clocked read's binding, read at the role's clock; any other read binds none and reads no clock. */
-			const compiled =
-				desc.kind === "clocked"
-					? compileRowsForm(role, query, () => query.rows, desc.clock, role.clock)
-					: compileRowsForm(role, query, () => query.rows, noClock, transactionClock)
-			return Result.map(compiled, (form): WorkloadForm => ({
-				name: program.name,
-				kind: "read",
-				called: readCalled(desc),
-				form
-			}))
-		}
-		case "paged": {
-			const query = program.value
+			const query = member.value
 			return Result.map(
-				compileReadForm(role, query, () => query.rows),
+				rowsFormOf(role, query, rows, () => query.rows),
 				(form): WorkloadForm => ({
-					name: program.name,
-					kind: "paged",
-					called: readCalled(program.desc),
+					name: member.name,
+					kind: "read",
+					called: readCalled(member.desc),
 					form
 				})
 			)
 		}
 		case "key": {
-			const target = program.target
+			const target = member.target
 			const fact = target.relation.fact
 			return Result.map(
-				compileRowsForm(role, program.query, () => fact, noClock, transactionClock),
+				rowsFormOf(role, member.query, rows, () => fact),
 				(form): WorkloadForm => ({
-					name: program.name,
+					name: member.name,
 					kind: "key",
-					called: readCalled(program.desc),
+					called: readCalled(member.desc),
 					fields: target.fields,
 					form
 				})
 			)
 		}
-		case "changeSet": {
-			const compiled = changes.members.get(program.name)
-			if (compiled === undefined) {
-				defect(`the change compile of program ${program.name}, which runs on its role`)
-			}
-			return Result.map(layerVariants(role, witness, compiled), (variants): WorkloadForm => ({
-				name: program.name,
-				kind: "change",
-				variants
-			}))
+	}
+}
+
+/** The form of a read member, projected for `role` from its compile for the role (reads.ts CompiledRead). */
+const readForm = (
+	role: RoleContext,
+	read: CompiledRead
+): Result.Result<WorkloadForm, CompileError> => {
+	switch (read.kind) {
+		case "rows":
+			return rowsMemberForm(role, read.member, read.rows)
+		case "paged": {
+			const { member } = read
+			const query = member.value
+			return Result.map(
+				readFormOf(role, query, read, () => query.rows),
+				(form): WorkloadForm => ({
+					name: member.name,
+					kind: "paged",
+					called: readCalled(member.desc),
+					form
+				})
+			)
 		}
 	}
 }
 
 /**
- * The workload of a role: every program of the login's workloads that runs on the role (programsOn), compiled once for
- * the role, its ChangeSets' variants its login's change compile's, `changes`. A program that does not compile for the
- * role is WorkloadRefused naming it, a read through an index the snapshot does not hold among its refusals (deploy/
- * snapshot/served.ts snapshotResolver, thrown where its advice resolves it), and so is a workload value no
- * workload(...) built, naming none.
+ * The form of one program of a role's workload, projected for the role from what the login's workload plan compiled of
+ * it: a read's from its compile for the role, `reads`' (engine program/workload/compile.ts loginReads), a ChangeSet's
+ * from its variants as the login's change compile made them, `changes`, the role's members, whose witness decoding is
+ * `witness`. Nothing compiles here again.
+ */
+const programForm = (
+	role: RoleContext,
+	changes: ServableRole<Isolation, InstalledSource>,
+	reads: RoleReads,
+	witness: InstallationWitness,
+	program: WorkloadProgram
+): Result.Result<WorkloadForm, CompileError> => {
+	if (program.kind !== "changeSet") {
+		const read = reads.get(program.name)
+		if (read === undefined) {
+			defect(`the compile of read program ${program.name}, which runs on its role`)
+		}
+		return readForm(role, read)
+	}
+	const compiled = changes.members.get(program.name)
+	if (compiled === undefined) {
+		defect(`the change compile of program ${program.name}, which runs on its role`)
+	}
+	return Result.map(layerVariants(role, witness, compiled), (variants): WorkloadForm => ({
+		name: program.name,
+		kind: "change",
+		variants
+	}))
+}
+
+/**
+ * The workload of a role: every program of the login's workloads that runs on the role (programsOn), projected for the
+ * role from its one compile, its reads' `reads`' and its ChangeSets' variants its login's change compile's, `changes`.
+ * A program whose form does not project for the role is WorkloadRefused naming it, a read through an index the
+ * snapshot does not hold among its refusals (deploy/snapshot/served.ts snapshotResolver, thrown where its advice
+ * resolves it), and so is a workload value no workload(...) built, naming none.
  */
 const compileRoleWorkload = (
 	name: string,
 	role: RoleContext,
 	changes: ServableRole<Isolation, InstalledSource>,
+	reads: RoleReads,
 	witness: InstallationWitness,
 	workloads: ReadonlyArray<AnyWorkload>
 ): Result.Result<ReadonlyArray<WorkloadForm>, WorkloadRefused> =>
@@ -374,7 +403,7 @@ const compileRoleWorkload = (
 			forms.push(
 				yield* Result.mapError(
 					Result.flatMap(
-						toResult(catchRefusal(() => programForm(role, changes, witness, program))),
+						toResult(catchRefusal(() => programForm(role, changes, reads, witness, program))),
 						(form) => form
 					),
 					(error) => new WorkloadRefused({ role: name, program: program.name, error })
@@ -421,14 +450,16 @@ export interface LayerRole extends RoleContext {
 
 /**
  * One role of the login, parsed, and its artifacts read over the login's as its login's change compile read them,
- * `changes` (program/workload/change.ts RoleChanges), and the programs of the login's workloads over it compiled,
- * its ChangeSets' variants the change compile's, its decoders bound under `bind`: a role or program that does not
- * compile is WorkloadRefused. Every program compiles against the role's artifacts, which read, of each relation the
- * program names, exactly what the installation's law model states.
+ * `changes` (program/workload/change.ts RoleChanges), and the programs of the login's workloads over it projected,
+ * its reads' from their compile for the role, `reads` (program/workload/compile.ts loginReads), its ChangeSets'
+ * variants the change compile's, its decoders bound under `bind`: a role or program that does not project is
+ * WorkloadRefused. Every program compiled against the role's artifacts, which read, of each relation the program
+ * names, exactly what the installation's law model states.
  */
 const layerRole = (
 	name: string,
 	changes: ServableRole<Isolation, InstalledSource>,
+	reads: RoleReads,
 	workload: ReadonlyArray<AnyWorkload>,
 	bind: BindContext,
 	above: LawsAbove,
@@ -459,7 +490,7 @@ const layerRole = (
 		}
 		const contexts = yield* Effect.mapError(fromEngine(typedContexts(artifacts)), refused)
 		const forms = yield* Effect.fromResult(
-			compileRoleWorkload(name, role, changes, role.witness, workload)
+			compileRoleWorkload(name, role, changes, reads, role.witness, workload)
 		)
 		return { ...role, isolation: changes.level, theory, contexts, workload: forms }
 	})
@@ -515,16 +546,31 @@ export const loginChangesOver = <L extends Isolation, S extends ParamSource>(
 	)
 
 /**
+ * Every read member of `login`'s workloads compiled on each of its roles `roles` that it runs on, for the role over its
+ * artifacts, its clocked readings counting from `clock` (engine program/workload/compile.ts loginReads), by the role's
+ * name: what each role's served form projects its reads from (plannedLoginRoles), for a login no workload plan
+ * compiled. A read that does not compile is WorkloadRefused at its role and program.
+ */
+export const loginReadsOver = (
+	login: LoginInput,
+	roles: ReadonlyMap<string, ServableRole<Isolation, InstalledSource>>,
+	clock: ClockSource
+): Effect.Effect<ReadonlyMap<string, RoleReads>, WorkloadRefused> =>
+	Effect.mapError(fromEngine(loginReads(login.workload, roles, clock)), changeRefused)
+
+/**
  * Every role of a login, each read over the login's artifacts `artifacts` with its change members as `changes` compiled
- * them (loginChangesOver), and every program of the login's workloads over it compiled (layerRole): the one compilation
- * of a login's programs, which `grizzle generate` commits and `grizzle check` compares. Nothing here owns or installs
- * the base again: the login is owned over the base's Owned (ownLoginOver) and every role reads the one installation. A
- * role or program that does not compile is WorkloadRefused. Every role reads the one installation's codes, so the roles
- * share one bind context, each roster's names in code order.
+ * them (loginChangesOver), and every program of the login's workloads over it projected from its one compile (layerRole),
+ * its reads' `reads`' (loginReadsOver, or generate's workload plan): the one compilation of a login's programs, which
+ * `grizzle generate` commits and `grizzle check` compares. Nothing here owns or installs the base again: the login is
+ * owned over the base's Owned (ownLoginOver) and every role reads the one installation. A role or program that does not
+ * project is WorkloadRefused. Every role reads the one installation's codes, so the roles share one bind context, each
+ * roster's names in code order.
  */
 export const plannedLoginRoles = (
 	login: LoginInput,
 	changes: ReadonlyMap<string, ServableRole<Isolation, InstalledSource>>,
+	reads: ReadonlyMap<string, RoleReads>,
 	artifacts: InstalledArtifacts,
 	above: LawsAbove,
 	clock: ClockSource,
@@ -534,17 +580,18 @@ export const plannedLoginRoles = (
 	return Effect.forEach(login.roles, (parsed) => {
 		const name = parsed.desc.name
 		const role = changes.get(name)
-		if (role === undefined) {
-			defect(`the change compile of role ${name}, a role of its login`)
+		const roleReads = reads.get(name)
+		if (role === undefined || roleReads === undefined) {
+			defect(`the change compile and the reads' of role ${name}, a role of its login`)
 		}
-		return layerRole(name, role, login.workload, bind, above, clock, resolve)
+		return layerRole(name, role, roleReads, login.workload, bind, above, clock, resolve)
 	})
 }
 
 /**
  * Every role of a login compiled over the login's artifacts `artifacts` (plannedLoginRoles), its change members compiled
- * over them first at SERIALIZABLE (loginChangesOver), the level of a compile no certificate covers, every reading of the
- * clock the transaction's, as generate compiles it.
+ * over them first at SERIALIZABLE (loginChangesOver), the level of a compile no certificate covers, and its reads
+ * compiled over them (loginReadsOver), every reading of the clock the transaction's, as generate compiles it.
  */
 export const loginRoles = (
 	login: LoginInput,
@@ -553,8 +600,23 @@ export const loginRoles = (
 	above: LawsAbove,
 	resolve: IndexResolver
 ): Effect.Effect<ReadonlyArray<LayerRole>, WorkloadRefused> =>
-	Effect.flatMap(
-		loginChangesOver(login, owned, artifacts, () => "serializable", transactionClock),
-		(changes) =>
-			plannedLoginRoles(login, servableRoles(changes), artifacts, above, transactionClock, resolve)
-	)
+	Effect.gen(function* () {
+		const changes = yield* loginChangesOver(
+			login,
+			owned,
+			artifacts,
+			() => "serializable",
+			transactionClock
+		)
+		const roles = servableRoles(changes)
+		const reads = yield* loginReadsOver(login, roles, transactionClock)
+		return yield* plannedLoginRoles(
+			login,
+			roles,
+			reads,
+			artifacts,
+			above,
+			transactionClock,
+			resolve
+		)
+	})

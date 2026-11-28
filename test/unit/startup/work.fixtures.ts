@@ -66,6 +66,7 @@ const sites = Object.freeze({
 		file: "packages/grizzle/src/adapter/served/login.ts",
 		name: "plannedLoginRoles"
 	},
+	readCompile: { file: "packages/engine/src/program/template.ts", name: "templateFor" },
 	connect: {
 		file: "packages/grizzle/src/adapter/migrate/session.ts",
 		name: "openMigrationSession"
@@ -357,6 +358,22 @@ export const exactly: { readonly [S in keyof Steps]: Partial<Counts> } = {
 		plannedLoginRoles: 0
 	}
 }
+
+/**
+ * The reads a step compiles at a size (program/template.ts templateFor): generate and check compile each read program
+ * of the login's workload once on the one role it runs on, a keyed lookup's one statement (program/workload/compile.ts
+ * loginReads), whose plans ask the installation's indexes and from which the login's served file projects its form
+ * (adapter/served/login.ts), compiling none again; the builders, migrate, drift and the layer compile none.
+ */
+export const readCompilesAt = (size: Size): { readonly [S in keyof Steps]: number } => ({
+	schema: 0,
+	builders: 0,
+	generate: size.programs,
+	check: size.programs,
+	migrate: 0,
+	drift: 0,
+	layer: 0
+})
 
 export const stepNames: ReadonlyArray<keyof Steps> = [
 	"schema",

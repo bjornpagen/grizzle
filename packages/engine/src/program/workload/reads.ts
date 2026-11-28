@@ -94,19 +94,36 @@ export const pageOf = (read: ReadTemplate): Result.Result<PageTemplate, CompileE
 /** A read member of a workload: every program but a ChangeSet. */
 export type ReadMember = Exclude<WorkloadProgram, { readonly kind: "changeSet" }>
 
+/** A read member that pages none: a query, an ordered query, or a key's lookup. */
+export type RowsMember = Exclude<ReadMember, { readonly kind: "paged" }>
+
 /**
- * The plan of every statement a read member's served form may send, compiled for `role` over its artifacts
- * `artifacts`, its clocked readings counting from `source` (rowsRequest): its read's (served/forms.ts ServedRead), and a
- * paged member's every window's besides (ServedPage). What the installation asks an index for each read of, so a read
- * no index serves is a missed index of the generate that plans it, and nothing else asks one for it (sql/plan.ts
- * planRequests).
+ * A read member compiled for a role over its artifacts, once (compiledRead), with the member: its rows' statement
+ * (`rows`), a query's, an ordered query's or a key's lookup, and a paged member's page besides (`paged`), its ordered
+ * query compiled for pages and its every window (pagedTemplate). What generate's workload plan reads the plans of
+ * (readPlansOf), which the installation asks its indexes for, and what the role's served form is projected from
+ * (adapter/served/login.ts), advised by the indexes the installation then holds: the snapshot resolves a read's index,
+ * and no read compiles again for its served file.
  */
-export const readMemberPlans = (
+export type CompiledRead =
+	| { readonly kind: "rows"; readonly member: RowsMember; readonly rows: ReadTemplate }
+	| {
+			readonly kind: "paged"
+			readonly member: Extract<ReadMember, { readonly kind: "paged" }>
+			readonly rows: ReadTemplate
+			readonly page: ReadTemplate & { readonly page: PageTemplate }
+	  }
+
+/**
+ * `member` compiled for `role` over its artifacts `artifacts`, its clocked readings counting from `source` (rowsRequest),
+ * as its served form reads it (CompiledRead): a read that does not compile is its CompileError.
+ */
+export const compiledRead = (
 	member: ReadMember,
 	role: ParsedRole,
 	artifacts: SchemaArtifacts,
 	source: ClockSource
-): Result.Result<ReadonlyArray<ReadPlan<AccessIndexRequest>>, CompileError> => {
+): Result.Result<CompiledRead, CompileError> => {
 	const compile: ReadCompile = (query, request) =>
 		Result.flatMap(queryInput(query), (input) =>
 			Result.map(templateFor(input, role, artifacts, request), (compiled) => ({
@@ -114,22 +131,41 @@ export const readMemberPlans = (
 				artifacts
 			}))
 		)
+	const rowsOf = (rowsMember: RowsMember, query: unknown) =>
+		Result.map(compile(query, rowsRequest(rowsMember.desc, source)), (rows): CompiledRead => ({
+			kind: "rows",
+			member: rowsMember,
+			rows
+		}))
 	switch (member.kind) {
 		case "query":
 		case "ordered":
-			return Result.map(compile(member.value, rowsRequest(member.desc, source)), (read) =>
-				readPlans(read.compiled.template)
-			)
+			return rowsOf(member, member.value)
+		case "key":
+			return rowsOf(member, member.query)
 		case "paged":
 			return Result.flatMap(compile(member.value, rowsRequest(member.desc, source)), (rows) =>
-				Result.map(pagedTemplate(member.value, compile), (paged) => [
-					...readPlans(rows.compiled.template),
-					...pagePlans(paged.page)
-				])
+				Result.map(pagedTemplate(member.value, compile), (page): CompiledRead => ({
+					kind: "paged",
+					member,
+					rows,
+					page
+				}))
 			)
-		case "key":
-			return Result.map(compile(member.query, rowsRequest(member.desc, source)), (read) =>
-				readPlans(read.compiled.template)
-			)
+	}
+}
+
+/**
+ * The plan of every statement a compiled read's served form may send (CompiledRead): its rows' (served/forms.ts
+ * ServedRead), and a paged member's every window's besides (ServedPage). What the installation asks an index for each
+ * read of, so a read no index serves is a missed index of the generate that plans it, and nothing else asks one for it
+ * (sql/plan.ts planRequests).
+ */
+export const readPlansOf = (read: CompiledRead): ReadonlyArray<ReadPlan<AccessIndexRequest>> => {
+	switch (read.kind) {
+		case "rows":
+			return readPlans(read.rows.compiled.template)
+		case "paged":
+			return [...readPlans(read.rows.compiled.template), ...pagePlans(read.page.page)]
 	}
 }

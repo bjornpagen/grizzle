@@ -71,6 +71,12 @@ export {
 	templateFor
 } from "#compiler/program/template.ts"
 export { workloadState } from "#compiler/program/workload/value.ts"
+export {
+	type CompiledRead,
+	pageOf,
+	type ReadTemplate,
+	type RowsMember
+} from "#compiler/program/workload/reads.ts"
 export { hostArguments } from "#compiler/query/build/host.ts"
 export { isOrderedValue, isQueryValue } from "#compiler/query/build/index.ts"
 export { keyLookup } from "#compiler/query/build/key.ts"

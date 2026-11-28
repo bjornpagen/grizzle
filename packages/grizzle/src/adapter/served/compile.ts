@@ -8,6 +8,7 @@ import {
 	type LayerRole,
 	loginChangesOver,
 	type LoginInput,
+	loginReadsOver,
 	plannedLoginRoles,
 	workloadReach
 } from "#adapter/served/login.ts"
@@ -36,6 +37,7 @@ import {
 import {
 	loginFootprints,
 	type ProgramFootprints,
+	type RoleReads,
 	servedText,
 	type UnservedMember,
 	type WorkloadPlanRefused
@@ -158,7 +160,9 @@ export const atRole = (refused: ChangeRefused): ServedRefusal => ({
  * the login. Its ChangeSets are
  * the login's change compile's, `changes`, compiled once over the same artifacts at the level each role's writes run
  * at, its certificate's (program/workload/change.ts loginChanges, program/isolation/certification.ts), which its
- * served form records (login.ts LayerRole `isolation`). A role's refusals are cut to what its programs' writes can raise,
+ * served form records (login.ts LayerRole `isolation`), and its reads `reads`, each compiled once for its role over the
+ * same artifacts (program/workload/compile.ts loginReads), whose served forms are projected advised by the indexes the
+ * snapshot records, none compiled again. A role's refusals are cut to what its programs' writes can raise,
  * and the snapshot's installed tables to the login's footprint (served/project.ts).
  * generate and check both compile from the snapshot.json text the draft lays out, so the drafted snapshot and the
  * committed one are one input, and a login compiles to one served file.
@@ -168,6 +172,7 @@ const compileServed = Effect.fn("compileServed")(function* (
 	snapshot: unknown,
 	artifacts: InstalledArtifacts,
 	changes: ReadonlyMap<string, ServableRole<Isolation, InstalledSource>>,
+	reads: ReadonlyMap<string, RoleReads>,
 	footprints: ProgramFootprints,
 	clock: ClockSource
 ): Effect.fn.Return<CompiledServed, ServedRefusal> {
@@ -178,7 +183,7 @@ const compileServed = Effect.fn("compileServed")(function* (
 	/** The installation's indexes its snapshot records, the one resolver of every read the login's programs make. */
 	const resolve = snapshotResolver(served, artifacts.derived.schema)
 	const roles = yield* Effect.mapError(
-		plannedLoginRoles(login.login, changes, artifacts, lawsAbove(served), clock, resolve),
+		plannedLoginRoles(login.login, changes, reads, artifacts, lawsAbove(served), clock, resolve),
 		atRole
 	)
 	const { footprint } = yield* Effect.mapError(workloadReach(login.login, login.owned), atRole)
@@ -234,18 +239,19 @@ export const servedEntryOf = Effect.fn("servedEntryOf")(function* (compiled: Com
 /**
  * The served file of `login` under `snapshot`, the JSON value of the snapshot.json beside it, compiled over its base's
  * artifacts `artifacts`, its ChangeSets as `changes` compiled them over those artifacts, each role's at the level its
- * certificate gives it, and its read programs' footprints as `footprints` read them (compileServed, then
- * `servedEntryOf`).
+ * certificate gives it, its reads as `reads` compiled them for each role, and its read programs' footprints as
+ * `footprints` read them (compileServed, then `servedEntryOf`).
  */
 export const servedEntry = (
 	login: ServedInput,
 	snapshot: unknown,
 	artifacts: InstalledArtifacts,
 	changes: ReadonlyMap<string, ServableRole<Isolation, InstalledSource>>,
+	reads: ReadonlyMap<string, RoleReads>,
 	footprints: ProgramFootprints
 ): Effect.Effect<ServedEntry, ServedRefusal> =>
 	Effect.flatMap(
-		compileServed(login, snapshot, artifacts, changes, footprints, transactionClock),
+		compileServed(login, snapshot, artifacts, changes, reads, footprints, transactionClock),
 		servedEntryOf
 	)
 
@@ -255,8 +261,9 @@ export const servedEntry = (
  * foreign key graph's cycles and the types it casts its served parameters to) over every relation, the law model
  * generate compiles from the schema, then the login over them (compileServed), each role's ChangeSets compiled at the
  * level its certificate states, which the snapshot records (deploy/snapshot/served.ts certifiedLevels), as generate's
- * served file serves them, its query programs' footprints as its workload's plan reads them (loginFootprints, which
- * plans no ChangeSet: the login's compile compiled them), every reading of the clock its clocked reads and ChangeSets
+ * served file serves them, and each role's reads compiled once over them (login.ts loginReadsOver), its query
+ * programs' footprints as its workload's plan reads them (loginFootprints, which plans no ChangeSet: the login's compile
+ * compiled them), every reading of the clock its clocked reads and ChangeSets
  * make counting from `clock`: its roles, each with its workload's programs compiled, which a test reads beside the file
  * they project (a change form's compiled entry, its put choices among it). A role the snapshot records no certificate of
  * is one its installation does not install, refused at the role as UninstalledRole; a program that casts a parameter to
@@ -313,14 +320,9 @@ export const snapshotCompiled = Effect.fn("snapshotCompiled")(function* (
 		fromEngine(loginFootprints(login.login.workload, login.login.base, artifacts)),
 		(refused) => planRefusal(login, refused)
 	)
-	const compiled = yield* compileServed(
-		login,
-		snapshot,
-		artifacts,
-		servableRoles(changes),
-		footprints,
-		clock
-	)
+	const roles = servableRoles(changes)
+	const reads = yield* Effect.mapError(loginReadsOver(login.login, roles, clock), atRole)
+	const compiled = yield* compileServed(login, snapshot, artifacts, roles, reads, footprints, clock)
 	return { ...compiled, changes }
 })
 

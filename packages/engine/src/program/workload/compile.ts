@@ -12,7 +12,12 @@ import type { Isolation } from "#compiler/core/isolation.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { type Phases, phased, silentPhases } from "#compiler/core/phase.ts"
-import { type ClockBinding, noClock, transactionClock } from "#compiler/ir/clock.ts"
+import {
+	type ClockBinding,
+	type ClockSource,
+	noClock,
+	transactionClock
+} from "#compiler/ir/clock.ts"
 import { noneWritten, servedQuery } from "#compiler/ir/derived.ts"
 import {
 	type ChangeSetDesc,
@@ -68,7 +73,7 @@ import {
 	variantsEntries
 } from "#compiler/program/workload/change.ts"
 import { type PlannedFrontend, PlannedFrontends } from "#compiler/program/workload/planned.ts"
-import { readMemberPlans } from "#compiler/program/workload/reads.ts"
+import { type CompiledRead, compiledRead, readPlansOf } from "#compiler/program/workload/reads.ts"
 import { loginRole, programsOn } from "#compiler/program/workload/roles.ts"
 import { workloadState } from "#compiler/program/workload/value.ts"
 import { inlineWorlds } from "#compiler/program/workload/world.ts"
@@ -423,7 +428,7 @@ const servedWorldViews = (changes: ServedWorkloadPlan["changes"]): ReadonlyArray
  * Each login's served programs as the installation indexes them (physical/install/extension.ts ServedProgram), by the
  * login's name and the program's, in that order: the plan of each statement its served file may send, every role's
  * and, of a ChangeSet, every variant's (write/program/served.ts ServableWrite `plan`), of a read its read's and its
- * page's (reads.ts readMemberPlans).
+ * page's (reads.ts readPlansOf).
  */
 const servedPrograms = (
 	login: string,
@@ -808,6 +813,9 @@ export interface ServedLogin<S extends ParamSource = ParamSource> extends Change
  */
 export interface ServedWorkloadPlan<S extends ParamSource = ParamSource> extends WorkloadPlan {
 	readonly changes: ReadonlyMap<string, ReadonlyMap<string, ServableRole<Isolation, S>>>
+	/** Every read member of every login compiled on each role it runs on (loginReads), by the login's name, then the
+	 * role's: what each login's served file projects its reads from. */
+	readonly reads: ReadonlyMap<string, ReadonlyMap<string, RoleReads>>
 	readonly certification: ReadonlyArray<RoleIsolation>
 	/** The roles whose served ChangeSets fill a carrier (servedCarriers), each with its carriers' columns, which the
 	 * installation grants EXECUTE on what the CHECKs of those columns' domains call. */
@@ -824,38 +832,53 @@ export interface ServedWorkloadPlan<S extends ParamSource = ParamSource> extends
 }
 
 /**
- * The plans of every read member of `login`'s workloads on each of its roles `roles`, by program, in the roles' order,
- * each compiled for the role over its artifacts (reads.ts readMemberPlans), its clocked readings counting from the
- * login's clock: what the installation asks the indexes of a login's reads for, before any of them is projected, so
- * the served file each is projected into later resolves every read it makes. A read that does not compile on a role is
- * that role's ChangeRefused at the program.
+ * Every read member of a role's workloads compiled for the role, once (reads.ts CompiledRead), by the program's name:
+ * what the workload plan reads each read's plans of (readPlansOf) and the role's served form is projected from
+ * (adapter/served/login.ts), its served file compiling none again.
  */
-const loginReads = <S extends ParamSource>(
-	login: ServedLogin<S>,
-	roles: ReadonlyMap<string, ServableRole<Isolation, S>>
-): Result.Result<
-	ReadonlyArray<readonly [string, ReadonlyArray<ReadPlan<AccessIndexRequest>>]>,
-	ChangeRefused
-> => {
-	const plans: Array<readonly [string, ReadonlyArray<ReadPlan<AccessIndexRequest>>]> = []
+export type RoleReads = ReadonlyMap<string, CompiledRead>
+
+/**
+ * Every read member of `workload` compiled on each of the roles `roles` that it runs on (programsOn), for the role over
+ * its artifacts, its clocked readings counting from `clock` (reads.ts compiledRead), by the role's name, in the roles'
+ * order: what the installation asks the indexes of a login's reads for (servedWorkload), before any of them is
+ * projected, so the served file each is projected into later resolves every read it makes, and what that served file
+ * projects. A read that does not compile on a role is that role's ChangeRefused at the program.
+ */
+export const loginReads = (
+	workload: ReadonlyArray<unknown>,
+	roles: ReadonlyMap<string, ServableRole<Isolation, ParamSource>>,
+	clock: ClockSource
+): Result.Result<ReadonlyMap<string, RoleReads>, ChangeRefused> => {
+	const out = new Map<string, RoleReads>()
 	for (const [name, role] of roles) {
-		const running = programsOn(role.input, login.workload)
+		const running = programsOn(role.input, workload)
 		if (!running.ok) {
 			return Result.err({ role: name, program: undefined, error: running.error })
 		}
+		const reads = new Map<string, CompiledRead>()
 		for (const member of running.value) {
 			if (member.kind === "changeSet") {
 				continue
 			}
-			const read = readMemberPlans(member, role.input, role.artifacts, login.clock)
+			const read = compiledRead(member, role.input, role.artifacts, clock)
 			if (!read.ok) {
 				return Result.err({ role: name, program: member.name, error: read.error })
 			}
-			plans.push([member.name, read.value])
+			reads.set(member.name, read.value)
 		}
+		out.set(name, reads)
 	}
-	return Result.ok(plans)
+	return Result.ok(out)
 }
+
+/** The plans of every read of a login's roles (loginReads), by program: every role's, in the roles' order. */
+const readsPlans = (
+	reads: ReadonlyMap<string, RoleReads>
+): ReadonlyArray<readonly [string, ReadonlyArray<ReadPlan<AccessIndexRequest>>]> =>
+	[...reads.values()].flatMap((role) =>
+		[...role].map(([program, read]) => [program, readPlansOf(read)] as const)
+	)
 
 /** The plans of every ChangeSet of a login's roles `roles`, by program: every variant's of every role's. */
 const loginWrites = (
@@ -950,7 +973,8 @@ export type ServedWorkloadRefused =
  * artifacts (compileWorkload), then each login's change members, in the logins' order, each over the artifacts the
  * login's served file compiles over, which serve the plan's parameter types (WorkloadPhysical.params), then every
  * role's certificate over them under the options' artifacts, then each login's reads compiled on every role they run
- * on (loginReads), every program's plans (`programs`) what the installation indexes. Each login's change compile, the
+ * on (loginReads), every program's plans (`programs`) what the installation indexes and every compiled read (`reads`)
+ * what the login's served file projects. Each login's change compile, the
  * certification and each login's reads are phases reported to `phases` (`loginChanges`, `certification`,
  * `loginReads`).
  */
@@ -986,22 +1010,28 @@ export const servedWorkload = <S extends ParamSource>(
 		),
 		(certified) => {
 			const programs: Array<ServedProgram> = []
+			const compiledReads = new Map<string, ReadonlyMap<string, RoleReads>>()
 			for (const login of [...logins].toSorted((a, b) => compareStrings(a.name, b.name))) {
 				const roles = defined(
 					certified.served.get(login.name),
 					`the certified roles of login ${login.name}, a login it certified`
 				)
 				const reads = phased(phases, { name: "loginReads", of: [login.name] }, () =>
-					loginReads(login, roles)
+					loginReads(login.workload, roles, login.clock)
 				)
 				if (!reads.ok) {
 					return Result.err({ kind: "login", login: login.name, refused: reads.error })
 				}
-				appendAll(programs, servedPrograms(login.name, [...loginWrites(roles), ...reads.value]))
+				compiledReads.set(login.name, reads.value)
+				appendAll(
+					programs,
+					servedPrograms(login.name, [...loginWrites(roles), ...readsPlans(reads.value)])
+				)
 			}
 			return Result.ok<ServedWorkloadPlan<S>>({
 				...planned,
 				changes: certified.served,
+				reads: compiledReads,
 				certification: certified.certificates,
 				carriers: servedCarriers(certified.served),
 				calls: calls.value,

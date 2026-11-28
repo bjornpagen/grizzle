@@ -96,6 +96,7 @@ import {
 	type PlannedDraft,
 	type ProgramFootprints,
 	renderMigration,
+	type RoleReads,
 	servedAccess,
 	type ServedWorkloadPlan,
 	servedWorkload,
@@ -323,11 +324,14 @@ export type StagedDraft = (
  * What one login's served file compiles over: its base's artifacts, compiled under the draft's codes over every
  * relation; each of its roles with its ChangeSets compiled over them by the draft's workload plan
  * (program/workload/compile.ts servedWorkload) at the level its certificate gives its writes, by the role's name in the
- * login; and the footprint of every query program of its workloads, by name, the plan's (WorkloadFootprints).
+ * login; each role's reads as the same plan compiled them over them (loginReads), which asked the installation's
+ * indexes and which the served file projects, compiling none again; and the footprint of every query program of its
+ * workloads, by name, the plan's (WorkloadFootprints).
  */
 export interface PlannedLogin {
 	readonly artifacts: InstalledArtifacts
 	readonly roles: ReadonlyMap<string, ServableRole<Isolation, InstalledSource>>
+	readonly reads: ReadonlyMap<string, RoleReads>
 	readonly footprints: ProgramFootprints
 }
 
@@ -367,9 +371,10 @@ interface ServedLevel {
  * the types the workload's plan declares (WorkloadPhysical.params), its programs' and those each login states beside
  * them (adapter/served/login.ts LoginInput `stated`), which the installation drafted installs and its snapshot records. The plan, with what each login's served file compiles over (ServedBasis): each role's change
  * members servable (program/workload/change.ts servableRole), its certification having read their compiled writes, and
- * the plan without them, so no compiled write's front end, analysis, schedule or placement, nor the plan's front ends,
- * outlives this compile into the installation's (installationUnder), where they were every compiled write's whole
- * until the served files were projected. Every login's roles are named under its artifacts' installation before any login compiles
+ * each role's reads compiled once (program/workload/compile.ts loginReads), whose plans asked the installation's
+ * indexes and from which the served files are projected, and the plan without either, so no compiled write's front end,
+ * analysis, schedule or placement, nor the plan's front ends, outlives this compile into the installation's
+ * (installationUnder), where they were every compiled write's whole until the served files were projected. Every login's roles are named under its artifacts' installation before any login compiles
  * (physical/ddl/names.ts namedLogin), so a role whose PostgreSQL role does not fit is DraftRefused with
  * IdentifierTooLong; a program the checker refuses is DraftRefused, and a login's ChangeSet that does not compile
  * ServedRefused. The workload's plan and the change compile are phases reported to `phases` (`workload`, `changes`).
@@ -500,22 +505,24 @@ const plannedLogins = Effect.fn("plannedLogins")(function* (
 		logins: new Map(
 			Arr.map(loginsNamed, ({ login: l, artifacts }) => {
 				const roles = plan.changes.get(l.owned.name)
+				const reads = plan.reads.get(l.owned.name)
 				const footprints = plan.footprints.get(l.owned.name)
-				if (roles === undefined || footprints === undefined) {
-					defect(`the change compile of login ${l.owned.name}, a login of the plan`)
+				if (roles === undefined || reads === undefined || footprints === undefined) {
+					defect(`the change and read compile of login ${l.owned.name}, a login of the plan`)
 				}
 				return [
 					l.owned.name,
 					{
 						artifacts,
 						roles,
+						reads,
 						footprints
 					}
 				] as const
 			})
 		)
 	}
-	const { changes: _certified, ...installed } = plan
+	const { changes: _certified, reads: _compiled, ...installed } = plan
 	return { plan: installed, served: basisOf }
 })
 
@@ -590,8 +597,8 @@ export interface CodesFrom {
  * a deployment needs, its logins' workloads' access, and what each login's served file compiles over. An ordered roster
  * declared out of its codes' order is RosterReordered. The schema's basis is compiled once: the artifacts the workloads'
  * access paths are planned against and the installation the draft installs share one law model and one plan of the
- * closed constants (physical/install/plan.ts installBasis). Each login's ChangeSets are compiled once in the workload
- * plan (plannedLogins), and its other programs once the draft lays out its snapshot (eachServedFile). The basis, the
+ * closed constants (physical/install/plan.ts installBasis). Each login's programs are compiled once, in the workload
+ * plan (plannedLogins), and projected into its served file once the draft lays out its snapshot (eachServedFile). The basis, the
  * logins' plan and the installation are phases reported to `phases` (`basis`, `installation`).
  */
 export const installationUnder = Effect.fn("installationUnder")(function* (
@@ -963,14 +970,15 @@ const runtimeSnapshotValue = (
 /**
  * Each login's served file, in configured order, handed to `sink` as it is compiled: its workload compiled under the
  * snapshot.json text the draft lays out, the draft's (adapter/served/compile.ts servedEntry), over the artifacts
- * `served` holds for it, its ChangeSets as the draft's workload plan compiled them (PlannedLogin): a login over the
+ * `served` holds for it, its ChangeSets and its reads as the draft's workload plan compiled them (PlannedLogin), each
+ * read's served form projected from that one compile, advised by the indexes the snapshot records: a login over the
  * schema's own level over the installation's artifacts, and one over a level below, whose ownership is its own
  * (cli/config.ts compileSchema), over that level's, as the snapshot records them. generate stages them beside the
  * snapshot and check holds the committed ones to them, so both compile every login once, from the one text. A login
  * whose workload does not compile is ServedRefused, at the login, its role or its program; one refused as reading
  * through an index the snapshot does not hold (UninstalledIndex) is a missed index of the draft, whose workload plan
  * asked its installation for an index for every read the login's programs make (program/workload/reads.ts
- * readMemberPlans), an internal compiler error. The served files are a phase reported to `phases` (`served`), each
+ * compiledRead), an internal compiler error. The served files are a phase reported to `phases` (`served`), each
  * login's compile a phase inside it (`servedLogin`).
  *
  * Only what `sink` returns is kept: a login's texts are the sink's to write or to compare, and none outlives its sink,
@@ -1011,7 +1019,14 @@ const servedEntries = Effect.fn("eachServedFile")(function* <A, E, R>(
 			phasedEffect(
 				phases,
 				{ name: "servedLogin", of: [login.owned.name] },
-				servedEntry(login, snapshot, planned.artifacts, planned.roles, planned.footprints)
+				servedEntry(
+					login,
+					snapshot,
+					planned.artifacts,
+					planned.roles,
+					planned.reads,
+					planned.footprints
+				)
 			),
 			(refusal) => {
 				if (isCompileError(refusal.error) && refusal.error.reason._tag === "UninstalledIndex") {

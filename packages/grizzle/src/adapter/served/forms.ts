@@ -33,35 +33,28 @@ import {
 	bindGroups,
 	catchRefusal,
 	type CallerParamDecl,
-	type ClockBinding,
-	type ClockSource,
 	type Codebook,
 	CompileError,
-	Engine,
 	type InstalledSource,
 	noClock,
-	transactionClock,
-	prose,
 	type QueryDesc,
 	recordsReader,
 	type RowDecoder,
 	type SchemaArtifacts,
-	type SchemaFingerprint,
-	SourceLoc
+	type SchemaFingerprint
 } from "#compiler/plan/common.ts"
 import type { Advice, IndexResolver } from "#compiler/plan/migration.ts"
 import {
-	compilePageOf,
+	type CompiledRead,
+	type CompiledTemplate,
 	pageAdvice,
+	pageOf,
 	type PageTemplate,
 	type QueryTemplate,
-	queryInput,
-	queryState,
-	readBinding,
+	type ReadTemplate,
 	servedPage,
 	servedSource,
-	servedSpine,
-	statedOrderOf
+	servedSpine
 } from "#compiler/plan/read.ts"
 import type { ServedSpine } from "#compiler/plan/serve.ts"
 
@@ -80,40 +73,25 @@ export const boundReads = <R>(
 
 /**
  * The forms of a login's compile: a query's rows form and read form, an ordered query's page template, and a
- * ChangeSet's change form, each compiled for one role (adapter/served/login.ts). Compile time only.
- *
- * The evidence context every read's template is compiled for.
+ * ChangeSet's change form, each projected for one role (adapter/served/login.ts) from what the login's workload plan
+ * compiled of it (engine program/workload/compile.ts loginReads, change.ts loginChanges), none compiled here again.
+ * Compile time only.
  */
-const context = "snapshot"
 
 /**
- * The template of a query compiled for `role`, with the parameters `clock` binds to the database's clock, its readings
- * of it counting from `source`, and the program its rows are delivered through (run.ts), whose attachments the analysis
- * describes (analysis.ts), with the codecs of the parameters a call supplies. The caller's value is parsed here, once
- * (program/compile.ts queryInput), and the compiler takes the parsed query.
+ * A read's rows compiled for `role` (engine program/workload/reads.ts ReadTemplate) as its served file runs them: the
+ * template, the program its rows are delivered through (run.ts), whose attachments the analysis describes
+ * (analysis.ts), and the codecs of the parameters a call supplies, under the role's codes.
  */
-const compileArtifacts = (
-	role: RoleContext,
-	query: unknown,
-	clock: ClockBinding,
-	source: ClockSource
-): Result.Result<ReadArtifacts, CompileError> =>
-	Result.map(
-		toResult(
-			Engine.flatMap(queryInput(query), (input) =>
-				role.compile(input, { context, read: "rows", clock, source })
-			)
-		),
-		({ compiled }): ReadArtifacts => ({
-			compiled,
-			program: readProgram(
-				servedSource(compiled.template.run),
-				servedSpine(compiled.desc),
-				role.artifacts.names.codes
-			),
-			codecs: paramCodecs(compiled.template.params, role.artifacts.names.codes)
-		})
-	)
+const readArtifactsOf = (role: RoleContext, rows: ReadTemplate): ReadArtifacts => ({
+	compiled: rows.compiled,
+	program: readProgram(
+		servedSource(rows.compiled.template.run),
+		servedSpine(rows.compiled.desc),
+		role.artifacts.names.codes
+	),
+	codecs: paramCodecs(rows.compiled.template.params, role.artifacts.names.codes)
+})
 
 /**
  * A decoder bound to a compiled read's layouts under `role`'s bind context, once per template and artifact. The decoder
@@ -135,37 +113,49 @@ const bindArtifacts = <A>(
 	)
 
 /**
- * The rows form of `query` for `role`, the parameters `clock` names bound to the database's clock, its readings of it
- * counting from `source`, its rows read by `decoder`: a query that does not compile is its CompileError. A query whose
- * member binds no parameter to the clock reads none, and compiles under the transaction's clock wherever it is served.
+ * The rows form of `query` for `role`, from its rows as the workload plan compiled them for the role (`rows`), read by
+ * `decoder`: a decoder that does not bind to their layouts is its CompileError.
  */
-export const compileRowsForm = <A>(
+export const rowsFormOf = <A>(
 	role: RoleContext,
 	query: unknown,
-	decoder: () => RowDecoder<A>,
-	clock: ClockBinding,
-	source: ClockSource
+	rows: ReadTemplate,
+	decoder: () => RowDecoder<A>
 ): Result.Result<RowsForm<A>, CompileError> =>
-	Result.gen(function* () {
-		const compiled = yield* compileArtifacts(role, query, clock, source)
-		const bound = yield* bindArtifacts(role, compiled, decoder)
-		return { query, decoder, bound }
-	})
+	Result.map(bindArtifacts(role, readArtifactsOf(role, rows), decoder), (bound) => ({
+		query,
+		decoder,
+		bound
+	}))
 
 /**
- * The read form of a paged member's ordered query for `role`, its rows read by `decoder` (compileRowsForm) and its
- * page template compiled beside them (compiledPageTemplate): a query that does not compile is its CompileError.
+ * The read form of a paged member's ordered query for `role`, from its read as the workload plan compiled it for the
+ * role (`read`): its rows form (rowsFormOf) and its page served beside them (compiledPageOf).
  */
-export const compileReadForm = <A>(
+export const readFormOf = <A>(
 	role: RoleContext,
 	query: unknown,
+	read: Extract<CompiledRead, { readonly kind: "paged" }>,
 	decoder: () => RowDecoder<A>
 ): Result.Result<ReadForm<A>, CompileError> =>
-	Result.gen(function* () {
-		const rows = yield* compileRowsForm(role, query, decoder, noClock, transactionClock)
-		const page = yield* compiledPageTemplate(role, query)
-		return { ...rows, page }
-	})
+	Result.map(rowsFormOf(role, query, read.rows, decoder), (rows) => ({
+		...rows,
+		page: compiledPageOf(role, read.page)
+	}))
+
+/**
+ * A paged member's page as the workload plan compiled it for `role` (engine program/workload/reads.ts pagedTemplate),
+ * as its served file serves it: its page read's template, its runtime (pageRuntimeOver) advised by the indexes the
+ * role's installation resolves its plans to, and its parameters' codecs, under the role's codes.
+ */
+const compiledPageOf = (
+	role: RoleContext,
+	page: ReadTemplate & { readonly page: PageTemplate }
+): CompiledPage => ({
+	compiled: page.compiled,
+	runtime: pageRuntimeOver(page.page, page.compiled, role.artifacts.names.codes, role.resolve),
+	codecs: paramCodecs(page.compiled.template.params, role.artifacts.names.codes)
+})
 
 /** What a page's template compiles from: the query template compiled with read "page", its Description and artifacts. */
 interface PageTemplateInput {
@@ -176,45 +166,46 @@ interface PageTemplateInput {
 	readonly resolve: IndexResolver
 }
 
-/**
- * The page runtime template of a query template compiled for a page: its page compiled (lower/shapes/page/compile.ts)
- * over the stated order, served with every statement's spec emitted (engine program/served.ts servedPage), and run as a
- * served page runs (page/template.ts pageRuntimeOf).
- */
-const pageTemplateFor = (input: PageTemplateInput): Result.Result<PageRuntime, CompileError> =>
-	Result.map(compiledPageTemplateFor(input), (compiled) => compiled.runtime)
-
 /** A page's runtime beside the page template it was served from, which a bench's variants rewrite. */
 export interface CompiledPageTemplate {
 	readonly runtime: PageRuntime
 	readonly template: PageTemplate
 }
 
-/** The page runtime of a query template compiled for a page (pageTemplateFor), with its compiled page template. */
+/**
+ * The page runtime of a query template compiled for a page, with its compiled page template: its page compiled over
+ * the stated order (engine program/workload/reads.ts pageOf), its runtime that page's (pageRuntimeOver).
+ */
 export const compiledPageTemplateFor = (
 	input: PageTemplateInput
 ): Result.Result<CompiledPageTemplate, CompileError> => {
 	const { template, desc, artifacts, resolve } = input
-	return Result.gen(function* () {
-		/** The location compileQuery checks the template's Description at (program/compile.ts, label "query"). */
-		const stated = yield* toResult(statedOrderOf(desc, SourceLoc("query", [])))
-		const compiled = yield* toResult(
-			compilePageOf(template.programs, {
-				stated,
-				names: artifacts.reads,
-				binding: readBinding(artifacts)
-			})
-		)
-		const runtime = compiledPageRuntime({
-			page: compiled,
-			params: template.params,
-			codes: artifacts.names.codes,
-			spine: servedSpine(desc),
-			advice: pageAdvice(compiled, resolve)
-		})
-		return { runtime, template: compiled }
-	})
+	const compiled = { template, desc }
+	return Result.map(toResult(pageOf({ compiled, artifacts })), (page) => ({
+		runtime: pageRuntimeOver(page, compiled, artifacts.names.codes, resolve),
+		template: page
+	}))
 }
+
+/**
+ * The runtime of `page`, compiled for a query's page read `compiled`: served with its read's parameters and spine under
+ * `codes`, its transaction planned under the advice `resolve` gives its plans (engine program/served.ts pageAdvice), a
+ * read through an index the installation does not hold thrown as its refusal where the advice resolves it
+ * (compiledPageRuntime).
+ */
+const pageRuntimeOver = (
+	page: PageTemplate,
+	compiled: CompiledTemplate,
+	codes: Codebook,
+	resolve: IndexResolver
+): PageRuntime =>
+	compiledPageRuntime({
+		page,
+		params: compiled.template.params,
+		codes,
+		spine: servedSpine(compiled.desc),
+		advice: pageAdvice(page, resolve)
+	})
 
 /** A compiled page and what its runtime is built from: its read's parameters and spine, and its codes. */
 interface CompiledPageParts {
@@ -237,53 +228,6 @@ export const compiledPageRuntime = (parts: CompiledPageParts): PageRuntime =>
 		codes: parts.codes,
 		spine: parts.spine
 	})
-
-/**
- * The page template of an ordered query compiled for a role, or the refusal of a query read inside its attachment, or
- * its CompileError: what generate's compile of a paged member holds for its ordered query.
- */
-const compiledPageTemplate = (
-	role: RoleContext,
-	query: unknown
-): Result.Result<CompiledPage, CompileError> => {
-	if ((queryState(query)?.pending.size ?? 0) > 0) {
-		return Result.fail(
-			CompileError.make(
-				prose(
-					"AttachedPage",
-					SourceLoc("page", []),
-					"a page over a query read by an attachment: its rules read a parent variable, and a long child list is its own top-level query keyed by the parent"
-				)
-			)
-		)
-	}
-	return Result.flatMap(
-		toResult(
-			Engine.flatMap(queryInput(query), (input) =>
-				role.compile(input, {
-					context: "snapshot",
-					read: "page",
-					clock: noClock,
-					source: transactionClock
-				})
-			)
-		),
-		({ compiled, artifacts }) =>
-			Result.map(
-				pageTemplateFor({
-					template: compiled.template,
-					desc: compiled.desc,
-					artifacts,
-					resolve: role.resolve
-				}),
-				(runtime): CompiledPage => ({
-					compiled,
-					runtime,
-					codecs: paramCodecs(compiled.template.params, role.artifacts.names.codes)
-				})
-			)
-	)
-}
 
 /**
  * A ChangeSet's program entry as its compile made it: the runtime's entry (apply/compile.ts CompiledChange), the
