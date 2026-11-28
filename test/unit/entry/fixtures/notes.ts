@@ -3,54 +3,37 @@
  * admission analyzes the pattern and chooses its CHECK as it is built), a containment, a query with a parameter, a
  * ChangeSet, roles and a login with its workloads.
  */
-import {
-	ChangeSet,
-	closed,
-	closedId,
-	contained,
-	login,
-	on,
-	query,
-	relation,
-	role,
-	schema,
-	str,
-	v,
-	wholeEntriesOf,
-	workload,
-	wholeWritesOf,
-	int8
-} from "@bjornpagen/grizzle"
+import * as g from "@bjornpagen/grizzle"
 
-const Slug = str.regex("^[a-z0-9-]{1,96}$")
-const Prose = str.regex("^.*$", "su")
+const Slug = g.str.regex("^[a-z0-9-]{1,96}$")
+const Prose = g.str.regex("^.*$", "su")
 
-export const Status = closed.ordered("Status", ["Draft", "Published"])
-export const Note = relation("Note", { slug: Slug, body: Prose, status: closedId(Status) }, [
+export const Status = g.closed.ordered("Status", ["Draft", "Published"])
+export const Note = g.relation("Note", { slug: Slug, body: Prose, status: g.closedId(Status) }, [
 	"slug"
 ])
-export const Views = relation("Views", { note: Slug, views: int8 }, ["note"])
-export const Notes = schema(
+export const Views = g.relation("Views", { note: Slug, views: g.int8 }, ["note"])
+export const Notes = g.schema(
 	"Notes",
 	[Status, Note, Views],
-	[contained(on(Views, "note"), on(Note, "slug"))]
+	[g.contained(g.on(Views, "note"), g.on(Note, "slug"))]
 )
 
 /** A published note by its slug. */
-export const published = query(Notes).rule((r) => {
-	const { slug, body } = v(Note, "note")
+export const published = g.query(Notes).rule((r) => {
+	const { slug, body } = g.v(Note, "note")
 	return r
 		.match(Note, { slug, body, status: "Published" })
 		.where(r.eq(slug, r.param("slug", Slug)))
 		.find({ slug, body })
 })
 
-const reader = role(Notes, "reader", wholeEntriesOf(Notes))
-const writer = role(Notes, "writer", wholeEntriesOf(Notes), wholeWritesOf(Notes))
+const reader = g.role(Notes, "reader", g.wholeEntriesOf(Notes))
+const writer = g.role(Notes, "writer", g.wholeEntriesOf(Notes), g.wholeWritesOf(Notes))
 
-export const Web = login(Notes, "web", [reader, writer], {
+export const Web = g.login(Notes, "web", [reader, writer], {
 	workload: [
-		workload(Notes, { published }),
-		workload(writer, { addNote: ChangeSet.empty(writer).insert(Note, []) })
+		g.workload(Notes, { published }),
+		g.workload(writer, { addNote: g.ChangeSet.empty(writer).insert(Note, []) })
 	]
 })

@@ -19,7 +19,7 @@ import type {
 
 /**
  * Public barrel: the scalar catalogue of expressions and their typing, in the namespaces whose domain each member reads
- * (types/compute/compute.ts), Bits the field barrel's, beside Bits.of. Term and Predicate are the scalar
+ * (types/compute/compute.ts), Bit the field barrel's, beside Bit.of. Term and Predicate are the scalar
  * expression types every area threads, Meets the one relation a position takes a term by, and Facts what a term's
  * values are proved to have; LiteralOf and SqlOf are the field barrel's.
  *
@@ -30,8 +30,8 @@ import type {
  * phantoms no runtime value holds. Logic.when hands its branch's function the term its guard holds, which is the
  * guard's subject with the guard's facts proved, and builds over the term the function returns.
  *
- * Type: a typed constant of a descriptor's type, a contract dropped to its base, and a checked cast, into a consumer's
- * contract under its key.
+ * Type: a typed constant of a descriptor's type, a domain dropped to its base, and a checked cast, into a consumer's
+ * domain under its key.
  */
 export const Type: TypeApi = Object.freeze<TypeApi>({
 	literal: (type, value) => C.literal(type, value),

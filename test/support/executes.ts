@@ -31,7 +31,7 @@ import { Id, idName } from "#test/support/ids.ts"
  *   integer literal, and a set's is the set's bits domain, its value a literal cast into that domain. A role that
  *   writes S and holds no relation with a set over the selector's roster uses no field of that domain, so only S's
  *   cast reaches the live-codes constant its CHECK calls.
- * - A check over a set field compares it with a set value, `ne(field, Bits.of(roster, handles))`, a literal cast into
+ * - A check over a set field compares it with a set value, `ne(field, Bit.of(roster, handles))`, a literal cast into
  *   the field's own domain; over a closed id it compares with a handle.
  */
 type RosterName = "Flag" | "Kind"

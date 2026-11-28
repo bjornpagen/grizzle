@@ -6229,8 +6229,8 @@ const uuidProbe = (d: Drawing): Probe => {
 }
 
 /**
- * A set over a roster, Bits.of of its handles, each once, or, a planted fault, a handle of no roster or one twice, which
- * the engine's Bits.of refuses.
+ * A set over a roster, Bit.of of its handles, each once, or, a planted fault, a handle of no roster or one twice, which
+ * the engine's Bit.of refuses.
  */
 const bitsProbe = (d: Drawing, base: Base): Probe => {
 	const roster = d.from(base.rosters)

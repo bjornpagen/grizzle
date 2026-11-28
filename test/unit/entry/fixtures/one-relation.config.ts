@@ -3,26 +3,17 @@
  * the relation, and where migrate connects, whose password Effect fails with CredentialError.
  */
 import net from "node:net"
-import {
-	CredentialError,
-	defineConfig,
-	login,
-	relation,
-	role,
-	schema,
-	str,
-	wholeEntriesOf
-} from "@bjornpagen/grizzle"
+import * as g from "@bjornpagen/grizzle"
 import { Config, Effect } from "effect"
 import pgDriver from "pg"
 
-const Slug = str.regex("^[a-z0-9-]{1,96}$")
-const Note = relation("Note", { slug: Slug, title: str.regex("^.{1,200}$", "su") }, ["slug"])
-const Notes = schema("Notes", [Note], [])
-const reader = role(Notes, "reader", wholeEntriesOf(Notes))
-const Web = login(Notes, "web", [reader], { workload: [] })
+const Slug = g.str.regex("^[a-z0-9-]{1,96}$")
+const Note = g.relation("Note", { slug: Slug, title: g.str.regex("^.{1,200}$", "su") }, ["slug"])
+const Notes = g.schema("Notes", [Note], [])
+const reader = g.role(Notes, "reader", g.wholeEntriesOf(Notes))
+const Web = g.login(Notes, "web", [reader], { workload: [] })
 
-export default defineConfig({
+export default g.defineConfig({
 	schemas: [Notes],
 	logins: [Web],
 	migrations: "migrations",
@@ -40,7 +31,7 @@ export default defineConfig({
 		database: "app",
 		role: "app_owner",
 		password: Config.Redacted("MIGRATION_PASSWORD").pipe(
-			Effect.mapError((cause) => new CredentialError({ cause }))
+			Effect.mapError((cause) => new g.CredentialError({ cause }))
 		)
 	})
 })

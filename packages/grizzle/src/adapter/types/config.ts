@@ -19,8 +19,9 @@ export type MigrationConnectionConfig = DbConnection & { readonly role: string }
  * migrations directory, the longest role prefix an installation is under and where migrate, drift, roles and uninstall
  * connect:
  *
- *     import { defineConfig } from "@bjornpagen/grizzle"
- *     export default defineConfig({
+ *     import * as g from "@bjornpagen/grizzle"
+ *
+ *     export default g.defineConfig({
  *         schemas: [Blog], logins: [Web, EtlJob], migrations: "migrations", rolePrefixBytes: 0,
  *         connection
  *     })

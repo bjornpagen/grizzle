@@ -1,6 +1,6 @@
 /** What the properties of routes.test.ts read: its spaces, models and helpers. */
 
-import { timerMaxMs, timerMinMs } from "@bjornpagen/grizzle/runtime"
+import * as gRuntime from "@bjornpagen/grizzle/runtime"
 import { assert, defined } from "@bjornpagen/testing/assert"
 import {
 	characterOf,
@@ -374,7 +374,7 @@ export const answered = (handler: HttpHandler, request: Request) =>
  * range's ends or one between. A heartbeat is a comment line, so no answer's events depend on it.
  */
 export const heartbeatGen: Gen<number> = oneOf<number>([
-	constant(timerMinMs),
-	constant(timerMaxMs),
-	int(timerMinMs, timerMaxMs)
+	constant(gRuntime.timerMinMs),
+	constant(gRuntime.timerMaxMs),
+	int(gRuntime.timerMinMs, gRuntime.timerMaxMs)
 ])

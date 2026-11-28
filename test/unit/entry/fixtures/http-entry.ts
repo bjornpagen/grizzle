@@ -1,2 +1,4 @@
-/** The HTTP entry imported for one name: Node loads and evaluates every module it re-exports all the same. */
-export { httpHandler } from "@bjornpagen/grizzle/http"
+/** The HTTP entry imported whole: Node loads and evaluates every module it re-exports. */
+import * as gHttp from "@bjornpagen/grizzle/http"
+
+export const httpHandler = gHttp.httpHandler

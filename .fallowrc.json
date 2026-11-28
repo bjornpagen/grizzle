@@ -24,9 +24,8 @@
 		// The one-list connectives' codemod, which a consumer runs by path, and the oxlint plugin it hands its rewrites to.
 		"scripts/dev/connective-list.ts",
 		"scripts/dev/connective-list-plugin.ts",
-		// The star imports' and PostgreSQL names' codemod, which a consumer runs by path at its repin, and the oxlint plugin
-		// its rename pass loads by path.
-		"scripts/dev/star-imports.ts",
+		// The oxlint plugin the star imports' and PostgreSQL names' codemod (star-imports.sh, which a consumer runs by path
+		// at its repin) loads by path for its rename pass.
 		"scripts/dev/star-imports-plugin.ts",
 		"oxlint.ast.config.ts",
 		// The runner config, which toolchain-test loads by its path at the package root, and the test modules it includes.

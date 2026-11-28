@@ -1,2 +1,4 @@
-/** The contract entry imported for one name: Node loads and evaluates every module it re-exports all the same. */
-export { domainParser } from "@bjornpagen/grizzle/domain"
+/** The domain entry imported whole: Node loads and evaluates every module it re-exports. */
+import * as gDomain from "@bjornpagen/grizzle/domain"
+
+export const domainParser = gDomain.domainParser

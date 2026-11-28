@@ -14,7 +14,7 @@
  * whose row of a flag is its completions, empty for a flag it completes nowhere; FlagW, a flag's integer weight,
  * holding a drawn subset of the flags; Allowed, a set of (kind, flag) pairs; and Slot, keyed by a kind and a flag,
  * whose payload is a flag, holding a drawn subset of the pairs. A read is Pick.at of a payload field at the row's kind,
- * or FlagRel.row, FlagW.at or `Bits.singleton` at the row's own flag or, nested, at Pick.at("flag", kind) or at
+ * or FlagRel.row, FlagW.at or `Bit.singleton` at the row's own flag or, nested, at Pick.at("flag", kind) or at
  * Slot.at("slot", kind, flag), so FlagRel.row of the slotted flag is the double lookup, a set read whose key is a
  * closed read keyed by two fields, read at a NULL prefix where Slot lacks the pair; or the union of FlagRel.row at the
  * own flag with such a singleton, or a `Logic.cond` over `C.has` of Pick.at at the row's kind or of FlagW.at at a
@@ -23,8 +23,8 @@
  * one, so a key value is NULL in every key position. Its positions:
  *
  * - two row checks, each a drawn predicate: a read equal to the row's field of its type or to a literal, the
- *   downstream `Bits.subset(FlagRel.row(…), flags)` equal to true and its converse, the flags within the read, a
- *   flag's membership in a set, `Bits.subset(Bits.singleton(flag), set)` of the own, picked or slotted flag in
+ *   downstream `Bit.subset(FlagRel.row(…), flags)` equal to true and its converse, the flags within the read, a
+ *   flag's membership in a set, `Bit.subset(Bit.singleton(flag), set)` of the own, picked or slotted flag in
  *   the row's flags or a FlagRel.row, a presence, the kind equal or unequal to a handle, and AND, OR and NOT of them,
  *   the guard `or([not(C.has(k…)), φ(C.at(…, k…))])` among them;
  * - a containment of a selection's (kind, flag) into Allowed, under a drawn predicate: a table CHECK whose guard is

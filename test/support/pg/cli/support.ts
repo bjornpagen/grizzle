@@ -312,7 +312,7 @@ export const specConfig = (
  * The grizzle.config.ts every spec's workspace holds: config.child.ts's configModule builds the configuration from the
  * spec beside it.
  */
-const configText = `import { defineConfig } from "@bjornpagen/grizzle"\nimport { configModule } from ${jsonText(configChild)}\n\nexport default defineConfig(await configModule(import.meta.dirname))\n`
+const configText = `import * as g from "@bjornpagen/grizzle"\nimport { configModule } from ${jsonText(configChild)}\n\nexport default g.defineConfig(await configModule(import.meta.dirname))\n`
 
 /**
  * A grizzle.config.ts of `text` itself in `dir`: a malformed configuration, or one written by hand, which the bin

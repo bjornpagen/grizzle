@@ -8,7 +8,7 @@ Three declarations, all in the example:
 
 - **`context(name, fields, { claim? })`**: a claim of the session token, read by queries as a table of at most one
   row. Its fields, read from the payload's top level or from the nested object `claim` names, are text, uuid,
-  boolean, the integer types, contracts over them, and closed ids, whose claim is a handle's name. An absent claim
+  bool, the integer types, domains over them, and closed ids, whose claim is a handle's name. An absent claim
   object is no row, and a payload that is not an object has none; a context read from the top level refuses such a
   payload at stage `token`. No rule reads a context, and no ChangeSet writes one.
 - **`role(schema, name, entries, { insert?, write?, contexts?, scope? })`**: what one kind of user sees. An
@@ -34,7 +34,7 @@ Three declarations, all in the example:
 Roles:
 
 - **A query entry is a security-barrier view**: its filter runs before anything that could fail on a row outside it.
-  It has one flat set of columns. Aggregates, negation, span comparisons, `take`, recursion, contexts and every
+  It has one flat set of columns. Aggregates, negation, range comparisons, `take`, recursion, contexts and every
   scalar operation are allowed, since no expression fails on a value ([Queries](reads-and-writes.md#queries)), on the rows outside the
   role a view evaluates it on included. Its keys are the ones its query provably has.
 - **A role declares no rules**: the schema's rules hold, whoever writes.
@@ -140,26 +140,26 @@ above.
 
 ```ts
 /** The children the signed-in Clerk user signs in as: the Learner unit's keys the token names. */
-const learners = query(Sittings).rule((r) => {
-	const { sub } = v(Session, "session")
-	const { child } = v(ClerkAccount, "account")
+const learners = g.query(Sittings).rule((r) => {
+	const { sub } = g.v(Session, "session")
+	const { child } = g.v(ClerkAccount, "account")
 	return r.match(Session, { sub }).match(ClerkAccount, { clerk: sub, child }).find({ child })
 })
 
-export const Student = role(Sittings, "student", wholeEntriesOf(Sittings), {
+export const Student = g.role(Sittings, "student", g.wholeEntriesOf(Sittings), {
 	contexts: [Session],
 	insert: studentInsertNames,
 	scope: [learners]
 })
 
 /** A student's assignment by its number, with its status: no sign-in, no child, no guard. */
-export const myAssignment = query(Sittings).rule((r) => {
-	const { number, test } = v(Assignment, "assignment")
-	const { status } = v(AssignmentStatus, "status")
+export const myAssignment = g.query(Sittings).rule((r) => {
+	const { number, test } = g.v(Assignment, "assignment")
+	const { status } = g.v(AssignmentStatus, "status")
 	return r
 		.match(Assignment, { number, test })
 		.match(AssignmentStatus, { number, status })
-		.where(r.eq(number, r.param("number", natural)))
+		.where(r.eq(number, r.param("number", g.natural)))
 		.find({ number, test, status })
 })
 ```
@@ -258,10 +258,10 @@ it is, read offline from the committed snapshot. PostgreSQL answers:
 | 25000               | a write below SERIALIZABLE, on a table some writer of which is not certified READ COMMITTED                                                                    |
 | 23502               | a NULL in a column, such as one an INSERT leaves out that is not generated (every column a writer supplies is NOT NULL, a family's hidden ones included); a generated field whose term has no value at the row, a closed read at a key its relation holds no row at; each reported by its table and column alone |
 | 22P02, 22003, 23514 | a `grizzle.claims` setting PostgreSQL cannot read, where a statement reads it (below)                                                                         |
-| 23514               | a row check, a family's CHECK or a rule over a closed relation, each named by its rule; a value its contract or pattern refuses, or a code or set its roster's domain refuses, as the statement casts it, before row-level security and the row's constraints |
+| 23514               | a row check, a family's CHECK or a rule over a closed relation, each named by its rule; a value its domain or pattern refuses, or a code or set its roster's domain refuses, as the statement casts it, before row-level security and the row's constraints |
 | 23514               | a clock stated at an instant its transaction did not stamp at its scope's key: an INSERT at the statement's end (`__clocked`), an UPDATE that moves one at COMMIT (`__clock_moved`); stamp first, `SELECT * FROM <schema>.<stamp>(ARRAY[<key>], <microseconds>)`, which `grizzle names` lists, and state the `__instant` it returns ([Instants](reads-and-writes.md#instants)) |
 | 23505               | at the statement: a duplicate key, over a table or over a side of one, an exact repeat included; or a key a concurrent transaction committed after this one's snapshot, which is retryable |
-| 23P01               | at the statement: an overlap under a no-overlap key; or a span a concurrent transaction committed after this one's snapshot, which is retryable               |
+| 23P01               | at the statement: an overlap under a no-overlap key; or a range a concurrent transaction committed after this one's snapshot, which is retryable               |
 | 23503               | a foreign key, a containment between sides included: at COMMIT when deferred (below), at the statement otherwise                                             |
 | 23503, 23505, 23514 | at COMMIT, a rule over a query, a containment, a key or a check, named by the rule ([Rules over queries](schema.md#rules-over-queries))                               |
 | 40001, 40P01        | a serialization failure or a deadlock: run the transaction again                                                                                             |
@@ -285,7 +285,7 @@ constraint `grizzle.claims` and DETAIL `c-`, never read as a document of no fact
 included, is 22P02 with constraint `grizzle.claims` and DETAIL `c[]`. A context's member holding other keys than exactly its fields
 is 22P02 with DETAIL `c["<Context>"]`; a member of a context the statement does not read is never judged. Each claim
 is then cast to its field's type, a closed id's claim being its handle's code: one its type refuses (not a uuid, an
-integer or a boolean) is 22P02, an integer out of range 22003, and a value its contract, pattern or roster refuses
+integer or a boolean) is 22P02, an integer out of range 22003, and a value its domain, pattern or roster refuses
 23514. No DETAIL carries a claim's value. A plan that drops the row through a join or condition before reading the
 claims gives that judgment's answer: 42501 for a write, no rows for a read, false from a function.
 
@@ -315,7 +315,7 @@ claims gives that judgment's answer: 42501 for a write, no rows for a read, fals
 - **Claims are verified once, then decoded.** `verify` decides the token. grizzle decodes the value it returns, never
   the token's JSON text (so a key the token repeats is `verify`'s to refuse), through the contexts' fields. A present
   claim object missing a field or holding a value its field's encoder refuses (a text holding NUL or a lone surrogate
-  among them) is refused at stage `token`, on the host. A claim's pattern or contract is PostgreSQL's to judge, by the
+  among them) is refused at stage `token`, on the host. A claim's pattern or domain is PostgreSQL's to judge, by the
   field's domain, where a statement reads the claim: a claim it refuses fails that call with the server's
   `ServerError`. The transaction's setting holds the decoded claims, one member per context that has a row,
   `{"<Context>":{"<field>":"<text>"}}`, each holding exactly its context's fields as JSON strings. It never holds the
@@ -344,7 +344,7 @@ claims gives that judgment's answer: 42501 for a write, no rows for a read, fals
   session's first call.
 - **What a role can learn.** Rules hold across the whole database. A delete refused by a comment you cannot see, or a
   limit that counts rows outside your view, tells you such rows exist; a collision at a key tells you a row exists at
-  the key you submitted (one overlapping the span you submitted, for a no-overlap key), never any of its other columns.
+  the key you submitted (one overlapping the range you submitted, for a no-overlap key), never any of its other columns.
 - **Not offered.** A write-only role (an insert reads its rows back), a browser connecting straight to PostgreSQL (which
   cannot verify an RS256 token), and a role in two logins.
 - **The owner bypasses every role.** The migration role owns the tables and bypasses row-level security. It is for

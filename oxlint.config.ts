@@ -20,6 +20,7 @@ const { active, lintConfig } = standard(toolchain)
 const DICTIONARY_MINTS = [
 	"test/types/served/ddl.dictionary.ts",
 	"test/types/schema/closed-subset.dictionary.ts",
+	"test/unit/dev/old-names.dictionary.ts",
 	"test/types/schema/variant-subset.dictionary.ts",
 	"test/pg/served/absent-claims.dictionary.ts",
 	"test/pg/lower-conservative/vocabulary.dictionary.ts",

@@ -29,12 +29,12 @@ grizzle carries each statement's proven plan to PostgreSQL as plan advice, which
 
 ```ts
 import net from "node:net"
-import { CredentialError, defineConfig } from "@bjornpagen/grizzle"
+import * as g from "@bjornpagen/grizzle"
 import { Config, Effect } from "effect"
 import pgDriver from "pg"
 import { Blog, caPem, EtlJob, Web } from "./src/blog.ts"
 
-export default defineConfig({
+export default g.defineConfig({
 	schemas: [Blog],
 	logins: [Web, EtlJob],
 	migrations: "migrations",
@@ -52,7 +52,7 @@ export default defineConfig({
 		database: "app",
 		role: "app_owner",
 		password: Config.Redacted("MIGRATION_PASSWORD").pipe(
-			Effect.mapError((cause) => new CredentialError({ cause }))
+			Effect.mapError((cause) => new g.CredentialError({ cause }))
 		)
 	})
 })
@@ -310,8 +310,8 @@ backfill's window functions and its recursive steps are migration SQL you review
 ### Names come from your code
 
 A declared name is ASCII letters, digits and underscores, starting with a letter.
-`TaskNote` becomes `task_note` for the schema, tables, derived tables, rosters' domains, contracts, columns, row
-checks, a table's whole view and a role's query entries' views; a contract's CHECK is `check`; a schema's schema of
+`TaskNote` becomes `task_note` for the schema, tables, derived tables, domains, rosters' domains, columns, row
+checks, a table's whole view and a role's query entries' views; a domain's CHECK is `check`; a schema's schema of
 whole views is `__` and its own. A login's or role's PostgreSQL role joins its schema's conversion and its own, its
 stem, under the installation's role prefix: take it from `roleNameOf(login or role, connection)`, a schema's or a
 role's schema from `schemaNameOf(schema or role)`, and a schema's schema of whole views from `wholeSchemaNameOf`,
@@ -513,10 +513,10 @@ ownership there is.
 
 ```ts
 import { Signer } from "@aws-sdk/rds-signer"
-import { roleNameOf } from "@bjornpagen/grizzle/runtime"
+import * as gRuntime from "@bjornpagen/grizzle/runtime"
 import { Redacted } from "effect"
 
-export const RdsEtlLayer = DbLayer.make({
+export const RdsEtlLayer = gRuntime.DbLayer.make({
 	...connection,
 	login: EtlServed,
 	pool: { max: 2 },
@@ -526,16 +526,16 @@ export const RdsEtlLayer = DbLayer.make({
 				hostname: "db.internal",
 				port: 5432,
 				region: "us-east-1",
-				username: roleNameOf(EtlServed, connection)
+				username: gRuntime.roleNameOf(EtlServed, connection)
 			}).getAuthToken(),
-		catch: (cause) => new CredentialError({ cause })
+		catch: (cause) => new g.CredentialError({ cause })
 	}).pipe(Effect.map(Redacted.make))
 })
 ```
 
 ## PostgreSQL known issues
 
-**Imprecise GiST indexes over multibyte text.** Through PostgreSQL 19, btree_gist prices a UTF8 text key by the byte after the common prefix of its subtree's bounds, cut at a character boundary, so characters that share leading bytes, such as the CJK Unified Ideographs, price alike, and a GiST index led by such text is imprecise: a point lookup takes 14 buffers for one row of 20,000 two-ideograph keys, where ASCII keys take 3. grizzle builds such an index only for a no-overlap key or a span filter whose text field comes first. It stays valid; only its lookups cost more. PostgreSQL's master branch fixes this in commit b82d69abf6, for PostgreSQL 20, where the lookup takes 3 buffers; rebuild an older index there. No PostgreSQL 19 release carries it (a request to back-patch it is drafted, not filed, in [upstream/btree-gist-multibyte-penalty](upstream/btree-gist-multibyte-penalty)), and grizzle's tests run on the unpatched release, so the indexes the test suite builds pay this cost too.
+**Imprecise GiST indexes over multibyte text.** Through PostgreSQL 19, btree_gist prices a UTF8 text key by the byte after the common prefix of its subtree's bounds, cut at a character boundary, so characters that share leading bytes, such as the CJK Unified Ideographs, price alike, and a GiST index led by such text is imprecise: a point lookup takes 14 buffers for one row of 20,000 two-ideograph keys, where ASCII keys take 3. grizzle builds such an index only for a no-overlap key or a range filter whose text field comes first. It stays valid; only its lookups cost more. PostgreSQL's master branch fixes this in commit b82d69abf6, for PostgreSQL 20, where the lookup takes 3 buffers; rebuild an older index there. No PostgreSQL 19 release carries it (a request to back-patch it is drafted, not filed, in [upstream/btree-gist-multibyte-penalty](upstream/btree-gist-multibyte-penalty)), and grizzle's tests run on the unpatched release, so the indexes the test suite builds pay this cost too.
 
 **CHECKs and generated columns re-planned per statement.** PostgreSQL 19 parses and plans every CHECK and stored generation expression again in each statement that writes its table: it reads each literal back from the stored expression a byte at a time and evaluates each IMMUTABLE function the expression calls, copying the value in. Counted in user-mode instructions of the writing backend on 19.0, a literal costs a statement about 207 instructions a byte, and a call of a constant about 7,800 plus 0.83 a byte of its value; before grizzle answered it, each INSERT statement into qti's interaction_attribute table paid 90.6 million instructions for its CHECKs and generations, its attribute table 35.0 million. grizzle installs each CHECK and stored generation that calls a constant of the installation's data, a closed relation's, a roster's or a dictionary's ([Closed relations](schema.md#closed-relations)), that matches a pattern, or whose literals hold more than 21 bytes of text or bits together, as a row function: a PL/pgSQL function of the columns it reads, named by its definition's digest, which each backend plans once with the constants folded in, and the CHECK or the column calls it. A statement then pays the call once a row, about 4,400 instructions, where it paid the literals and the constants once a statement, so a statement of many rows into a table of many such expressions pays more than it did: qti's interaction_attribute, 72 calls a row, breaks even near 300 rows a statement. Planning CHECKs once per relcache entry, as PostgreSQL plans index expressions and domain checks, would remove both costs: a change of grizzle's own that no PostgreSQL release carries ([upstream/relcache-planned-check-and-generation](upstream/relcache-planned-check-and-generation)). A roster's domain is unaffected: a domain's check is planned once per backend. Only the cost differs, never the behaviour.
 

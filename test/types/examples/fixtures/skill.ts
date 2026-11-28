@@ -1,5 +1,5 @@
 import net from "node:net"
-import { CredentialError, defineConfig } from "@bjornpagen/grizzle"
+import * as g from "@bjornpagen/grizzle"
 import { Config, Effect } from "effect"
 import pgDriver from "pg"
 import { Blog, Indexer as EtlJob, Web } from "#test/types/examples/fixtures/readme.ts"
@@ -12,7 +12,7 @@ declare const caPem: string
  * the block here, in order. Its "./src/db.ts" is the README's program, its second login the README's indexer, with the
  * CA declared above. Typechecked, never executed.
  */
-export default defineConfig({
+export default g.defineConfig({
 	/** Required: each declared schema, in its own PostgreSQL schema. */
 	schemas: [Blog],
 	/** Required: every login, and through them every role a Db opens and every workload whose access paths earn indexes. */
@@ -35,7 +35,7 @@ export default defineConfig({
 		database: "app",
 		role: "app_owner",
 		password: Config.Redacted("MIGRATION_PASSWORD").pipe(
-			Effect.mapError((cause) => new CredentialError({ cause }))
+			Effect.mapError((cause) => new g.CredentialError({ cause }))
 		)
 	})
 })

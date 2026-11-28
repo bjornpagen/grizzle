@@ -1,7 +1,7 @@
 /** What warm-pool.test.ts reads: its schema, its template, its box and each case's requests. */
 
 import { createServer, connect, type Server, type Socket } from "node:net"
-import { timerMinMs } from "@bjornpagen/grizzle/runtime"
+import * as gRuntime from "@bjornpagen/grizzle/runtime"
 import { assert } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { liveSleep } from "@bjornpagen/testing/live"
@@ -64,22 +64,22 @@ interface Burst {
 const scenarios = {
 	"one at a time": [
 		{ pauseMs: 0, width: 1 },
-		{ pauseMs: timerMinMs, width: 1 },
+		{ pauseMs: gRuntime.timerMinMs, width: 1 },
 		{ pauseMs: 20, width: 1 }
 	],
 	"two at once": [
 		{ pauseMs: 0, width: 2 },
-		{ pauseMs: timerMinMs, width: 2 },
+		{ pauseMs: gRuntime.timerMinMs, width: 2 },
 		{ pauseMs: 20, width: 2 }
 	],
 	"two after one": [
 		{ pauseMs: 0, width: 1 },
-		{ pauseMs: timerMinMs, width: 2 },
+		{ pauseMs: gRuntime.timerMinMs, width: 2 },
 		{ pauseMs: 20, width: 2 }
 	],
 	"one after two": [
 		{ pauseMs: 0, width: 2 },
-		{ pauseMs: timerMinMs, width: 1 },
+		{ pauseMs: gRuntime.timerMinMs, width: 1 },
 		{ pauseMs: 20, width: 1 }
 	]
 } as const satisfies Readonly<Record<string, Arr.NonEmptyReadonlyArray<Burst>>>

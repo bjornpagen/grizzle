@@ -1,5 +1,5 @@
 /**
- * A membership test, `Bits.subset(Bits.singleton(c), s)`, as the work its CHECK does (lower/conservative/expr
+ * A membership test, `Bit.subset(Bit.singleton(c), s)`, as the work its CHECK does (lower/conservative/expr
  * memberTest): the one bit it reads, never a set built and compared.
  *
  * The box, exhausted: the code a row asks for (its own closed id, a closed read's, a handle) against the set it asks

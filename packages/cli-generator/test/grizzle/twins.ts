@@ -18,15 +18,9 @@
  * deleted, then the case's put), so no case reads another's.
  */
 import { jsonText, type Json } from "@bjornpagen/grizzle-text/utf8"
-import { handlerClient } from "@bjornpagen/grizzle/client"
-import { type HttpHandler, httpHandler } from "@bjornpagen/grizzle/http"
-import {
-	DbLayer,
-	LiveSource,
-	roleNameOf,
-	type ServedLogin,
-	served
-} from "@bjornpagen/grizzle/runtime"
+import * as gClient from "@bjornpagen/grizzle/client"
+import * as gHttp from "@bjornpagen/grizzle/http"
+import * as gRuntime from "@bjornpagen/grizzle/runtime"
 import { pgOwnerSession } from "@bjornpagen/testing/pg-session"
 import { type Need, NeedFailed } from "@bjornpagen/testing/property"
 import { type Database, Template } from "@bjornpagen/testing/resources"
@@ -151,7 +145,7 @@ export const endsSafeAgain = (events: ReadonlyArray<Event>): boolean =>
 	)
 
 /** One installation of the login, served by grizzle's handler, called in process through `client`. */
-export type Twin = Readonly<{ handler: HttpHandler; client: HttpClient.HttpClient }>
+export type Twin = Readonly<{ handler: gHttp.HttpHandler; client: HttpClient.HttpClient }>
 
 /** What every case of a worker is given (see the header). */
 export type Twins = Readonly<{
@@ -310,7 +304,8 @@ const twinOf = (
 				)
 		const rolePrefix = database.name
 		const login = yield* Effect.try({
-			try: (): ServedLogin<typeof Server> => served<typeof Server>(draft.file, loginName),
+			try: (): gRuntime.ServedLogin<typeof Server> =>
+				gRuntime.served<typeof Server>(draft.file, loginName),
 			catch: setupFailed("reading the login's served file")
 		})
 		const env = {
@@ -322,8 +317,8 @@ const twinOf = (
 			EOCG_GRIZZLE_DATABASE: database.name,
 			EOCG_GRIZZLE_ROLE_PREFIX: rolePrefix
 		}
-		const server = roleNameOf(login, { rolePrefix })
-		const decoder = roleNameOf(login.decoder, { rolePrefix })
+		const server = gRuntime.roleNameOf(login, { rolePrefix })
+		const decoder = gRuntime.roleNameOf(login.decoder, { rolePrefix })
 		yield* Effect.acquireRelease(
 			Effect.gen(function* () {
 				yield* grizzle(bin, "migrate", env)
@@ -345,16 +340,19 @@ const twinOf = (
 		const layers = yield* stepOf(
 			"building the login's layers",
 			Layer.build(
-				DbLayer.make({ ...connection(server), login, pool }).pipe(
-					Layer.provide(LiveSource.layer({ ...connection(decoder), login }))
+				gRuntime.DbLayer.make({ ...connection(server), login, pool }).pipe(
+					Layer.provide(gRuntime.LiveSource.layer({ ...connection(decoder), login }))
 				)
 			)
 		)
 		const handler = yield* stepOf(
 			"building the login's handler",
-			Effect.provideContext(httpHandler({ logins: [login], heartbeatMs: unboundedMillis }), layers)
+			Effect.provideContext(
+				gHttp.httpHandler({ logins: [login], heartbeatMs: unboundedMillis }),
+				layers
+			)
 		)
-		const twin: Twin = { handler, client: handlerClient(handler) }
+		const twin: Twin = { handler, client: gClient.handlerClient(handler) }
 		return twin
 	})
 
@@ -472,7 +470,7 @@ const warm = (twins: Twins, twin: Twin) =>
  * (NodeHttpServer.layerTest), each request handed to it as the web Request it takes (HttpEffect.fromWebHandler), and
  * its base URL on the loopback address.
  */
-const servedOverHttp = (handler: HttpHandler) =>
+const servedOverHttp = (handler: gHttp.HttpHandler) =>
 	Effect.gen(function* () {
 		const services = yield* stepOf(
 			"starting twin A's server",

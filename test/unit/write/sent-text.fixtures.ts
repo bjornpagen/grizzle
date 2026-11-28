@@ -1,6 +1,6 @@
 /** What the properties of sent-text.test.ts read: its spaces and the texts each side gives. */
 
-import { assembled } from "@bjornpagen/grizzle/compile"
+import * as gCompile from "@bjornpagen/grizzle/compile"
 import { int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record as Rec } from "effect"
 import { identity } from "#compiler/core/identity.ts"
@@ -77,7 +77,7 @@ export const sentPairs = (n: number): ReadonlyArray<SentPair> => {
 		if (s.kind !== "parted" || loaded?.kind !== "parted") {
 			return []
 		}
-		const exported = assembled(s.form.units)
+		const exported = gCompile.assembled(s.form.units)
 		const sent = loaded.form.sentFor(() => true)
 		return sent === undefined
 			? []

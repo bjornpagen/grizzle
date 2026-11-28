@@ -12,7 +12,7 @@
  * timerMaxMs).
  */
 
-import { timerMaxMs, timerMinMs } from "@bjornpagen/grizzle/runtime"
+import * as gRuntime from "@bjornpagen/grizzle/runtime"
 import { assert, assertVariant } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { element, finite } from "@bjornpagen/testing/gen"
@@ -26,11 +26,11 @@ type HeartbeatFeature = "a timer's delay built" | "a delay no timer keeps refuse
 
 /** Each end of a timer's range, and every value outside it a JavaScript caller can pass. */
 const heartbeats = [
-	timerMinMs,
-	timerMaxMs,
+	gRuntime.timerMinMs,
+	gRuntime.timerMaxMs,
 	0,
 	-1,
-	timerMaxMs + 1,
+	gRuntime.timerMaxMs + 1,
 	1.5,
 	Number.NaN,
 	Number.POSITIVE_INFINITY,
@@ -42,8 +42,8 @@ const heartbeats = [
 const timerKeeps = (heartbeat: unknown): heartbeat is number =>
 	typeof heartbeat === "number" &&
 	Number.isSafeInteger(heartbeat) &&
-	heartbeat >= timerMinMs &&
-	heartbeat <= timerMaxMs
+	heartbeat >= gRuntime.timerMinMs &&
+	heartbeat <= gRuntime.timerMaxMs
 
 /** httpHandler builds a handler of a heartbeat a Node timer keeps, and refuses any other, naming HttpConfig.heartbeatMs. */
 export const httpHandlerBuildsAHeartbeatANodeTimerKeepsAndRefusesAnyOtherNamingHttpConfigHeartbeatMs =
@@ -61,7 +61,7 @@ export const httpHandlerBuildsAHeartbeatANodeTimerKeepsAndRefusesAnyOtherNamingH
 						const services = yield* Layer.build(DbLayer.make(shelvingConfig([])))
 						/** A JavaScript caller's config, its heartbeat any value, as the parse is handed it. */
 						const config = Object.assign(
-							{ logins: [ShelvingServed] as const, heartbeatMs: timerMinMs },
+							{ logins: [ShelvingServed] as const, heartbeatMs: gRuntime.timerMinMs },
 							{ heartbeatMs: heartbeat }
 						)
 						const built = yield* Effect.exit(
@@ -87,7 +87,12 @@ export const httpHandlerBuildsAHeartbeatANodeTimerKeepsAndRefusesAnyOtherNamingH
 						)
 						assert.deepEqual(
 							reason.fault.rule,
-							{ kind: "integer", least: timerMinMs, most: timerMaxMs, unit: "milliseconds" },
+							{
+								kind: "integer",
+								least: gRuntime.timerMinMs,
+								most: gRuntime.timerMaxMs,
+								unit: "milliseconds"
+							},
 							"it states a timer's range"
 						)
 						c.note("a delay no timer keeps refused")

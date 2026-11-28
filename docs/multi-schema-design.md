@@ -2,8 +2,8 @@
 
 **2026-11-14:** This design was built on main on 2026-11-08 (999facc6), so "Nothing here is built" no longer holds:
 Decisions 1, 5, 6 and 8 stand as recommended (a level-name clash is `IdentifierCollision`), while docs/schema.md "Levels",
-which states what is true, departs from the others: the root's schema holds the installation's contract and
-text domains, constants and grizzle's functions (Decision 2); a level reaches a relation below it only by a
+which states what is true, departs from the others: the root's schema holds the installation's domains,
+pattern domains among them, constants and grizzle's functions (Decision 2); a level reaches a relation below it only by a
 containment of plain fields into a declared key, a rule over a query or a row check, and anything else is
 `LevelRefused` (Decision 3); an `above` law is `refused.laws[0]` of a refusal whose `refused.kind` is `above`
 (Decision 4); and `DbLayer.make` takes a login's served file (Decision 7). Since then a schema's relations are a list,
@@ -49,38 +49,45 @@ What main refuses today:
 
 ```ts
 // pantry: unchanged
-export const Qti = schema("Qti", { …, NodeKind, Package, Resource, … }, qtiLaws)
-export const Author = role(Qti, "author", wholeEntriesOf(Qti), { write: writableNamesOf(Qti) })
-export const AuthorApp = login(Qti, "author_app", [Author], { workload: [exportWork, importWork] })
+export const Qti = g.schema("Qti", { …, NodeKind, Package, Resource, … }, qtiLaws)
+export const Author = g.role(Qti, "author", g.wholeEntriesOf(Qti), { write: g.writableNamesOf(Qti) })
+export const AuthorApp = g.login(Qti, "author_app", [Author], { workload: [exportWork, importWork] })
 
 // EduLLM: the ledger's names are illustrative
-export const ClerkUser = str.regex("^user_[0-9A-Za-z]{1,64}$")
+export const ClerkUser = g.str.regex("^user_[0-9A-Za-z]{1,64}$")
 /** A sitting is its child, its package and the instant it began; a served step, its sitting's key and its place. */
-export const Sitting = relation("Sitting", { child: ClerkUser, package: PackageName, at: instant }, [
+export const Sitting = g.relation("Sitting", { child: ClerkUser, package: PackageName, at: g.instant }, [
 	"child",
 	"package",
 	"at"
 ])
-export const Served = relation(
+export const Served = g.relation(
 	"Served",
-	{ child: ClerkUser, package: PackageName, at: instant, step: natural, resource: ResourceId, kind: closedId(NodeKind) },
+	{
+		child: ClerkUser,
+		package: PackageName,
+		at: g.instant,
+		step: g.natural,
+		resource: ResourceId,
+		kind: g.closedId(NodeKind)
+	},
 	["child", "package", "at", "step"]
 )
-export const Ledger = schema.extend(Qti, "Ledger", { Sitting, Served, Answer, Grade }, [
-	contained(on(Sitting, "package"), on(Package, "name")),
-	contained(on(Served, "resource"), on(Resource, "node")),
-	contained(on(Served, "child", "package", "at"), on(Sitting, "child", "package", "at"))
+export const Ledger = g.schema.extend(Qti, "Ledger", { Sitting, Served, Answer, Grade }, [
+	g.contained(g.on(Sitting, "package"), g.on(Package, "name")),
+	g.contained(g.on(Served, "resource"), g.on(Resource, "node")),
+	g.contained(g.on(Served, "child", "package", "at"), g.on(Sitting, "child", "package", "at"))
 	// …
 ])
-export const Child = role(
+export const Child = g.role(
 	Ledger,
 	"child",
-	{ ...wholeEntriesOf(Qti), Sitting: mySittings, Served: myServed, Answer: myAnswers, Grade: myGrades },
+	{ ...g.wholeEntriesOf(Qti), Sitting: mySittings, Served: myServed, Answer: myAnswers, Grade: myGrades },
 	{ write: ["Sitting", "Served", "Answer", "Grade"] }
 )
-export const LedgerApp = login(Ledger, "app", [Child], { workload: [childWork] })
+export const LedgerApp = g.login(Ledger, "app", [Child], { workload: [childWork] })
 
-export default defineConfig({
+export default g.defineConfig({
 	schemas: [Ledger],
 	logins: [AuthorApp, LedgerApp],
 	migrations: "migrations",
@@ -130,8 +137,8 @@ name is where it lives.
     and stored generated columns sit on the table they constrain, wherever PostgreSQL puts them;
   - a role's views, filter functions and probes in its role schema, `<level>__<role>`, and its policies on the tables it
     writes;
-  - an object named by its definition alone (a contract's or a text pattern's domain, a closed relation's constant, a
-    set's bits domain over the level's own roster): one copy in each level that uses it, so a level never depends on a
+  - an object named by its definition alone (a `domain`'s or a text pattern's domain, a closed relation's constant, a
+    set's bit domain over the level's own roster): one copy in each level that uses it, so a level never depends on a
     definition only a higher level uses;
   - a level's `__refuse` and `__require_serializable` in its own schema; `__ledger` and `__snapshot_guard` once, in the
     root's schema (Decision 5).
@@ -150,7 +157,7 @@ ALTER TABLE "ledger"."served" ADD CONSTRAINT "__served_fk_resource_…"
 A Ledger containment into a selection of a Qti relation adds its stored generated columns and unique index to the Qti
 table, which rewrites it in the migration that adds them.
 
-**To verify while building:** a foreign key between two per-level copies of one contract's domain (`ledger.__domain_x`
+**To verify while building:** a foreign key between two per-level copies of one domain (`ledger.__domain_x`
 referencing `qti.__domain_x`) must compile natively. PostgreSQL resolves a domain's equality through its base type, but
 grizzle's own law checks should confirm it.
 

@@ -16,12 +16,6 @@ export {
 	schema,
 	uuid
 } from "#index.ts"
-export {
-	codecText,
-	factsDecoder,
-	insertPreview,
-	rowEvaluator,
-	type RowEvaluation,
-	type RowEvaluator
-} from "@bjornpagen/grizzle/compile"
+export { codecText, factsDecoder, insertPreview, rowEvaluator } from "#adapter/public/host.ts"
+export type { RowEvaluation, RowEvaluator } from "#compiler/plan/common.ts"
 export { Id } from "#test/support/ids.ts"

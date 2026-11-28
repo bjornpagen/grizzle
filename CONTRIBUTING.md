@@ -381,7 +381,7 @@ holds this section to, member by member:
   `Object.create(null)`, a key from outside is read with `Object.hasOwn`, and a record of such keys is a Map or a
   null-prototype object (oxlint `no-proto`). Nothing sends SIGUSR1.
 - **A test's ids are named.** grizzle mints no ids and refuses a bare uuid column, so a test relation keyed by a uuid
-  names it by `Id` (`test/support/ids.ts`), one contract every such relation shares, its values `Id(uuid)`; a
+  names it by `Id` (`test/support/ids.ts`), one domain every such relation shares, its values `toId(uuid)`; a
   relation that needs no uuid is keyed by its natural fields.
 - **Names come from the naming door.** `packages/engine/src/core/identity.ts` is the one module that mints the
   installed identifiers' brands (oxlint `brands-sole-mint`, whose options in `oxlint.config.ts` name each brand's doors);
@@ -715,10 +715,10 @@ text match. A type agreement's requirements are its property's situations, which
   (`test/schedules/laws/races.ts`).
 - **The law families** (`test/pg/laws/families`, and the native projection families in `test/pg/laws/projections`):
   each family (the law-family box of selected-source containments, containments into a selected target, mirrors,
-  alternatives and span coverage; alternatives over a single and a composite key; a work queue; span coverage, also
+  alternatives and range coverage; alternatives over a single and a composite key; a work queue; range coverage, also
   into a target whose fields are named apart and declared in another heading order; timekeeping) draws schemas from
   its whole parameter space and judges writes against a host model of the laws (`test/support/laws/model.ts`),
-  including span keys, span coverage and row checks. Every law is native, so a refusal names its law's constraint. The
+  including range keys, range coverage and row checks. Every law is native, so a refusal names its law's constraint. The
   same schemas drive concurrent histories, generated races and a direct SQL writer (`direct-*.test.ts`).
 - **The families and trees** (`test/pg/fin`, `test/support/families`): the fin lemmas per direction, ordered and
   counted families, folds, the plans and edits grizzle's apply sends, and the tree theorem over an exhaustive box of

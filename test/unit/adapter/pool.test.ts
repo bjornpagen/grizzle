@@ -34,7 +34,7 @@
  * waiting behind another; the kept case reaches every abandonment, loss, starvation and refusal on a pool of two.
  */
 
-import { timerMinMs } from "@bjornpagen/grizzle/runtime"
+import * as gRuntime from "@bjornpagen/grizzle/runtime"
 import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
@@ -211,7 +211,7 @@ export const theSessionPoolKeepsExactlyTheOpenConnectionsAndRecoversFromEveryInt
 								 * lib/internal/timers.js, "any timer added later will always have been scheduled to timeout
 								 * later"), so an idle timeout of that delay would have closed it by then.
 								 */
-								const idled = Effect.andThen(wallClock(timerMinMs), settle)
+								const idled = Effect.andThen(wallClock(gRuntime.timerMinMs), settle)
 								yield* idled
 								assert.equal(server.terminated, terminated, "no session is closed for idling")
 								assert.equal(server.open.size, open, "the released session is still open")

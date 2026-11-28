@@ -35,8 +35,8 @@ export const mirrored = property.exhaust(documentedBlocks, {
 	kills: [
 		{
 			file: "README.md",
-			original: "export const feed = query(Member).rule((r) => {",
-			replacement: "export const feeds = query(Member).rule((r) => {",
+			original: "export const feed = g.query(Member).rule((r) => {",
+			replacement: "export const feeds = g.query(Member).rule((r) => {",
 			why: "A README block's binding renamed where its fixture keeps the old name, so the block's line is mirrored nowhere."
 		}
 	]

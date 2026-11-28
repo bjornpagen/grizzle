@@ -1226,9 +1226,9 @@ export const bitsOf = <C extends AnyRoster>(
 	handles: ReadonlyArray<HandleOf<C>>,
 	extra: ReadonlyArray<unknown>
 ): Bits<C> => {
-	const label = "Bits.of"
+	const label = "Bit.of"
 	if (extra.length > 0) {
-		throw malformed(label, "Bits.of(roster, handles): two arguments")
+		throw malformed(label, "Bit.of(roster, handles): two arguments")
 	}
 	if (ownedKind(roster) !== "closed" || !isList(handles)) {
 		throw malformed(

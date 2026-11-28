@@ -47,49 +47,49 @@ export const shapes: Gen<Shape> = (source) =>
 /** The project's flow module, which decodes a step's input through the key holder's checked mint where it is declared. */
 const flowsText = (imports: string): string => `${imports}import { centsParser } from "./parsers.ts"
 
-/** A step's input decoded through the checked mint where the flow is declared, as den's contractInput decodes it. */
+/** A step's input decoded through the checked mint where the flow is declared, as den's domainInput decodes it. */
 export const fee = centsParser.parse(5n)
 `
 
 /** The project's modules, each by its file name within the project, its flow's module importing `imports` first. */
 const projectFiles = (imports: string): Readonly<Record<string, string>> => ({
-	"contracts.ts": `import { domain, Num, int8 } from "@bjornpagen/grizzle"
+	"contracts.ts": `import * as g from "@bjornpagen/grizzle"
 
 export const centsKey = Symbol("Cents")
 
 /** An amount: any int8 from 0 to 2^62. */
-export const Cents = domain<typeof centsKey>()("Cents", int8, (c) => Num.within(c, 0n, 2n ** 62n))
+export const Cents = g.domain<typeof centsKey>()("Cents", g.int8, (c) => g.Num.within(c, 0n, 2n ** 62n))
 `,
-	"parsers.ts": `import { domainParser } from "@bjornpagen/grizzle/domain"
+	"parsers.ts": `import * as gDomain from "@bjornpagen/grizzle/domain"
 import { Cents, centsKey } from "./contracts.ts"
 
 /** The key holder's checked mint of Cents. */
-export const centsParser = domainParser(Cents, centsKey)
+export const centsParser = gDomain.domainParser(Cents, centsKey)
 `,
-	"schema.ts": `import { relation, schema, str } from "@bjornpagen/grizzle"
+	"schema.ts": `import * as g from "@bjornpagen/grizzle"
 import { Cents } from "./contracts.ts"
 
-export const Entry = relation("Entry", { name: str.bytes(64, str.regex("^[a-z]+$")), amount: Cents }, ["name"])
-export const Book = schema("Book", [Entry], [])
+export const Entry = g.relation("Entry", { name: g.str.bytes(64, g.str.regex("^[a-z]+$")), amount: Cents }, ["name"])
+export const Book = g.schema("Book", [Entry], [])
 `,
 	"flows.ts": flowsText(imports),
-	"logins.ts": `import { ChangeSet, login, role, wholeEntriesOf, workload } from "@bjornpagen/grizzle"
+	"logins.ts": `import * as g from "@bjornpagen/grizzle"
 import { fee } from "./flows.ts"
 import { Book, Entry } from "./schema.ts"
 
-const Writer = role(Book, "writer", wholeEntriesOf(Book), { insert: ["Entry"] })
+const Writer = g.role(Book, "writer", g.wholeEntriesOf(Book), { insert: ["Entry"] })
 
-export const App = login(Book, "app", [Writer], {
-	workload: [workload(Writer, { add: ChangeSet.empty(Writer).insert(Entry, []) })]
+export const App = g.login(Book, "app", [Writer], {
+	workload: [g.workload(Writer, { add: g.ChangeSet.empty(Writer).insert(Entry, []) })]
 })
 
 export const declaredFee = fee
 `,
-	[configName]: `import { defineConfig } from "@bjornpagen/grizzle"
+	[configName]: `import * as g from "@bjornpagen/grizzle"
 import { App } from "./logins.ts"
 import { Book } from "./schema.ts"
 
-export default defineConfig({
+export default g.defineConfig({
 	schemas: [Book],
 	logins: [App],
 	migrations: "migrations",

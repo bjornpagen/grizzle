@@ -1,6 +1,6 @@
 /**
- * A set compared with a set value in a row check, on PostgreSQL 19: `Bits.disjoint` and `Bits.subset` take a
- * set value of the first operand's roster (Bits.of) as their second operand, a literal that takes the set's type, so its
+ * A set compared with a set value in a row check, on PostgreSQL 19: `Bit.disjoint` and `Bit.subset` take a
+ * set value of the first operand's roster (Bit.of) as their second operand, a literal that takes the set's type, so its
  * bits are its handles' codes, and the installed CHECK holds a row exactly when the set algebra over its handles does.
  *
  * The box: every set over a roster of three handles, written as one row of R, whose checks hold its flags apart from

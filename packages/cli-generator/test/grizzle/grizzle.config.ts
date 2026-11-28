@@ -6,13 +6,13 @@
  * `grizzle generate` never calls the connection, so it reads none of the connection's variables.
  */
 import net from "node:net"
-import { CredentialError, defineConfig } from "@bjornpagen/grizzle"
+import * as g from "@bjornpagen/grizzle"
 import { Config, Effect } from "effect"
 import pg from "pg"
 import { serverName } from "#test/grizzle/connection.ts"
 import { Items, Server } from "#test/grizzle/world.ts"
 
-export default defineConfig({
+export default g.defineConfig({
 	schemas: [Items],
 	logins: [Server],
 	migrations: Effect.runSync(Config.String("EOCG_GRIZZLE_MIGRATIONS")),
@@ -38,7 +38,7 @@ export default defineConfig({
 		role: Effect.runSync(Config.String("EOCG_GRIZZLE_ROLE")),
 		rolePrefix: Effect.runSync(Config.String("EOCG_GRIZZLE_ROLE_PREFIX")),
 		password: Config.Redacted("EOCG_GRIZZLE_PASSWORD").pipe(
-			Effect.mapError((cause) => new CredentialError({ cause }))
+			Effect.mapError((cause) => new g.CredentialError({ cause }))
 		)
 	})
 })

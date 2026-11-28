@@ -145,13 +145,13 @@ export const parameterBoxItems: Arr.NonEmptyReadonlyArray<ParameterCell> = Arr.a
 /** The package's public names the program may read, each a value or a type. */
 const publicNames: ReadonlyArray<readonly [string, "value" | "type"]> = [
 	["contained", "value"],
-	["contract", "value"],
+	["domain", "value"],
 	["DomainOf", "type"],
 	["HeadOf", "type"],
 	["Infer", "type"],
 	["InputOrigin", "type"],
+	["int8", "value"],
 	["on", "value"],
-	["pg", "value"],
 	["query", "value"],
 	["relation", "value"],
 	["schema", "value"],

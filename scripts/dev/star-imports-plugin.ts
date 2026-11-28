@@ -2,7 +2,7 @@ import type { AnyNode, Context, CreateRule, NodeOf, Plugin } from "@bjornpagen/d
 import { Option, Record, String as Str } from "effect"
 
 /**
- * The oxlint plugin star-imports.ts runs after the dev tools' grizzle-star-imports fix has read every name a module takes
+ * The oxlint plugin star-imports.sh runs after the dev tools' grizzle-star-imports fix has read every name a module takes
  * from a grizzle entry off the entry's namespace: one rule, `rename`, that rewrites each name grizzle's PostgreSQL naming
  * gave another to the name it has, wherever a module reads it off a namespace of an entry (`g.x`, `gRuntime.x`, `g.X` in a
  * type). PostgreSQL's plain types are read off the root by their pg_type names (`g.pg.integer` is `g.int4`,
@@ -10,6 +10,9 @@ import { Option, Record, String as Str } from "effect"
  * Numeric their companions; domain is contract, PostgreSQL's DOMAIN, with Domain, AnyDomain and domainParser; Text's float8 and numeric parses are parseFloat8 and parseNumeric; and a type's SQL tag, a
  * string literal among a namespace type's arguments (`g.Term<D, unknown, O, "bigint">`), is its typname. A read of the
  * old pg namespace that names no member of it (`g.pg` alone) is reported and left as it is, for its author to rewrite.
+ *
+ * oxlint loads it from the repository's vendored grizzle, so its `effect` resolves from the repository's root, as every
+ * repository that runs it installs it; where none does, oxlint cannot load it and star-imports.sh stops, saying so.
  */
 
 /** The names of the entries' exports grizzle's naming gave another, each by the one it has. */

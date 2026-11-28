@@ -59,10 +59,10 @@ import {
  * export is the configuration (adapter/types/config.ts), always built by defineConfig (adapter/config/define.ts),
  * imported from the package root:
  *
- *     import { defineConfig } from "@bjornpagen/grizzle"
+ *     import * as g from "@bjornpagen/grizzle"
  *     import { connection, Web, Work } from "./src/db.ts"
  *
- *     export default defineConfig({
+ *     export default g.defineConfig({
  *         schemas: [Work], logins: [Web], migrations: "migrations", rolePrefixBytes: 0, connection
  *     })
  *

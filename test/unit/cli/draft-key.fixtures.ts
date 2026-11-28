@@ -55,49 +55,31 @@ const schemaModule = "schema.ts"
  * insert, version 2 adding Customer.tier. It imports grizzle's authoring entry alone, so the configuration's closure is
  * its own two files, grizzle's packages and the packages they load.
  */
-const schemaText = (version: 1 | 2): string => `import {
-	ChangeSet,
-	contained,
-	domain,
-	login,
-	on,
-	query,
-	relation,
-	role,
-	schema,
-	str,
-	uuid,
-	v,
-	wholeEntriesOf,
-	wholeWritesOf,
-	workload,
-	int4,
-	int8
-} from "@bjornpagen/grizzle"
+const schemaText = (version: 1 | 2): string => `import * as g from "@bjornpagen/grizzle"
 
 const idKey = Symbol("Id")
-const Id = domain<typeof idKey>()("Id", uuid)
-const Customer = relation(
+const Id = g.domain<typeof idKey>()("Id", g.uuid)
+const Customer = g.relation(
 	"Customer",
-	{ id: Id, name: str.regex("^[a-z]{1,40}$")${version === 2 ? ", tier: int4" : ""} },
+	{ id: Id, name: g.str.regex("^[a-z]{1,40}$")${version === 2 ? ", tier: g.int4" : ""} },
 	["id"]
 )
-const Order = relation("Order", { id: Id, customer: Id, cents: int8 }, ["id"])
-const shop = schema(${jsonText(schemaName)}, [Customer, Order], [contained(on(Order, "customer"), on(Customer, "id"))])
-const reader = role(shop, "reader", wholeEntriesOf(shop))
-const writer = role(shop, "writer", wholeEntriesOf(shop), wholeWritesOf(shop))
-const customersByName = query(shop).rule((r) => {
-	const c = v(Customer, "customer")
+const Order = g.relation("Order", { id: Id, customer: Id, cents: g.int8 }, ["id"])
+const shop = g.schema(${jsonText(schemaName)}, [Customer, Order], [g.contained(g.on(Order, "customer"), g.on(Customer, "id"))])
+const reader = g.role(shop, "reader", g.wholeEntriesOf(shop))
+const writer = g.role(shop, "writer", g.wholeEntriesOf(shop), g.wholeWritesOf(shop))
+const customersByName = g.query(shop).rule((r) => {
+	const c = g.v(Customer, "customer")
 	return r
 		.match(Customer, { id: c.id, name: c.name })
 		.where(r.eq(c.name, r.param("name", Customer.fields.name)))
 		.find({ id: c.id, name: c.name })
 })
 
-export const server = login(shop, "server", [reader, writer], {
+export const server = g.login(shop, "server", [reader, writer], {
 	workload: [
-		workload(shop, { customer: Customer, customersByName }),
-		workload(writer, { addCustomer: ChangeSet.empty(writer).insert(Customer, []) })
+		g.workload(shop, { customer: Customer, customersByName }),
+		g.workload(writer, { addCustomer: g.ChangeSet.empty(writer).insert(Customer, []) })
 	]
 })
 
@@ -105,10 +87,10 @@ export { shop }
 `
 
 /** The configuration file every project holds: the schema module's shop and login, never connecting. */
-const configText = `import { defineConfig } from "@bjornpagen/grizzle"
+const configText = `import * as g from "@bjornpagen/grizzle"
 import { server, shop } from "./${schemaModule}"
 
-export default defineConfig({
+export default g.defineConfig({
 	schemas: [shop],
 	logins: [server],
 	migrations: "migrations",

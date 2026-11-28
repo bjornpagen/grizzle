@@ -5,6 +5,6 @@
  */
 export { Effect, Redacted } from "effect"
 export type { DbConfigShape, PoolBounds, Transport, Verify } from "#adapter/types/layer.ts"
-export { DbLayer, served } from "@bjornpagen/grizzle/runtime"
+export { DbLayer, served } from "#adapter/public/layer.ts"
 export type { CredentialError } from "#index.ts"
 export { PlainLogin, WebLogin } from "#test/support/agreement/access-schema.ts"

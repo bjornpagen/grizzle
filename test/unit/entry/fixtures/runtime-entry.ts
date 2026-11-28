@@ -1,2 +1,4 @@
-/** The runtime entry imported for one name: Node loads and evaluates every module it re-exports all the same. */
-export { served } from "@bjornpagen/grizzle/runtime"
+/** The runtime entry imported whole: Node loads and evaluates every module it re-exports. */
+import * as gRuntime from "@bjornpagen/grizzle/runtime"
+
+export const served = gRuntime.served

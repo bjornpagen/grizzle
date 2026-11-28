@@ -1,5 +1,5 @@
 import { indices } from "@bjornpagen/grizzle-text/base/array"
-import { timerMaxMs } from "@bjornpagen/grizzle/runtime"
+import * as gRuntime from "@bjornpagen/grizzle/runtime"
 import { Array as Arr, Effect, Option, Record as Rec, type Scope } from "effect"
 import {
 	type CaseRecord,
@@ -195,7 +195,7 @@ const exited = Effect.fn("exited")(function* (
 	const s = yield* Substrate
 	yield* s.admin.queryValues(
 		"SELECT pg_catalog.pg_terminate_backend(pid, $2::int8)::text FROM pg_catalog.unnest($1::int4[]) AS pid",
-		[`{${Arr.join(Arr.map(pids, String), ",")}}`, String(timerMaxMs)]
+		[`{${Arr.join(Arr.map(pids, String), ",")}}`, String(gRuntime.timerMaxMs)]
 	)
 })
 

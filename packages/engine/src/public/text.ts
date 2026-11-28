@@ -18,8 +18,8 @@ import type { Field, FieldBase, GeneratedField } from "#compiler/types/fields/fi
 /**
  * The lexical form of a field descriptor's type (lexicalForm(T), lexical(T)), a relation's field read as its declared
  * type (schema/relation.ts describeDeclared): its pattern under flags "u" types a lexical field and guards a parse, so a
- * text of the form casts into T total (Type.cast). A contract's form is its base's, which a cast into the contract
- * parses, then enters the contract by its predicate's proof: date's, whose range is the form's own. A type with no form
+ * text of the form casts into T total (Type.cast). A domain's form is its base's, which a cast into the domain
+ * parses, then enters the domain by its predicate's proof: date's, whose range is the form's own. A type with no form
  * is refused, UnsupportedOperation.
  */
 const lexicalTargetOfField = (type: unknown): LexicalTarget => {
@@ -49,7 +49,7 @@ type ParseSql = CastTargetsBySql["text"]
  * lexicalForm(T): the pattern of T's lexical form, XML Schema's lexical space of T's datatype cut to the values T holds
  * exactly, a Pattern for Text.matches to guard a parse with, whose source `str.regex` types a lexical field by
  * (lexical(T)): a text of the form's language, or of a language inside it, casts into T total (Type.cast). A
- * contract's form is its base's, and a relation's field's its declared type's: a drawn natural's is a bigint's.
+ * domain's form is its base's, and a relation's field's its declared type's: a drawn natural's is an int8's.
  */
 export const lexicalForm = (type: Field<unknown, ParseSql, unknown>): Pattern =>
 	Pattern.ofForm(lexicalTargetOfField(type))
@@ -94,17 +94,17 @@ export const lexical = (type: Field<unknown, ParseSql, unknown>): RegexText<stri
  * their longest, each at its
  * worst alignment padding. `fields` are every other column of the index: a key's other fields, declared or over a
  * selection; for a family axis that carries the text, its group fields, its natural index, its natural successor, the
- * other values it carries and a tree's `end`. A text field whose contract bounds it there,
- * `contract("KeyText", str.regex("^.*$", "su"), (v) => Logic.le(Text.octetLength(v), keyTextBytes(fields)))`, sits in any of
- * them. A field of a relation is read as its declared type (schema/relation.ts describeDeclared), a drawn index or a
- * generated field among them. It throws CompileError (UnrepresentableKey) naming every fault at once: more fields than
- * an index holds beside a text, and each field of no byte bound, such as an unbounded text; or, where neither is, fields
- * that leave a text no byte.
+ * other values it carries and a tree's `end`. A text field whose domain bounds it there,
+ * `g.domain<typeof keyTextKey>()("KeyText", g.str.regex("^.*$", "su"), (v) => g.Logic.le(g.Text.octetLength(v),
+ * g.keyTextBytes(fields)))`, sits in any of them. A field of a relation is read as its declared type
+ * (schema/relation.ts describeDeclared), a drawn index or a generated field among them. It throws CompileError
+ * (UnrepresentableKey) naming every fault at once: more fields than an index holds beside a text, and each field of no
+ * byte bound, such as an unbounded text; or, where neither is, fields that leave a text no byte.
  */
 /**
  * keyFits(fields): whether a key over `fields`, in any order, holds every value they admit, each field as itself: its
  * B-tree entry within PostgreSQL's limit (BTMaxItemSize, schema/representability.ts btreeEntryBytes), at most
- * INDEX_MAX_KEYS columns, no bytes field and at most one span, a span key's GiST entry within a GiST page. It is the
+ * INDEX_MAX_KEYS columns, no bytea field and at most one range, a range key's GiST entry within a GiST page. It is the
  * verdict a relation keyed by them meets (UnrepresentableKey where it is false), as a value, never thrown, so a caller
  * weighs a key's fields before it declares one. A field of a relation is read as its declared type
  * (schema/relation.ts describeDeclared), a drawn index or a generated field among them.

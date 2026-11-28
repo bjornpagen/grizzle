@@ -1310,7 +1310,7 @@ const valueTextGen = (depth: number): Gen<string> => {
 		...scalars,
 		[2, map(array(inner, { min: 0, max: 2 }), (items) => `[${Arr.join(items, ", ")}]`)],
 		[3, objectText],
-		[3, map(objectText, (o) => `defineConfig(${o})`)]
+		[3, map(objectText, (o) => `g.defineConfig(${o})`)]
 	])
 }
 
@@ -1357,7 +1357,7 @@ const loadingGen: Gen<Loading> = weighted<Loading>([
 	[4, loadsGen(exportsGen)]
 ])
 
-const defineImport = `import { defineConfig } from "@bjornpagen/grizzle"\n`
+const defineImport = `import * as g from "@bjornpagen/grizzle"\n`
 
 /** The statement that makes a module's import fail. */
 const failureText = (failure: ImportFailure): string => {
@@ -1425,7 +1425,7 @@ export const loadingNotes = (loading: Loading): ReadonlyArray<LoadingFeature> =>
 				Option.match(loading.exports.default, {
 					onNone: (): LoadingFeature => "no default export",
 					onSome: (v): LoadingFeature =>
-						Str.startsWith("defineConfig(")(v)
+						Str.startsWith("g.defineConfig(")(v)
 							? "a default built by defineConfig"
 							: "a default defineConfig did not build"
 				})
@@ -1451,7 +1451,7 @@ export const loadingSpace = aimed(loadingGen, [
 	[
 		"a default built by defineConfig",
 		loadsGen(
-			exportsOf(map(objectTextGen(valueTextGen(1)), (o) => Option.some(`defineConfig(${o})`)))
+			exportsOf(map(objectTextGen(valueTextGen(1)), (o) => Option.some(`g.defineConfig(${o})`)))
 		)
 	],
 	[

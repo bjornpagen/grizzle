@@ -2582,7 +2582,7 @@ const claimOf = (reason: CompileReason): Claim => {
 						kind: "refusal",
 						refusal: "a term first: a literal takes its place opposite a term, never first"
 					}
-				: Str.startsWith("the span's own endpoint descriptor")(reason.what)
+				: Str.startsWith("the range's own endpoint descriptor")(reason.what)
 					? {
 							kind: "refusal",
 							refusal:

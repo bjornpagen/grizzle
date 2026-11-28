@@ -1,7 +1,7 @@
 /** What the property of stream.test.ts reads: its space, model and helpers. */
 
 import { jsonText } from "@bjornpagen/grizzle-text/utf8"
-import { timerMaxMs, timerMinMs } from "@bjornpagen/grizzle/runtime"
+import * as gRuntime from "@bjornpagen/grizzle/runtime"
 import { defined } from "@bjornpagen/testing/assert"
 import { constant, element, type Gen, int, oneOf, shuffled } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Stream } from "effect"
@@ -136,9 +136,9 @@ const callGen =
  * range's ends or one between. A heartbeat is a comment line, so no answer's events depend on it.
  */
 const heartbeatGen: Gen<number> = oneOf<number>([
-	constant(timerMinMs),
-	constant(timerMaxMs),
-	int(timerMinMs, timerMaxMs)
+	constant(gRuntime.timerMinMs),
+	constant(gRuntime.timerMaxMs),
+	int(gRuntime.timerMinMs, gRuntime.timerMaxMs)
 ])
 
 export const caseGen: Gen<StreamCase> = (source) => {
@@ -279,7 +279,7 @@ export const readFeature = (call: Exclude<Call, { readonly member: "put" }>): Fe
 /** An outcome event's kind, off its data's JSON. */
 export const outcomeKind = (event: StreamEvent | undefined): unknown => {
 	const data: unknown = trustedJson<unknown>(defined(event, "the outcome event").data)
-	return isRecord(data) && isRecord(data["outcome"]) ? data["outcome"]["kind"] : undefined
+	return isRecord(data) && isRecord(data["outcome"]) ? data["outcome"]["_tag"] : undefined
 }
 
 /** The member of the opened role named `name`, as its layer loaded it. */

@@ -1,7 +1,7 @@
 import net from "node:net"
 import { Signer } from "@aws-sdk/rds-signer"
-import { CredentialError } from "@bjornpagen/grizzle"
-import { Db, DbLayer, roleNameOf, served, TokenRefused } from "@bjornpagen/grizzle/runtime"
+import * as g from "@bjornpagen/grizzle"
+import * as gRuntime from "@bjornpagen/grizzle/runtime"
 import { verifyToken } from "@clerk/backend"
 import { Config, Effect, Layer, ManagedRuntime, Redacted, Schema } from "effect"
 import pgDriver from "pg"
@@ -26,7 +26,7 @@ type Equals<A, B> =
 type Expect<T extends true> = T
 
 /** The web login's compiled programs, as `grizzle generate` wrote them: the app runs no schema code. */
-const WebServed = served<typeof Web>(webFile, "web")
+const WebServed = gRuntime.served<typeof Web>(webFile, "web")
 
 const connection = {
 	driver: pgDriver,
@@ -43,17 +43,17 @@ const connection = {
 
 /** One pool for the web login, built once per process. */
 const web = ManagedRuntime.make(
-	DbLayer.make({
+	gRuntime.DbLayer.make({
 		...connection,
 		login: WebServed,
 		password: Config.Redacted("WEB_DB_PASSWORD").pipe(
-			Effect.mapError((cause) => new CredentialError({ cause }))
+			Effect.mapError((cause) => new g.CredentialError({ cause }))
 		),
 		pool: { max: 10 },
 		verify: (token) =>
 			Effect.tryPromise({
 				try: () => verifyToken(token, { jwtKey: clerkJwtKey }),
-				catch: (cause) => new TokenRefused({ cause })
+				catch: (cause) => new gRuntime.TokenRefused({ cause })
 			})
 	})
 )
@@ -69,31 +69,31 @@ export const GET = (request: Request) =>
 			if (token === undefined) {
 				return new Response(null, { status: 401 })
 			}
-			const db = yield* Db.open(WebServed.roles.member, { token })
+			const db = yield* gRuntime.Db.open(WebServed.roles.member, { token })
 			const posts = yield* db.workload.feed.once({ params: {}, facts: {} })
 			return Response.json(posts)
 		})
 	)
 
-const TrackerServed = served<typeof TrackerApp>(trackerFile, "tracker")
+const TrackerServed = gRuntime.served<typeof TrackerApp>(trackerFile, "tracker")
 
 /** The caller's token names their organization; every read and write is held to it. */
 export const projectTasks = (token: string, project: string) =>
 	Effect.gen(function* () {
-		const db = yield* Db.open(TrackerServed.roles.teammate, { token })
+		const db = yield* gRuntime.Db.open(TrackerServed.roles.teammate, { token })
 		return yield* db.workload.openTasks.once({ params: { project }, facts: {} })
 	})
 
 export const tokenless =
 	// @ts-expect-error -- TS2345: Property 'token' is missing in type '{}' but required in type '{ readonly token: string; }'.
-	Db.open(TrackerServed.roles.teammate, {})
+	gRuntime.Db.open(TrackerServed.roles.teammate, {})
 
-const UsageServed = served<typeof UsageApi>(usageFile, "usage_api")
+const UsageServed = gRuntime.served<typeof UsageApi>(usageFile, "usage_api")
 
 /** The first 50 calls, then the 50 after the last one shown. */
 export const calls = (workspace: string) =>
 	Effect.gen(function* () {
-		const db = yield* Db.open(UsageServed.roles.analyst, {})
+		const db = yield* gRuntime.Db.open(UsageServed.roles.analyst, {})
 		const first = yield* db.workload.callLog.once({
 			params: { workspace },
 			facts: {},
@@ -111,10 +111,10 @@ export const calls = (workspace: string) =>
 		return [...first, ...next]
 	})
 
-const IndexerServed = served<typeof Indexer>(indexerFile, "indexer")
+const IndexerServed = gRuntime.served<typeof Indexer>(indexerFile, "indexer")
 
 /** The indexer signs a fresh RDS IAM token for every connection it opens. */
-export const IndexerLayer = DbLayer.make({
+export const IndexerLayer = gRuntime.DbLayer.make({
 	...connection,
 	login: IndexerServed,
 	pool: { max: 2 },
@@ -124,9 +124,9 @@ export const IndexerLayer = DbLayer.make({
 				hostname: "db.internal",
 				port: 5432,
 				region: "us-east-1",
-				username: roleNameOf(IndexerServed, connection)
+				username: gRuntime.roleNameOf(IndexerServed, connection)
 			}).getAuthToken(),
-		catch: (cause) => new CredentialError({ cause })
+		catch: (cause) => new g.CredentialError({ cause })
 	}).pipe(Effect.map(Redacted.make))
 })
 
@@ -145,7 +145,7 @@ export const POST = (request: Request) =>
 				Effect.promise(() => request.json()),
 				Schema.decodeUnknownEffect(NewPost)
 			)
-			const db = yield* Db.open(WebServed.roles.member, { token })
+			const db = yield* gRuntime.Db.open(WebServed.roles.member, { token })
 			const outcome = yield* db.workload.write.once({
 				params: {},
 				facts: { insert: { MyPost: [{ ...post, status: "draft" }] } }

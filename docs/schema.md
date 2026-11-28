@@ -14,8 +14,8 @@ key names the same row in every database that holds it, a replica, a restore and
   32 bytes as they are (`Sha256`): equal bytes are one row, whoever stores them.
 - **A published thing is its name and version.** A package is `(name, version)`, a QTI item its QTI identifier.
 - **An outside system's id is that system's, by name.** A bare `uuid` field is a type error,
-  `say whose id this is: contract<typeof key>()("ClerkUserId", uuid)`, and from JavaScript a `CompileError` with the
-  same text: `contract<typeof clerkUserKey>()("ClerkUserId", uuid)` is a Clerk user's id, its own type, so a Clerk user
+  `say whose id this is: domain<typeof key>()("ClerkUserId", uuid)`, and from JavaScript a `CompileError` with the
+  same text: `domain<typeof clerkUserKey>()("ClerkUserId", uuid)` is a Clerk user's id, its own type, so a Clerk user
   is never written where a Stripe customer belongs.
 - **Its time is an instant on the database's clock, never bits inside an id.** When a row was written is a field of its
   own that the database writes, and a fact that happens again later is keyed by its child and that instant. A UUIDv7's
@@ -78,46 +78,47 @@ schema.
   first held: an insertion at a key another row holds meets that row instead of being refused for differing from it
   ([Races](errors-and-concurrency.md#races)).
 - **No timestamp type.** When a row was written is an `instant`, which the database alone writes ([Instants](reads-and-writes.md#instants)).
-  Any other time, a deadline or a due instant, is a value: a `bigint` contract, such as milliseconds since the epoch,
+  Any other time, a deadline or a due instant, is a value: a domain over `int8`, such as milliseconds since the epoch,
   and the current time is a parameter, the caller's, or the database's clock where a member binds it
   ([The database's clock](reads-and-writes.md#the-databases-clock)). A calendar day is a `date`.
 
 | Field                                              | PostgreSQL                                                          | TypeScript                                                             |
 | -------------------------------------------------- | ------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| `contract<typeof key>()("ClerkUserId", uuid)`      | uuid, behind the contract's domain; a bare `uuid` column is refused | `Marked<Uuid, typeof key>`, made by `mintOf(key)`; `Uuid.parse` reads a string |
+| `domain<typeof key>()("ClerkUserId", uuid)`        | uuid, behind its domain; a bare `uuid` column is refused          | `Marked<Uuid, typeof key>`, made by `mintOf(key)`; `Uuid.parse` reads a string |
 | `sha256`                                           | bytea, behind the digest domain that checks 32 bytes                | `Sha256`, a SHA-256 digest's 32 bytes, `Sha256.ofBytes` or `ofText`    |
-| `int2`, `int4`                        | smallint, integer                                                   | `number`                                                               |
-| `int8`                                        | bigint                                                              | `bigint`                                                               |
+| `int2`, `int4`                                     | smallint, integer                                                   | `number`                                                               |
+| `int8`                                             | bigint                                                              | `bigint`                                                               |
 | `natural`                                          | bigint, behind a domain that checks `>= 0`                          | `bigint`                                                               |
 | `instant`                                          | bigint, behind natural's domain                                     | `Instant`, a `bigint` of microseconds since the Unix epoch, written by the database |
 | `instant.stored`                                   | bigint, behind natural's domain                                     | `Instant`, an instant a read delivered, written by its caller as it is |
 | `date`                                             | date, its column checked to 0001-01-01 … 9999-12-31                 | `CalendarDate`, its ISO 8601 text `"YYYY-MM-DD"`                       |
-| `numeric`                                       | numeric, no typmod: every value numeric holds, NaN and ±Infinity    | `Numeric`, exact, passed as it is                                      |
-| `numeric(p, 0)`                                 | numeric(p, 0), its column checked to hold no NaN                    | `bigint`, an integer of at most p digits                               |
-| `numeric(p, s)`, s not 0                        | numeric(p, s)                                                       | `Numeric`, exact, no display scale                                     |
-| `numeric.within(digits, scale)`                 | numeric, no typmod, its column checked to NaN, ±Infinity and the finite values below 10^digits of at most `scale` fraction digits | `Numeric`, exact, a sum's, a mean's or an operation's value stored as it was read |
-| `float4`, `float8`                | real, double precision                                              | `number`                                                               |
-| `money`                                         | money                                                               | `Money`                                                                |
+| `numeric`                                          | numeric, no typmod: every value numeric holds, NaN and ±Infinity    | `Numeric`, exact, passed as it is                                      |
+| `numeric(p, 0)`                                    | numeric(p, 0), its column checked to hold no NaN                    | `bigint`, an integer of at most p digits                               |
+| `numeric(p, s)`, s not 0                           | numeric(p, s)                                                       | `Numeric`, exact, no display scale                                     |
+| `numeric.within(digits, scale)`                    | numeric, no typmod, its column checked to NaN, ±Infinity and the finite values below 10^digits of at most `scale` fraction digits | `Numeric`, exact, a sum's, a mean's or an operation's value stored as it was read |
+| `float4`, `float8`                                 | real, double precision                                              | `number`                                                               |
+| `money`                                            | money                                                               | `Money`                                                                |
 | `exactInteger`                                     | numeric, its column checked to scale 0: no fraction, NaN or infinity | `bigint` of any size, integer arithmetic's exact value                 |
 | `exactMoney`                                       | numeric, its column checked to money's scale 2: no NaN or infinity  | `Money` of any count of cents, money arithmetic's exact value          |
-| `bool`                                       | boolean                                                             | `boolean`                                                              |
-| `inet`                                          | inet                                                                | `Inet`, inet_out's text; `Inet.parse` reads any text inet_in reads     |
-| `cidr`                                          | cidr                                                                | `Cidr`, cidr_out's text; `Cidr.parse` reads any text cidr_in reads     |
+| `bool`                                             | boolean                                                             | `boolean`                                                              |
+| `inet`                                             | inet                                                                | `Inet`, inet_out's text; `Inet.parse` reads any text inet_in reads     |
+| `cidr`                                             | cidr                                                                | `Cidr`, cidr_out's text; `Cidr.parse` reads any text cidr_in reads     |
 | `str.regex(pattern, flags?)`                       | text, behind a domain that checks the pattern                       | the pattern's language: `string`, or `"yes" \| "no"` for `^(yes\|no)$` |
 | `str.bytes(n, str.regex(...))`                     | text, behind a domain that checks its UTF-8 bytes, then the pattern | the pattern's                                                          |
 | `str.and(str.regex(p), str.regex(q), ...)`         | text, behind a domain that checks every pattern                     | the patterns' languages intersected, `P & Q`                           |
 | `closedId(X)`, for `X = closed.ordered("X", [...])` or `closed.unordered("X", [...])` | smallint, behind the roster's domain | the union of its names |
 | `closedId(X, { only: [...] })`, `closedId(X, { except: [...] })` | smallint, behind the roster's domain and a CHECK of the subset's codes | the union of the subset's names |
-| `bits(X)`, a set of `X`'s handles                  | bit(n), behind a domain that holds only live handles                | `Bits<typeof X>`, a `ReadonlySet` of its names; `Bits.of(X, [...])`    |
-| `contract<typeof key>()(name, base, check?)`       | a domain with that CHECK                                            | the base type under the key, `Marked<base, typeof key>`                |
-| `span(T, width?)`, T integer, bigint or date       | int4range, int8range or daterange                                   | `{ start, end }`, start included, end excluded                         |
-| `vector(n)`                                     | pgvector's vector(n)                                                | `Vector`, a Float32Array                                               |
+| `bit(X)`, a set of `X`'s handles                   | bit(n), behind a domain that holds only live handles                | `Bit<typeof X>`, a `ReadonlySet` of its names; `Bit.of(X, [...])`      |
+| `domain<typeof key>()(name, base, check?)`         | a domain with that CHECK                                            | the base type under the key, `Marked<base, typeof key>`                |
+| `range(T, width?)`, T `int4`, `int8` or `date`     | int4range, int8range or daterange                                   | `{ start, end }`, start included, end excluded                         |
+| `vector(n)`                                        | pgvector's vector(n)                                                | `Vector`, a Float32Array                                               |
 | `searchDocument(configuration, [w, text], ...)`, generated | tsvector, a STORED generated column                            | `SearchDocument`, the text PostgreSQL prints for it                    |
-| `tsvector(configuration)`                       | tsvector                                                            | `SearchDocument`, a document a read delivered, written back as it is   |
-| `bytes`                                            | bytea, at most 1,073,741,819 bytes                                  | `Uint8Array`, a fresh one over its own buffer                          |
+| `tsvector(configuration)`                          | tsvector                                                            | `SearchDocument`, a document a read delivered, written back as it is   |
+| `bytea`                                            | bytea, at most 1,073,741,819 bytes                                  | `Uint8Array`, a fresh one over its own buffer                          |
 
-Each type has one name, the one PostgreSQL prints for it: `int4`, never `int4`; `float8`, never
-`float8` or `float(p)`; `numeric`, never `decimal`; `bool`, never `bool`.
+In your code each type has one name, its pg_type name: `int4`, never `integer`; `float8`, never `double precision` or
+`float(p)`; `numeric`, never `decimal`; `bool`, never `boolean`. The migrations grizzle drafts print each as
+PostgreSQL's `format_type` does, the names in the table's PostgreSQL column.
 
 - **A value is parsed exactly, once.** Every value you pass, a fact's field, a parameter or a page's boundary, is read
   as its field's type and never altered: a `Numeric` with more fractional digits than its `numeric(p, s)` holds is
@@ -127,28 +128,28 @@ Each type has one name, the one PostgreSQL prints for it: `int4`, never `int4`; 
   each once, and anything else is an `EncodingFailure` (`searchDocumentForm`), never sent to be stored as another
   document; a `number` for `float4` must be a binary32 value as it is, `Math.fround(x) === x`, or it is an
   `EncodingFailure` (`realInexact`), never rounded to the nearest one. A uuid's case is a spelling of one value, a
-  float's `-0` a value of its own, kept as written, and nothing else is changed. Everything else a field's type says, its pattern and contract, is
+  float's `-0` a value of its own, kept as written, and nothing else is changed. Everything else a field's type says, its pattern and domain, is
   PostgreSQL's to check ([Errors and outcomes](errors-and-concurrency.md#errors-and-outcomes)).
 
 - **Network types.** `inet` is an address with its network's mask, `cidr` a network, IPv4 and IPv6 alike, PostgreSQL's own. A value is any text PostgreSQL's inet_in or cidr_in reads, and its host value the one text inet_out or cidr_out prints of it, so `"1.2.3.4/32"` is the inet `"1.2.3.4"`, `"10/8"` the cidr `"10.0.0.0/8"`, and a cidr with a bit set right of its mask, `"10.1.2.3/8"`, is an `EncodingFailure` (`cidrHostBits`), as PostgreSQL refuses it. grizzle reads every text as PostgreSQL 19 does, quirks included, so a value means one thing on the host and in the database: `Inet.parse(text)` and `Cidr.parse(text)` read a text, such as a request's address from an edge's header, into the value, a `Result`. Both compare, order (IPv4 before IPv6, then network_cmp's order), hash, stand in a key or an index, and are a context's field; an inet has `min` and `max`, and a cidr none, since PostgreSQL has neither. Their containment is `Net`'s ([Scalar terms](reads-and-writes.md#scalar-terms)).
-- **A contract's values are its consumer's.** Its host type is its base's under a key the declaring module holds:
-  `const centsKey = Symbol("Cents")`, then `contract<typeof centsKey>()("Cents", int8, (c) => Logic.ge(c, 0n))`,
+- **A domain's values are its consumer's.** Its host type is its base's under a key the declaring module holds:
+  `const centsKey = Symbol("Cents")`, then `domain<typeof centsKey>()("Cents", int8, (c) => Logic.ge(c, 0n))`,
   whose values are `Marked<bigint, typeof centsKey>`. Only the key's mint makes one, `const toCents = mintOf(centsKey)`,
-  then `toCents(500n)`, without checking it; the contract makes none. Where the key lives, and whether it is exported,
+  then `toCents(500n)`, without checking it; the domain makes none. Where the key lives, and whether it is exported,
   decides who makes values: a module that grades keeps its key, exports its grading function and its type,
   `Marked<Numeric, typeof gradedKey>`, and a write of a grade takes nothing else. A key is a unique symbol, one per
-  contract: a key of type `symbol` is a type error, and `mintOf` refuses a registered one, which `Symbol.for` gives any
+  domain: a key of type `symbol` is a type error, and `mintOf` refuses a registered one, which `Symbol.for` gives any
   module by its name.
-- **A contract's checked mint parses a value from outside.** `domainParser(Cents, centsKey)`
-  (`@bjornpagen/grizzle/domain`) derives the contract's checker from the contract itself, once, where it is built:
+- **A domain's checked mint parses a value from outside.** `domainParser(Cents, centsKey)`
+  (`@bjornpagen/grizzle/domain`) derives the domain's checker from the domain itself, once, where it is built:
   its type as a schema's compile types it, its predicate a table the host evaluates and the automata of its patterns.
   It reads a value of the base as PostgreSQL does before it stores it: a value of no value of the base's type is
-  `ValueRefused` by the codec's fault (a bigint past int8), one outside the contract's predicate or its base's
-  refinements `DomainRefused`, each at the contract, and any other value is minted under the key, `Marked<bigint, typeof
-  centsKey>`. Its `contract` is the contract, which a consumer that stores what it parses types its column by. It takes
-  the contract's own key, so only the key's holder builds it, beside the mint, where a boundary decodes the contract's
+  `ValueRefused` by the codec's fault (a bigint past int8), one outside the domain's predicate or its base's
+  refinements `DomainRefused`, each at the domain, and any other value is minted under the key, `Marked<bigint, typeof
+  centsKey>`. Its `domain` is the domain, which a consumer that stores what it parses types its column by. It takes
+  the domain's own key, so only the key's holder builds it, beside the mint, where a boundary decodes the domain's
   values, a request's or a step input's. The entry is apart from `@bjornpagen/grizzle/runtime`, so a process that
-  serves a login and parses no contract's values loads none of the text analysis a checker is derived by. No file holds
+  serves a login and parses no domain's values loads none of the text analysis a checker is derived by. No file holds
   a checker, so a module that builds one, and a configuration whose modules reach that module, read nothing `grizzle
   generate` writes.
 - **A configuration reads nothing `grizzle generate` writes.** Every command refuses a configuration any module of
@@ -156,31 +157,31 @@ Each type has one name, the one PostgreSQL prints for it: `int4`, never `int4`; 
   one would stop loading as soon as a format change, a removal or a first generate left the file unreadable, and then the
   generate that writes it again could not run. A running application's entry imports its login's served file; nothing
   the configuration reaches does.
-- **Where a contract's value comes from.** A fact's field, a parameter's argument, a closed relation's row, a typed
+- **Where a domain's value comes from.** A fact's field, a parameter's argument, a closed relation's row, a typed
   constant (`Type.literal(Cents, toCents(5n))`), a conditional's other arm and a variant arm's field are values of the
-  host type: a plain `bigint`, or another contract's value, is a type error there. A value compared with a contract's
+  host type: a plain `bigint`, or another domain's value, is a type error there. A value compared with a domain's
   term, in a filter, a comparison or a selection, is its base's, `r.ge(cents, 0n)`, since a comparison makes no value.
-- **The database makes a contract's values under its key.** Every place a value of a contract is made from values of
+- **The database makes a domain's values under its key.** Every place a value of a domain is made from values of
   other types takes the key after its own arguments, as `mintOf` takes it on the host: a cast,
   `Type.cast(Num.add(a, b), Cents, centsKey)`; a field grizzle fills, `drawn(TestNumber, testNumberKey)` and
-  `accumulated(Cents, toCents(0n), centsKey)`; a clock bound to a parameter of the contract, `clocked(program,
+  `accumulated(Cents, toCents(0n), centsKey)`; a clock bound to a parameter of the domain, `clocked(program,
   { now: "millis" }, { now: millisKey })`, by the parameter's name; and a declared function whose result holds one at
-  any depth, `fn("grade", { …, returns: row(Single) }, { QtiInteger: qtiIntegerKey })`, by the contract's name. A
-  contract over another takes every key of its chain, its own first, `Type.cast(x, Outer, outerKey, centsKey)`, as the
+  any depth, `fn("grade", { …, returns: row(Single) }, { QtiInteger: qtiIntegerKey })`, by the domain's name. A
+  domain over another takes every key of its chain, its own first, `Type.cast(x, Outer, outerKey, centsKey)`, as the
   host makes its value only through each mint, `toOuter(toCents(0n))`, so it is declared under a key apart from its
-  base's. A generated field, a derived relation's field, `r.min` and `r.max` carry values the contract already holds
+  base's. A generated field, a derived relation's field, `r.min` and `r.max` carry values the domain already holds
   and take none, and `r.sum` and `r.mean` deliver its base. A module that does not hold the key makes no value of the
-  contract: not on the host, not in a query, not in a stored computation. From JavaScript, a missing key, an extra one
+  domain: not on the host, not in a query, not in a stored computation. From JavaScript, a missing key, an extra one
   or a value that is no symbol is `MalformedDescription`, and a registered symbol `Refused`.
   A read delivers the host type, the one conversion grizzle makes unchecked, since it trusts its own database, and the
   database checks the base type and the predicate on every write. A fourth argument, `{ proves: [...] }`, declares facts
   the check implies ([Queries](reads-and-writes.md#queries)).
-- **`natural`** is the builtin contract over `int8`, unbranded: a count, the type of every `r.count()`, and the one
+- **`natural`** is the builtin domain over `int8`, unbranded: a count, the type of every `r.count()`, and the one
   type a rule's `pred` reads ([Rules](#rules)). Every schema holds it, since every query over it may count, so its
   domain is installed whether or not a field is natural. A count meets a natural field, parameter or literal and is
   written into a natural field as it is; a count beside a `int8` is two types, so type that side `natural`, which
   is what it holds, and an arithmetic's exact integer meets a count as `Type.base(count)`. A negative value is an
-  outcome on the law `{ kind: "contract", contract: "natural" }`. No other contract may be named `natural`.
+  outcome on the law `{ kind: "contract", contract: "natural" }`. No other domain may be named `natural`.
 - **`exactInteger` and `exactMoney`** are the types integer and money arithmetic deliver, of any size, as stored
   fields: an exact integer, a `bigint`, and exact money, a `Money` of any count of cents, so a query's
   `Num.add(balance, amount)`, `Num.mul(a, b)` or a sum over money is written into one as it is, by a ChangeSet member,
@@ -199,7 +200,7 @@ Each type has one name, the one PostgreSQL prints for it: `int4`, never `int4`; 
   value outgrows every index entry: one there is `UnrepresentableKey` naming the precision to declare, `numeric(p, 0)`
   (or `int8`) for an exact integer, `numeric(p, 2)` (or `money`) for exact money; a lookup leaves one out
   of its index, a filter beside it, as a `numeric` of no typmod ([Keys and indexes](limits.md#keys-and-indexes)). No
-  contract is over one,
+  domain is over one,
   nor a closed relation's, a context's or a declared function's field of one: bound it first, with `Type.cast` under
   `Num.within`, into the type that holds it.
 - **`date`** is a day of the proleptic Gregorian calendar, PostgreSQL's date, a plain type: `Type.base` of a date is
@@ -207,12 +208,12 @@ Each type has one name, the one PostgreSQL prints for it: `int4`, never `int4`; 
   `DateStyle` to ISO. A CHECK on every date column holds it to 0001-01-01 … 9999-12-31 against any writer, so no
   infinity or unspellable year is stored; it is the type's range, not a rule an outcome names. Dates compare, take
   `min` and `max`, and may stand in a key or index.
-- **Spans** are over integer, bigint or date, or a contract over one; `span(date)` is a span of days.
-  `span(T, width)` fixes `end − start` by a CHECK on the column: a positive `number` over integer, a count of days
-  over date, a positive `bigint` over bigint.
-- **`bytes`** is written and read back whole, nothing more. No key, unique, containment, rule, selection, filter or
+- **Ranges** are over `int4`, `int8` or `date`, or a domain over one; `range(date)` is a range of days.
+  `range(T, width)` fixes `end − start` by a CHECK on the column: a positive `number` over `int4`, a count of days
+  over `date`, a positive `bigint` over `int8`.
+- **`bytea`** is written and read back whole, nothing more. No key, unique, containment, rule, selection, filter or
   parameter takes one, no scalar term reads one but `Crypto.sha256`, its digest ([Text](reads-and-writes.md#text)), and no
-  contract, generated or accumulated field is of one: each is a type error where the types see it and
+  domain, generated or accumulated field is of one: each is a type error where the types see it and
   `UnsupportedOperation` when it compiles. A query's head reads one like any field. It is written in binary and read back in chunks of 16 MiB, one result row a chunk, in the same statement and
   round trip, wherever it is delivered: a query's rows, an attachment's, a window's, a family's stored members. grizzle
   writes the chunks into a fresh `Uint8Array` you own, so a value never passes through one string. A write reads back
@@ -222,15 +223,15 @@ Each type has one name, the one PostgreSQL prints for it: `int4`, never `int4`; 
   digest: an array you change or detach after passing it to a write's `apply`, before the call is sent, is an
   `EncodingFailure` (`bytesChanged`) rather than sent unlike the value the write was worked out from. Its bound,
   1,073,741,819 bytes (`byteaMaxLength`), is PostgreSQL's longest bytea: a longer value is an `EncodingFailure` naming
-  its field, before any SQL. An attachment whose rows hold a bytes field is a statement of its own, so one under rows
+  its field, before any SQL. An attachment whose rows hold a bytea field is a statement of its own, so one under rows
   that read `.approximateNearest` is refused: query the nearest rows, then attach to their keys in a second query.
 - **Patterns.** Text always carries one, with flags `"u"` (the default) or `"su"`. The syntax is JavaScript's under
   `u`, cut to what PostgreSQL matches the same way: characters and escapes, classes and ranges, `\d`, `\w` and their
   complements, `.`, groups, `|`, `^` and `$` for the start and end of the whole text, and greedy `?`, `*`, `+` and
   `{m,n}`, each bound at most 255 (`regexMaxRepeat`). Refused: lookahead and lookbehind, `\p{…}` and `\P{…}`, `\s`
   and `\S`, `\b` and `\B`, backreferences, named groups, inline modifiers, lazy quantifiers, NUL, a lone surrogate,
-  and, as a field's or a contract's type, a pattern no text matches, such as `a^b` or `[]`, which no value could hold.
-  TypeScript accepts these; the first relation or contract built over the pattern refuses it with
+  and, as a field's or a domain's type, a pattern no text matches, such as `a^b` or `[]`, which no value could hold.
+  TypeScript accepts these; the first relation or domain built over the pattern refuses it with
   `UnsupportedOperation`, naming the construct and its position. As a `Text.pattern` or a value of a closed
   relation's pattern field, a pattern no text matches is the empty language, whose match holds of no text.
 - **`str.bytes(n, pattern)`** is the pattern's text of at most `n` UTF-8 bytes, `n` from 0 to 2,147,483,647. Its host
@@ -299,12 +300,12 @@ Each type has one name, the one PostgreSQL prints for it: `int4`, never `int4`; 
   that admits only live handles' codes, and every role's view adds a decoded column, `status_name`, beside each closed
   id. A handle is at most 63 UTF-8 bytes, a PostgreSQL `name`. Codes are history: an added handle is appended, a
   removed one leaves its code unused, and an ordered roster's reorder is refused ([Migrations](operations.md#migrations)).
-- **Sets.** `bits(Status)` is a `bit(n)`, one bit per code, n rounded up to whole bytes, under a domain that holds
+- **Sets.** `bit(Status)` is a `bit(n)`, one bit per code, n rounded up to whole bytes, under a domain that holds
   only live handles' bits and 0 past the last code. PostgreSQL stores a bit string in whole bytes, so the padding costs
   nothing and a roster grows into it without a wider type, which would rewrite every table that stores a set over it.
   grizzle writes a set in hex only: `X'…'` cast to its domain in SQL, `X` and its hex digits as a parameter's text. The
-  algebra is `Bits.union`, `.intersection`, `.difference`, `.cardinality`, `.subset`, `.disjoint` and `.singleton`;
-  for a complement, take the full set less it. Membership is `Bits.subset(Bits.singleton(id), set)`, which reads
+  algebra is `Bit.union`, `.intersection`, `.difference`, `.cardinality`, `.subset`, `.disjoint` and `.singleton`;
+  for a complement, take the full set less it. Membership is `Bit.subset(Bit.singleton(id), set)`, which reads
   the one bit of the id's code. Every operation gives NULL on NULL, a NULL id's singleton included. No key holds a set:
   its bit string is too wide for an index entry.
 
@@ -322,10 +323,10 @@ Every field has one writer. An insert or a put takes exactly the fields its call
   `relation.generated(name, written, primaryKey, (r) => ({ f: generated(type, term) }))`, or a search document PostgreSQL
   parses from the row's texts, `searchDocument(configuration, [weight, text], ...)` ([Full text search](reads-and-writes.md#full-text-search)).
 - **grizzle, drawn:** `drawn(natural)`, a family's count or index, and a tree's `start` and `end`
-  ([Families](#families)); or `drawn(c, key)`, c a contract over `int2`, `int4` or `int8` under its
+  ([Families](#families)); or `drawn(c, key)`, c a domain over `int2`, `int4` or `int8` under its
   key, whose column is c's and whose CHECK bounds every value grizzle draws into it.
 - **grizzle, accumulated:** `accumulated(type, start)`, a fold's end or accumulator, or a copy along a family's axis,
-  `start` its value where the axis begins; a contract's under its key, `accumulated(c, start, key)`.
+  `start` its value where the axis begins; a domain's under its key, `accumulated(c, start, key)`.
 - **The database's clock:** `instant`, stamped by the insert that adds its row where it is its relation's clock, or a
   stored instant where it is a reference ([Instants](reads-and-writes.md#instants)). The same type its caller writes is `instant.stored`.
 
@@ -339,13 +340,13 @@ Compiling the schema refuses a term that breaks these rules with `GeneratedRefus
 for a read beyond its row). The term has the field's type, except for a text's pattern and byte bound,
 which the field's domain checks: `generated(Ids, Text.concat(row.head, row.tail))` fills a refined text, and a
 generated value outside the domain refuses its row, `refused` on the pattern's rule; a term whose type shares no value with the field's, `Text.lowerAscii` of a text of capitals into a field of capitals, would refuse every row, and is `GeneratedRefused` (`disjoint`) wherever the text analysis proves it, by the two patterns together or by the tighter byte bound. Nothing is cast
-implicitly: a term of another integer width, numeric typmod or contract, `natural` included, is `GeneratedRefused`
+implicitly: a term of another integer width, numeric typmod or domain, `natural` included, is `GeneratedRefused`
 (`type`); write the `Type.cast`. A term with no value at a row, such as `C.at` at a key no row holds, refuses the
 row, `refused` on `{ kind: "generated", relation, field }`, witnessed by the first row you stated whose term
 has no value. It is one outcome whoever finds the NULL: grizzle, filling a nested write or a family's values that read
 the field, before any SQL, or PostgreSQL's NOT NULL.
 
-**Keys.** A fact and a query's row hold every field. A primary key holds no set, bytes, generated or accumulated field.
+**Keys.** A fact and a query's row hold every field. A primary key holds no set, bytea, generated or accumulated field.
 Another key may hold a generated field, such as a `value` generated from a text to keep two spellings of one value
 apart. It is compared in the statement that writes the row, never on the host, against every row the statement writes
 and every stored row: two rows of one value are `refused` on the key, witnessed by the key's values as
@@ -389,35 +390,35 @@ roster and a record of typed fields. One field holds one value, its host value a
 "integer", value: 3 }`: the arm's handle under `tag`, then that arm's fields.
 
 ```ts
-import { closedId, generated, sha256, variant, bool, cidr, float4, float8, inet, int2, int4, int8, money, numeric, serial, tsvector, uuidv7, vector } from "@bjornpagen/grizzle"
+import * as g from "@bjornpagen/grizzle"
 
 const baseTypes = ["boolean", "file", "float", "integer", "pair", "string"] as const
-const BaseType = closed.unordered("BaseType", baseTypes)
-const QtiValue = variant(
+const BaseType = g.closed.unordered("BaseType", baseTypes)
+const QtiValue = g.variant(
 	"QtiValue",
 	BaseType,
 	{
-		boolean: { value: bool },
-		float: { value: float8 },
-		integer: { value: int4 },
+		boolean: { value: g.bool },
+		float: { value: g.float8 },
+		integer: { value: g.int4 },
 		pair: { least: Identifier, greatest: Identifier },
 		string: { value: Prose }
 	},
 	{ pair: (a) => a.le(a.least, a.greatest) }
 )
-const Single = relation.generated(
+const Single = g.relation.generated(
 	"Single",
 	{ variable: Name, value: QtiValue },
 	["variable"],
 	(r) => ({
-		baseType: generated(closedId(BaseType), QtiValue.tag(r.value))
+		baseType: g.generated(g.closedId(BaseType), QtiValue.tag(r.value))
 	})
 )
-const Multiple = relation.generated(
+const Multiple = g.relation.generated(
 	"Multiple",
-	{ variable: Name, value: QtiValue, count: natural },
+	{ variable: Name, value: QtiValue, count: g.natural },
 	["variable", "image"],
-	(r) => ({ image: generated(sha256, QtiValue.digest(r.value)) })
+	(r) => ({ image: g.generated(g.sha256, QtiValue.digest(r.value)) })
 )
 ```
 
@@ -429,11 +430,11 @@ const Multiple = relation.generated(
   form. A variant holds at least one arm.
 - **One column, judged whole.** A variant field is one column, typed by the variant's domain over its composite: the
   tag, the arm's code, then every arm's fields at their base types. The domain's one CHECK holds the tagged arm's
-  fields present, each judged by its own type (a contract's, a pattern's, a roster's domain, a closed id subset's codes),
+  fields present, each judged by its own type (a domain's, a pattern's, a roster's domain, a closed id subset's codes),
   the arm's check, and every other arm's fields absent. A value of no arm, a field under another arm's tag, or a pair out of order is refused
   wherever it is written: by a write, a cast, a parameter or direct SQL. A write's refusal names the field's one rule,
-  `{ kind: "variant", relation, field, variant }`, whichever domain PostgreSQL reports, the variant's or an arm's
-  field's contract's or pattern's: grizzle judges the stated row on the host by the same domain to name the field.
+  `{ kind: "variant", relation, field, variant }`, whichever domain PostgreSQL reports, the variant's or one an arm's
+  field is typed by: grizzle judges the stated row on the host by the same domain to name the field.
 - **The tag is an ordinary field.** `V.tag(value)` is a closed id of the roster holding the handles the arms name, as
   a closed id of that subset is, so `generated(closedId(R), V.tag(r.value))` stores it, and so does a field of the
   subset, `generated(closedId(R, { only }), V.tag(r.value))`. A key, a reference and a law name it like any field, so
@@ -486,7 +487,7 @@ const Multiple = relation.generated(
 `closed.relation(name, fields, key, rows)` is a relation whose rows are fixed when the schema compiles, such as a
 grammar or a price list. Its key is required, a nonempty list of its closed-id fields; a key of every field makes it a
 set. A key field's roster may be `closed.ordered` or `closed.unordered`: its constant is indexed by codes, which are
-history, and reads no roster's order. Its other fields are closed ids or open-typed values, never a span, set, vector, bytes or exact value. Its rows are a
+history, and reads no roster's order. Its other fields are closed ids or open-typed values, never a range, set, vector, bytea or exact value. Its rows are a
 set: a row written twice is one row, and two rows of one key with different payloads are refused, naming the key and
 both payloads.
 `closed.relation("Allowed", { kind: closedId(Kind), flag: closedId(Flag), weight: int4 }, ["kind", "flag"], rows)`
@@ -495,7 +496,7 @@ says which flags each kind admits, and at what weight.
 A query reads a closed relation's rows as facts its declaration fixes. The engine keys the relation by every minimal
 set of its columns whose value tuples no two rows share, its declared key among them; it treats a column that holds
 one value as constant, and two columns of one type whose values agree row by row as equal. The types read only the declared key, and cannot see a value no literal types,
-such as a contract's bigint. So a query whose cardinality rests on any other of these facts is typed as having many
+such as a domain's bigint. So a query whose cardinality rests on any other of these facts is typed as having many
 rows where the engine proves at most one: over `Allowed`, if no two rows share a weight, a match that fixes the weight
 by a parameter is at most one row to the engine and many to the types.
 
@@ -517,7 +518,7 @@ pair `Allowed` lacks, and `Logic.cond(Allowed.has(kind, flag), Allowed.at("weigh
 0 where there is none. NULL follows SQL's three-valued logic: a row check, over a table or a derived relation, refuses a
 row its condition leaves unknown, and holds where another arm of an `or` holds; a selection keeps only the rows its
 condition is true of; and a generated field's NULL term is refused by its column's NOT NULL. Every domain admits NULL,
-so no cast to a contract, pattern, roster or set refuses a read first.
+so no cast to a domain, pattern, roster or set refuses a read first.
 
 A rule over closed relations alone is checked once, by PostgreSQL, in the migration that installs them: a violating
 row refuses the migration and leaves nothing behind. A containment from a closed relation into an open one is
@@ -546,56 +547,58 @@ installs it in 35 ms.
 Rules are declared in a schema's list, beside its tables. A box office:
 
 ```ts
-import { check, contract, counted, drawn, fin, key, Logic, mutable, natural, range, unit } from "@bjornpagen/grizzle"
+import * as g from "@bjornpagen/grizzle"
 
 const centsKey = Symbol("Cents")
-const Cents = contract<typeof centsKey>()("Cents", int8, (c) => Logic.ge(c, 0n))
+const Cents = g.domain<typeof centsKey>()("Cents", g.int8, (c) => g.Logic.ge(c, 0n))
 /** A show's production code, and a ticket's barcode, as the box office prints them. */
-const ShowCode = str.regex("^[A-Z0-9]{2,12}$")
-const Barcode = str.regex("^[0-9]{12}$")
+const ShowCode = g.str.regex("^[A-Z0-9]{2,12}$")
+const Barcode = g.str.regex("^[0-9]{12}$")
 
-export const Show = relation(
+export const Show = g.relation(
 	"Show",
-	{ id: ShowCode, seats: natural, price: Cents, tickets: drawn(natural) },
+	{ id: ShowCode, seats: g.natural, price: Cents, tickets: g.drawn(g.natural) },
 	["id"]
 )
-export const Ticket = relation("Ticket", { id: Barcode, show: ShowCode, holder: ClerkUser }, ["id"])
+export const Ticket = g.relation("Ticket", { id: Barcode, show: ShowCode, holder: ClerkUser }, [
+	"id"
+])
 /** A stage is its name in the building. */
-export const Stage = relation("Stage", { name: Title }, ["name"])
-export const Run = relation("Run", { stage: Title, nights: range(int4), show: ShowCode }, [
+export const Stage = g.relation("Stage", { name: Title }, ["name"])
+export const Run = g.relation("Run", { stage: Title, nights: g.range(g.int4), show: ShowCode }, [
 	"stage",
 	"nights"
 ])
 
-export const BoxOffice = schema(
+export const BoxOffice = g.schema(
 	"BoxOffice",
 	[Show, Ticket, Stage, Run],
 	[
-		counted(on(Ticket, "show"), fin(Show, "tickets")),
-		contained(on(Run, "stage"), on(Stage, "name")),
-		contained(on(Run, "show"), on(Show, "id")),
-		key(on(Ticket, "show", "holder")),
-		check("SomeSeats", Show, (s) => s.ge(s.seats, 1n)),
-		check("NoOversell", Show, (s) => s.le(s.tickets, s.seats)),
-		unit("Show", { id: ShowCode }),
-		mutable(Show)
+		g.counted(g.on(Ticket, "show"), g.fin(Show, "tickets")),
+		g.contained(g.on(Run, "stage"), g.on(Stage, "name")),
+		g.contained(g.on(Run, "show"), g.on(Show, "id")),
+		g.key(g.on(Ticket, "show", "holder")),
+		g.check("SomeSeats", Show, (s) => s.ge(s.seats, 1n)),
+		g.check("NoOversell", Show, (s) => s.le(s.tickets, s.seats)),
+		g.unit("Show", { id: ShowCode }),
+		g.mutable(Show)
 	]
 )
 ```
 
 A price is never negative. Every ticket's show, and every run's stage and show, exists. A person holds at most one
 ticket per show. A show has at least one seat and never more tickets than seats: `tickets` is drawn, each show's count
-of the tickets that name it, which grizzle keeps and `mutable(Show)`, in the show's unit, lets change. `nights` is a span in `Run`'s primary
+of the tickets that name it, which grizzle keeps and `mutable(Show)`, in the show's unit, lets change. `nights` is a range in `Run`'s primary
 key, so two runs on one stage never share a night.
 
 | Rule           | Written as                                                                | Holds when                                                                    |
 | -------------- | ------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
 | Primary key    | `relation`'s third argument                                               | no two rows share it                                                          |
 | Unique key     | `key(on(Ticket, "show", "holder"))`                                       | no two rows share these fields                                                |
-| No-overlap key | a key with a `span` field                                                 | rows that agree on the key's other fields never share a point of the span     |
+| No-overlap key | a key with a `range` field                                                | rows that agree on the key's other fields never share a point of the range    |
 | Foreign key    | `contained(on(Ticket, "show"), on(Show, "id"))`                           | every ticket's `show` is a show's `id`                                        |
 | Both ways      | `mirrors(on(A, "x"), on(B, "y"))`                                         | `contained(a, b)` and `contained(b, a)`, the two rules it stands for          |
-| Coverage       | `contained` between two `span` fields                                     | the target's spans cover each source span                                     |
+| Coverage       | `contained` between two `range` fields                                    | the target's ranges cover each source range                                   |
 | Row check      | `check("SomeSeats", Show, (s) => s.ge(s.seats, 1n))`                         | the condition holds on every row                                              |
 | Counted family | `counted(on(Ticket, "show"), fin(Show, "tickets"))`                       | each show's `tickets` is the number of tickets that name it                   |
 | Ordered family | `ordered(on(Line, "order", "at"), fin(Order, "n"))`                       | each order's lines hold `at` exactly 0 … n − 1                                |
@@ -636,26 +639,26 @@ A rule pairs its sides' terms in order. A side is `on(source, ...terms)`.
 A show's waitlist, over the box office:
 
 ```ts
-import { natural, pred, select } from "@bjornpagen/grizzle"
+import * as g from "@bjornpagen/grizzle"
 
 /** A show's waitlist: its places in order from 0, and whether each place's holder has been called. */
-export const Place = relation(
+export const Place = g.relation(
 	"Place",
-	{ show: ShowCode, at: natural, holder: ClerkUser, called: bool },
+	{ show: ShowCode, at: g.natural, holder: ClerkUser, called: g.bool },
 	["show", "at"]
 )
 
 /** The places whose holder has not been called yet. */
-const waiting = select(Place, (p) => p.eq(p.called, false))
+const waiting = g.select(Place, (p) => p.eq(p.called, false))
 
-export const Waitlist = schema.extend(
+export const Waitlist = g.schema.extend(
 	[BoxOffice],
 	"Waitlist",
 	[Place],
 	[
-		contained(on(Place, "show"), on(Show, "id")),
-		contained(on(Place, "show", pred("at")), on(Place, "show", "at")),
-		key(on(waiting, "show", "holder"))
+		g.contained(g.on(Place, "show"), g.on(Show, "id")),
+		g.contained(g.on(Place, "show", g.pred("at")), g.on(Place, "show", "at")),
+		g.key(g.on(waiting, "show", "holder"))
 	]
 )
 ```
@@ -682,7 +685,7 @@ row computes each selection once, never once per term.
   target's own terms where a containment out of the same selection reads them, as each arm's mirrors' way back
   does, so one index serves both, or where the shared UNIQUE costs a constant or a column more; the shared one where
   several targets fix a field to different values, or where both cost the same.
-- **Coverage.** A coverage's target needs a no-overlap key over its span, or the schema is refused: coalesce the spans,
+- **Coverage.** A coverage's target needs a no-overlap key over its range, or the schema is refused: coalesce the ranges,
   or key them.
 
 A write that breaks a rule comes back as an outcome that names the rule, never as a message to parse.
@@ -694,44 +697,44 @@ type, both or neither, each stored on its own, and the rules about a resource's 
 it has both:
 
 ```ts
-import { derived, query, v } from "@bjornpagen/grizzle"
+import * as g from "@bjornpagen/grizzle"
 
 /** A resource's identifier, as its package's manifest names it. */
-const ResourceId = str.regex("^[A-Za-z_][0-9A-Za-z_.-]{0,63}$")
+const ResourceId = g.str.regex("^[A-Za-z_][0-9A-Za-z_.-]{0,63}$")
 
 /** A content package's resources, each with an href and a type, either of which it may lack. */
-export const Resource = relation("Resource", { id: ResourceId }, ["id"])
-export const ResourceHref = relation(
+export const Resource = g.relation("Resource", { id: ResourceId }, ["id"])
+export const ResourceHref = g.relation(
 	"ResourceHref",
-	{ resource: ResourceId, path: Title, internal: bool },
+	{ resource: ResourceId, path: Title, internal: g.bool },
 	["resource"]
 )
-export const ResourceTyped = relation("ResourceTyped", { resource: ResourceId, type: Title }, [
+export const ResourceTyped = g.relation("ResourceTyped", { resource: ResourceId, type: Title }, [
 	"resource"
 ])
-export const PackageFile = relation("PackageFile", { path: Title }, ["path"])
+export const PackageFile = g.relation("PackageFile", { path: Title }, ["path"])
 /** A catalog record of a resource, naming its href and its type. */
-export const CatalogRecord = relation(
+export const CatalogRecord = g.relation(
 	"CatalogRecord",
 	{ resource: ResourceId, path: Title, type: Title },
 	["resource"]
 )
 
-export const Content = schema(
+export const Content = g.schema(
 	"Content",
 	[Resource, ResourceHref, ResourceTyped, PackageFile, CatalogRecord],
 	[
-		contained(on(ResourceHref, "resource"), on(Resource, "id")),
-		contained(on(ResourceTyped, "resource"), on(Resource, "id"))
+		g.contained(g.on(ResourceHref, "resource"), g.on(Resource, "id")),
+		g.contained(g.on(ResourceTyped, "resource"), g.on(Resource, "id"))
 	]
 )
 
 /** The resources that have both: a join, which no table stores and no write keeps. */
-export const TypedHref = derived(
+export const TypedHref = g.derived(
 	"TypedHref",
-	query(Content).rule((r) => {
-		const { resource, path, internal } = v(ResourceHref, "href")
-		const { type } = v(ResourceTyped, "typed")
+	g.query(Content).rule((r) => {
+		const { resource, path, internal } = g.v(ResourceHref, "href")
+		const { type } = g.v(ResourceTyped, "typed")
 		return r
 			.match(ResourceHref, { resource, path, internal })
 			.match(ResourceTyped, { resource, type })
@@ -740,20 +743,20 @@ export const TypedHref = derived(
 )
 
 /** The typed hrefs of items. */
-const items = select(TypedHref, (t) => t.eq(t.type, "item"))
+const items = g.select(TypedHref, (t) => t.eq(t.type, "item"))
 
-export const ContentPackage = schema.extend(
+export const ContentPackage = g.schema.extend(
 	[Content],
 	"ContentPackage",
 	[TypedHref],
 	[
-		check("ItemsInside", TypedHref, (t) =>
+		g.check("ItemsInside", TypedHref, (t) =>
 			t.not(t.and([t.eq(t.type, "item"), t.eq(t.internal, false)]))
 		),
-		contained(on(items, "path"), on(PackageFile, "path")),
-		contained(
-			on(CatalogRecord, "resource", "path", "type"),
-			on(TypedHref, "resource", "path", "type")
+		g.contained(g.on(items, "path"), g.on(PackageFile, "path")),
+		g.contained(
+			g.on(CatalogRecord, "resource", "path", "type"),
+			g.on(TypedHref, "resource", "path", "type")
 		)
 	]
 )
@@ -803,7 +806,7 @@ definition too.
   has one, before its end: `AfterStart` derives each visit beside its sitting's start, `check("VisitAfterStart",
   AfterStart, (s) => s.ge(Range.lower(s.during, Seconds), s.at))`, and `BeforeEnd` each visit beside its end, its
   check `s.le(Range.upper(s.during, Seconds), s.at)`. A sitting with no end has no fact of `BeforeEnd`, so its end
-  bound asks nothing of it: an open interval is the absence of its end, never a span unbounded above, and every span
+  bound asks nothing of it: an open interval is the absence of its end, never a range unbounded above, and every range
   stays bounded and non-empty. The judge holds each bound at COMMIT, whether the transaction writes a visit, a start or
   an end, and the host judges a row of either as PostgreSQL does (`rowEvaluator`).
 - **Unit-local rules are judged whole.** A rule is unit-local when every stored relation its query reads is immutable,
@@ -977,13 +980,13 @@ definition too.
 A family is a rule over rows the caller writes: each owner's members, counted by a drawn field of the owner.
 `fin(O, "n")`, a family's second argument, is the slots of O's drawn count `n`, never a side or a table.
 
-A family's count and an ordered family's index are of one type: `drawn(natural)`, or `drawn(c, key)` for c a contract
+A family's count and an ordered family's index are of one type: `drawn(natural)`, or `drawn(c, key)` for c a domain
 over an integer under its key, `drawn(TestNumber, testNumberKey)` of
-`contract<typeof testNumberKey>()("TestNumber", int4, (n) => Logic.and([Logic.ge(n, 0), Logic.le(n, 2147483647)]))`, which
+`domain<typeof testNumberKey>()("TestNumber", int4, (n) => Logic.and([Logic.ge(n, 0), Logic.le(n, 2147483647)]))`, which
 stores them in c's column, an int4 here, so a field of c elsewhere is contained in the indexes and they in it. An index
 and a count of two types are refused when the schema compiles (`an ordered family's index is of its count's type`), and
-`drawn` of any other type is a type error. A count past c's bound is `refused` on c's contract: past its CHECK by the
-CHECK, and past its carrier, smallint's 32,767 or integer's 2,147,483,647, by the family's statement where it draws a
+`drawn` of any other type is a type error. A count past c's bound is `refused` on c's domain: past its CHECK by the
+CHECK, and past its carrier, int2's 32,767 or int4's 2,147,483,647, by the family's statement where it draws a
 stored group, and as its input (`integerRange`) before any statement where the host draws a fresh one. No drawn value is
 ever wrapped. pred reads a natural alone.
 
@@ -1027,7 +1030,7 @@ An ordered family or a tree is a sequence. The monoids:
   type, each with its own text pattern and byte bound: concat's pieces may be any text, generated or written, and its
   accumulators of a pattern of the text they spell. Each one's domain checks every value grizzle fills into it: a
   value outside its pattern is `refused` on that pattern's rule. Another integer width, numeric typmod or
-  contract is another type, and such a fold is `Refused` when the schema compiles.
+  domain is another type, and such a fold is `Refused` when the schema compiles.
 - **Running values.** A fold over a sequence may name each member's running `before` and `after`; one over a counted
   family names only its step value and end, its order being hidden. concat folds only a sequence, and names its pair.
   The family's axes key each running text: one that fits the axes' UNIQUE beside their other columns rides them as
@@ -1186,29 +1189,30 @@ commit and no concurrent writer, and a law whose rows stay inside one unit is ju
 among a schema's statements declares one:
 
 ```ts
-/** An assignment's number, a sitting's key: a contract of its own, so no other number leads a key with it. */
+/** An assignment's number, a sitting's key: a domain of its own, so no other number leads a key with it. */
 const assignmentNoKey = Symbol("AssignmentNo")
-const AssignmentNo = contract<typeof assignmentNoKey>()("AssignmentNo", int8, (n) =>
-	Logic.ge(n, 0n)
+const AssignmentNo = g.domain<typeof assignmentNoKey>()("AssignmentNo", g.int8, (n) =>
+	g.Logic.ge(n, 0n)
 )
 
-const Assigned = relation("Assigned", { number: AssignmentNo, test: TestId }, ["number"])
-const ClockOpened = relation(
+const Assigned = g.relation("Assigned", { number: AssignmentNo, test: TestId }, ["number"])
+const ClockOpened = g.relation(
 	"ClockOpened",
-	{ number: AssignmentNo, at: instant, question: QuestionId },
+	{ number: AssignmentNo, at: g.instant, question: QuestionId },
 	["number", "at"]
 )
-const Invalidated = relation("Invalidated", { number: AssignmentNo, at: instant, reason: Reason }, [
-	"number",
-	"at"
-])
-export const Assignments = schema(
+const Invalidated = g.relation(
+	"Invalidated",
+	{ number: AssignmentNo, at: g.instant, reason: Reason },
+	["number", "at"]
+)
+export const Assignments = g.schema(
 	"Assignments",
 	[Assigned, ClockOpened, Invalidated],
 	[
-		unit("Sitting", { number: AssignmentNo }),
-		contained(on(ClockOpened, "number"), on(Assigned, "number")),
-		contained(on(Invalidated, "number"), on(Assigned, "number"))
+		g.unit("Sitting", { number: AssignmentNo }),
+		g.contained(g.on(ClockOpened, "number"), g.on(Assigned, "number")),
+		g.contained(g.on(Invalidated, "number"), g.on(Assigned, "number"))
 	]
 )
 ```
@@ -1225,7 +1229,7 @@ export const Assignments = schema(
   leads with, or keep R closed and record each change as a fact inserted.
 - **Give its key a named domain.** A field of the same name and type that means something else, a user's `number`
   beside an assignment's, joins the unit all the same. That is never wrong, since every writer and reader of the row
-  takes the same lock, only coarser than it need be; a contract of the key's own, `AssignmentNo` above, keeps it out.
+  takes the same lock, only coarser than it need be; a domain of the key's own, `AssignmentNo` above, keeps it out.
 - **One unit a relation.** No unit's heading leads with another's, by name and type in order, and two units of one
   heading are refused, `MalformedDescription` naming both: a relation keyed by the longer would sit under both, and a
   lock on the inner key would not exclude a holder of the outer one. So every relation sits under one unit at most.
@@ -1259,16 +1263,16 @@ type grizzle draws:
 
 ```ts
 /** What holds a number: an assignment, or nothing, where an import found the number skipped. */
-const NumberHolder = closed.unordered("NumberHolder", ["held", "unused"])
-const AssignmentNumber = relation(
+const NumberHolder = g.closed.unordered("NumberHolder", ["held", "unused"])
+const AssignmentNumber = g.relation(
 	"AssignmentNumber",
-	{ number: natural, holder: closedId(NumberHolder) },
+	{ number: g.natural, holder: g.closedId(NumberHolder) },
 	["number"]
 )
-export const Numbers = schema(
+export const Numbers = g.schema(
 	"Numbers",
 	[NumberHolder, AssignmentNumber],
-	[series(AssignmentNumber)]
+	[g.series(AssignmentNumber)]
 )
 ```
 
@@ -1282,10 +1286,10 @@ export const Numbers = schema(
   other lock is a unit's, whose heading holds a field at least, a clock stays refused first in its key
   (`childless`) and a place first in its key (`groupless`). And the series carries its law, so it is never a lock to
   wrap other work in.
-- **Its numbers' type.** `R`'s primary key is its one field, `natural` or a contract over an integer, exactly the types
+- **Its numbers' type.** `R`'s primary key is its one field, `natural` or a domain over an integer, exactly the types
   `drawn` takes ([Families](#families)): a test's number kept in an int4,
-  `contract<typeof testNumberKey>()("TestNumber", int4, (n) => Logic.and([Logic.ge(n, 0), Logic.le(n, 2147483646)]))`, keys its series as
-  itself, and a number past its bound is refused by the contract's own CHECK. Any other key, a second field or a type
+  `domain<typeof testNumberKey>()("TestNumber", int4, (n) => Logic.and([Logic.ge(n, 0), Logic.le(n, 2147483646)]))`, keys its series as
+  itself, and a number past its bound is refused by the domain's own CHECK. Any other key, a second field or a type
   of no integer carrier, is refused where `series(R)` is stated.
 - `R` is immutable: its numbers only grow by appends.
 
@@ -1299,27 +1303,26 @@ into a row refuses its delete while a row that references it remains (23503), as
 
 ```ts
 /** A run of a workflow, by the idempotency key its trigger gave it. */
-const RunKey = str.bytes(64, str.regex("^[0-9A-Za-z_-]{1,64}$"))
+const RunKey = g.str.bytes(64, g.str.regex("^[0-9A-Za-z_-]{1,64}$"))
 
 /** Each run, kept for good, so a key a run took never starts a fresh one. */
-export const Flow = relation("Flow", { flow: RunKey, steps: natural }, ["flow"])
+export const Flow = g.relation("Flow", { flow: RunKey, steps: g.natural }, ["flow"])
 /** The leases of a run's steps, each deleted once its step is done. */
-export const FlowLease = relation(
-	"FlowLease",
-	{ flow: RunKey, step: int4, until: int8 },
-	["flow", "step"]
-)
-export const Flows = schema(
+export const FlowLease = g.relation("FlowLease", { flow: RunKey, step: g.int4, until: g.int8 }, [
+	"flow",
+	"step"
+])
+export const Flows = g.schema(
 	"Flows",
 	[Flow, FlowLease],
 	[
-		unit("Run", { flow: RunKey }),
-		mutable(FlowLease),
-		contained(on(FlowLease, "flow"), on(Flow, "flow"))
+		g.unit("Run", { flow: RunKey }),
+		g.mutable(FlowLease),
+		g.contained(g.on(FlowLease, "flow"), g.on(Flow, "flow"))
 	]
 )
 /** A finished step's lease goes: a delete, under its run's exclusive borrow. */
-export const finished = ChangeSet.empty(Flows).delete(FlowLease, [])
+export const finished = g.ChangeSet.empty(Flows).delete(FlowLease, [])
 ```
 
 What the consumers' shapes come to:
@@ -1458,27 +1461,27 @@ definition.
 `records(stem, query, owner, ownerKey)` declares the relations that hold the rows a query found, for a level over the
 query's to list: `${stem}Row`, the owner's fields, then each column of the query's heading as the query's own field, keyed
 by `ownerKey`, a nonempty list of the owner's field names, as `relation`'s primary key takes it. A column is stored as
-the type it is declared of, its contract's host type and check, its closed id's roster, its text's patterns, so a closed id
+the type it is declared of, its domain's host type and check, its closed id's roster, its text's patterns, so a closed id
 references the roster of the level below; a drawn, generated or accumulated field is stored as its declared type, never
 drawn again; a computed numeric is stored as numeric within its bound (`numeric.within`), an instant as a stored one
 (`instant.stored`) and a search document as a stored one (`tsvector`); a head literal is stored nowhere, its read writing it again, but a union's rules that write literals of
 several values at one key (`kind: "draft"` in one, `kind: "final"` in the other) store that key as a column whose values
-are exactly them: a text of the pattern of just those texts, or a boolean. List `R.relations` in the level and
+are exactly them: a text of the pattern of just those texts, or a `bool`. List `R.relations` in the level and
 `R.rules` among its rules.
 
 ```ts
 import { Array } from "effect"
 
-const found = records("Lessons", lessonsOf, { digest: sha256, run: RunId }, ["digest", "run"])
-export const Audit = schema.extend([School], "Audit", found.relations, found.rules)
+const found = g.records("Lessons", lessonsOf, { digest: g.sha256, run: RunId }, ["digest", "run"])
+export const Audit = g.schema.extend([School], "Audit", found.relations, found.rules)
 
 /** The insert of one run's found rows, each under its own digest. */
 const entries = Array.map(lessons, (row) => [{ digest: digestOf(row), run }, row] as const)
-const insert = recordsFacts(Audit, found)(entries)
-ChangeSet.empty(Audit).insertAll(insert)
+const insert = g.recordsFacts(Audit, found)(entries)
+g.ChangeSet.empty(Audit).insertAll(insert)
 
 /** The rows stored at one owner: rows of `lessonsOf`'s own type, read through its own decoder. */
-export const storedLessons = recordsQuery(Audit, found)
+export const storedLessons = g.recordsQuery(Audit, found)
 ```
 
 `recordsFacts(level, records)(entries)` is the insert of found rows as `insertAll` takes it, each entry a row beside
@@ -1486,8 +1489,8 @@ its owner's values, each fact the owner's values then the row's columns; an owne
 it. `recordsQuery(level, records)` is an ordinary query over the level whose
 parameters are the owner's key fields and whose rows are the stored rows at that owner, delivered through the query's
 own decoder: `HeadOf<typeof storedLessons>` is `HeadOf<typeof lessonsOf>`, value for value. A union of several
-headings is refused with `UnsupportedOperation`, as is a column of a contract the level does not declare and a union's
-literals of another type than text or boolean, which no field holds exactly.
+headings is refused with `UnsupportedOperation`, as is a column of a domain the level does not declare and a union's
+literals of another type than text or `bool`, which no field holds exactly.
 
 A query's attachments, at any depth, are stored too, each in a relation of its own: `${stem}${Name}`, the attachment's
 name capitalized, or, where that name is another attachment's anywhere in the tree or `Row`, its parent relation's name
@@ -1527,29 +1530,29 @@ a schema object a level lists beside its relations. Its body is PL/pgSQL or SQL 
 body.
 
 ```ts
-const Word = str.regex("^[a-z]+$", "u")
-const Weighted = rows({ weight: natural, word: Word })
+const Word = g.str.regex("^[a-z]+$", "u")
+const Weighted = g.rows({ weight: g.natural, word: Word })
 
 /** A word folded to lower case: an SQL body. */
-export const folded = fn("folded", {
+export const folded = g.fn("folded", {
 	calls: [],
 	args: { word: Word },
 	returns: Word,
 	volatility: "immutable",
 	nullInput: "strict",
 	language: "sql",
-	body: fn.body`SELECT lower(word)`
+	body: g.fn.body`SELECT lower(word)`
 })
 
 /** Each word of `words` folded, its weight doubled: a set of rows, read from an array of rows. */
-export const doubled = fn("doubled", {
+export const doubled = g.fn("doubled", {
 	calls: [folded],
 	args: { words: Weighted },
 	returns: Weighted,
 	volatility: "immutable",
 	nullInput: "called",
 	language: "plpgsql",
-	body: fn.body`
+	body: g.fn.body`
 DECLARE
   w ${Weighted};
 BEGIN
@@ -1563,21 +1566,21 @@ END
 })
 
 /** A titled list of weighted words: a heading whose field holds rows of another. */
-const Titled = rows({ title: Word, words: Weighted })
-const Summary = rows({ count: natural, title: Word })
+const Titled = g.rows({ title: Word, words: Weighted })
+const Summary = g.rows({ count: g.natural, title: Word })
 
 /** A titled list's title and its count of words: one row of a heading, from one row of another. */
-export const summary = fn("summary", {
+export const summary = g.fn("summary", {
 	calls: [],
-	args: { doc: row(Titled) },
-	returns: row(Summary),
+	args: { doc: g.row(Titled) },
+	returns: g.row(Summary),
 	volatility: "immutable",
 	nullInput: "called",
 	language: "sql",
-	body: fn.body`SELECT ROW(cardinality((doc).words), (doc).title)::${Summary}`
+	body: g.fn.body`SELECT ROW(cardinality((doc).words), (doc).title)::${Summary}`
 })
 
-export const Lexicon = schema("Lexicon", [folded, doubled, summary], [])
+export const Lexicon = g.schema("Lexicon", [folded, doubled, summary], [])
 ```
 
 - **Arguments and results** are a value of a field's type, `rows(heading)` or `row(heading)`: an argument of rows is
@@ -1585,16 +1588,16 @@ export const Lexicon = schema("Lexicon", [folded, doubled, summary], [])
   or a result, is a value of the row type itself, a composite. Each field of a heading is a value, rows of another
   heading (an array of that one's row type) or one row of one, so a heading holds another as one composite or as
   many: `Titled` above holds its words, and its row type installs after `Weighted`'s. A value's type is a base type, a
-  closed id, a contract or a refined text over one: a serial, money, an exact value, bytes, a set, a span or a vector is a type error,
+  closed id, a domain or a refined text over one: a serial, money, an exact value, bytea, a set, a range or a vector is a type error,
   and from JavaScript `Refused` when the schema is owned. A closed id is of its whole roster: one of a subset is refused
   alike, since no body is a value of a subset and the call casts its value to the roster's domain alone, while a
   variant's arm field of a subset is held to it by the variant's domain the call casts to. A heading holds no NULL, so no row is no arm of a type: a
   function of one row returns its row, and a body with none to return raises. PostgreSQL holds a function to its
   declared types exactly (a PL/pgSQL `RETURN QUERY` refuses a column whose type is not the row type's), so each is its
-  field's base type, `natural` a bigint, `Word` a text and a closed id its code, a smallint: a contract, a pattern or
+  field's base type, `natural` an int8, `Word` a text and a closed id its code, an int2: a domain, a pattern or
   a roster is checked where a statement reads the function's value, cast to its field's domain, never by the
-  signature. That cast makes the contract's values from what the body returned, so a function whose result holds a
-  consumer's contract at any depth is declared under each such contract's key, by its name, after its definition:
+  signature. That cast makes the domain's values from what the body returned, so a function whose result holds a
+  consumer's domain at any depth is declared under each such domain's key, by its name, after its definition:
   `fn("grade", { …, returns: row(Single) }, { QtiInteger: qtiIntegerKey })`; one whose result holds none takes
   nothing. A call passes a closed id of the argument's own roster alone, as every term does.
 - **Order.** A heading's fields and a function's arguments are each a set of names, and PostgreSQL reads both by
@@ -1656,38 +1659,38 @@ matching it or passing it as rows") and, from JavaScript, `MalformedDescription`
 
 ```ts
 /** A document, by its slug. */
-const DocSlug = str.regex("^[a-z0-9-]{1,64}$")
-const Doc = relation("Doc", { doc: DocSlug, shift: natural }, ["doc"])
-const Line = relation("Line", { doc: DocSlug, pos: natural, txt: Word }, ["doc", "pos"])
-const Numbered = rows({ pos: natural, txt: Word })
+const DocSlug = g.str.regex("^[a-z0-9-]{1,64}$")
+const Doc = g.relation("Doc", { doc: DocSlug, shift: g.natural }, ["doc"])
+const Line = g.relation("Line", { doc: DocSlug, pos: g.natural, txt: Word }, ["doc", "pos"])
+const Numbered = g.rows({ pos: g.natural, txt: Word })
 
 /** Each line of `program` shifted by `shift`, its word folded. */
-export const shifted = fn("shifted", {
+export const shifted = g.fn("shifted", {
 	calls: [folded],
-	args: { program: Numbered, shift: natural },
+	args: { program: Numbered, shift: g.natural },
 	returns: Numbered,
 	volatility: "immutable",
 	nullInput: "called",
 	language: "sql",
-	body: fn.body`SELECT p.pos + shift, folded(p.txt) FROM unnest(program) AS p`
+	body: g.fn.body`SELECT p.pos + shift, folded(p.txt) FROM unnest(program) AS p`
 })
 
-export const Docs = schema("Docs", [Doc, Line, folded, shifted], [])
+export const Docs = g.schema("Docs", [Doc, Line, folded, shifted], [])
 
-const linesOf = query(Docs).rule((r) => {
-	const { pos, txt } = v(Line, "line")
+const linesOf = g.query(Docs).rule((r) => {
+	const { pos, txt } = g.v(Line, "line")
 	return r.match(Line, { doc: r.param("doc", DocSlug), pos, txt }).find({ pos, txt })
 })
 
 /** Every document's lines, shifted by its own shift, each beside its word folded again. */
-export const shiftedLines = query(Docs).rule((r) => {
-	const { doc, shift } = v(Doc, "doc")
-	const run = Fn.rows(shifted, { program: linesOf.bind({ doc }), shift })
-	const { pos, txt } = v(run, "run")
+export const shiftedLines = g.query(Docs).rule((r) => {
+	const { doc, shift } = g.v(Doc, "doc")
+	const run = g.Fn.rows(shifted, { program: linesOf.bind({ doc }), shift })
+	const { pos, txt } = g.v(run, "run")
 	return r
 		.match(Doc, { doc, shift })
 		.match(run, { pos, txt })
-		.find({ doc, pos, txt, again: Fn.call(folded, { word: txt }) })
+		.find({ doc, pos, txt, again: g.Fn.call(folded, { word: txt }) })
 })
 ```
 
@@ -1696,47 +1699,47 @@ them as a source. The ChangeSet below files a document's lines by the length of 
 statement, and calls `parted` once:
 
 ```ts
-const Parted = rows({ long: Numbered, short: Numbered })
+const Parted = g.rows({ long: Numbered, short: Numbered })
 
 /** The lines of `program`, parted by the length of their word: one row, two fields of rows. */
-export const parted = fn("parted", {
+export const parted = g.fn("parted", {
 	calls: [],
 	args: { program: Numbered },
-	returns: row(Parted),
+	returns: g.row(Parted),
 	volatility: "immutable",
 	nullInput: "called",
 	language: "sql",
-	body: fn.body`SELECT ROW(
+	body: g.fn.body`SELECT ROW(
   ARRAY(SELECT p FROM unnest(program) AS p WHERE length(p.txt) >= 5),
   ARRAY(SELECT p FROM unnest(program) AS p WHERE length(p.txt) < 5))::${Parted}`
 })
 
-const Short = relation("Short", { doc: DocSlug, pos: natural, txt: Word }, ["doc", "pos"])
-const Long = relation("Long", { doc: DocSlug, pos: natural, txt: Word }, ["doc", "pos"])
-export const Words = schema("Words", [Line, Short, Long, parted], [])
+const Short = g.relation("Short", { doc: DocSlug, pos: g.natural, txt: Word }, ["doc", "pos"])
+const Long = g.relation("Long", { doc: DocSlug, pos: g.natural, txt: Word }, ["doc", "pos"])
+export const Words = g.schema("Words", [Line, Short, Long, parted], [])
 
-const wordsOf = query(Words).rule((r) => {
-	const { pos, txt } = v(Line, "line")
+const wordsOf = g.query(Words).rule((r) => {
+	const { pos, txt } = g.v(Line, "line")
 	return r.match(Line, { doc: r.param("doc", DocSlug), pos, txt }).find({ pos, txt })
 })
 
 /** A document's lines, each filed under its word's length. */
-export const file = ChangeSet.empty(Words)
+export const file = g.ChangeSet.empty(Words)
 	.insert(
 		Short,
-		query(Words).rule((r) => {
+		g.query(Words).rule((r) => {
 			const doc = r.param("doc", DocSlug)
-			const { short } = Fn.row(parted, { program: wordsOf.bind({ doc }) })
-			const { pos, txt } = v(short, "short")
+			const { short } = g.Fn.row(parted, { program: wordsOf.bind({ doc }) })
+			const { pos, txt } = g.v(short, "short")
 			return r.match(short, { pos, txt }).find({ doc, pos, txt })
 		})
 	)
 	.insert(
 		Long,
-		query(Words).rule((r) => {
+		g.query(Words).rule((r) => {
 			const doc = r.param("doc", DocSlug)
-			const { long } = Fn.row(parted, { program: wordsOf.bind({ doc }) })
-			const { pos, txt } = v(long, "long")
+			const { long } = g.Fn.row(parted, { program: wordsOf.bind({ doc }) })
+			const { pos, txt } = g.v(long, "long")
 			return r.match(long, { pos, txt }).find({ doc, pos, txt })
 		})
 	)
@@ -1747,7 +1750,7 @@ export const file = ChangeSet.empty(Words)
   array of the heading's row type, `ARRAY(SELECT ROW(...)::<row type> FROM (<query>))`, a set, in no order; a value
   argument is cast to its declared type's base.
 - **What it returns.** The rows of a call are a set: a row the function returns twice is one row. Each value is cast to
-  its field's declared type, so a contract or a pattern refuses a value of the function's that breaks it, where the
+  its field's declared type, so a domain or a pattern refuses a value of the function's that breaks it, where the
   query reads it. grizzle holds no NULL: a function that returns NULL, as a value or in a field of a row, fails the
   query with SQLSTATE `22004`. A strict function's `Fn.call` at a NULL argument, which a closed read at a key no row
   holds gives, is NULL, as a strict operation's is, never that refusal, and its body never runs there: a filter over it
@@ -1777,7 +1780,7 @@ export const file = ChangeSet.empty(Words)
 - **Where a call is matched.** A call's rows arguments may each be built by a `query(S)` of their own, over one level
   of a schema or over several: the call is matched where the highest of them may be, in a rule over that level or one
   above it, and rows arguments over two levels neither of which is a level of the other are `MalformedDescription`.
-- **What may call one.** A call is a query's term alone: a check, a contract's predicate and a generated field are
+- **What may call one.** A call is a query's term alone: a check, a domain's predicate and a generated field are
   evaluated on the host too, and PostgreSQL alone evaluates a declared function, so a call there is a type error
   (`Refused`), and refused from JavaScript when the schema is owned. A term calls an immutable or stable function; a
   volatile one is called through `Fn.rows` alone.
@@ -1795,42 +1798,42 @@ refused, `Refusal<"schema.extend takes one base: a level over several bases is n
 
 ```ts
 /** The QTI content model, maintained on its own: an item is its QTI identifier. */
-export const Item = relation("Item", { id: ItemIdentifier, title: Title }, ["id"])
-export const Qti = schema("Qti", [Item], [])
+export const Item = g.relation("Item", { id: ItemIdentifier, title: Title }, ["id"])
+export const Qti = g.schema("Qti", [Item], [])
 
 /** A child's sittings, over Qti: each sitting's item is one Qti holds, as the database enforces. */
-export const Sitting = relation("Sitting", { child: ClerkUser, item: ItemIdentifier }, [
+export const Sitting = g.relation("Sitting", { child: ClerkUser, item: ItemIdentifier }, [
 	"child",
 	"item"
 ])
-export const Ledger = schema.extend(
+export const Ledger = g.schema.extend(
 	[Qti],
 	"Ledger",
 	[Sitting],
-	[contained(on(Sitting, "item"), on(Item, "id"))]
+	[g.contained(g.on(Sitting, "item"), g.on(Item, "id"))]
 )
 
 /** The signed-in child's own sittings; an insert fills `child` from the token. */
-export const mySittings = query(Ledger).rule((r) => {
-	const { child, item } = v(Sitting, "sitting")
+export const mySittings = g.query(Ledger).rule((r) => {
+	const { child, item } = g.v(Sitting, "sitting")
 	return r.match(Sitting, { child, item }).match(Session, { sub: child }).find({ item })
 })
 
-export const Learner = role(
+export const Learner = g.role(
 	Ledger,
 	"learner",
-	{ ...wholeEntriesOf(Qti), MySitting: mySittings },
+	{ ...g.wholeEntriesOf(Qti), MySitting: mySittings },
 	{ insert: ["MySitting"], contexts: [Session] }
 )
-export const LedgerApp = login(Ledger, "app", [Learner])
-export const QtiAuthor = role(Qti, "author", wholeEntriesOf(Qti), wholeWritesOf(Qti))
-export const AuthorApp = login(Qti, "author_app", [QtiAuthor])
+export const LedgerApp = g.login(Ledger, "app", [Learner])
+export const QtiAuthor = g.role(Qti, "author", g.wholeEntriesOf(Qti), g.wholeWritesOf(Qti))
+export const AuthorApp = g.login(Qti, "author_app", [QtiAuthor])
 ```
 
 - **Each level is a PostgreSQL schema.** `schemaNameOf(Qti)` is `qti` and `schemaNameOf(Ledger)` is `ledger`: a level's
   tables, stored derived tables and rosters' domains live in its own schema. A login or role is named
   by the level it is over, `roleNameOf(LedgerApp, {})` is `ledger__app` and `roleNameOf(AuthorApp, {})` is `qti__author_app`.
-  The root's schema also holds what belongs to the whole installation: the migrations ledger, the contract and text
+  The root's schema also holds what belongs to the whole installation: the migrations ledger, the domain and text
   domains, the constants and grizzle's functions. Every reference across schemas is qualified.
 - **One installation.** The config lists `Ledger`, its top level, and both levels install together: one migrations
   directory, `migrations/qti/`, named by the root, one snapshot recording each level and one ledger. A migration
@@ -1843,7 +1846,7 @@ export const AuthorApp = login(Qti, "author_app", [QtiAuthor])
 
 A containment between stored
 relations may have one side below, its other side the level's own, the lower side's terms fields with no `pred` and
-no span, every fact or a selection of them, into a key the target relation declares: a foreign key such as
+no range, every fact or a selection of them, into a key the target relation declares: a foreign key such as
 `ledger.sitting` into `qti.item`, or, from a selection below, `contained(on(select(Item, (i) => φ), "id"),
 on(Reviewed, "item"))`, every item φ holds of reviewed above. A selection's terms, and a field a selected
 target fixes, are generated columns PostgreSQL computes on the lower table however its row is written, under a
@@ -1935,15 +1938,15 @@ statements at that level, as if they were its own.
 ```ts
 /** A library's facts: each job, and its one result. */
 /** A job, by the key its enqueuer gave it. */
-const JobKey = str.regex("^[0-9A-Za-z:_-]{1,96}$")
-export const Job = relation("Job", { id: JobKey, attempts: int4 }, ["id"])
-export const JobDone = relation("JobDone", { job: JobKey, ok: bool }, ["job"])
-export const Jobs = fragment([Job, JobDone], [contained(on(JobDone, "job"), on(Job, "id"))])
+const JobKey = g.str.regex("^[0-9A-Za-z:_-]{1,96}$")
+export const Job = g.relation("Job", { id: JobKey, attempts: g.int4 }, ["id"])
+export const JobDone = g.relation("JobDone", { job: JobKey, ok: g.bool }, ["job"])
+export const Jobs = g.fragment([Job, JobDone], [g.contained(g.on(JobDone, "job"), g.on(Job, "id"))])
 
 /** The library's programs, over the fragment: they name no application's schema. */
-export const finishJob = ChangeSet.empty(Jobs).insert(JobDone, [])
-export const pendingJobs = query(Jobs).rule((r) => {
-	const { id, attempts } = v(Job, "job")
+export const finishJob = g.ChangeSet.empty(Jobs).insert(JobDone, [])
+export const pendingJobs = g.query(Jobs).rule((r) => {
+	const { id, attempts } = g.v(Job, "job")
 	return r
 		.match(Job, { id, attempts })
 		.where(r.not(JobDone, { job: id }))
@@ -1951,17 +1954,21 @@ export const pendingJobs = query(Jobs).rule((r) => {
 })
 
 /** An application: a relation of its own beside the library's, and a law of its own into the library's key. */
-export const Fee = relation("Fee", { job: JobKey, cents: int8 }, ["job"])
-export const Shop = schema("Shop", [Fee, Jobs], [contained(on(Fee, "job"), on(JobDone, "job"))])
-export const JobWorker = role(
+export const Fee = g.relation("Fee", { job: JobKey, cents: g.int8 }, ["job"])
+export const Shop = g.schema(
+	"Shop",
+	[Fee, Jobs],
+	[g.contained(g.on(Fee, "job"), g.on(JobDone, "job"))]
+)
+export const JobWorker = g.role(
 	Shop,
 	"jobs",
 	{ ...Jobs.relations, Fee },
 	{ insert: ["JobDone", "Fee"] }
 )
-export const feeJob = ChangeSet.union(finishJob, ChangeSet.empty(Shop).insert(Fee, []))
-export const ShopApp = login(Shop, "shop", [JobWorker], {
-	workload: [workload(JobWorker, { finishJob, pendingJobs, feeJob })]
+export const feeJob = g.ChangeSet.union(finishJob, g.ChangeSet.empty(Shop).insert(Fee, []))
+export const ShopApp = g.login(Shop, "shop", [JobWorker], {
+	workload: [g.workload(JobWorker, { finishJob, pendingJobs, feeJob })]
 })
 ```
 

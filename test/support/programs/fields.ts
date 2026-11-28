@@ -15,5 +15,5 @@ export {
 	Type,
 	uuid
 } from "#index.ts"
-export { codecText } from "@bjornpagen/grizzle/compile"
+export { codecText } from "#adapter/public/host.ts"
 export { Id } from "#test/support/ids.ts"

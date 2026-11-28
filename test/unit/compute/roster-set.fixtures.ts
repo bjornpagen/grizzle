@@ -24,7 +24,7 @@ export type Door =
 	| "a closed relation's fact"
 	| "the codec"
 
-/** Who made the set: Bits.of over the first roster or the second, or a plain Set, which states none. */
+/** Who made the set: Bit.of over the first roster or the second, or a plain Set, which states none. */
 export type Maker = "Alpha" | "Beta" | "a plain Set"
 
 export type Feature =

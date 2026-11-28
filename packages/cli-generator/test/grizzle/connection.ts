@@ -3,7 +3,7 @@
  * takes one, for a twin's layers and for grizzle's command line (grizzle.config.ts), which imports nothing more.
  */
 import net from "node:net"
-import type { DbConnection } from "@bjornpagen/grizzle/runtime"
+import type * as gRuntime from "@bjornpagen/grizzle/runtime"
 import type { Redacted } from "effect"
 import pg from "pg"
 
@@ -40,7 +40,7 @@ export const connectionTo = (
 	cluster: Cluster,
 	database: string,
 	password: Redacted.Redacted
-): DbConnection => ({
+): gRuntime.DbConnection => ({
 	driver: pg,
 	transport: {
 		kind: "sslRequest",

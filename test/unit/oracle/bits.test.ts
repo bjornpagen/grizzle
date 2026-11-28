@@ -4,7 +4,7 @@
  *
  * - The oracle, a second implementation: a set is a Set<number> of its codes in a roster of five handles; union,
  *   intersection and difference are the Set operations, cardinality the count, subset and disjointness the membership
- *   tests, and a set with one more handle (set_bit, Bits.singleton's over the empty set) the set with its code
+ *   tests, and a set with one more handle (set_bit, Bit.singleton's over the empty set) the set with its code
  *   added. It shares no code with the evaluator, which reads sets of handles.
  * - The box, exhausted: every pair of subsets of the five handles (1,024 cases), each with every handle added to the
  *   first and to the empty set.

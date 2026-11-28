@@ -1,6 +1,6 @@
 /** What the properties of constructors.test.ts read: its spaces, models and helpers. */
 
-import * as Runtime from "@bjornpagen/grizzle/runtime"
+import * as gRuntime from "@bjornpagen/grizzle/runtime"
 import { assert, defined } from "@bjornpagen/testing/assert"
 import {
 	aimed,
@@ -63,7 +63,7 @@ import { wild } from "#test/support/kernel/naming.ts"
  */
 
 /** The errors a caller meets as classes: Db.open's and DbLayer.make's, and the compile's. */
-type PublicChannel = Runtime.OpenError | CompileError
+type PublicChannel = gRuntime.OpenError | CompileError
 
 /** The errors the adapter classifies, the public ones and those a call's CallError reads (live/call-error.ts). */
 type Channel = PublicChannel | Execution.ReadError | Execution.ApplyError
@@ -96,51 +96,51 @@ const constructors: {
 	) => Extract<Failure, { readonly _tag: T }>
 } = {
 	AdviceUnloaded: Execution.AdviceUnloaded,
-	AttestationRefused: Runtime.AttestationRefused,
+	AttestationRefused: gRuntime.AttestationRefused,
 	CallInputRefused: Failures.CallInputRefused,
-	ClaimRefused: Runtime.ClaimRefused,
+	ClaimRefused: gRuntime.ClaimRefused,
 	CommitLost: Failures.CommitLost,
 	CommitUnknown: Execution.CommitUnknown,
 	CompileError,
 	ConnectionClosed: Failures.ConnectionClosed,
-	ConnectionEnvironmentRefused: Runtime.ConnectionEnvironmentRefused,
+	ConnectionEnvironmentRefused: gRuntime.ConnectionEnvironmentRefused,
 	ConnectionLost: Failures.ConnectionLost,
 	CredentialError: Public.CredentialError,
-	DbConfigRefused: Runtime.DbConfigRefused,
+	DbConfigRefused: gRuntime.DbConfigRefused,
 	Deadlock: Failures.Deadlock,
 	DriverFailure: Failures.DriverFailure,
 	DriverRefused: Failures.DriverRefused,
 	EncodingFailure,
 	ExecutionFailure: Execution.ExecutionFailure,
-	ExpiryRefused: Runtime.ExpiryRefused,
+	ExpiryRefused: gRuntime.ExpiryRefused,
 	InputRejected: Failures.InputRejected,
 	InputTooLarge: Failures.InputTooLarge,
 	LawRejected: Failures.LawRejected,
 	LayerReleased: Failures.LayerReleased,
-	LiveSourceMissing: Runtime.LiveSourceMissing,
+	LiveSourceMissing: gRuntime.LiveSourceMissing,
 	Migrated: Failures.Migrated,
 	Migrating: Failures.Migrating,
 	NoCancelKey: Failures.NoCancelKey,
-	OpenError: Runtime.OpenError,
+	OpenError: gRuntime.OpenError,
 	ParamRejected: Failures.ParamRejected,
 	PutTargetConflict: Failures.PutTargetConflict,
 	ReadFailure: Execution.ReadFailure,
-	RoleOutsideLayers: Runtime.RoleOutsideLayers,
+	RoleOutsideLayers: gRuntime.RoleOutsideLayers,
 	SerializationFailure: Failures.SerializationFailure,
-	ServedLoginRefused: Runtime.ServedLoginRefused,
+	ServedLoginRefused: gRuntime.ServedLoginRefused,
 	ServerError: Failures.ServerError,
 	SocketFailed: Failures.SocketFailed,
 	SpanKeyChange: Failures.SpanKeyChange,
 	StaleSnapshot: Execution.StaleSnapshot,
 	StartupRefused: Failures.StartupRefused,
 	TlsRefused: Failures.TlsRefused,
-	TokenMalformed: Runtime.TokenMalformed,
-	TokenRefused: Runtime.TokenRefused,
+	TokenMalformed: gRuntime.TokenMalformed,
+	TokenRefused: gRuntime.TokenRefused,
 	TransientFailure: Execution.TransientFailure,
 	TransportFailure: Execution.TransportFailure,
 	UnreadableAnswer: Failures.UnreadableAnswer,
 	UnseenOccupant: Failures.UnseenOccupant,
-	VerifierUnavailable: Runtime.VerifierUnavailable
+	VerifierUnavailable: gRuntime.VerifierUnavailable
 }
 
 /** Whether the adapter built `failure` with the public constructor of its tag. */

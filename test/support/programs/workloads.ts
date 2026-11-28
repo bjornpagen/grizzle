@@ -7,7 +7,8 @@ export type { DbOf } from "#adapter/types/db.ts"
 export { workload } from "#compiler/public/workload.ts"
 export type { Workload } from "#compiler/public/workload.ts"
 export { login } from "#index.ts"
-export { Db, served } from "@bjornpagen/grizzle/runtime"
+export { Db } from "#adapter/public/db.ts"
+export { served } from "#adapter/public/layer.ts"
 export type { LoginRole, ProgramsOf } from "#compiler/plan/common.ts"
 export {
 	Account,

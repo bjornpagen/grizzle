@@ -17,10 +17,11 @@ export {
 	workload,
 	writableNamesOf
 } from "#index.ts"
-export { lawsOf } from "@bjornpagen/grizzle/compile"
-export { Db, DbLayer, served } from "@bjornpagen/grizzle/runtime"
+export { lawsOf } from "#compiler/plan/common.ts"
+export { Db } from "#adapter/public/db.ts"
+export { DbLayer, served } from "#adapter/public/layer.ts"
 export type { WriteListOf } from "#index.ts"
-export type { OpenError } from "@bjornpagen/grizzle/runtime"
+export type { OpenError } from "#adapter/public/errors.ts"
 export {
 	Account,
 	AccountNames,

@@ -40,7 +40,7 @@ grizzle decided them:
   which: at least one is broken, maybe more, each named once, in the order of their identities, however you wrote the
   schema. The object is a family's foreign key, which carries every containment merged into it, a key's index that
   serves several rules (a counted family's numbering under a count's fold), or a domain serving every field of one
-  pattern or every contract of one definition, where grizzle
+  pattern or of one domain's definition, where grizzle
   judges no row you stated whole (a row a query computes, or a value it cannot evaluate on the host); a domain names
   the rules of the fields it types in the tables the statement writes.
 - **`first`**: a row check refused a row grizzle cannot judge: one only PostgreSQL computes, which no ChangeSet states
@@ -73,7 +73,7 @@ table in the statement that writes the rows: a declared key, a key over a side, 
 key beside PostgreSQL's own check, the same cost on every insert. So a key (over a table or a side of one) that a row you
 stated breaks, by two rows you submitted or by a stored row inside or outside your role's view, is grizzle's own
 finding, witnessed by that row's values at the key's fields, an index or a start at the value grizzle drew and a
-generated field at the value PostgreSQL computes. A row check, contract, pattern or generated field is refused by
+generated field at the value PostgreSQL computes. A row check, domain, pattern or generated field is refused by
 PostgreSQL, which states the row only in its message, never read by grizzle: grizzle judges on the host the rows your
 ChangeSet states for the refused statement (an inserted or put row, a query entry's row, a nested member) as the write
 fills them, and the witness is the key of the first that breaks the rule. Either key is in the fields you wrote it in.
@@ -99,15 +99,15 @@ that can break the rule, and where two such rows can, the witness is `unreported
 
 **The parse, then PostgreSQL.** grizzle checks nothing on the host that PostgreSQL enforces. A value is parsed once, as
 its field's or parameter's type exactly ([Tables and types](schema.md#tables-and-types)), and a value no such type holds is an
-`EncodingFailure` before any SQL. Every law over the values is PostgreSQL's: keys, containments, checks, contracts,
+`EncodingFailure` before any SQL. Every law over the values is PostgreSQL's: keys, containments, checks, domains,
 patterns and rosters, each refusal classified into the typed outcome or error below, one round trip in, never an
 earlier refusal of the host's. The one rule the host judges is a relation's rows as a set: two rows one stratum adds at
 one key that differ elsewhere are `refused` on that key before any SQL, since the input is no set of its facts.
 
-**Contracts and patterns.** The encoder checks only the base type, so a value its contract or pattern refuses is refused
+**Domains and patterns.** The encoder checks only the base type, so a value its domain or pattern refuses is refused
 by its domain's CHECK as the statement casts it, before the row's constraints and row-level security. A parameter's
-value is cast as PostgreSQL binds it, to its contract's domain or to its own pattern domain, one per parameter and
-pattern, which `grizzle generate` installs for every contract and every pattern a served parameter names: a value
+value is cast as PostgreSQL binds it, to its domain or to its own pattern domain, one per parameter and
+pattern, which `grizzle generate` installs for every domain and every pattern a served parameter names: a value
 outside them is refused
 there, before the statement reads a row. A write binds every such parameter in the first statement each call sends,
 and sends no statement for it: each parameter is an entry no query reads, leading every statement before the first
@@ -117,13 +117,13 @@ write's first statement is sent there besides, writing nothing. So the refusal c
 write runs, whichever stratum reads the parameter, and no law a stratum breaks answers first. A read binds every one
 in its statement, those its query leaves unread too (a rule under the constant false `r.or([])`), so a call is refused
 for the parameters it declares, never only for those its logic reads. A
-contract's refusal of a parameter is `refused` on the contract's law, its
+domain's refusal of a parameter is `refused` on the domain's law, its
 witness `unreported`, a write's and a read's (`LawRejected`) alike; a pattern's refusal of a parameter, a
 `str.bytes` bound's among them, is `paramRejected` (`ParamRejected`), its `param` where: `{ kind: "scalar", name }`
 for a scalar parameter, `{ kind: "field", name, field }` for a field of a relation parameter's facts. A caller names
 the field it refused from that data, never from the message, which spells the place `<parameter>.<field>` with its
 pattern: a parameter's name may hold a `.`, so that text can name two places. The outcome names
-the contract's rule or the field's pattern rule. Fields of one pattern share a domain, as do fields whose patterns
+the domain's rule or the field's pattern rule. Fields of one pattern share a domain, as do fields whose patterns
 grizzle proves match the same texts, and PostgreSQL reports the domain, never the column, so grizzle judges the row on
 the host to name the field, its rule spelled as that field spells its patterns:
 `{ kind: "pattern", relation: "Item", field: "slug", patterns: [{ source: "^[a-z-]{1,64}$", flags: "u" }] }`. A
@@ -139,11 +139,11 @@ stored members.
 
 | `law.kind`   | Its fields                                                                                                      |
 | ------------ | --------------------------------------------------------------------------------------------------------------- |
-| `primaryKey` | `relation`, `fields` (a span field makes it a no-overlap key)                                                   |
+| `primaryKey` | `relation`, `fields` (a range field makes it a no-overlap key)                                                  |
 | `key`        | `side`: a key statement, a candidate key of its relation when its side reads every row and its terms are fields |
 | `check`      | `relation`, `name`                                                                                              |
 | `contained`  | `from`, `to`: a containment, foreign keys included; a `mirrors` is two containments                              |
-| `coverage`   | `from`, `to`: a containment whose sides pair a span field                                                       |
+| `coverage`   | `from`, `to`: a containment whose sides pair a range field                                                      |
 | `family`     | `order` (`"ordered"` or `"counted"`), `member` (a side), `slots` (`{ owner, count }`)                           |
 | `tree`       | `member`, `slots`, `root` (the root fields, a list)                                                             |
 | `fold`       | `family` (its slots), `monoid`, `step` and `end` (sides)                                                        |
@@ -168,10 +168,10 @@ drafts no migration and only rewrites the snapshot's record and the served files
 section it reads, say), at the declaration the rule comes from: a statement, for every rule it states; a relation, for
 its primary key's rule; a `generated(type, term)` field, for its generated rule; a `str.regex`, `str.and` or `str.bytes`
 type, for the pattern rule of every stored field it types, one entry for the type whatever field it types, a drawn,
-accumulated or generated field of it included; and a contract, grizzle's own `natural` among them, for its rule. `law(...)` returns a copy of the declaration carrying the entry and leaves the declaration as it
+accumulated or generated field of it included; and a domain, grizzle's own `natural` among them, for its rule. `law(...)` returns a copy of the declaration carrying the entry and leaves the declaration as it
 was, so declare the copy where you use it. Every rule so declared carries `{ kind: "declared", name, source }`, in
 `lawsOf`, in `lawsByStatement` and in every refusal that names it, a refusal by a rule of a level above included. A rule
-nothing declares one for carries `{ kind: "derived", name, source }`: a check and a contract by their own names, any
+nothing declares one for carries `{ kind: "derived", name, source }`: a check and a domain by their own names, any
 other rule by its shape as grizzle names it (`key Grant(id)`, `Grant(owner) in Owner(id)`), and its source the statement
 that states it, as grizzle spells it. One rule takes one entry: two declarations of it that declare two entries are
 refused as `MalformedDescription`, and so is `law(...)` of a `mutable` or `race`, which states no rule, of a value that
@@ -183,12 +183,12 @@ it, its entry included, so every rule an outcome over the schema names is one of
 law's own. Name the rules you handle by their ids once, then read a refusal's `laws` by `id`, with no search and no
 table of ids of your own. In order, however you declared the schema: each table's primary key, by table
 name; the rules of the schema's statements in canonical order, one for a key, check, containment, family, tree or fold,
-two containments for a mirrors, none for `mutable`; each contract's, by
+two containments for a mirrors, none for `mutable`; each domain's, by
 name; then each stored field's pattern rule and each generated field's rule, by table name and each table's fields in
 declared order. A rule two statements state, such as a key over a table's primary key, is listed once. A pattern every
 text matches, such as `"^.*$"` under `"su"`, states no rule: grizzle drops it, and the column is plain text. Neither
-does a contract's pattern, whose refusal names the contract, nor a closed relation's, whose rows the schema fixes. A
-contract only a login's context field names is the login's, never the schema's: PostgreSQL checks a claim against it where a
+does a domain's pattern, whose refusal names the domain, nor a closed relation's, whose rows the schema fixes. A
+domain only a login's context field names is the login's, never the schema's: PostgreSQL checks a claim against it where a
 statement reads it, and no write is refused by it. Each call compiles the rules, so call it once and keep the list.
 
 `lawsByStatement(schema)` compiles the rules once and gives a lookup: bind it once,
@@ -216,14 +216,14 @@ grizzle answers, here and in `codecText`, `insertPreview` and `indexesOf`, is Ef
 once, `evaluate.admit(Account, row)`, then evaluated as a row of any source of its relation, `evaluate(Account,
 admitted)` or `evaluate(select(Account, (a) => a.gt(a.units, 3)), admitted)` for a selection. A source is any relation of
 the schema, stored, derived or closed, a roster among the closed ones, or a selection of one. The row is typed off the
-relation: every field but the generated ones, each its codec's value, so a contract's value is its host's, `toUnits(5)`,
+relation: every field but the generated ones, each its codec's value, so a domain's value is its host's, `toUnits(5)`,
 and an instant, the database's or a stored one, the `bigint` it is: an evaluation writes nothing, so a row it judges
 holds any instant, and an admitted row's instant is no `Instant`, which only a read delivers.
 PostgreSQL reads each value as its column's type and holds it to its domain before anything else, which a mint does
 not check, and so does admit: `{ _tag: "ValueRefused", field, fault }`, a field whose value its type's input function
 refuses (an integer that is none or past its type's range, a text holding NUL, a date no calendar holds, a numeric past
 its typmod), by the codec's fault, the word `codecText` refuses the value by; `{ _tag: "DomainRefused", field }`, a
-field a domain refuses, its contract or its pattern; or the `AdmittedRow`, which only admit makes, `admitted.row` the
+field a domain refuses, its own or its pattern's; or the `AdmittedRow`, which only admit makes, `admitted.row` the
 row as stated. Its domains judged once, an admitted row is evaluated as `{ generated,
 checks, selected }`, each item its own `Result`, computed where it is first read and kept on the admitted row, so every
 source of the relation over it shares the generated values and verdicts it reads:
@@ -255,13 +255,13 @@ is its handle, its host value, and a set's its handles in its roster's declared 
 storage detail of one installation, so a text is the same in every installation, and readable in a message. Every other
 carrier's is the codec's own, which PostgreSQL's input function reads as the value: an integer's digits, a numeric's
 `numeric_out` text, a double's shortest round-trip decimal, `true` or `false`, a date's ISO 8601 text, a text itself.
-Key a set or a map of rows by these texts, and never by `String()` of a host value. A bytes field is a type error.
+Key a set or a map of rows by these texts, and never by `String()` of a host value. A bytea field is a type error.
 
 `rowText(query)` reads a query's decoder once and gives the one text of each row it delivers: bind
 `const text = rowText(lessons)`, a `Result` whose failure is the `CompileError` of a query no builder can decode (one
 rebuilt from its Description), then `text(row)` is a `Result` of the row's text, or the `CodecFault` of a value its type
 does not admit. Each column's value is written as `codecText` writes it, a set's handles in declared order as a list, a
-bytes value as its SHA-256 digest, and each attachment's children in delivered order, an Option's none or one; every
+bytea value as its SHA-256 digest, and each attachment's children in delivered order, an Option's none or one; every
 piece is framed by its length and every list by its count, with no JSON, so two rows have one text exactly where they
 are one row, value for value under each type's equality, attachments member by member. A digest of it keys a found row
 by its content ([Records of a query](schema.md#records-of-a-query)).
@@ -405,7 +405,7 @@ A call's `CallError` is read from the reason that failed it, each reason a class
 | `ConnectionLost`, `CommitLost`                                                                                                                                               | `transport`     |
 | `EncodingFailure`; `InputTooLarge`, below; `CallInputRefused`, below                                                                                                         | `input`         |
 | `ParamRejected`, a parameter's value outside its pattern, its `param` the `CallError`'s                                                                                      | `paramRejected` |
-| `LawRejected`, the laws a contract's or a pattern's domain discharges, which refused a value a statement cast to it; `InputRejected`, below                                 | `refused`       |
+| `LawRejected`, the laws a domain's or a pattern's domain discharges, which refused a value a statement cast to it; `InputRejected`, below                                 | `refused`       |
 | `TransientFailure`, its reason the `CallError`'s `reason`                                                                                                                    | `transient`     |
 | `StaleSnapshot`: `Migrating` or `Migrated` ([Deploying](operations.md#deploying))                                                                                                         | `stale`         |
 | a COMMIT sent and never answered: the change may have committed                                                                                                              | `commitUnknown` |
@@ -422,7 +422,7 @@ that refusal's.
   statement, which no execution cuts, meets it as every statement does; the largest real call, pantry's QTI publish at
   161.8 MB, is about 6 times under it.
 - `literal`: one column of a relation input is an array longer than one JavaScript string holds (536,870,888 UTF-16
-  code units), or for a bytes column longer than the message limit, with the input and its column. Split the input
+  code units), or for a bytea column longer than the message limit, with the input and its column. Split the input
   across calls.
 - `input`: a ChangeSet member's arrays, or one row of a nested write, would make a Bind message past that limit, with
   the input and the least length its statement would take. It is counted from your values' lengths before any of
@@ -461,7 +461,7 @@ that refusal's.
 | `StaleDerivedRead`                              | a write (`op`) of `member` changing a stored row's column (`changed`: `relation`, `column`, and `by`: `put`, `owner` or `member`), which the cascade carries into `copies`, read by `reader` (`{ kind, family, relation, column }`: a fold, a predecessor, a last or a tree's copy), which grizzle cannot refill for `cause`: `{ kind: "query" }`, a put from a query; `{ kind: "cycle", refills }`, refills reaching a family they refill again; `{ kind: "immutable", relation }`, a refill of a closed owner's family or a closed relation's rows; `{ kind: "tree", tree }`, a refill of the values of the tree `tree` (`{ owner, count }`), which grizzle draws only when a node is written; `{ kind: "chained", refill }`, a refill of a value that reads what the refill of the family `refill` (`{ owner, count }`) itself changes; or `{ kind: "edit", family }`, a refill of a value of `family` (`{ owner, count }`) that a family member's own put, delete or append reaches beyond the two values such a write refills |
 | `UnfillableField`                               | the `relation`'s `field`, the `law` filling it, the `source` column it reads along `axis` of its `family`, and why that column is filled `later` |
 | `UnwritableRelation`                            | the `relation` no write fills, and its `cause`                                                           |
-| `NoReadCommittedForm`                           | the `relation`, whose primary key holds a span, that a ChangeSet compiled for READ COMMITTED inserts into: only a compile at a level no certificate gives meets it, since generate runs such a role SERIALIZABLE |
+| `NoReadCommittedForm`                           | the `relation`, whose primary key holds a range, that a ChangeSet compiled for READ COMMITTED inserts into: only a compile at a level no certificate gives meets it, since generate runs such a role SERIALIZABLE |
 | `ReadBackCrossesStatements`                     | the read-back `read`, and `delta` (`relation`, `side`), a side of a table's delta more than one statement makes, or one a statement of another stratum nets |
 | `UnorderableStratum`                            | the `cycle` of a stratum's writes (`{ relation, op }`: an insert, put or delete, or a family's insert, update or delete of its members' rows or count of its owners), each of which immediate keys order before the next and the last before the first, so no order of the stratum's statements keeps them all |
 | `UnstatedKey`                                   | a put or delete (`op`) of a `relation` whose `key` (`{ kind, fields }`: its primary key, or a declared one a put compares) holds fields grizzle writes (`unstated`) |
@@ -572,7 +572,7 @@ statement's. The role is certified READ COMMITTED when all of these hold, and st
   role runs READ COMMITTED that writes a relation it can read (`absence`, `laws`, `writers`), or whose foreign key
   checks a relation it writes (`pivot`), since no fence orders such a check against its transactions. A role that
   only reads has nothing to bound: a transaction that writes nothing is no pivot.
-- **Each of its ChangeSets has a READ COMMITTED form.** An insert into a relation whose primary key holds a span has
+- **Each of its ChangeSets has a READ COMMITTED form.** An insert into a relation whose primary key holds a range has
   none: PostgreSQL arbitrates an exclusion constraint by `ON CONFLICT ON CONSTRAINT ... DO NOTHING` alone, so no
   statement can tell a fact the insert met from one it made. A role with such an insert, or a put of such a relation,
   runs SERIALIZABLE, where the insert arbitrates every key at once and classifies what it met. An insert that stamps an
@@ -645,7 +645,7 @@ counts of it. Each fence follows the roles. The conditions:
 
 | Condition    | What fails it                                                                                                                            |
 | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `form`       | a ChangeSet with no READ COMMITTED form: it inserts into or puts a relation whose primary key holds a span |
+| `form`       | a ChangeSet with no READ COMMITTED form: it inserts into or puts a relation whose primary key holds a range |
 | `facts`      | a relation it touches that the installation states no fact of, or a table or function its statements name that no relation is         |
 | `members`    | no ChangeSet in its workload                                                                                                             |
 | `privileges` | it states `write`, or some role updates or deletes a relation it writes                                                                 |
@@ -678,11 +678,11 @@ column. Only a snapshot of a database migrated without the program's workload ha
 the publication from the same workload.
 
 **compileServed refuses a domain or a function the installation lacks.** `grizzle generate` installs the domain of
-every refinement and every contract any artifact of the installation or any program of its served workload types a
+every refinement and every domain any artifact of the installation or any program of its served workload types a
 value by, the pattern domain of every pattern parameter, one per parameter and pattern, and every library function they
 call, and `snapshot.json` records them. A program that `compileServed` compiles names only those, so a program that
-types a value by a refinement or a contract, or calls a function, that the committed workload never served is a
-`ServedRefusal` at the program whose error is `UninstalledDomain` or `UninstalledFunction`, naming the contract, the
+types a value by a refinement or a domain, or calls a function, that the committed workload never served is a
+`ServedRefusal` at the program whose error is `UninstalledDomain` or `UninstalledFunction`, naming the domain, the
 pattern, the parameter or the function, never a `type ... does not exist` from PostgreSQL. Serve the program from a
 workload of the login and run `grizzle generate`, which drafts the migration that installs them.
 
@@ -746,27 +746,29 @@ keys it references instead, so the checks wait for nothing:
 4. Point the referencing role's foreign keys at the published relation, not at the content.
 
 ```ts
-export const Question = relation("Question", { id: ItemIdentifier, prompt: Prose }, ["id"])
-export const Bank = schema("Bank", [Question], [])
-export const Author = role(Bank, "author", wholeEntriesOf(Bank), { insert: ["Question"] })
+export const Question = g.relation("Question", { id: ItemIdentifier, prompt: Prose }, ["id"])
+export const Bank = g.schema("Bank", [Question], [])
+export const Author = g.role(Bank, "author", g.wholeEntriesOf(Bank), { insert: ["Question"] })
 
-export const Published = relation("Published", { question: ItemIdentifier }, ["question"])
-export const Answer = relation(
+export const Published = g.relation("Published", { question: ItemIdentifier }, ["question"])
+export const Answer = g.relation(
 	"Answer",
-	{ learner: ClerkUser, step: int8, question: ItemIdentifier },
+	{ learner: ClerkUser, step: g.int8, question: ItemIdentifier },
 	["learner", "step"]
 )
-export const Exam = schema.extend(
+export const Exam = g.schema.extend(
 	[Bank],
 	"Exam",
 	[Published, Answer],
 	[
-		contained(on(Published, "question"), on(Question, "id")),
-		contained(on(Answer, "question"), on(Published, "question"))
+		g.contained(g.on(Published, "question"), g.on(Question, "id")),
+		g.contained(g.on(Answer, "question"), g.on(Published, "question"))
 	]
 )
-export const Publisher = role(Exam, "publisher", wholeEntriesOf(Exam), { insert: ["Published"] })
-export const ExamLearner = role(Exam, "learner", wholeEntriesOf(Exam), { insert: ["Answer"] })
+export const Publisher = g.role(Exam, "publisher", g.wholeEntriesOf(Exam), {
+	insert: ["Published"]
+})
+export const ExamLearner = g.role(Exam, "learner", g.wholeEntriesOf(Exam), { insert: ["Answer"] })
 ```
 
 The learner's check now reads `Published`, which only ever gains rows, and its one writer reads nothing another call
@@ -779,7 +781,7 @@ and every later insertion at that key meets the row that holds it, whatever that
 it met is in `delta.met(R)`, and the call's outcome is `accepted` or `no-change` as its other members decide. Without
 `race`, a row another insertion holds is an exact repeat, which changes nothing, or that key's refusal.
 
-- **Which tables race.** An ordinary table whose primary key has a field beside it and holds no span and no field the
+- **Which tables race.** An ordinary table whose primary key has a field beside it and holds no range and no field the
   database or grizzle draws, that is neither `mutable` nor a family's owner or member. generate refuses any other
   `race` as MalformedDescription, and a `race` over a table a lower level declares as LevelRefused.
 - **Adding or dropping it is a migration.** `race` changes the schema's fingerprint as `mutable` does, so generate
@@ -793,27 +795,32 @@ A claim of work, keyed by the work it claims and never searched for:
 
 ```ts
 const instantKey = Symbol("Instant")
-export const Instant = contract<typeof instantKey>()("Instant", int8)
+export const Instant = g.domain<typeof instantKey>()("Instant", g.int8)
 /** A step, by its name in its flow, and a claimer, by its own name: its host and its process. */
-const StepName = str.regex("^[0-9A-Za-z:_-]{1,96}$")
-const Worker = str.regex("^[0-9a-z.-]{1,64}:[0-9]{1,10}$")
-export const Step = relation("Step", { id: StepName }, ["id"])
-export const Claim = relation(
+const StepName = g.str.regex("^[0-9A-Za-z:_-]{1,96}$")
+const Worker = g.str.regex("^[0-9a-z.-]{1,64}:[0-9]{1,10}$")
+export const Step = g.relation("Step", { id: StepName }, ["id"])
+export const Claim = g.relation(
 	"Claim",
-	{ step: StepName, attempt: natural, holder: Worker, at: Instant, ttl: int8 },
+	{ step: StepName, attempt: g.natural, holder: Worker, at: Instant, ttl: g.int8 },
 	["step", "attempt"]
 )
-export const Finished = relation("Finished", { step: StepName, attempt: natural, holder: Worker }, [
-	"step"
-])
-export const Work = schema(
+export const Finished = g.relation(
+	"Finished",
+	{ step: StepName, attempt: g.natural, holder: Worker },
+	["step"]
+)
+export const Work = g.schema(
 	"Work",
 	[Step, Claim, Finished],
 	[
-		race(Claim),
-		contained(on(Claim, "step"), on(Step, "id")),
-		contained(on(Claim, "step", pred("attempt")), on(Claim, "step", "attempt")),
-		contained(on(Finished, "step", "attempt", "holder"), on(Claim, "step", "attempt", "holder"))
+		g.race(Claim),
+		g.contained(g.on(Claim, "step"), g.on(Step, "id")),
+		g.contained(g.on(Claim, "step", g.pred("attempt")), g.on(Claim, "step", "attempt")),
+		g.contained(
+			g.on(Finished, "step", "attempt", "holder"),
+			g.on(Claim, "step", "attempt", "holder")
+		)
 	]
 )
 ```

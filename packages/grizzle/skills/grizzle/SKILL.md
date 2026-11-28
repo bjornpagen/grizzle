@@ -19,12 +19,12 @@ file it isn't given, and grizzle reads no environment variable for where to conn
 
 ```ts
 import net from "node:net"
-import { CredentialError, defineConfig } from "@bjornpagen/grizzle"
+import * as g from "@bjornpagen/grizzle"
 import { Config, Effect } from "effect"
 import pgDriver from "pg"
 import { Blog, caPem, EtlJob, Web } from "./src/db.ts"
 
-export default defineConfig({
+export default g.defineConfig({
 	/** Required: each declared schema, in its own PostgreSQL schema. */
 	schemas: [Blog],
 	/** Required: every login, and through them every role a Db opens and every workload whose access paths earn indexes. */
@@ -47,14 +47,19 @@ export default defineConfig({
 		database: "app",
 		role: "app_owner",
 		password: Config.Redacted("MIGRATION_PASSWORD").pipe(
-			Effect.mapError((cause) => new CredentialError({ cause }))
+			Effect.mapError((cause) => new g.CredentialError({ cause }))
 		)
 	})
 })
 ```
 
+- Import each grizzle entry whole, under its one name: `import * as g from "@bjornpagen/grizzle"`, and each subpath as
+  `g` and its name, `gRuntime` for `/runtime`, `gCompile` for `/compile`, `gDomain` for `/domain` and so on
+  (`import type * as …` where a module reads types alone). Every name reads off its entry, `g.relation`,
+  `gRuntime.Db`; the toolchain's `grizzle-star-imports` lint refuses any other import or re-export of an entry, and
+  its fix writes this form.
 - Every key is required, and nothing else is configurable: an unknown key is refused.
-- Always `export default defineConfig({ ... })`. A plain object is refused.
+- Always `export default g.defineConfig({ ... })`. A plain object is refused.
 - `schemas` lists each installation once, by its top level: `schema.extend([Qti], "Ledger", ...)` listed as `[Ledger]`
   installs `Qti` and `Ledger` together, each level in its own PostgreSQL schema, under one migrations directory named
   by the root, `migrations/qti/`. Listing `Qti` beside `Ledger`, or two schemas over one root, is refused.
@@ -108,11 +113,11 @@ export default defineConfig({
   whose reads are all answered needs no `LiveSource` (a serverless route's ops login). The member
   `clocked(program, { now: "millis" })`
   binds the bigint parameter `now` of a query, an ordered query or a ChangeSet to the database's clock, the instant
-  the call's transaction began, in `"micros"` or `"millis"`, a parameter of a consumer's contract under its key by the
+  the call's transaction began, in `"micros"` or `"millis"`, a parameter of a consumer's domain under its key by the
   parameter's name, `clocked(program, { now: "millis" }, { now: millisKey })`: the input omits it, every statement of the call reads the
   one instant, and a clocked read is an answered one with its clock, answering `once` alone, never live. Bind a lease's, a timer's or a due instant's `now`
   so, never the host's clock; a reading lies in PostgreSQL's timestamptz range in its unit, so `now + delay`, the delay a
-  contract its predicate bounds, casts into its field with no guard where those bounds fit (millis: into a bigint).
+  domain its predicate bounds, casts into its field with no guard where those bounds fit (millis: into an int8).
   Rows an array or a Stream inserts take such a field from the call: `insertAllComputed({ Claim: [] }, { until:
   Type.cast(Num.add(Type.base(param("now", Instant)), Type.base(param("budget", Budget))), Instant, instantKey) })`, its rows
   leaving `until` out, the record evaluated once per call in the statement that writes the rows, a nested owner's
@@ -155,14 +160,14 @@ export default defineConfig({
 - Declare the key each family of rows sits under, a sitting, a learner, a package, a workflow's step, as a unit among
   the statements: `unit("Sitting", { number: AssignmentNo })`. Every stored relation whose primary key leads with the
   heading's fields, by name and type in order, sits under it, at its level or any above, which states nothing more; so
-  lead each member's key with the unit's fields, and give the key a named domain (a contract of its own,
-  `contract<typeof assignmentNoKey>()("AssignmentNo", int8, …)`), since a field of the same name and type that means something else joins the
+  lead each member's key with the unit's fields, and give the key a domain of its own,
+  `domain<typeof assignmentNoKey>()("AssignmentNo", int8, …)`, since a field of the same name and type that means something else joins the
   unit too, a coarser lock. A write of a unit's rows holds its key exclusively and a read of a unit it does not write
   holds it shared, as generate derives from the ChangeSet: no borrow is written. Refused (`MalformedDescription`): a unit
   whose heading leads with another's or that another's leads with (no unit nests: each relation sits under one at
   most), one name over two headings, and a unit stated above a level whose relation leads with its heading (state it at
   that level). A gapless number, one past the greatest, is `series(R)` over a relation keyed by one field of a type
-  grizzle draws, `natural` or a contract over an integer (an int4 number keeps its `contract<typeof key>()(…, int4, …)`, whose
+  grizzle draws, `natural` or a domain over an integer type (an int4 number keeps its `domain<typeof key>()(…, int4, …)`, whose
   CHECK refuses one past its bound): it states the predecessor law itself and every write of R holds its one lock, the
   only lock no key splits (docs/schema.md "Units").
 - A relation is closed or open. Closed, the default: its facts are inserted, never changed or deleted; a role that
@@ -287,8 +292,8 @@ breaking change may briefly break older application instances that are still run
   count and content digest in a comment, which `grizzle check` decodes and holds to that digest and to its function's
   name; never edit one by hand; a roster's names constant is its handles as `name[]` in code order, `""` at a hole; a
   set's `live` constant is the hex literal of its live codes. The domains are a roster's smallint domain over its
-  names constant, a set's `bit(n)` domain over `live`, n its codes rounded up to whole bytes, and the contract
-  and text domains, one per distinct definition. A schema that declares functions (`fn`) gets here, after its
+  names constant, a set's `bit(n)` domain over `live`, n its codes rounded up to whole bytes, and each
+  `domain` and text domain, one per distinct definition. A schema that declares functions (`fn`) gets here, after its
   domains, the installation's function owner (`__owner_<digest>`, `CREATE ROLE ... NOLOGIN`, granted to the migration
   identity `WITH INHERIT TRUE, SET TRUE`, with `USAGE` on the levels' schemas and no privilege on any table), each
   heading's row type (`CREATE TYPE <level>.__rows_<digest> AS (...)`, after the row types its fields hold, a field of
@@ -332,14 +337,14 @@ breaking change may briefly break older application instances that are still run
   new expression (`SET EXPRESSION`), which checks every constraint over the field against its new values in that
   statement: a CHECK, key or unique index over it that the target defines otherwise, or that reads a field the backfill
   draws again, is dropped before it and added again after. A field whose type changes is converted by its cast, in place, with no
-  placeholder, when the new type holds the old one's values (a pattern changed, a contract added, removed or swapped
+  placeholder, when the new type holds the old one's values (a pattern changed, a domain added, removed or swapped
   for another over the same base); otherwise it is set aside: its table's one ALTER TABLE adds a set-aside column of the
   new type, and once every placeholder column holds its value the table's fill sets it to the value you write at its
   placeholder (a `USING` reads its own row alone, so it could not join a re-pointed reference's target), drops the old
   column and renames the set-aside one into the field's name. Either way it runs after the
   constraints and indexes over it are dropped; they are built again as on any table with rows, but a key over it,
   which is added again right after the conversion in the same transaction, so it holds throughout. A domain is
-  named by its whole definition, so a contract's changed predicate, like a changed pattern, is another domain: each
+  named by its whole definition, so a domain's changed predicate, like a changed pattern, is another domain: each
   field it types is converted to it by its cast, which refuses a stored value the new definition doesn't admit (23514).
   Every world object an existing role relies on (a view, a policy, a filter function, a
   key or unique probe) that changes, or that reads anything the migration changes or drops (a relation, a column, a
@@ -548,7 +553,7 @@ the schema afresh as one init migration with its snapshot and served files, comm
 ## Custom migrations
 
 Use one for data work the schema doesn't describe: purges, cutovers, rows that hold a handle you are about to drop, a
-backfill before a contract base changes. `grizzle generate <config> --custom --name <name>` writes a folder with only
+backfill before a domain's base changes. `grizzle generate <config> --custom --name <name>` writes a folder with only
 `meta.json`, whose source and target are the current snapshot. Add `01-<words>.sql`, `02-<words>.sql` and so on; each is
 a transaction unless its first line is `-- grizzle: no-transaction`. The catalog must still end at the snapshot.
 `grizzle migrate` runs every migration file at SERIALIZABLE, so a reviewer's data step or a custom migration writes like
@@ -578,11 +583,11 @@ schema or workload that does not compile) are `check`'s alone.
 | the login has no OpenAPI document beside snapshot.json (an ungenerated change) | run grizzle generate, which writes the OpenAPI document |
 | the OpenAPI document is of a login the configuration does not list over the schema | run grizzle generate, which removes the OpenAPI document |
 | the schema or a login's workload does not compile | fix the schema or workload it names, then run grizzle generate |
-| grizzle mints no ids (a `serial` or `uuidv7` field) | key the relation by what identifies its fact: its parent's key and its own name or place, `sha256` of its content, a published name and version, or an outside system's id under a contract of its own (docs/schema.md "Identity: natural keys") |
+| grizzle mints no ids (a `serial` or `uuidv7` field) | key the relation by what identifies its fact: its parent's key and its own name or place, `sha256` of its content, a published name and version, or an outside system's id under a domain of its own (docs/schema.md "Identity: natural keys") |
 | a variant's arms changed otherwise than in place: an arm of a code past every arm's (appended to its roster or taken into its subset), an arm of no field taken in or left out, or a field appended to the arm of its greatest code migrate in place; an arm with fields left out of the subset or taken in below an arm's code, and a field removed, retyped or added to another arm, rewrite every stored value: a custom migration | write a custom migration (`generate --custom`) that converts the stored values, or append the change as a new arm |
-| say whose id this is (a bare `uuid` column) | `contract<typeof clerkUserKey>()("ClerkUserId", uuid)`: name the system the id is of, so two systems' ids are two types; its values are the key's mint's, `mintOf(clerkUserKey)` |
-| a plain value, or another contract's, where a contract's value is written (a fact, a parameter, a closed row, `Type.literal`, a conditional's arm; a type error) | make it with the contract's key's mint, `mintOf(key)`, in the module that holds the key; a value compared with a contract's term is its base's |
-| a cast, a drawn or accumulated field, a clock binding or a declared function's result makes a contract's values without its key (a type error; `MalformedDescription` from JavaScript) | pass the key where the module that holds it declares the position: `Type.cast(x, C, key)`, `drawn(C, key)`, `accumulated(C, toC(0n), key)`, `clocked(program, { now: "millis" }, { now: key })`, `fn(name, definition, { C: key })`; a contract over another takes every key of its chain, its own first |
+| say whose id this is (a bare `uuid` column) | `domain<typeof clerkUserKey>()("ClerkUserId", uuid)`: name the system the id is of, so two systems' ids are two types; its values are the key's mint's, `mintOf(clerkUserKey)` |
+| a plain value, or another domain's, where a domain's value is written (a fact, a parameter, a closed row, `Type.literal`, a conditional's arm; a type error) | make it with the domain's key's mint, `mintOf(key)`, in the module that holds the key; a value compared with a domain's term is its base's |
+| a cast, a drawn or accumulated field, a clock binding or a declared function's result makes a domain's values without its key (a type error; `MalformedDescription` from JavaScript) | pass the key where the module that holds it declares the position: `Type.cast(x, C, key)`, `drawn(C, key)`, `accumulated(C, toC(0n), key)`, `clocked(program, { now: "millis" }, { now: key })`, `fn(name, definition, { C: key })`; a domain over another takes every key of its chain, its own first |
 | the schema no longer holds a name snapshot.json holds, and no --drop or --rename declares what became of it | run grizzle generate <config> --drop <name>, or --rename <old>=<new> where it was renamed |
 | an ordered roster declares a handle before one that holds a lower code in snapshot.json | append new handles, since an ordered roster's order is its codes' order, or declare the roster closed.unordered where its order means nothing |
 | unresolved placeholder | write the value or the UPDATE, then delete the marker line |
@@ -702,11 +707,13 @@ to fix, or the compiler's refusal of a schema or login with its fix, and no line
   `@bjornpagen/grizzle/runtime`, importing the login as a type alone, so the application evaluates no schema module:
 
   ```ts
+  import * as gRuntime from "@bjornpagen/grizzle/runtime"
   import webFile from "./migrations/blog/served/web.json" with { type: "json" }
   import type { Web } from "./schema.ts"
-  export const WebServed = served<typeof Web>(webFile, "web")
-  export const WebLayer = DbLayer.make({ ...connection, login: WebServed, password, pool, verify })
-  const db = yield* Db.open(WebServed.roles.member, { token })
+
+  export const WebServed = gRuntime.served<typeof Web>(webFile, "web")
+  export const WebLayer = gRuntime.DbLayer.make({ ...connection, login: WebServed, password, pool, verify })
+  const db = yield* gRuntime.Db.open(WebServed.roles.member, { token })
   const feed = yield* db.workload.memberFeed.once({ params: {}, facts: {} })
   ```
 
@@ -775,9 +782,9 @@ to fix, or the compiler's refusal of a schema or login with its fix, and no line
   spelled as that field spells it, every pattern of a `str.and` in order and one law for the field all the same, so two
   fields of one pattern are two laws. `lawsOf(schema)` (from `@bjornpagen/grizzle/compile`, as are `lawsByStatement`,
   `constraintNamesOf`, `rowEvaluator`, `insertPreview` and `codecText`) lists every law a schema states,
-  each once, as `{ law, id }`, `law` as an outcome names it and `id` the one a refused law carries: each table's primary key, each statement's laws, each contract's, each stored
+  each once, as `{ law, id }`, `law` as an outcome names it and `id` the one a refused law carries: each table's primary key, each statement's laws, each domain's, each stored
   field's pattern law and each generated field's law, none for a pattern every text matches, which grizzle drops, or
-  for a contract's pattern, whose law is the contract's. Key your names for laws by these ids and read a refusal by
+  for a domain's pattern, whose law is the domain's. Key your names for laws by these ids and read a refusal by
   `id`, never through a table of ids you keep, and never keep a list of laws by hand. For one statement's laws, bind `const lawsOfStatement = lawsByStatement(schema)` once, which
   compiles, then look each statement up with `lawsOfStatement(statement)`: its laws from lawsOf's list, in its order, a
   mirrors' two containments, none for `mutable`, a law two statements state each
@@ -794,16 +801,16 @@ to fix, or the compiler's refusal of a schema or login with its fix, and no line
   `exactMoney` field, whose result past numeric's own limit PostgreSQL refuses with 22003: catch no other 22003, nor
   22012 or 2201F, around a query. Integer arithmetic is
   exact and delivers `bigint`, money arithmetic exact `Money`, and floats are IEEE 754 (`x / 0.0` is ±Infinity). A
-  partial operation needs its precondition proved, by a literal's type (`Num.div(x, 7n)`), by a contract that
-  declares it (`contract<typeof divisorKey>()("Divisor", int8, (v) => Logic.ne(v, 0n), { proves: ["nonzero"] })`) or by a guard:
+  partial operation needs its precondition proved, by a literal's type (`Num.div(x, 7n)`), by a domain that
+  declares it (`domain<typeof divisorKey>()("Divisor", int8, (v) => Logic.ne(v, 0n), { proves: ["nonzero"] })`) or by a guard:
   `Logic.when(Num.nonzero(b), (b) => Num.div(a, b), 0n)`, the guards `Num.nonzero`,
   `Num.nonnegative`, `Num.positive`, `Num.isFinite` and `Num.within(x, low, high)`. A guard's subject
   may be a parameter (`Logic.when(Num.nonzero(d), (d) => Num.div(x, d), 0n)` over `r.param("d",
-  int8)`), and a parameter of a contract that declares a fact has it, so
+  int8)`), and a parameter of a domain that declares a fact has it, so
   `Num.div(x, Type.base(r.param("d", Divisor)))` needs no guard. A parameter is a term of its declared type
   everywhere, first operand included. An unproved
   divisor is a type error naming the guard; an unproved narrowing or power is `CompileError` reason
-  `PartialOperation`, whose `guard` is the code to write. A contract's facts are exactly its `proves`: a fact its
+  `PartialOperation`, whose `guard` is the code to write. A domain's facts are exactly its `proves`: a fact its
   predicate implies but `proves` leaves out is refused, and the refusal names the declaration to add. Narrow an exact
   integer into an integer field with
   `Type.cast` under `Num.within`, and a sum, a mean or numeric arithmetic into a `numeric(p, s)` field the
@@ -860,7 +867,7 @@ to fix, or the compiler's refusal of a schema or login with its fix, and no line
   `closed.zones("Zone", ["America/Chicago", "Etc/UTC"])`, each handle an Area/Location IANA name (a one-component name
   such as `UTC`, `EST` or `EST5EDT` is refused: PostgreSQL reads it as an abbreviation first). It is the wall clock in
   milliseconds since the local epoch, by the server's tzdata, in a query only: the host holds no tzdata, so a check, a
-  contract predicate or a generated field refuses it. The migration that installs the roster reads each handle as a zone
+  domain's predicate or a generated field refuses it. The migration that installs the roster reads each handle as a zone
   first and refuses one the server lacks (22023). The local day is `(w - intoDay) / 86400000` with `intoDay = ((w %
   86400000) + 86400000) % 86400000`, its weekday `((day + 4) % 7 + 7) % 7`, Sunday 0, and its date
   `Time.dateOfEpochDay(day)`; `Time.epochDay(date)` is a date's days after 1970-01-01. A stored `instant` counts
@@ -873,20 +880,20 @@ to fix, or the compiler's refusal of a schema or login with its fix, and no line
 - Write a `str.regex` or `Text.pattern` source in JavaScript's syntax under `u`, with no lookahead or lookbehind,
   `\p{…}` or `\P{…}`, `\s` or `\S`, `\b` or `\B`, backreference, named group, inline modifier, lazy quantifier or
   repetition bound above 255, and with some text it matches. TypeScript accepts each of these, but the relation,
-  contract or `Text.pattern` built over the source refuses it as `UnsupportedOperation`, naming the construct and
+  domain or `Text.pattern` built over the source refuses it as `UnsupportedOperation`, naming the construct and
   its offset. Spell an explicit class instead of `\s` or `\p{…}`.
-- A set of a roster's handles, `bits(X)`, has the algebra `Bits.union`, `Bits.intersection`,
-  `Bits.difference`, `Bits.cardinality`, `Bits.subset`, `Bits.disjoint` and `Bits.singleton`, and no
-  complement. Test a closed id's membership in a set as `Bits.subset(Bits.singleton(id), set)`:
-  `Bits.singleton(id)` is the set of the id's one handle, and a NULL id gives a NULL set.
+- A set of a roster's handles, `bit(X)`, has the algebra `Bit.union`, `Bit.intersection`,
+  `Bit.difference`, `Bit.cardinality`, `Bit.subset`, `Bit.disjoint` and `Bit.singleton`, and no
+  complement. Test a closed id's membership in a set as `Bit.subset(Bit.singleton(id), set)`:
+  `Bit.singleton(id)` is the set of the id's one handle, and a NULL id gives a NULL set.
 - A closed relation read at a key no row holds: `C.at(field, k…)` is NULL there, which a check refuses, as does a
   generated field's NOT NULL, on `{ kind: "generated", relation, field }` (23502 on its column to a direct writer;
   grizzle refuses a nested write or a family fill that reads the field before any SQL, with the same outcome), and
   `C.has(k…)` is false there, so say what holds where the key is absent with `has`, never with a null-object row:
   `Logic.or([Logic.not(C.has(k…)), φ(C.at(field, k…))])`, or a value there,
   `Logic.cond(C.has(k…), C.at(field, k…), d)`. Every closed read is NULL where a key value is NULL.
-- A `bytes` field, a `Uint8Array`, is written and read back whole and nothing more: never in a key, a rule's side, a
-  filter, a parameter, a contract, a generated or accumulated field, or a scalar term but `Crypto.sha256(x)`, its
+- A `bytea` field, a `Uint8Array`, is written and read back whole and nothing more: never in a key, a rule's side, a
+  filter, a parameter, a domain, a generated or accumulated field, or a scalar term but `Crypto.sha256(x)`, its
   SHA-256 digest, a `sha256` value of 32 bytes (`Sha256` on the host), never a hex text. Store a digest PostgreSQL
   computes from the bytes, never one the caller sends: `generated(sha256, Crypto.sha256(row.content))`. A value holds at most 1,073,741,819
   bytes (`byteaMaxLength`), PostgreSQL's longest bytea, and is read back in chunks, one round trip still; a write reads
@@ -910,7 +917,7 @@ to fix, or the compiler's refusal of a schema or login with its fix, and no line
   `{ total: Num.add(total, amount) }`, a `generated(exactInteger, Num.mul(a, b))` or a derived relation's money sum needs no
   `Type.cast`. Each is numeric of no typmod, its column CHECKed to scale 0 or to money's 2, so a direct writer's 1.5,
   5.0, NaN or infinity is 23514. Never key, UNIQUE or axis by one (`UnrepresentableKey`, exactValue): key by a
-  `numeric(p, 0)` or `int8`, or a `numeric(p, 2)` or `money`. No contract is over one, and no closed
+  `numeric(p, 0)` or `int8`, or a `numeric(p, 2)` or `money`. No domain is over one, and no closed
   relation's, context's or declared function's field is one. Read a `Money` past a signed 64-bit count with its
   `minorUnits`; `Money.exact(cents)` writes one.
 - A numeric field declares its precision and scale, `numeric(p, s)`, or is `numeric`, PostgreSQL's numeric of
@@ -1027,7 +1034,7 @@ to fix, or the compiler's refusal of a schema or login with its fix, and no line
   the login is the boundary, so give each trust domain its own. A writer states every field of every row it inserts:
   grizzle mints no ids, and no column has a default that draws one.
 - Every installed object is named from what it is. Declared names are snake_case: the schema, tables, derived
-  relations, rosters, contracts, columns, row checks and a role's views keep their converted names, a contract's CHECK
+  relations, rosters, domains, columns, row checks and a role's views keep their converted names, a domain's CHECK
   is `check`, and a login's or role's role and a role's schema join the schema's name and their own (roleNameOf,
   schemaNameOf). `constraintNamesOf(schema)` compiles once and gives a lookup of each check's installed name from its
   law: `const constraintNameOf = constraintNamesOf(Credits)`, then
@@ -1072,8 +1079,8 @@ to fix, or the compiler's refusal of a schema or login with its fix, and no line
   deleted as any relation's rows are. Two
   declared names that
   convert alike are one name (two fields of a relation, two head fields of a derived relation or a role's query, two
-  relations of a role, two logins or roles of a schema, a contract a context names beside a relation, roster or
-  contract of the schema), a name may not start with `_`, a conversion (a login's or role's with its schema's) must
+  relations of a role, two logins or roles of a schema, a domain a context names beside a relation, roster or
+  domain of the schema), a name may not start with `_`, a conversion (a login's or role's with its schema's) must
   fit 63 bytes, and a schema's must not start with `pg_`. Everything else is `__<readable part>_<digest>` and carries
   a COMMENT saying what it is: `grizzle names` prints that mapping from the committed snapshot. Write direct SQL
   against those names. A direct writer of a family's member fills its hidden columns as grizzle does (its index, its

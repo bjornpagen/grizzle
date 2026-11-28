@@ -154,11 +154,11 @@ export { Uuid } from "#compiler/scalar/values/uuid.ts"
 export { Cidr, Inet } from "#compiler/scalar/values/net.ts"
 /** pgvector's carrier, a branded Float32Array. */
 export { Vector } from "#compiler/scalar/values/vector.ts"
-/** A contract's host type, its base's host type under its consumer's key, which only mintOf(key) makes. */
+/** A domain's host type, its base's host type under its consumer's key, which only mintOf(key) makes. */
 export type { HostMint, Marked } from "#compiler/core/brand.ts"
 /**
- * The identity a term of a descriptor's type meets, its domain: a contract's, its base's under its name, apart from its
- * host type, so a function over a contract's term types it `Term<DomainOf<typeof Cents>, unknown, InputOrigin, "bigint">`.
+ * The identity a term of a descriptor's type meets, its domain: a domain's, its base's under its name, apart from its
+ * host type, so a function over a domain's term types it `Term<DomainOf<typeof Cents>, unknown, InputOrigin, "int8">`.
  */
 export type { DomainOf } from "#compiler/types/core/phantom.ts"
 
@@ -231,13 +231,13 @@ export type {
 /**
  * Public barrel: Scalar field descriptors: uuid, sha256, natural, date, bytea, exactInteger, exactMoney, PostgreSQL's
  * plain types under their pg_type names (int2, int4, int8, numeric, float4, float8, money, bool, inet, cidr, vector,
- * tsvector), contract, range and closedId, the runtime values of
+ * tsvector), domain, range and closedId, the runtime values of
  * packages/engine/src/scalar bound to their public signatures (types/fields), with the exact carriers Numeric and Money,
  * the uuid host value Uuid, the digest Sha256 and pgvector's carrier Vector. str.regex is the text barrel's.
  *
  * The runtime descriptors carry their literal SQL names, their members and their columns (scalar/registry.ts
  * defineField), so each binding has its public type by construction: a descriptor's host type is its column's. A
- * contract is a descriptor with the contract's members and Description, whose host type its consumer declares, its
+ * domain is a descriptor with the domain's members and Description, whose host type its consumer declares, its
  * base's host type under the consumer's key (core/brand.ts Marked): it makes no value, its consumer's mint does
  * (mintOf), the database validates every write, and its column is its base's, read as the host type (core/decoder.ts
  * hostColumn). A JavaScript caller can pass anything, an empty name, a value to the first call or a fourth argument
@@ -252,7 +252,7 @@ export const uuid: Field<Uuid, "uuid"> = uuidDescriptor
  */
 export const sha256: Field<Sha256, "sha256"> = sha256Descriptor
 
-/** natural: a bigint never below zero, the builtin contract over int8 that pred reads (scalar/natural.ts). */
+/** natural: an int8 never below zero, the builtin domain over int8 that pred reads (scalar/natural.ts). */
 export const natural: NaturalField = naturalDescriptor
 
 /** date: a calendar day, 0001-01-01 to 9999-12-31, its host value its ISO 8601 text (scalar/date.ts). */
@@ -346,6 +346,12 @@ export const tsvector: <const C extends TextSearchConfiguration>(
 	configuration: C
 ) => SearchDocumentField<C> = storedSearchDescriptor
 
+/**
+ * domain<typeof key>()(name, base, predicate?, { proves? }): PostgreSQL's DOMAIN, a type of its own over `base` under
+ * its consumer's key, a unique symbol the declaring module holds: its CHECK the predicate, its host type the base's
+ * under the key (core/brand.ts Marked), whose values only mintOf(key) makes on the host and the database checks on
+ * every write; `proves` declares the facts the predicate implies.
+ */
 export const domain: DomainConstructor = <K extends symbol>(...first: ReadonlyArray<never>) => {
 	admitContractCall(first)
 	return <
@@ -381,7 +387,7 @@ export const domain: DomainConstructor = <K extends symbol>(...first: ReadonlyAr
 
 /**
  * mintOf(key): the mint of the host types under a key of its caller's module (core/brand.ts hostMintOf), the one
- * unchecked conversion a consumer makes into a contract's host type.
+ * unchecked conversion a consumer makes into a domain's host type.
  */
 export const mintOf: MintOfConstructor = hostMintOf
 
@@ -608,8 +614,8 @@ export const searchDocument: SearchDocumentConstructor = <const C extends TextSe
 export const instant: InstantField = clockInstant(instantDescriptor)
 
 /**
- * drawn(type): a value of `type`, natural or a contract over an integer, grizzle draws from the nested arrays its caller
- * writes (schema/relation.ts drawnField); a consumer's contract under its key, drawn(C, key).
+ * drawn(type): a value of `type`, natural or a domain over an integer type, grizzle draws from the nested arrays its
+ * caller writes (schema/relation.ts drawnField); a consumer's domain under its key, drawn(C, key).
  */
 export const drawn: DrawnConstructor = <const F extends FieldBase>(
 	type: F & DrawnType<F>,
@@ -641,7 +647,7 @@ export const slot = <
 
 /**
  * accumulated(type, start): a field grizzle fills on the host, `start` at its axis's base (schema/relation.ts
- * accumulatedField); a consumer's contract under its key, accumulated(C, start, key).
+ * accumulatedField); a consumer's domain under its key, accumulated(C, start, key).
  */
 export const accumulated: AccumulatedConstructor = <const F extends FieldBase>(
 	type: F,

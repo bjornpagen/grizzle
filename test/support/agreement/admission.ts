@@ -1172,7 +1172,7 @@ interface ShapedArm {
  * approximate search ranks by, and each further constant under its field.
  */
 const scoredArm = (d: string, more: ReadonlyArray<readonly [string, number]>): ShapedArm => ({
-	source: `(r) => { const { id, vector } = v(Cell, "cell"); return r.match(Cell, { id, vector }).find({ id, d: ${jsonText(d)}, s: Distance.cosine(vector, Vector.make(Float32Array.of(0.5, 1, 2), 3))${Arr.join(
+	source: `(r) => { const { id, vector: cellVector } = v(Cell, "cell"); return r.match(Cell, { id, vector: cellVector }).find({ id, d: ${jsonText(d)}, s: Distance.cosine(cellVector, Vector.make(Float32Array.of(0.5, 1, 2), 3))${Arr.join(
 		Arr.map(more, ([field, value]) => `, ${field}: ${value}`),
 		""
 	)} }) }`,

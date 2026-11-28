@@ -1,5 +1,5 @@
 /**
- * A set states its roster at every door a set enters: Bits.of(R, handles) over one of two rosters whose handles share
+ * A set states its roster at every door a set enters: Bit.of(R, handles) over one of two rosters whose handles share
  * names, entered at a field over either roster as a scalar literal, a comparison's operand, a closed relation's fact
  * (schema/literal.ts) and the codec a parameter or a written fact is encoded by (codec/scalar.ts), beside a plain Set of
  * the same names, which states no roster.

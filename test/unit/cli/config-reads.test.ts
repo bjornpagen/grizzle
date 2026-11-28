@@ -105,9 +105,9 @@ export const aConfigurationLoadsWhateverItsMigrationsHoldAndOneThatReadsThemIsRe
 		kills: [
 			{
 				file: "test/unit/cli/config-reads.fixtures.ts",
-				original: "export const centsParser = domainParser(Cents, centsKey)\n",
+				original: "export const centsParser = gDomain.domainParser(Cents, centsKey)\n",
 				replacement:
-					'import checker from "./migrations/contract-checks/Cents.json" with { type: "json" }\nexport const centsParser = [domainParser(Cents, centsKey), checker][0]\n',
+					'import checker from "./migrations/contract-checks/Cents.json" with { type: "json" }\nexport const centsParser = [gDomain.domainParser(Cents, centsKey), checker][0]\n',
 				why: "The key holder's mint reads a file generate writes again, as domainParser(file, contract, key) read the contract's checker file: the first draft's configuration does not load, the file not yet written, and no corruption of the migrations directory leaves it loading."
 			},
 			{

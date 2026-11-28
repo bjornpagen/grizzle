@@ -662,7 +662,7 @@ const singleton = (id: unknown, extra: ReadonlyArray<unknown>): SetChecked => {
 		{ kind: "compute", fn: "singleton", args: [x.real] },
 		{ kind: "compute", fn: "singleton", args: [x.ph] }
 	)
-	const roster = defined(rosterOf(checked.type), "Bits.singleton is typed a set over a roster")
+	const roster = defined(rosterOf(checked.type), "Bit.singleton is typed a set over a roster")
 	return { ...checked, roster: roster.closed }
 }
 

@@ -31,6 +31,7 @@ export type {
 export {
 	accumulated,
 	Bit,
+	bool,
 	closedId,
 	domain,
 	drawn,

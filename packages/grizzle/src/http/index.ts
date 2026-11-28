@@ -1,6 +1,6 @@
 /**
- * @bjornpagen/grizzle/http: a login's served workload over HTTP. httpHandler builds a fetch-style handler from the
- * served logins whose DbLayers its Effect requires, one route per member of each of their roles, `POST
+ * @bjornpagen/grizzle/http, read as gHttp: a login's served workload over HTTP. httpHandler builds a fetch-style
+ * handler from the served logins whose DbLayers its Effect requires, one route per member of each of their roles, `POST
  * /<login>/<role>/<program>`, each call answered by a text/event-stream of its events; nodeListener mounts it on
  * node:http's or node:http2's server; httpRoutes lists the routes a set of served logins gives.
  */

@@ -52,14 +52,14 @@ export const everyProgramTheReadmeShowsIsServedByALoginGrizzleGenerates = proper
 		kills: [
 			{
 				file: "test/types/examples/fixtures/readme.ts",
-				original: "\tworkload: [workload(DriveReader, { folderSizes: answered(folderSizes) })]",
+				original: "\tworkload: [g.workload(DriveReader, { folderSizes: g.answered(folderSizes) })]",
 				replacement: "\tworkload: []",
 				why: "The README's folderSizes is served by no login, so no generate run compiles the program its tree recipe shows."
 			},
 			{
 				file: "test/types/examples/fixtures/readme.ts",
-				original: 'export const FrontDesk = role(Rooms, "front_desk", ',
-				replacement: 'export const FrontDesk = role(Rooms, "rooms", ',
+				original: 'export const FrontDesk = g.role(Rooms, "front_desk", ',
+				replacement: 'export const FrontDesk = g.role(Rooms, "rooms", ',
 				why: "The booking recipe's role takes its login's name, which grizzle generate refuses (a role named apart from its login): the README's program does not generate."
 			}
 		]
