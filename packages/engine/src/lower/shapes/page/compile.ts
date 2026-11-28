@@ -1015,12 +1015,16 @@ export const completedPageOrder = (
 	root: NodeOf<"OrderedResult">
 ): { readonly shape: PageShape; readonly order: CompletedOrder } => {
 	const shape = pageShapeOf(conservativeKit<PageFill>(input).delivery, root)
-	/** The checker's completion begins with the stated keys (check/checker.ts complete). */
-	const statedPrefix = shape.order.keys.slice(0, input.stated.keys.length)
+	/**
+	 * The checker's completion begins with the stated keys up to their first prefix that holds a key, after which a
+	 * stated key orders nothing and is cut (check/checker.ts complete, logical/order.ts keyedPrefix): the two agree on
+	 * the keys both hold.
+	 */
+	const shared = Math.min(shape.order.keys.length, input.stated.keys.length)
 	if (
 		!canonicalEquals(
-			statedPrefix,
-			input.stated.keys.map((k) => ({ column: k.column, dir: k.dir }))
+			shape.order.keys.slice(0, shared),
+			input.stated.keys.slice(0, shared).map((k) => ({ column: k.column, dir: k.dir }))
 		)
 	) {
 		return refuse(

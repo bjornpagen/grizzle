@@ -25,7 +25,8 @@ import {
 } from "#test/unit/analysis/logical/order.fixtures.ts"
 
 /**
- * Completing an order is the policy's completion: the user's fields, the least narrower key, or the heading.
+ * Completing an order is the policy's completion: the user's fields up to their first prefix that holds a key, the least
+ * narrower key, or the heading.
  *
  * Budget: 3000 runs and 3000 steered cases, what its suite stated before it became a property
  * (test/unit/analysis/logical/order.test.ts:309 at 8cad5bce, its runs and its coverage's cases).
@@ -122,6 +123,12 @@ export const completingAnOrderIsThePolicysCompletionTheUsersFieldsTheLeastNarrow
 		},
 		kept: [],
 		kills: [
+			{
+				file: "packages/engine/src/logical/order.ts",
+				original: "\tconst keys: Array<OrderKey> = [...keyedPrefix(subject, stated)]\n",
+				replacement: "\tconst keys: Array<OrderKey> = [...stated]\n",
+				why: "A stated order kept whole past its first prefix that holds a key, every key after it functionally determined and ordering nothing, so the index a page seeks by, the ORDER BY it prints and its row comparison hold columns the order never needed (the public oracle's paged read ordered by a key then a text of no byte bound, refused as UnrepresentableKey); the completion property fails."
+			},
 			{
 				file: "packages/engine/src/logical/order.ts",
 				original: "\tconst settled = (c: string) => ordered.has(c) || fixed.has(c)",

@@ -70,6 +70,14 @@ export const agreesWithTheReferenceOnGeneratedProgramsReadThroughEveryPublicForm
 				reason:
 					"lane REDS11's floor case 1, shrunk: a recursive read's read-back over a relation of closed ids, whose certification walked its recursive CTE's self-reference until the stack overflowed in generate",
 				since: "2026-11-28"
+			},
+			{
+				token: ReplayToken(
+					"test/pg/oracle/public/public.test.ts#agreesWithTheReferenceOnGeneratedProgramsReadThroughEveryPublicForm:40001401000000.18:0.2.1.0.1.0.1.0.0.1.0.1.0.1.0.1.2.1.0.1.0.1.0.1.2.0.1.0.1.0.1.0.0.1.0.1.0.1.0.1.0.1.2.0.1.2.1.0.1.0.1.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.3.0.0.0.0.pa8.0.0.0.0.0.0.1.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0"
+				),
+				reason:
+					"lane REDS11's floor case 20, shrunk: a paged read ordered by Rel0x0's key, then a text of no byte bound and a closed id, whose page seek asked an index over all three, refused as UnrepresentableKey, where the key orders the read alone",
+				since: "2026-11-28"
 			}
 		],
 		kills: []

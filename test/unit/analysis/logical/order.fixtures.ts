@@ -96,7 +96,8 @@ export const keysOf = (s: OrderSubject): ReadonlyArray<KeyClasses> =>
 
 /**
  * What the completion policy gives rows of one heading group, written from its statement (logical/order.ts) by search
- * rather than by key: the user's fields, each in the heading and once; then the fewest further fields, in heading order,
+ * rather than by key: the user's fields, each in the heading and once, cut after the first of their prefixes that with
+ * the fixed fields holds a key, since a field after it orders nothing; then the fewest further fields, in heading order,
  * that with the user's and the fixed ones contain a key narrower than the heading, the lexicographically least set of
  * names among the fewest; else every remaining field in heading order: every kind here breaks ties, a set by its bits,
  * bytes and a search document by PostgreSQL's order (scalar/registry.ts breaksTies). A set contains a key over classes when it holds a column of each of its classes.
@@ -127,14 +128,27 @@ export const specOrder = (
 		ordered.add(k.column)
 	}
 	const fixed = new Set(s.fixed)
-	const covered = (extra: ReadonlyArray<string>) =>
+	/** Whether the first `length` of the user's fields, with the fixed ones, hold a key. */
+	const prefixCovers = (length: number) =>
 		Arr.some(keysOf(s), (key) =>
 			Arr.every(key, (members) =>
-				Arr.some(members, (c) => ordered.has(c) || fixed.has(c) || extra.includes(c))
+				Arr.some(
+					members,
+					(c) => Arr.some(user.slice(0, length), (k) => k.column === c) || fixed.has(c)
+				)
 			)
 		)
-	if (names.length === 0 || covered([])) {
-		return { kind: "order", keys: user, step: "stated" }
+	/** The user's fields cut after the first of their prefixes that holds a key: a field after it orders nothing. */
+	const keyed = Arr.findFirst(
+		Array.from({ length: user.length + 1 }, (_, length) => length),
+		prefixCovers
+	)
+	if (names.length === 0 || Option.isSome(keyed)) {
+		return {
+			kind: "order",
+			keys: Option.match(keyed, { onNone: () => user, onSome: (length) => user.slice(0, length) }),
+			step: "stated"
+		}
 	}
 	const remaining = Arr.filter(names, (c) => !ordered.has(c) && !fixed.has(c))
 	const narrow = Arr.filter(keysOf(s), (key) => key.length < names.length)

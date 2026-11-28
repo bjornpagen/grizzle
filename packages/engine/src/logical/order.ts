@@ -116,8 +116,30 @@ const holdsKey = (subject: OrderSubject, keys: ReadonlyArray<OrderKey>): boolean
 }
 
 /**
- * The completed total order of `subject`, rows of one heading group, that begins with `user`, or why there is none
- * (completeFrom, after the user's keys are read: statedKeys).
+ * `stated` cut after its first prefix that holds a key of `subject` with the columns it fixes (holdsKey), the empty one
+ * among them: no two of its rows tie on that prefix, so every key after it is functionally determined by it and orders
+ * nothing. The completed order is this prefix completed, the one derivation its every reader reads, the index a take or
+ * a page seeks by (physical/indexes/engine.ts), the ORDER BY a statement prints and a page's row comparison, so they
+ * cannot disagree, and none holds a column the order never needed: PostgreSQL trims no functionally dependent ORDER BY
+ * column, so a printed one would keep a key's own index from ordering the read, and an index requested over one may
+ * be one no B-tree entry holds (a text of no byte bound). `stated` whole where no prefix holds a key.
+ */
+const keyedPrefix = (
+	subject: OrderSubject,
+	stated: ReadonlyArray<OrderKey>
+): ReadonlyArray<OrderKey> => {
+	for (let length = 0; length < stated.length; length += 1) {
+		const prefix = stated.slice(0, length)
+		if (holdsKey(subject, prefix)) {
+			return prefix
+		}
+	}
+	return stated
+}
+
+/**
+ * The completed total order of `subject`, rows of one heading group, that begins with `user` cut after its first
+ * keyed prefix (keyedPrefix), or why there is none (completeFrom, after the user's keys are read: statedKeys).
  */
 export const completeOrder = (
 	subject: OrderSubject,
@@ -126,8 +148,8 @@ export const completeOrder = (
 	Result.flatMap(statedKeys(subject, user), (keys) => completeFrom(subject, keys))
 
 /**
- * The completed orders of a delivered relation that begin with `user`, one per heading group, in group order, or why
- * there are none (ir/rel.ts GroupOrders).
+ * The completed orders of a delivered relation that begin with `user`, each cut after its first keyed prefix
+ * (keyedPrefix), one per heading group, in group order, or why there are none (ir/rel.ts GroupOrders).
  *
  * Rows of one heading group are completed as one relation (completeFrom). Over a heterogeneous union the user's keys,
  * fields every group holds, order rows across groups; where they hold no key of the union, two rows of different
@@ -202,8 +224,8 @@ const completeFrom = (
 	stated: ReadonlyArray<OrderKey>
 ): Result.Result<CompletedOrder, CompileError> => {
 	const columns = new Map(subject.heading.map((c) => [c.name, c]))
-	const ordered = new Set(stated.map((k) => k.column))
-	const keys: Array<OrderKey> = [...stated]
+	const keys: Array<OrderKey> = [...keyedPrefix(subject, stated)]
+	const ordered = new Set(keys.map((k) => k.column))
 	const fixed = new Set(subject.fixed)
 	const settled = (c: string) => ordered.has(c) || fixed.has(c)
 	/** Appends `column`, ascending: never a settled one, which the key's classes and the heading's walk each skip. */
