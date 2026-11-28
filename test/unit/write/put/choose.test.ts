@@ -3,8 +3,10 @@
  * box's names: a mutable R(b, c, d) keyed by (b, c), beside one more unique object or none, and a closed S(b, c, e) of
  * R's key, put by each form a ChangeSet writes it in, in one stratum or after an insert in an earlier one.
  *
- * - A unique object reading a field outside the primary key, key(d), makes every put the pair (candidateKey): an UPDATE
- *   checks it at each row, so a statement moving a value between facts would raise 23505 on a lawful final state.
+ * - A unique object reading a field outside the primary key, key(d), splits every put that may move one of its values
+ *   (uniqueSplit): an UPDATE checks it at each row, so a statement moving a value between facts would raise 23505 on a
+ *   lawful final state, and so the rows whose d differs take the pair while the rest update in place; a put of R's own
+ *   facts as they stand, its d read from the fact at its key, moves none and is an UPDATE ... FROM (existingKeys).
  * - A put of a relation parameter beside the deletion `R where d = $scope and (b, c) not in the parameter`, a scoped
  *   replace, is the pair (unproved), beside its deletion's own statement, alone or beside an insert into R: no target
  *   absorbs the deletion, which reads the scope by its key where one MERGE read R whole.
@@ -52,7 +54,7 @@ export const aPutsStatementIsTheOneItsRelationsUniqueObjectsAndItsStratumsOtherA
 	property.exhaust(finite(caseGen), {
 		needs: {},
 		situations: [
-			"deleteThenInsert (candidateKey)",
+			"uniqueSplit (candidateKey)",
 			"deleteThenInsert (unproved)",
 			"deleteThenInsert (netting)",
 			"updateFrom (existingKeys)",
@@ -111,9 +113,15 @@ export const aPutsStatementIsTheOneItsRelationsUniqueObjectsAndItsStratumsOtherA
 			{
 				file: "packages/engine/src/write/put/choose.ts",
 				original:
-					'\t\t\t\t\tif (uniqueOutsideKey(relation)) {\n\t\t\t\t\t\treturn pair("candidateKey")\n\t\t\t\t\t}\n',
-				replacement: "",
-				why: "A unique object reading a field outside the primary key no longer makes a put the pair (candidateKey)."
+					'\t\t\t\t\t\treturn primary.kind === "key"\n\t\t\t\t\t\t\t? chosen({ ...place, target: "uniqueSplit", reason: "candidateKey", inPlace, moved })\n\t\t\t\t\t\t\t: pair("candidateKey")\n',
+				replacement: '\t\t\t\t\t\treturn pair("candidateKey")\n',
+				why: "Every row of a put that may move a value of a unique object outside the key routed through the pair (candidateKey), where only the rows whose value differs need it: every unchanged row deleted and inserted again, a dead tuple and a new entry in every index, and every deferred reference to it checked again."
+			},
+			{
+				file: "packages/engine/src/write/put/choose.ts",
+				original: "\t\t\t\t\t\t\t!existingKeysProof(reads.node, relation, kept))\n",
+				replacement: "\t\t\t\t\t\t\t!existingKeysProof(reads.node, relation, []))\n",
+				why: "The existing-keys proof asked of the key alone: a put of R's own facts with d set to 1 is an UPDATE ... FROM, which can move a value of key(d) from one fact to another and raise 23505 on a lawful final state."
 			},
 			{
 				file: "packages/engine/src/write/put/choose.ts",

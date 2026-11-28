@@ -1050,7 +1050,7 @@ export const situations: Arr.NonEmptyReadonlyArray<RaceFeature> = [
 	"put target deleteThenInsert",
 	"put target onConflictDoUpdate",
 	"put target updateFrom",
-	"pair reason candidateKey",
+	"put target uniqueSplit",
 	"pair reason spanKey",
 	"pair reason pureSet",
 	"pair reason unproved",
@@ -1243,7 +1243,11 @@ export const runRace = (
 							...Arr.flatMap(
 								defined(served.choices.get(name), `the put choices of ${name}`),
 								(choice): ReadonlyArray<RaceFeature> =>
-									choice.target === "deleteThenInsert" ? [`pair reason ${choice.reason}`] : []
+									choice.target === "deleteThenInsert"
+										? [`pair reason ${choice.reason}`]
+										: choice.target === "uniqueSplit"
+											? ["put target uniqueSplit"]
+											: []
 							),
 							...putTargetsOf(change)
 						])

@@ -283,13 +283,16 @@ const castKeeps = (node: RelNode, relation: RelationInfo, field: string): boolea
  *   (`__key = $key`). A column fixed to a value is the one fact the physical analysis proves of it (analysis/physical
  *   props.ts PhysicalProps fixed, which a shared node's key set reads too), each node's computed where the proof first
  *   asks of it. Then every member row updates a stored row or is identical to one, and no member row would be
- *   inserted, so the UPDATE realizes the put's insertion completely.
+ *   inserted, so the UPDATE realizes the put's insertion completely. Each field of `kept` must come from that same
+ *   occurrence too, so a row carries the value the stored fact at its key holds there and the UPDATE leaves it as it
+ *   stands: a field a unique object outside the primary key reads, whose value an UPDATE that moved it could carry
+ *   from one fact to another (write/put/choose.ts uniqueFieldsOutsideKey).
  *
  * Every proof is structural and conservative: a shape it does not recognize proves nothing, and the put falls back to
  * the DELETE-then-insert pair, which is always admissible. */
 export const existingKeysProofOver = (
 	schema: CatalogSchema
-): ((node: RelNode, relation: RelationInfo) => boolean) => {
+): ((node: RelNode, relation: RelationInfo, kept: ReadonlyArray<string>) => boolean) => {
 	const physical = once((): PropsUnder =>
 		propsUnder({
 			context: "transaction",
@@ -299,8 +302,8 @@ export const existingKeysProofOver = (
 		})
 	)
 	const fixed: FixedColumns = (node) => physical().of(node).fixed
-	return (node, relation) => {
-		const fields = keyedBy(node, relation)
+	return (node, relation, kept) => {
+		const fields = [...new Set([...keyedBy(node, relation), ...kept])]
 		return (
 			fields.every((f) => castKeeps(node, relation, f)) &&
 			provesKeys(

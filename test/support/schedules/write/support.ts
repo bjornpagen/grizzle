@@ -196,7 +196,7 @@ const schedSchema = (name: string) => schema(name, Rec.values(relations), statem
  * - Note: `mutable`, keyed by id: a put in place, ON CONFLICT DO UPDATE or UPDATE ... FROM, or the pair, by its
  *   member;
  * - Code: `mutable`, keyed by id, with the candidate key code: a unique object beside the arbiter (UnseenOccupant), and
- *   a put that stays the pair for its candidate key;
+ *   a put split by it, the rows that move a code taking the pair (write/put/choose.ts uniqueSplit);
  * - Room: `mutable`, a span key (room, during): WITHOUT OVERLAPS (SpanKeyChange), a put that stays the pair;
  * - Ref: closed, its facts inserted, never changed or deleted, whose foreign key into Item is deferred (Item holds a
  *   payload, so it is no pure set): a law at COMMIT beside the writes, and an UPDATE no role holds (42501);

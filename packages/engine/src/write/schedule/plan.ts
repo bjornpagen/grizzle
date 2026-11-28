@@ -435,7 +435,9 @@ export interface FormLack {
 const lacksForm = (action: ChosenAction): boolean =>
 	(action.op === "insert" ||
 		(action.op === "put" &&
-			(action.choice.target === "deleteThenInsert" || action.choice.target === "ownerPut"))) &&
+			(action.choice.target === "deleteThenInsert" ||
+				action.choice.target === "uniqueSplit" ||
+				action.choice.target === "ownerPut"))) &&
 	primaryKeyShape(action.info.relation).kind === "span"
 
 /**
@@ -481,6 +483,13 @@ const putOps = (put: Extract<ChosenAction, { readonly op: "put" }>): ReadonlyArr
 			]
 		case "updateFrom":
 			return [...claimedPrecheckOf(put), { op: "updateFrom", inPlace: choice.inPlace }]
+		case "uniqueSplit":
+			return [
+				{ op: "displace", differing: choice.moved },
+				...precheckOf(put),
+				{ op: "updateFrom", inPlace: choice.inPlace },
+				{ op: "putInsert" }
+			]
 		case "ownerPut":
 			return [
 				...precheckOf(put),

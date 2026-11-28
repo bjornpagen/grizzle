@@ -111,7 +111,8 @@ export const aPlansAdviceParsesAsPgPlanAdviceReadsItAndHoldsExactlyTheAtomsThePl
 		kills: [
 			{
 				file: "packages/engine/src/sql/advice.ts",
-				original: "\t\tproblem = problem.length < joinCollapseLimit ? [...problem, t] : [problem, t]\n",
+				original:
+					"\t\tproblem = problem.length < joinCollapseLimit ? [...problem, t] : [problem, t]\n",
 				replacement: "\t\tproblem = [...problem, t]\n",
 				why: "A level of more items than PostgreSQL folds into one join problem is advised as one: PostgreSQL plans the first eight apart, as one member of the next problem, and the flat join order matches no problem it plans."
 			},

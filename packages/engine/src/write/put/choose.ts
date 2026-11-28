@@ -44,7 +44,8 @@ export interface InPlace {
 export type KeyArbiter = Extract<PrimaryKeyObject, { readonly kind: "key" }>
 
 /** The statement chosen for one put, with what it was proved over: an ON CONFLICT DO UPDATE of the enumerated slot it
- * reads or an UPDATE ... FROM, each in place; or the DELETE-then-insert pair, for a reason. */
+ * reads or an UPDATE ... FROM, each in place; the split of a put whose rows may move a unique value (uniqueSplit); or the
+ * DELETE-then-insert pair, for a reason. */
 export type PutChoice = {
 	readonly stratum: StratumAt
 	readonly action: number
@@ -59,6 +60,14 @@ export type PutChoice = {
 			readonly slot: MemberSlot
 	  }
 	| { readonly target: "updateFrom"; readonly reason: "existingKeys"; readonly inPlace: InPlace }
+	| {
+			readonly target: "uniqueSplit"
+			readonly reason: "candidateKey"
+			readonly inPlace: InPlace
+			/** The fields a unique object outside the key reads (`uniqueFieldsOutsideKey`): a row whose value differs at
+			 * one moves it. */
+			readonly moved: NonEmptyReadonlyArray<LawField>
+	  }
 	| {
 			readonly target: "ownerPut"
 			readonly reason: "owner"
@@ -112,12 +121,16 @@ export interface ChosenTargets {
 	readonly choices: ReadonlyArray<PutChoice>
 }
 
-/** Whether a non-deferrable unique object of the relation reads a field outside its primary key, so an update in place
- * can move one of its values from one fact to another, or, through a partial index's predicate, move one fact into the
- * index while another of the same compared values still occupies it. */
-const uniqueOutsideKey = (relation: WrittenRelation): boolean => {
+/** The fields every non-deferrable unique object of the relation reads outside its primary key, each once: an update in
+ * place that changed one could move a unique value from one fact to another, or, through a partial index's predicate,
+ * move one fact into the index while another of the same compared values still occupies it. */
+const uniqueFieldsOutsideKey = (relation: WrittenRelation): ReadonlyArray<LawField> => {
 	const key: ReadonlyArray<LawField> = relation.primaryFields
-	return relation.uniques.others.some((u) => readFields(u).some((f) => !key.includes(f)))
+	return [
+		...new Set(
+			relation.uniques.others.flatMap((u) => readFields(u).filter((f) => !key.includes(f)))
+		)
+	]
 }
 
 /** The fields an owner's put sets in place: those its facts carry outside its key (`payloadOf`), and through a query
@@ -188,7 +201,15 @@ export const inPlaceOf = (info: ActionInfo, payload: Payload): ReadonlyArray<Law
  *   facts it could collide on share their primary key. A key over a selected side whose selection reads a field outside
  *   the primary key still reaches outside it, even when every field it compares lies in the key: at most one active
  *   Duty per worker, key(on(select(Duty, active), worker)) over the primary key (worker, task), meets the update that
- *   makes (w, 1) active while (w, 2), made inactive by the same statement, is still active;
+ *   makes (w, 1) active while (w, 2), made inactive by the same statement, is still active. Only a row whose value
+ *   differs at a field such an object reads outside the key (`uniqueFieldsOutsideKey`) can move one, so the pair is
+ *   that row's alone: where the key is scalars, the put is split by it (uniqueSplit), its displacing deletion removing
+ *   each occupant whose such field differs from its fact's, then UPDATE ... FROM updating in place every occupant that
+ *   stays, and the insert half inserting each fact no row holds, the moved rows' and the new keys'. A row that keeps its
+ *   unique values takes no part in a swap, and a swap or a true collision lies among the moved rows, which the pair
+ *   handles as it does any. Where existingKeysProof proves every row carries a stored fact's key and, from that same
+ *   fact, every such field, a described put in a stratum that deletes nothing of the relation, no value moves and the
+ *   put is the UPDATE ... FROM alone, a put of a test by its own name; a span key keeps the pair (candidateKey);
  * - it is described and nothing below proves a better target;
  * - its relation's primary key contains a span field and the put would be an ON CONFLICT DO UPDATE: the key is an
  *   exclusion constraint, which no ON CONFLICT DO UPDATE accepts as its arbiter (42P10 for the inferred form, and only
@@ -253,9 +274,6 @@ export const choosePutTargets = (frontend: WriteFrontend): ChosenTargets => {
 					if (payload.kind === "pureSet") {
 						return pair("pureSet")
 					}
-					if (uniqueOutsideKey(relation)) {
-						return pair("candidateKey")
-					}
 					const inPlace: InPlace = Object.freeze({ payload: payload.fields })
 					const primary = relation.uniques.arbiter
 					/** The form that returns no old version of an updated row: ON CONFLICT DO UPDATE. */
@@ -269,6 +287,18 @@ export const choosePutTargets = (frontend: WriteFrontend): ChosenTargets => {
 					)
 					const deletions = others.flatMap((o) => (o.action.op === "delete" ? [o] : []))
 					const reads = info.reads
+					const moved = uniqueFieldsOutsideKey(relation)
+					const kept = moved.map((f) => f.name)
+					if (
+						isNonEmpty(moved) &&
+						(reads.kind === "slot" ||
+							deletions.length > 0 ||
+							!existingKeysProof(reads.node, relation, kept))
+					) {
+						return primary.kind === "key"
+							? chosen({ ...place, target: "uniqueSplit", reason: "candidateKey", inPlace, moved })
+							: pair("candidateKey")
+					}
 					if (reads.kind === "slot") {
 						return noOldVersion !== undefined
 							? pair(noOldVersion)
@@ -283,7 +313,7 @@ export const choosePutTargets = (frontend: WriteFrontend): ChosenTargets => {
 									})
 								: pair("spanKey")
 					}
-					if (deletions.length === 0 && existingKeysProof(reads.node, relation)) {
+					if (deletions.length === 0 && existingKeysProof(reads.node, relation, kept)) {
 						return chosen({ ...place, target: "updateFrom", reason: "existingKeys", inPlace })
 					}
 					return pair("unproved")

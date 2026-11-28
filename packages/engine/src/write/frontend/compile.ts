@@ -1698,7 +1698,7 @@ const compile = (
 				!isSequence(f) &&
 				members.some((m) => addedBy(m).has(f.member.name))
 		)
-		if (appended === undefined || existingKeysProof(query.dag.roots[0], relation)) {
+		if (appended === undefined || existingKeysProof(query.dag.roots[0], relation, [])) {
 			return
 		}
 		throw new Refusal(

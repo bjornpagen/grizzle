@@ -17,6 +17,7 @@ type Form =
 	| "replace"
 	| "replace beside an insert"
 	| "own facts"
+	| "own facts as they stand"
 	| "own facts beside a deletion"
 	| "own fact at a parameter key, a step"
 	| "own fact filtered to a parameter key, a step"
@@ -81,6 +82,14 @@ const scopedOutside = (s: ReturnType<typeof schemaOf>): QueryValue =>
 			.where(r.eq(d, r.param("scope", pg.integer)))
 			.where(r.not(r.relation("rows", R), { b, c }))
 			.find({ b, c, d })
+	})
+
+/** Every stored fact of R as it stands, each field read from the fact itself: a put whose every key is a stored fact's,
+ * and whose d is that fact's, so no value of a unique object over d moves. */
+const factsAsTheyStand = (s: ReturnType<typeof schemaOf>): QueryValue =>
+	query(s).rule((r: RuleValue) => {
+		const { b, c, d } = v(R, "stored")
+		return r.match(R, { b, c, d }).find({ b, c, d })
 	})
 
 /** Every stored fact of R, its d set to 1: a put whose every key is a stored fact's. */
@@ -153,6 +162,8 @@ export const changeSetOf = (s: ReturnType<typeof schemaOf>, form: Form) => {
 				.insert(R, [{ b: 9, c: 9, d: 9 }])
 		case "own facts":
 			return empty.put(R, ownFacts(s))
+		case "own facts as they stand":
+			return empty.put(R, factsAsTheyStand(s))
 		case "own facts beside a deletion":
 			return empty.put(R, ownFacts(s)).delete(R, zeroFacts(s))
 		case "own fact at a parameter key, a step":
@@ -178,6 +189,7 @@ export const changeSetOf = (s: ReturnType<typeof schemaOf>, form: Form) => {
 export const ownFactsAlone = (form: Form): boolean => {
 	switch (form) {
 		case "own facts":
+		case "own facts as they stand":
 		case "own fact at a parameter key, a step":
 		case "own fact filtered to a parameter key, a step":
 		case "own fact after S's step":
@@ -193,8 +205,8 @@ export const ownFactsAlone = (form: Form): boolean => {
 
 /** The rules of the header, over the box's names: R's first put's statement and its reason. */
 export const expectedOf = (uniques: Uniques, form: Form): Choice => {
-	if (uniques === "key(d)") {
-		return { target: "deleteThenInsert", reason: "candidateKey" }
+	if (uniques === "key(d)" && form !== "own facts as they stand") {
+		return { target: "uniqueSplit", reason: "candidateKey" }
 	}
 	switch (form) {
 		case "replace":
@@ -202,6 +214,7 @@ export const expectedOf = (uniques: Uniques, form: Form): Choice => {
 		case "own facts beside a deletion":
 			return { target: "deleteThenInsert", reason: "unproved" }
 		case "own facts":
+		case "own facts as they stand":
 		case "own fact at a parameter key, a step":
 		case "own fact filtered to a parameter key, a step":
 		case "own fact after S's step":
@@ -224,6 +237,7 @@ const forms: Arr.NonEmptyReadonlyArray<Form> = [
 	"replace",
 	"replace beside an insert",
 	"own facts",
+	"own facts as they stand",
 	"own facts beside a deletion",
 	"own fact at a parameter key, a step",
 	"own fact filtered to a parameter key, a step",
