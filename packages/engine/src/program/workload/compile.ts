@@ -897,7 +897,7 @@ export type RoleReads = ReadonlyMap<string, CompiledRead>
  */
 export const loginReads = (
 	workload: ReadonlyArray<unknown>,
-	roles: ReadonlyMap<string, ServableRole<Isolation, ParamSource>>,
+	roles: ReadonlyMap<string, ServableRole>,
 	clock: ClockSource
 ): Result.Result<ReadonlyMap<string, RoleReads>, ChangeRefused> => {
 	const out = new Map<string, RoleReads>()

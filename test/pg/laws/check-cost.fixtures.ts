@@ -665,6 +665,7 @@ const brokenAlone = (
 			yield* apart(
 				{ values: clone.bare.queryValues },
 				"check_cost_violation",
+				[],
 				Effect.gen(function* () {
 					for (const sql of [
 						...Arr.map(filled, (table) => `TRUNCATE ${printObjectName(table)}`),
@@ -833,22 +834,24 @@ export const runCheck = (clone: RolledBack<Installed>, c: CheckCase, k: Case<Che
 		]
 		const run = (statements: ReadonlyArray<string>) =>
 			Effect.forEach(statements, (sql) => connection.query(sql, []), { discard: true })
+		const stated: Arr.NonEmptyReadonlyArray<string> = [
+			tables.node,
+			tables.decl,
+			tables.dcl,
+			tables.card,
+			tables.typed,
+			tables.bind
+		]
 		for (const state of pgClassStates) {
 			yield* apart(
 				{ values: clone.bare.queryValues },
 				"check_cost_state",
+				stated,
 				Effect.gen(function* () {
 					yield* standIn(
 						{ values: connection.queryValues },
 						{
-							tables: [
-								tables.node,
-								tables.decl,
-								tables.dcl,
-								tables.card,
-								tables.typed,
-								tables.bind
-							],
+							tables: stated,
 							units: c.size,
 							load: (from, to) => {
 								const declared = declarationsOf(c, from, to)
@@ -1129,15 +1132,17 @@ export const runNamingFill = (
 			Array.from({ length: c.resources }, (_, n) => n),
 			(n) => namesItsDocument(c, n)
 		).length
+		const stood = Arr.map(namingTables, (t) => tables[t])
 		for (const state of pgClassStates) {
 			yield* apart(
 				{ values: clone.bare.queryValues },
 				"naming_fill_state",
+				stood,
 				Effect.gen(function* () {
 					yield* standIn(
 						{ values: connection.queryValues },
 						{
-							tables: [tables.node, tables.record, tables.attribute, tables.href, tables.listed],
+							tables: stood,
 							units: c.resources,
 							load: (from, to) => {
 								const rows = namingRowsOf(c, from, to)

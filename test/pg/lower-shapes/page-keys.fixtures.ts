@@ -1,6 +1,7 @@
 /** What page-keys.test.ts reads: its schema, its windows and one case's run. */
 
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import { assert } from "@bjornpagen/testing/assert"
 import { type Aimed, aimed, element, type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
@@ -34,12 +35,24 @@ import {
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { answered, paged } from "#compiler/public/workload.ts"
+import type { CreateStoredTable, Delete } from "#compiler/sql/ast.ts"
+import {
+	col,
+	core,
+	operandSelect,
+	row as rowOf,
+	select,
+	setOperation,
+	table,
+	targetAs
+} from "#compiler/sql/build.ts"
 import { printObjectName, printStatement } from "#compiler/sql/print.ts"
 import {
 	advisedExplain,
 	apart,
 	budgetOfPlan,
 	fullWorldRole,
+	grownIn,
 	lawsHold,
 	type PgClassState,
 	pgClassStates,
@@ -1140,18 +1153,53 @@ const stored = (
 }
 
 /**
- * Each derived relation the installation stores filled again from its definition over the rows the case stored
- * (physical/derived/objects.ts fillStatement), as the migration that creates its table fills it, in the installation's
- * order, so a stored relation another's definition reads is filled first; each table emptied before. The case writes its
- * rows directly, past the write programs that keep a stored relation's rows, so without its fill a stored view holds
- * none, and each window over one reads nothing.
+ * Each derived relation the installation stores brought to its definition over the rows the case stored, in the
+ * installation's order, so a stored relation another's definition reads is brought first (storedDifference). The case
+ * writes its rows directly, past the write programs that keep a stored relation's rows, so without its fill a stored
+ * view holds none, and each window over one reads nothing.
  */
 const storedFills = (installed: Installed): ReadonlyArray<string> =>
 	Arr.flatMap(installed.installation.statements, (statement) =>
-		statement.kind === "createStoredTable"
-			? [`DELETE FROM ${printObjectName(statement.name)}`, printStatement(fillStatement(statement))]
-			: []
+		statement.kind === "createStoredTable" ? storedDifference(statement) : []
 	)
+
+/**
+ * A stored relation's table brought to its definition by the difference alone, as the write programs that keep its rows
+ * write it: each stored row its definition no longer holds deleted, then each row of its definition the table does not
+ * hold inserted (physical/derived/objects.ts fillStatement, its query less the table's rows). A batch of learners
+ * deletes none, every stored relation here stored under the learner's unit, and inserts the batch's rows alone, so no
+ * stored row stands in two versions, one its snapshot does not see, as emptying the table before each fill left every
+ * earlier batch's rows (the skewed state's prefix's among them).
+ */
+const storedDifference = (create: CreateStoredTable): ReadonlyArray<string> => {
+	const held = (alias: string) =>
+		operandSelect(
+			core(
+				Arr.map(create.columns, (c) => targetAs(col(alias, c), c)),
+				[table(create.name.schema, create.name.name, alias)],
+				undefined
+			)
+		)
+	const removed: Delete = {
+		kind: "delete",
+		with: undefined,
+		table: create.name,
+		alias: "t",
+		using: [],
+		where: {
+			kind: "inQuery",
+			expr: rowOf(mapNonEmpty(create.columns, (c) => col("t", c))),
+			query: select(setOperation("EXCEPT", [held("s"), create.query])),
+			not: false
+		},
+		returning: []
+	}
+	const fill = fillStatement(create)
+	return [
+		printStatement(removed),
+		printStatement({ ...fill, query: select(setOperation("EXCEPT", [create.query, held("s")])) })
+	]
+}
 
 /**
  * The derived relations the installation stores, which the windows read (their statuses and the dashboard's entries),
@@ -1381,19 +1429,114 @@ const textSet = (rows: ReadonlyArray<ReadonlyArray<string>>): ReadonlyArray<stri
 	)
 
 /**
+ * A case's transaction opened on `clone` (runPage): its session's stand-ups called, as a direct writer of a table the
+ * rule judge holds calls them, the tests and an operator granted teaching, under claims naming the operator's Clerk user.
+ */
+const opened = (clone: RolledBack<Generated>) => {
+	const names = namesOf(clone.value.installed)
+	return Effect.forEach(
+		[
+			...names.standUps,
+			`INSERT INTO ${names.table(Test)} SELECT t, 'test ' || t, t FROM generate_series(1, 3) AS t`,
+			`INSERT INTO ${names.table(People)} VALUES ('staff')`,
+			`INSERT INTO ${names.table(ClerkAccount)} VALUES ('user_staff', 'staff')`,
+			`INSERT INTO ${names.table(Grant)} VALUES ('staff', ${String(names.code(Capability, "teacher"))})`,
+			`INSERT INTO ${names.table(QueueWorker)} VALUES (1, 1), (1, 2)`,
+			`SELECT pg_catalog.set_config('grizzle.claims', '{"Session":{"sub":"user_staff"}}', true)`
+		],
+		(sql) => clone.connection.query(sql, []),
+		{ discard: true }
+	)
+}
+
+/**
+ * The case `apart`'s property reads (stoodApart): a few learners of a few sittings each, every event and grading, read
+ * by no window.
+ */
+const apartCase: PageCase = {
+	window: "all",
+	start: "first",
+	size: 1,
+	learners: 6,
+	sittings: 5,
+	revisions: 1,
+	marks: 1,
+	place: 0,
+	rare: true,
+	more: 60,
+	state: "never vacuumed"
+}
+
+/**
+ * Each of a case's tables' pg_class counts and the statistics ANALYZE leaves of it (pg_stats), each by its quoted name: what
+ * a state of the tables is to the planner, which a read `apart` from it must leave as it stood.
+ */
+const plannerState = (session: BenchSession, tables: ReadonlyArray<string>) =>
+	Effect.forEach(tables, (t) =>
+		Effect.map(
+			session.values(
+				"SELECT c.relpages::pg_catalog.text, c.reltuples::pg_catalog.text, c.relallvisible::pg_catalog.text, c.relallfrozen::pg_catalog.text, " +
+					"(SELECT pg_catalog.count(*) FROM pg_catalog.pg_stats AS s WHERE s.schemaname = n.nspname AND s.tablename = c.relname)::pg_catalog.text " +
+					"FROM pg_catalog.pg_class AS c JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace " +
+					"WHERE c.oid = $1::pg_catalog.text::pg_catalog.regclass",
+				[t]
+			),
+			(rows) => [t, Arr.map(rows, Arr.map(String))] as const
+		)
+	)
+
+/**
+ * `apart`'s property's case on `clone`: a case's learners stood in `state` (advice.ts standIn), then a read apart from
+ * them that stores more learners beside and ANALYZEs every table (advice.ts apart, grownIn), as the page oracle's
+ * baseline reads them; each table's pg_class counts and its statistics stand after it as they stood before, whatever
+ * ANALYZE wrote in place.
+ */
+export const stoodApart = (clone: RolledBack<Generated>, state: PgClassState) =>
+	Effect.gen(function* () {
+		const installed = clone.value.installed
+		const session: BenchSession = { values: clone.connection.queryValues }
+		const tables = caseTables(installed)
+		const c = { ...apartCase, state }
+		yield* opened(clone)
+		yield* standIn(session, learnersLoad(installed, clone.connection, c, c.learners), state)
+		const before = yield* plannerState(session, tables)
+		yield* apart(
+			{ values: clone.bare.queryValues },
+			"page_keys_apart",
+			tables,
+			grownIn(
+				session,
+				learnersLoad(installed, clone.connection, c, c.learners + c.more),
+				"analyzed",
+				c.learners
+			)
+		)
+		const after = yield* plannerState(session, tables)
+		assert.deepEqual(
+			after,
+			before,
+			`every table in the ${state} state stands after a read apart from it as before it`
+		)
+	})
+
+/**
  * One case in its one transaction, which the case's end rolls back: its session's stand-ups called, as a direct writer
  * of a table the rule judge holds calls them (an assignment's containment in the one status a sitting), the tests and
  * an operator granted teaching, under claims naming the operator's Clerk user. The case's window is paged as a served
  * Db of the ledger's full world pages it (test/support/advice.ts servedPageRead: the role's compile, read "page", under
  * the advice its served record ships), and the page oracle's baseline built beside it (test/support/conservative.ts
- * conservativePageRuntime), cost-chosen, the oracle of its rows alone. Each read stands learners 1 to `learners` in a
- * savepoint of its own (`apart`): the baseline's analyzed, the unpaged read and the window at the anchor its place
- * names; the optimized window's in the case's pg_class state (advice.ts standIn), where the plan laws hold over the
- * page's five variants (lawsHold, which then holds the advice its record ships in force), the window is read, its plan
- * run under that advice keeps its budget (budgetOfPlan: each scan within the pages its plan gives), a driven window's
- * scans read at most 60 rows for each row it holds, 200 more and its offset's skipped entries (judge.ts readWork), and
- * the operator's account is read once; each part's rows the baseline's. Then `more` learners are stored beside them,
- * each newer than the case's own, and both are read again, the anchor the same row. The baseline reads every entry of
+ * conservativePageRuntime), cost-chosen, the oracle of its rows alone. The case's learners 1 to `learners` are loaded
+ * once and stood in its pg_class state (advice.ts standIn), each row in its tables once; each read stands in a
+ * savepoint of its own (`apart`): the baseline's ANALYZEd, the unpaged read and the window at the anchor its place
+ * names; the optimized window's in the case's state, where the plan laws hold over the page's five variants (lawsHold,
+ * which then holds the advice its record ships in force), the window is read, its plan run under that advice keeps its
+ * budget (budgetOfPlan: each scan within the pages its plan gives), a driven window's scans read at most 60 rows for
+ * each row it holds, 200 more and its offset's skipped entries (judge.ts readWork), and the operator's account is read
+ * once; each part's rows the baseline's. Then `more` learners are stored beside them, each newer than the case's own,
+ * the tables stood in the case's state again (advice.ts grownIn), and both are read again, the anchor the same row.
+ * Where each read loaded the learners afresh in its savepoint, each rolled-back load left its rows as versions no later
+ * snapshot sees: floor case 1's skewed window read three heap pages for each of its rows' keys, two of them a rolled-back
+ * load's, 9 pages of the 8 its plan gives, where its rows standing once read 3. The baseline reads every entry of
  * the window's tab and each entry's attachments as it stands, which PostgreSQL plans by its statistics, so its reads
  * stand analyzed: under statistics stating each value its own it priced the tab of every sitting, 7,280 entries beside
  * 1,040 learners, at one row and rescanned a hash join of every assignment for each, in the window's body and in each of
@@ -1407,17 +1550,7 @@ export const runPage = (clone: RolledBack<Generated>, c: PageCase, k: Case<PageF
 		const names = namesOf(installed)
 		const codes = names.installation.names.codes
 		const session: BenchSession = { values: connection.queryValues }
-		for (const sql of [
-			...names.standUps,
-			`INSERT INTO ${names.table(Test)} SELECT t, 'test ' || t, t FROM generate_series(1, 3) AS t`,
-			`INSERT INTO ${names.table(People)} VALUES ('staff')`,
-			`INSERT INTO ${names.table(ClerkAccount)} VALUES ('user_staff', 'staff')`,
-			`INSERT INTO ${names.table(Grant)} VALUES ('staff', ${String(names.code(Capability, "teacher"))})`,
-			`INSERT INTO ${names.table(QueueWorker)} VALUES (1, 1), (1, 2)`,
-			`SELECT pg_catalog.set_config('grizzle.claims', '{"Session":{"sub":"user_staff"}}', true)`
-		]) {
-			yield* connection.query(sql, [])
-		}
+		yield* opened(clone)
 		const page = yield* servedPageRead(
 			installed,
 			fullWorldRole(installed, Ops, [Session]),
@@ -1455,12 +1588,26 @@ export const runPage = (clone: RolledBack<Generated>, c: PageCase, k: Case<PageF
 					return Option.isSome(anchorKey) ? { kind: "before", key: anchorKey.value } : undefined
 			}
 		}
-		const first = yield* apart(
-			held,
-			"page_keys_baseline",
+		const tables = caseTables(installed)
+		yield* standIn(session, learnersLoad(installed, connection, c, c.learners), c.state)
+		yield* notedStoredViews(installed, connection, k)
+		/**
+		 * `read`, the page oracle's baseline's, over the learners standing ANALYZEd apart from the case's state: its plan
+		 * under the store's own statistics (the first kept case), every count and statistic of the case's state standing
+		 * again after it (advice.ts apart).
+		 */
+		const analyzed = <A, E>(read: Effect.Effect<A, E>) =>
+			apart(
+				held,
+				"page_keys_baseline",
+				tables,
+				Effect.andThen(
+					Effect.forEach(tables, (t) => session.values(`ANALYZE ${t}`, []), { discard: true }),
+					read
+				)
+			)
+		const first = yield* analyzed(
 			Effect.gen(function* () {
-				yield* standIn(session, learnersLoad(installed, connection, c, c.learners), "analyzed")
-				yield* notedStoredViews(installed, connection, k)
 				const every = yield* runWindow(
 					baseline,
 					connection,
@@ -1508,8 +1655,8 @@ export const runPage = (clone: RolledBack<Generated>, c: PageCase, k: Case<PageF
 			apart(
 				held,
 				"page_keys_stated",
+				tables,
 				Effect.gen(function* () {
-					yield* standIn(session, learnersLoad(installed, connection, c, learners), c.state)
 					yield* lawsHold(session, page.scope)
 					const read = yield* runWindow(optimized, connection, params, codes, anchor, c.size)
 					const plan = yield* advisedExplain(session, read.sql, textsOfParams(read.params))
@@ -1564,14 +1711,13 @@ export const runPage = (clone: RolledBack<Generated>, c: PageCase, k: Case<PageF
 				})
 			)
 		yield* judged(c.learners, expected)
-		const more = yield* apart(
-			held,
-			"page_keys_baseline",
-			Effect.andThen(
-				standIn(session, learnersLoad(installed, connection, c, c.learners + c.more), "analyzed"),
-				runWindow(baseline, connection, params, codes, anchor, c.size)
-			)
+		yield* grownIn(
+			session,
+			learnersLoad(installed, connection, c, c.learners + c.more),
+			c.state,
+			c.learners
 		)
+		const more = yield* analyzed(runWindow(baseline, connection, params, codes, anchor, c.size))
 		yield* judged(c.learners + c.more, more)
 		k.note(situationOf(c))
 		const overRows = Option.getOrUndefined(drivenOf(c))

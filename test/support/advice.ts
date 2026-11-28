@@ -92,7 +92,7 @@ import {
 	resolvePlan,
 	scannedItems
 } from "#compiler/sql/plan.ts"
-import { printPlannedQuery, printStatement } from "#compiler/sql/print.ts"
+import { printPlannedQuery, printStatement, textArrayLiteral } from "#compiler/sql/print.ts"
 import type { AnyLoginRole } from "#compiler/types/schema/world.ts"
 import { paramTexts } from "#test/support/compile.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
@@ -1684,62 +1684,143 @@ const countedAt = (quoted: string, rows: number): string =>
  * `load` run, and its tables stood in `state` (`PgClassState`) by `session`, in the transaction it holds open or each
  * statement its own: a statistics statement is no VACUUM, which no transaction may run. A counted-empty table is
  * counted as the VACUUM of e1 counts it, one another session runs while its load is open: its pages, and no row, the
- * load's rows in progress to that VACUUM; a large one at `largeRows` on its pages.
+ * load's rows in progress to that VACUUM; a large one at `largeRows` on its pages (grownIn, from no unit standing).
  */
 export const standIn = <E, R>(
 	session: BenchSession,
 	load: StateLoad<E, R>,
 	state: PgClassState
+): Effect.Effect<void, E | SqlError, R> => grownIn(session, load, state, 0)
+
+/**
+ * `load`'s units past `standing`, its units 1 to `standing` standing in its tables already, stood in `state` by an
+ * earlier stand of the same tables, loaded, and its tables stood in `state` again, as production leaves a table it
+ * fills further: never vacuumed, nothing since; counted empty, counted again by the VACUUM another session runs while
+ * the load is open (`countedAt`); analyzed, ANALYZEd again over its rows; skewed, ANALYZEd once, when the table held its
+ * first hundredth of `load`'s units, then filled, so a table already past that point keeps its earlier statistics, a
+ * prefix's still; large, counted again at `largeRows` on its pages. Each row stands in its tables once: nothing is
+ * loaded twice, so no scan of the state meets a version of a row its snapshot does not see.
+ */
+export const grownIn = <E, R>(
+	session: BenchSession,
+	load: StateLoad<E, R>,
+	state: PgClassState,
+	standing: number
 ): Effect.Effect<void, E | SqlError, R> => {
-	const all = load.load(1, load.units)
+	const rest = (from: number) => (from <= load.units ? load.load(from, load.units) : Effect.void)
 	switch (state) {
 		case "never vacuumed":
-			return all
+			return rest(standing + 1)
 		case "counted empty":
 			return Effect.andThen(
-				all,
+				rest(standing + 1),
 				eachTable(session, load.tables, (t) => countedAt(t, 0))
 			)
 		case "analyzed":
 			return Effect.andThen(
-				all,
+				rest(standing + 1),
 				eachTable(session, load.tables, (t) => `ANALYZE ${t}`)
 			)
 		case "skewed": {
 			const prefix = Math.ceil(load.units / 100)
-			return Effect.gen(function* () {
-				yield* load.load(1, prefix)
-				yield* eachTable(session, load.tables, (t) => `ANALYZE ${t}`)
-				if (prefix < load.units) {
-					yield* load.load(prefix + 1, load.units)
-				}
-			})
+			return prefix <= standing
+				? rest(standing + 1)
+				: Effect.gen(function* () {
+						yield* load.load(standing + 1, prefix)
+						yield* eachTable(session, load.tables, (t) => `ANALYZE ${t}`)
+						yield* rest(prefix + 1)
+					})
 		}
 		case "large":
 			return Effect.andThen(
-				all,
+				rest(standing + 1),
 				eachTable(session, load.tables, (t) => countedAt(t, largeRows))
 			)
 	}
 }
 
 /**
+ * A table's pg_class counts, each its text, as an ANALYZE writes them in place and no rollback puts them back
+ * (`apart`): the table by its quoted, qualified name.
+ */
+interface ClassCounts {
+	readonly table: string
+	readonly relpages: string
+	readonly reltuples: string
+	readonly relallvisible: string
+	readonly relallfrozen: string
+}
+
+/** The pg_class counts of `tables`, in their order, as `bare` reads them (ClassCounts). */
+const classCounts = (
+	bare: BenchSession,
+	tables: ReadonlyArray<string>
+): Effect.Effect<ReadonlyArray<ClassCounts>, SqlError> =>
+	Effect.map(
+		bare.values(
+			"SELECT t.name, c.relpages::pg_catalog.text, c.reltuples::pg_catalog.text, c.relallvisible::pg_catalog.text, c.relallfrozen::pg_catalog.text " +
+				"FROM pg_catalog.unnest($1::pg_catalog.text[]) WITH ORDINALITY AS t(name, place) " +
+				"JOIN pg_catalog.pg_class AS c ON c.oid = t.name::pg_catalog.regclass ORDER BY t.place",
+			[textArrayLiteral(tables)]
+		),
+		Arr.map(([table, relpages, reltuples, relallvisible, relallfrozen]) => ({
+			table: String(table),
+			relpages: String(relpages),
+			reltuples: String(reltuples),
+			relallvisible: String(relallvisible),
+			relallfrozen: String(relallfrozen)
+		}))
+	)
+
+/**
+ * Each table of `saved` stood at its saved counts again by `bare` (pg_restore_relation_stats, a transactional update of
+ * its pg_class row).
+ */
+const restoredCounts = (
+	bare: BenchSession,
+	saved: ReadonlyArray<ClassCounts>
+): Effect.Effect<void, SqlError> =>
+	Effect.asVoid(
+		bare.values(
+			"SELECT pg_catalog.pg_restore_relation_stats('schemaname', n.nspname::pg_catalog.text, 'relname', c.relname::pg_catalog.text, " +
+				"'relpages', t.relpages, 'reltuples', t.reltuples, 'relallvisible', t.relallvisible, 'relallfrozen', t.relallfrozen) " +
+				"FROM ROWS FROM (pg_catalog.unnest($1::pg_catalog.text[]), pg_catalog.unnest($2::pg_catalog.int4[]), pg_catalog.unnest($3::pg_catalog.float4[]), pg_catalog.unnest($4::pg_catalog.int4[]), pg_catalog.unnest($5::pg_catalog.int4[])) " +
+				"AS t(name, relpages, reltuples, relallvisible, relallfrozen) " +
+				"JOIN pg_catalog.pg_class AS c ON c.oid = t.name::pg_catalog.regclass " +
+				"JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace",
+			[
+				textArrayLiteral(Arr.map(saved, (c) => c.table)),
+				textArrayLiteral(Arr.map(saved, (c) => c.relpages)),
+				textArrayLiteral(Arr.map(saved, (c) => c.reltuples)),
+				textArrayLiteral(Arr.map(saved, (c) => c.relallvisible)),
+				textArrayLiteral(Arr.map(saved, (c) => c.relallfrozen))
+			]
+		)
+	)
+
+/**
  * `use` in a savepoint of the transaction `bare` holds open, set by `bare` itself, whose statements no savepoint of their
  * own wraps (a case's connection, test/support/substrate/substrate.ts RolledBack `connection`, releases one after each
  * statement, which would end it: RolledBack `bare`), rolled back to and released after it, so the rows it wrote, the
  * pg_class state it stood them in (`standIn`) and the advice it held stand for it alone: each state of a case's tables
- * held apart from the others.
+ * held apart from the others. An ANALYZE writes a table's pg_class counts in place (PostgreSQL 19 vacuum.c
+ * vac_update_relstats, systable_inplace_update_finish), which no rollback puts back, so `tables`, every table `use` may
+ * ANALYZE, stand at the counts they held before it once it is rolled back (`restoredCounts`): their pg_statistic rows the
+ * rollback puts back, their counts the restore.
  */
 export const apart = <A, E, R>(
 	bare: BenchSession,
 	name: string,
+	tables: ReadonlyArray<string>,
 	use: Effect.Effect<A, E, R>
 ): Effect.Effect<A, E | SqlError, R> =>
 	Effect.gen(function* () {
+		const saved = yield* classCounts(bare, tables)
 		yield* bare.values(`SAVEPOINT ${name}`, [])
 		const value = yield* use
 		yield* bare.values(`ROLLBACK TO SAVEPOINT ${name}`, [])
 		yield* bare.values(`RELEASE SAVEPOINT ${name}`, [])
+		yield* restoredCounts(bare, saved)
 		return value
 	})
 

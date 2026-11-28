@@ -48,6 +48,7 @@
  * stored view holding rows, beside a few learners and many, with every table in each pg_class state.
  */
 import type { Reached } from "@bjornpagen/testing/features"
+import { element, finite } from "@bjornpagen/testing/gen"
 import { property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import {
@@ -58,9 +59,10 @@ import {
 	refusedWindows,
 	runPage,
 	starts,
+	stoodApart,
 	storedViews
 } from "#test/pg/lower-shapes/page-keys.fixtures.ts"
-import { pgClassStates } from "#test/support/advice.ts"
+import { type PgClassState, pgClassStates } from "#test/support/advice.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
@@ -115,6 +117,14 @@ export const aWindowReadsItsDriversTakeAndEachRowAtItsKey = property.explore(pag
 			reason:
 				"every sitting's window at the position 87% of its rows in, of one row, beside 1,030 learners and then 1,090 (1,024 of them the store a case then held beside its own, gone with fill.ts rowsBeside: it replays beside 6 and then 66), every table never vacuumed: judged by the plan PostgreSQL made at the call's position (when the case was kept, under counted statistics and no advice), the driver's take of the position's 2,688 entries read the status table whole, a sequential scan where its index in order serves; the plan its advice carries reads the status index in order, 2,688 entries for any position, then D at the one kept key, a positioned window's bound twice its position past a keyset window's",
 			since: "2026-11-27"
+		},
+		{
+			token: ReplayToken(
+				"test/pg/lower-shapes/page-keys.test.ts#aWindowReadsItsDriversTakeAndEachRowAtItsKey:7fffffffffffffff.1:0.1.3.5.0.0.d.0.0.3"
+			),
+			reason:
+				"floor case 1, every sitting's window of two rows past the row at 13% of them, beside 9 learners and then 69, every table skewed: the driver's backward Index Scan of the statuses by (number, status DESC) read 9 pages of the 8 its plan gives (one descent of 2, 3 rows), 7 of them heap pages, each key it read holding three versions, two of them a rolled-back load's of the same learners, the baseline's and the first read's, each in a savepoint of its own; the learners loaded once, its rows standing once, it reads 2 index pages and 1 heap page",
+			since: "2026-11-28"
 		}
 	],
 	kills: [
@@ -216,11 +226,9 @@ export const aWindowReadsItsDriversTakeAndEachRowAtItsKey = property.explore(pag
 		},
 		{
 			file: "test/pg/lower-shapes/page-keys.fixtures.ts",
-			original:
-				'\t\t\t\tyield* standIn(session, learnersLoad(installed, connection, c, c.learners), "analyzed")\n',
-			replacement:
-				"\t\t\t\tyield* standIn(session, learnersLoad(installed, connection, c, c.learners), c.state)\n",
-			why: "The page oracle's baseline reads its learners in the case's pg_class state, not its own analyzed statistics: counted empty prices every table at about a row, the baseline is planned by that tie, a tab's every entry rescanning a hash join of every assignment in the window's body and in each attachment's, and the kept case hangs past the runner's 60 s."
+			original: "Effect.forEach(tables, (t) => session.values(`ANALYZE ",
+			replacement: "Effect.forEach([], (t) => session.values(`ANALYZE ",
+			why: "The page oracle's baseline reads the learners in the case's pg_class state, not ANALYZEd apart from it: counted empty prices every table at about a row, the baseline is planned by that tie, a tab's every entry rescanning a hash join of every assignment in the window's body and in each attachment's, and the kept case hangs past the runner's 60 s."
 		},
 		{
 			file: "packages/engine/src/program/served.ts",
@@ -232,3 +240,44 @@ export const aWindowReadsItsDriversTakeAndEachRowAtItsKey = property.explore(pag
 		}
 	]
 })
+
+/**
+ * A read apart from a state of the case's tables leaves the state as it stood (test/support/advice.ts apart): a few
+ * learners stood in each pg_class state, then a read in a savepoint of its own that stores more learners beside them and
+ * ANALYZEs every table, as the page oracle's baseline reads the case's rows; after its rollback every table's pg_class
+ * counts and its statistics (pg_stats) equal those before it. An ANALYZE writes a table's counts in place (PostgreSQL 19
+ * vacuum.c vac_update_relstats), which the rollback leaves, so the never-vacuumed, counted-empty, skewed and large states
+ * stood after the baseline's ANALYZE where it left them, until apart restored them.
+ *
+ * Oracle: the specification, every table's counts and statistics read before and after. The box is exhausted: each
+ * pg_class state. Features: each state.
+ */
+export const aReadApartFromAStateLeavesItAsItStood = property.exhaust(
+	finite((s) => s.draw(element<PgClassState>(pgClassStates))),
+	{
+		needs: { stored: Substrate.rolledBack(pageTemplate) },
+		situations: pgClassStates satisfies ReadonlyArray<Reached<PgClassState>>,
+		check:
+			({ stored }, c) =>
+			(state) =>
+				Effect.gen(function* () {
+					const clone = yield* stored
+					c.note(state)
+					yield* stoodApart(clone, state)
+				}),
+		oracle: {
+			kind: "specification",
+			name: "every table's pg_class counts and statistics (pg_stats), read before and after the read apart"
+		},
+		box: "each pg_class state",
+		kept: [],
+		kills: [
+			{
+				file: "test/support/advice.ts",
+				original: "\t\tyield* restoredCounts(bare, saved)\n",
+				replacement: "",
+				why: "A rollback alone stands the tables apart: the read's ANALYZE leaves its counts in place, a never-vacuumed table counted at its pages and rows after it."
+			}
+		]
+	}
+)

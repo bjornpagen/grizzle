@@ -127,14 +127,15 @@ export const r37ARecursiveAttachmentSeededOnceFromTheParentKeysReadsOnlyTheEdges
 									 * The case's facts written a chain at a time, every table stood in `state`
 									 * (test/support/advice.ts standIn).
 									 */
+									const netTables = Arr.map(
+										[plan.tables["V"], plan.tables["E"], plan.tables["Root"]] as const,
+										(t) => printObjectName(defined(t, "an installed table of Net").name)
+									)
 									const stood = (state: PgClassState) =>
 										standIn(
 											bench,
 											{
-												tables: Arr.map(
-													[plan.tables["V"], plan.tables["E"], plan.tables["Root"]] as const,
-													(t) => printObjectName(defined(t, "an installed table of Net").name)
-												),
+												tables: netTables,
 												units: f.roots,
 												load: (from, to) => load(chainsCase(c, f, from, to))
 											},
@@ -156,6 +157,7 @@ export const r37ARecursiveAttachmentSeededOnceFromTheParentKeysReadsOnlyTheEdges
 									const pipelined = yield* apart(
 										bench,
 										"r37_pipelined",
+										netTables,
 										Effect.andThen(stood("analyzed"), delivered(baseline.value, "conservative"))
 									)
 									assert.equal(pipelined, closures)
@@ -178,6 +180,7 @@ export const r37ARecursiveAttachmentSeededOnceFromTheParentKeysReadsOnlyTheEdges
 										apart(
 											bench,
 											"r37_seeded",
+											netTables,
 											Effect.gen(function* () {
 												yield* stood(state)
 												yield* lawsHold(bench, scope)
