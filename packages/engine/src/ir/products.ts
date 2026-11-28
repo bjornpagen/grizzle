@@ -386,7 +386,8 @@ export interface CarrierDecl {
  * - join key: The probe of one occurrence from a join partner, an attachment's delivered parents, or an EXISTS.
  * - range: An equality prefix followed by one range column.
  * - prefix search: An equality prefix followed by a text column bounded on both sides: a code-point interval.
- * - take seek: An equality prefix followed by a take's completed order.
+ * - take seek: An equality prefix followed by an order its reader takes rows in: a take's completed order, or the order
+ *   a write's probe reads a group's rows, or its last row, in (sql/bind.ts drivenRequest).
  * - page seek: An equality prefix followed by a paged ordered program's completed order.
  * - span predicate: A span predicate: one GiST index per span field, scalar prefix through btree_gist.
  * - approximate vector retrieval: ApproximateNearest over a cosine distance: HNSW with the cosine operator class.

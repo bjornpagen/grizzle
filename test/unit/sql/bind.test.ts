@@ -27,7 +27,8 @@
  * extension's equality bound; a column no B-tree holds left a filter; a derived table joined to an earlier item by a
  * hash; a derived table read per earlier row at its stored read's key; a whole view's read named by its body's alias;
  * a whole view read twice at one level, the second a level of its own; a reader's conjunct moved through every arm of a
- * fenced UNION nested in another's arm, binding the read there.
+ * fenced UNION nested in another's arm, binding the read there; a probe of a group in its order and of its last row, each
+ * an ordered seek of its group then its order, and one in an order no B-tree holds, an internal compiler error.
  */
 
 import { assert } from "@bjornpagen/testing/assert"
@@ -37,7 +38,7 @@ import { Array as Arr, Effect, Formatter, Option, Order, String as Str } from "e
 import { nameKey } from "#compiler/sql/ast.ts"
 import { bindSelect } from "#compiler/sql/bind.ts"
 import { AdviceScope } from "#compiler/sql/naming.ts"
-import { levelItems, scannedItems } from "#compiler/sql/plan.ts"
+import { levelItems, planRequests, scannedItems } from "#compiler/sql/plan.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { codebookOfStates } from "#test/support/closed/generate.ts"
 import { owning } from "#test/support/policy.ts"
@@ -79,7 +80,37 @@ export const everyReadIsBoundAsItsLevelFixesItWhereItStandsUnderTheScopesOneAlia
 		situations: bindFeatures,
 		check: (_, c: Case<BindFeature>) => (drawn) =>
 			Effect.sync(() => {
+				if (drawn.place.kind === "ordered" && drawn.place.order === "d") {
+					assert.throws(
+						() => bindSelect(statementOf(drawn), new AdviceScope(), catalog),
+						(e) =>
+							Str.includes("in an order of d, which no B-tree column of its table holds")(
+								String(e)
+							),
+						"a probe of T's group in an order of d, which no B-tree holds, is an internal compiler error"
+					)
+					c.note("a probe in an order no B-tree holds, an internal compiler error")
+					return
+				}
 				const bound = bindSelect(statementOf(drawn), new AdviceScope(), catalog)
+				if (drawn.place.kind === "ordered") {
+					const requests = Arr.filter(planRequests(bound.plan), (r) => r.relation === "T")
+					assert.deepEqual(
+						Arr.map(requests, (r) => ({
+							use: r.use,
+							keys: Arr.map(r.keys, (k) => k.expr),
+							fixed: r.fixed
+						})),
+						[{ use: "take seek", keys: ["b", "a"], fixed: 1 }],
+						"T's group at b probed in its order of a is an ordered seek of b then a, which an index holding a after b serves"
+					)
+					c.note(
+						drawn.place.how === "last"
+							? "a probe of a group's last row, an ordered seek of its group then its order"
+							: "a probe of a group in its order, an ordered seek of its group then its order"
+					)
+					return
+				}
 				if (drawn.place.kind === "context") {
 					const { source, levels } = contextLevel(bound.statement, bound.plan)
 					const inner = Option.match(source, { onNone: () => "none", onSome: (s) => s.inner })
@@ -429,6 +460,12 @@ export const everyReadIsBoundAsItsLevelFixesItWhereItStandsUnderTheScopesOneAlia
 					'\t\t(q.offset !== undefined && (past === "nothing" || !fenceOnly(q.offset))) ||\n',
 				replacement: "\t\tq.offset !== undefined ||\n",
 				why: "A level's conjunct over a fenced LATERAL derived table and an item before it stays the join's condition: its derived read is unbound beneath the fence, and the join reads the bound column of the item before it in its condition (LAWS' Law 2 on cross-step, v1@r11.path)."
+			},
+			{
+				file: "packages/engine/src/sql/bind.ts",
+				original: '\t\t\t\t"take seek"\n',
+				replacement: '\t\t\t\t"join key"\n',
+				why: "A probe of a group in its order, or of its last row, asks for a lookup of its group and order columns, each fixed by equality in any order, which an index of its order first and its group after serves: read through it, the probe reads every row of its group and sorts them for each row it is driven by, as replace-cost's counted family read its tags' last index for each tag it appended (10,300, 40,600 and 161,200 rows at 100, 200 and 400 tags, lane REDS5's diagnosis at main 83aaa65f), where the ordered seek reads one row."
 			},
 			{
 				file: "packages/engine/src/sql/bind.ts",

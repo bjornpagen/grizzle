@@ -618,6 +618,51 @@ const requestOf = (
 })
 
 /**
+ * How a read a driving row reaches meets the rows at its bound columns (sql/ast.ts ProbeBy, `#driven`): at a key, at
+ * most one row (`key`); every row there in no order (`rows`); or every row there, or only the last, in an order of its
+ * columns past the bound ones (`ordered`), which the index it reads through must hold after them.
+ */
+type DrivenReach =
+	| { readonly kind: "key" }
+	| { readonly kind: "rows" }
+	| { readonly kind: "ordered"; readonly order: NonEmptyReadonlyArray<string> }
+
+/**
+ * The index a driven read at `bound` of `table` asks for (`#driven`): a key's lookup; a lookup of its rows, every
+ * bound column fixed by equality in any order; or an ordered seek, its bound columns fixed and then its order's, an
+ * index holding that order after them, each of which a B-tree of the table must hold: a read in an order no index holds
+ * sorts every row of its group for each driving row, so an order column the catalog holds no B-tree column of is an
+ * internal compiler error, as a missed index is.
+ */
+const drivenRequest = (
+	table: BindTable,
+	bound: NonEmptyReadonlyArray<string>,
+	reach: DrivenReach
+): AccessIndexRequest => {
+	switch (reach.kind) {
+		case "key":
+			return requestOf(table, bound, [], "key lookup")
+		case "rows":
+			return requestOf(table, bound, [], "join key")
+		case "ordered":
+			return requestOf(
+				table,
+				bound,
+				reach.order
+					.filter((c) => !bound.includes(c))
+					.map((c) =>
+						btreeColumn(table, c) === undefined
+							? defect(
+									`an ordered read of ${table.relation} in an order of ${c}, which no B-tree column of its table holds`
+								)
+							: c
+					),
+				"take seek"
+			)
+	}
+}
+
+/**
  * Whether PostgreSQL pushes the conjunct `c` past a security barrier into the view `written` reads (allpaths.c
  * subquery_push_qual under security_barrier, contain_leaked_vars): a comparison of a column of the view by the builtin
  * `=`, `<`, `<=`, `>=` or `>`, a list or array membership by `=`, holding no sublink and no VOLATILE call, of no column
@@ -2594,8 +2639,7 @@ class Binder {
 		table: ObjectName,
 		written: string,
 		bound: ReadonlyArray<string>,
-		order: ReadonlyArray<string>,
-		keyed: boolean,
+		reach: DrivenReach,
 		delivered: ReadonlyArray<string>,
 		alias: Alias
 	): { readonly inner: Alias; readonly inside: (env: Env) => Env } {
@@ -2606,10 +2650,6 @@ class Binder {
 			catalogTable === undefined
 				? []
 				: bound.filter((c) => btreeColumn(catalogTable, c) !== undefined)
-		const trailing =
-			catalogTable === undefined
-				? []
-				: order.filter((c) => btreeColumn(catalogTable, c) !== undefined && !held.includes(c))
 		const [h0, ...hs] = held
 		this.#levels.push({
 			kind: "joins",
@@ -2623,12 +2663,7 @@ class Binder {
 							? { kind: "rows" }
 							: {
 									kind: "index",
-									index: requestOf(
-										stored.table,
-										[h0, ...hs],
-										trailing,
-										keyed ? "key lookup" : "join key"
-									),
+									index: drivenRequest(stored.table, [h0, ...hs], reach),
 									bound: held,
 									needs: tableColumns(stored, [...new Set([...delivered, ...held])].toSorted())
 								}
@@ -2651,8 +2686,9 @@ class Binder {
 			source.table,
 			source.inner,
 			by.columns.map((c) => c.column),
-			by.kind === "group" || by.kind === "last" ? by.order : [],
-			by.kind === "key",
+			by.kind === "group" || by.kind === "last"
+				? { kind: "ordered", order: by.order }
+				: { kind: by.kind },
 			source.columns.map((c) => c.read),
 			alias
 		)
@@ -2689,8 +2725,7 @@ class Binder {
 			source.table,
 			source.inner,
 			source.key.map((k) => k.column),
-			[],
-			true,
+			{ kind: "key" },
 			source.columns.map((c) => c.read),
 			alias
 		)

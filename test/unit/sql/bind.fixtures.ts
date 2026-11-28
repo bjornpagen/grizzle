@@ -40,6 +40,7 @@ import {
 	namedType,
 	not,
 	notExists,
+	objectName,
 	operandSelect,
 	param,
 	provedCore,
@@ -87,6 +88,9 @@ export type BindFeature =
 	| "a reader's conjunct moved through every arm of a fenced UNION nested in another's arm, binding the read there"
 	| "byte strings bound together, one equality of their row"
 	| "one byte string bound alone, an equality lookup"
+	| "a probe of a group in its order, an ordered seek of its group then its order"
+	| "a probe of a group's last row, an ordered seek of its group then its order"
+	| "a probe in an order no B-tree holds, an internal compiler error"
 
 export const bindFeatures = [
 	"a seek at a literal",
@@ -114,7 +118,10 @@ export const bindFeatures = [
 	"a reader's conjunct moved beneath a fence, binding the read there",
 	"a reader's conjunct moved through every arm of a fenced UNION nested in another's arm, binding the read there",
 	"byte strings bound together, one equality of their row",
-	"one byte string bound alone, an equality lookup"
+	"one byte string bound alone, an equality lookup",
+	"a probe of a group in its order, an ordered seek of its group then its order",
+	"a probe of a group's last row, an ordered seek of its group then its order",
+	"a probe in an order no B-tree holds, an internal compiler error"
 ] as const
 
 /**
@@ -284,7 +291,9 @@ export type Fixed = "a" | "b" | "f" | "v" | "d"
  * against S's key, over that CTE or over a VALUES list (`exists`); or in a LATERAL derived table fenced by OFFSET 0
  * after S, its level equating its a with S's key (`fenced`); or in a fenced arm of a UNION that is the second arm of a
  * derived UNION S's EXISTS equates at a with S's key, each other arm a read of S (`nested`), rule-whole's reach of a
- * region's roots; or none, U read at a parameter of each of its byte strings or of p alone (`hashed`).
+ * region's roots; or none, U read at a parameter of each of its byte strings or of p alone (`hashed`); or after S, T's
+ * rows at b = S.k probed in an order of a or of d, every one or the last (`ordered`), the stored group a write reads
+ * in its order (write/probe.ts probeGroup).
  */
 export type Place =
 	| { readonly kind: "top" }
@@ -301,6 +310,7 @@ export type Place =
 	| { readonly kind: "fenced" }
 	| { readonly kind: "nested" }
 	| { readonly kind: "hashed"; readonly both: boolean }
+	| { readonly kind: "ordered"; readonly how: "group" | "last"; readonly order: "a" | "d" }
 
 export interface BindCase {
 	readonly place: Place
@@ -335,7 +345,10 @@ export const bindCaseGen: Gen<BindCase> = (source) => {
 			{ kind: "fenced" },
 			{ kind: "nested" },
 			{ kind: "hashed", both: true },
-			{ kind: "hashed", both: false }
+			{ kind: "hashed", both: false },
+			{ kind: "ordered", how: "group", order: "a" },
+			{ kind: "ordered", how: "last", order: "a" },
+			{ kind: "ordered", how: "last", order: "d" }
 		])
 	)
 	return {
@@ -490,6 +503,29 @@ export const statementOf = (c: BindCase): Select => {
 					[sRead, derived(inner, "d", true)],
 					eq(col("d", "a"), col("s", "k")),
 					"a read of S beside T's fenced rows"
+				)
+			)
+		}
+		case "ordered": {
+			const probed: FromSource = {
+				kind: "probe",
+				table: objectName("app", "t"),
+				inner: "q",
+				by: {
+					kind: c.place.how,
+					columns: [{ column: "b", value: col("s", "k"), schema: undefined }],
+					order: [c.place.order]
+				},
+				filter: [],
+				columns: [{ read: "a", as: "x" }],
+				alias: "pr"
+			}
+			return select(
+				keyedSet(
+					[target(col("pr", "x"))],
+					[sRead, probed],
+					undefined,
+					"a read of S and T's group in order"
 				)
 			)
 		}
@@ -725,6 +761,7 @@ export const specified = (c: BindCase): SpecifiedRead => {
 		case "context":
 		case "met":
 		case "hashed":
+		case "ordered":
 			return { kind: "whole" }
 		case "world":
 			return c.place.leaky ? { kind: "whole" } : { kind: "index", probe: false, bound: ["a"] }
